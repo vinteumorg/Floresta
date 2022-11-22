@@ -11,7 +11,7 @@ use bdk::bitcoin::{Block, BlockHash, OutPoint};
 use bdk::bitcoin::{Script, Transaction};
 use bdk::{BlockTime, KeychainKind, LocalUtxo, TransactionDetails};
 use btcd_rpc::client::BtcdRpc;
-use btcd_rpc::json_types::transaction::VerbosityOutput;
+use btcd_rpc::json_types::VerbosityOutput;
 use rustreexo::accumulator::proof::Proof;
 use rustreexo::accumulator::stump::Stump;
 use sha2::{Digest, Sha512_256};
@@ -164,46 +164,3 @@ impl BlockchainSync {
     }
 }
 
-#[cfg(test)]
-mod test {
-    use std::str::FromStr;
-
-    use bdk::bitcoin::{consensus::deserialize, hashes::hex::FromHex, BlockHash};
-    use btcd_rpc::{
-        client::{BTCDClient, BTCDConfigs, BtcdRpc},
-        json_types::transaction::VerbosityOutput,
-    };
-
-    #[test]
-    fn test() {
-        use super::BlockchainSync;
-        let config = BTCDConfigs::new(
-            false,
-            Some("SomeUsername".into()),
-            Some("CorrectHorseBattleStaple".into()),
-            Some("localhost".into()),
-            Some(38332),
-        );
-        let rpc = BTCDClient::new(config).unwrap();
-        let tx = rpc
-            .getrawtransaction(
-                "e3b2dc0ffd26cb87e9207d1333ed7d192d63c8d6a7d23090f1134d1424ea3b4d".into(),
-                false,
-            )
-            .unwrap();
-        if let VerbosityOutput::Simple(tx) = tx {
-            let tx = Vec::from_hex(tx.as_str()).unwrap();
-            let tx = deserialize(&tx).unwrap();
-            let hash = BlockchainSync::get_leaf_hashes(
-                &tx,
-                0,
-                49007,
-                BlockHash::from_str(
-                    "000000e2e71a8a731f8ad9171d5d3f6346924aaa25311ac0df30ecc0c13770bf",
-                )
-                .unwrap(),
-            );
-            println!("{:?}", hash)
-        }
-    }
-}

@@ -14,7 +14,7 @@ use bdk::{
 };
 use btcd_rpc::{
     client::{BTCDClient, BtcdRpc},
-    json_types::transaction::VerbosityOutput,
+    json_types::VerbosityOutput,
 };
 use rustreexo::accumulator::stump::Stump;
 
