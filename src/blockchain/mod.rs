@@ -1,4 +1,7 @@
-use std::{collections::HashSet, sync::Arc};
+use std::{
+    collections::HashSet,
+    sync::{mpsc::Sender, Arc},
+};
 mod sync;
 
 use bdk::{
@@ -14,9 +17,11 @@ use bdk::{
 };
 use btcd_rpc::{
     client::{BTCDClient, BtcdRpc},
-    json_types::VerbosityOutput,
+    json_types::{transaction::BestBlock, VerbosityOutput},
 };
 use rustreexo::accumulator::stump::Stump;
+
+use crate::electrum::electrum_protocol::Message;
 
 use self::sync::BlockchainSync;
 pub struct UtreexodBackend {
@@ -127,5 +132,31 @@ impl Blockchain for UtreexodBackend {
             .map_err(|_| bdk::Error::Generic("UtreexodError".into()))?;
 
         Ok(bdk::FeeRate::from_btc_per_kvb(feerate as f32))
+    }
+}
+
+pub struct ChainWatch;
+
+impl ChainWatch {
+    pub fn watch(rpc: Arc<BTCDClient>, notify_sender: Sender<Message>) {
+        let timer = timer::Timer::new();
+        // Start repeating. Each callback increases `count`.
+
+        let mut current_block = ChainWatch::get_block(&rpc);
+        timer.schedule_repeating(chrono::Duration::milliseconds(5), move || {
+            let new_block = ChainWatch::get_block(&rpc);
+            if new_block > current_block {
+                let _ = notify_sender.send(Message::NewBlock);
+                current_block = new_block;
+            }
+        });
+    }
+    fn get_block(rpc: &Arc<BTCDClient>) -> u64 {
+        rpc.getbestblock()
+            .unwrap_or(BestBlock {
+                height: 0,
+                hash: "".into(),
+            })
+            .height
     }
 }

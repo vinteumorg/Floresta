@@ -1,11 +1,11 @@
 mod blockchain;
 mod electrum;
 
-use std::sync::Arc;
+use std::{sync::Arc, thread};
 
 use async_std::task::{self, block_on};
 use bdk::{bitcoin::Network, database::SqliteDatabase, Wallet};
-use blockchain::UtreexodBackend;
+use blockchain::{ChainWatch, UtreexodBackend};
 use btcd_rpc::client::{BTCDClient, BTCDConfigs};
 use rustreexo::accumulator::stump::Stump;
 fn main() {
@@ -20,9 +20,9 @@ fn main() {
         Some("localhost".into()),
         Some(38332),
     );
-    let rpc = BTCDClient::new(config).unwrap();
+    let rpc = Arc::new(BTCDClient::new(config).unwrap());
     let blockchain = UtreexodBackend {
-        rpc: Arc::new(rpc),
+        rpc: rpc.clone(),
         accumulator: Stump::new(),
     };
 
@@ -34,6 +34,8 @@ fn main() {
         blockchain,
     ))
     .unwrap();
+    let notify_tx = electrum_server.notify_tx.clone();
+    thread::spawn(move || ChainWatch::watch(rpc, notify_tx));
 
     task::spawn(electrum::electrum_protocol::accept_loop(
         electrum_server.listener.clone().unwrap(),
