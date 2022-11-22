@@ -6,3 +6,12 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+rustreexo = { git = "https://www.github.com/Davidson-Souza/rustreexo", branch = "make-proof-pub" }
+btcd-rpc = { git = "https://github.com/Davidson-Souza/rust-btcd-rpc" }
+bdk = { version = "*", features = ["sqlite"] }
+clap = "*"
+sha2 = "*"
+async-std = "*"
+log = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
