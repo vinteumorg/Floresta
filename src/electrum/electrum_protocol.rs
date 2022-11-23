@@ -1,4 +1,3 @@
-use super::ElectrumMethods;
 use crate::json_rpc_res;
 use crate::{blockchain::UtreexodBackend, electrum::request::Request};
 use async_std::{
@@ -30,33 +29,7 @@ pub enum Message {
     Disconnect(u32),
     NewBlock,
 }
-impl<D: Database> ElectrumMethods for ElectrumServer<D> {
-    fn block_headers(&self) {
-        todo!()
-    }
 
-    fn estimate_fee(&self) {
-        todo!()
-    }
-
-    fn relay_fee(&self) {}
-
-    fn get_balance(&self) {
-        todo!()
-    }
-
-    fn get_history(&self) {
-        todo!()
-    }
-
-    fn get_mempool(&self) {
-        todo!()
-    }
-
-    fn list_unspent(&self) {
-        todo!()
-    }
-}
 
 impl<'a, D: Database + 'a> ElectrumServer<D> {
     pub async fn new(
@@ -127,11 +100,9 @@ impl<'a, D: Database + 'a> ElectrumServer<D> {
             if let Ok(message) = self.peer_accept.recv() {
                 match message {
                     Message::NewPeer((id, stream)) => {
-                        self.peers.insert(id, stream).expect("Has map is broken");
+                        self.peers.insert(id, stream);
                     }
                     Message::Message((peer, msg)) => {
-                        println!("Got message: {msg}");
-
                         if let Ok(req) = serde_json::from_str::<Request>(msg.as_str()) {
                             let mut peer = &*peer;
                             let res = self.handle_blockchain_request(req, &self.rpc);
@@ -144,6 +115,7 @@ impl<'a, D: Database + 'a> ElectrumServer<D> {
                         }
                     }
                     Message::NewBlock => {
+                        println!("New Block!");
                         let best = self.rpc.getbestblock().unwrap();
                         let header = self
                             .rpc
@@ -153,10 +125,10 @@ impl<'a, D: Database + 'a> ElectrumServer<D> {
                         let result = json!({
                             "jsonrpc": "2.0",
                             "method": "blockchain.headers.subscribe",
-                            "params": {
+                            "params": [{
                                 "height": best.height,
                                 "hex": header
-                            }
+                            }]
                         });
                         for (_, peer) in &mut self.peers {
                             let _ = peer
@@ -180,8 +152,8 @@ async fn peer_loop(
     notify_channel: Sender<Message>,
 ) -> Result<(), std::io::Error> {
     let mut _stream = &*stream;
-
-    while let Some(Ok(line)) = BufReader::new(_stream).lines().next().await {
+    let mut lines = BufReader::new(_stream).lines();
+    while let Some(Ok(line)) = lines.next().await {
         notify_channel
             .send(Message::Message((stream.clone(), line)))
             .expect("Main loop is broken");

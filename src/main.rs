@@ -1,13 +1,15 @@
 mod blockchain;
 mod electrum;
 
-use std::{sync::Arc, thread};
+use std::sync::Arc;
 
 use async_std::task::{self, block_on};
 use bdk::{bitcoin::Network, database::SqliteDatabase, Wallet};
 use blockchain::{ChainWatch, UtreexodBackend};
 use btcd_rpc::client::{BTCDClient, BTCDConfigs};
 use rustreexo::accumulator::stump::Stump;
+
+use crate::electrum::electrum_protocol::Message;
 fn main() {
     let default_dir = "/home/erik/.utreexod_wallet/".to_string();
     let dir = default_dir;
@@ -34,9 +36,18 @@ fn main() {
         blockchain,
     ))
     .unwrap();
-    let notify_tx = electrum_server.notify_tx.clone();
-    thread::spawn(move || ChainWatch::watch(rpc, notify_tx));
-
+    let notify_sender = electrum_server.notify_tx.clone();
+    let timer = timer::Timer::new();
+    let mut current_block = ChainWatch::get_block(&rpc);
+    timer
+        .schedule_repeating(chrono::Duration::seconds(5), move || {
+            let new_block = ChainWatch::get_block(&rpc);
+            if new_block > current_block {
+                let _ = notify_sender.send(Message::NewBlock);
+                current_block = new_block;
+            }
+        })
+        .ignore();
     task::spawn(electrum::electrum_protocol::accept_loop(
         electrum_server.listener.clone().unwrap(),
         electrum_server.notify_tx.clone(),

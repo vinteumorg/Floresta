@@ -138,20 +138,10 @@ impl Blockchain for UtreexodBackend {
 pub struct ChainWatch;
 
 impl ChainWatch {
-    pub fn watch(rpc: Arc<BTCDClient>, notify_sender: Sender<Message>) {
-        let timer = timer::Timer::new();
-        // Start repeating. Each callback increases `count`.
+    pub fn create_watcher(rpc: Arc<BTCDClient>, notify_sender: Sender<Message>) {
 
-        let mut current_block = ChainWatch::get_block(&rpc);
-        timer.schedule_repeating(chrono::Duration::milliseconds(5), move || {
-            let new_block = ChainWatch::get_block(&rpc);
-            if new_block > current_block {
-                let _ = notify_sender.send(Message::NewBlock);
-                current_block = new_block;
-            }
-        });
     }
-    fn get_block(rpc: &Arc<BTCDClient>) -> u64 {
+    pub fn get_block(rpc: &Arc<BTCDClient>) -> u64 {
         rpc.getbestblock()
             .unwrap_or(BestBlock {
                 height: 0,
