@@ -30,7 +30,6 @@ pub enum Message {
     NewBlock,
 }
 
-
 impl<'a, D: Database + 'a> ElectrumServer<D> {
     pub async fn new(
         address: &'static str,

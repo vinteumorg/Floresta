@@ -1,7 +1,4 @@
-use std::{
-    collections::HashSet,
-    sync::{mpsc::Sender, Arc},
-};
+use std::{collections::HashSet, sync::Arc};
 mod sync;
 
 use bdk::{
@@ -20,8 +17,6 @@ use btcd_rpc::{
     json_types::{transaction::BestBlock, VerbosityOutput},
 };
 use rustreexo::accumulator::stump::Stump;
-
-use crate::electrum::electrum_protocol::Message;
 
 use self::sync::BlockchainSync;
 pub struct UtreexodBackend {
@@ -138,9 +133,6 @@ impl Blockchain for UtreexodBackend {
 pub struct ChainWatch;
 
 impl ChainWatch {
-    pub fn create_watcher(rpc: Arc<BTCDClient>, notify_sender: Sender<Message>) {
-
-    }
     pub fn get_block(rpc: &Arc<BTCDClient>) -> u64 {
         rpc.getbestblock()
             .unwrap_or(BestBlock {
