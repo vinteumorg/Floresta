@@ -76,7 +76,9 @@ impl<'a, D: Database + 'a> ElectrumServer<D> {
                 json_rpc_res!(request, "38kb6SG6QL3NqajvAmAY3gT5MKkLYydUpq")
             }
             "server.ping" => json_rpc_res!(request, null),
+            // TODO: Return peers?
             "server.peers.subscribe" => json_rpc_res!(request, []),
+            // TODO: Ask Backend for fees
             "blockchain.relayfee" => json_rpc_res!(request, 0.00001),
             "blockchain.block.header" => {
                 if let Some(height) = request.params.get(0) {
