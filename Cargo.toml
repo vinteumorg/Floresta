@@ -9,7 +9,7 @@ edition = "2021"
 rustreexo = { git = "https://www.github.com/Davidson-Souza/rustreexo", branch = "make-proof-pub" }
 btcd-rpc = { git = "https://github.com/Davidson-Souza/rust-btcd-rpc" }
 bdk = { version = "*", features = ["sqlite"] }
-clap = "*"
+clap = {version = "*", features = ["derive"]}
 sha2 = "*"
 async-std = "*"
 log = "0.4"
