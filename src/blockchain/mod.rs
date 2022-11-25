@@ -1,5 +1,5 @@
 use std::{collections::HashSet, sync::Arc};
-mod sync;
+pub mod sync;
 
 use bdk::{
     bitcoin::{
@@ -49,7 +49,11 @@ impl GetTx for UtreexodBackend {
 }
 impl GetHeight for UtreexodBackend {
     fn get_height(&self) -> Result<u32, bdk::Error> {
-        Ok(self.rpc.getbestblock().unwrap().height as u32)
+        if let Ok(block) = self.rpc.getbestblock() {
+            Ok(block.height as u32)
+        } else {
+            Ok(0)
+        }
     }
 }
 impl WalletSync for UtreexodBackend {

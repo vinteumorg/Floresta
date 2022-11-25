@@ -163,4 +163,3 @@ impl BlockchainSync {
         transactions
     }
 }
-

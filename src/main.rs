@@ -128,7 +128,7 @@ fn start_sync<BlockchainImplementation: Blockchain>(
     Ok(wallet)
 }
 /// Finds out whether our RPC works or not
-fn test_rpc(rpc: &BTCDClient) -> bool{
+fn test_rpc(rpc: &BTCDClient) -> bool {
     if let Ok(_) = rpc.getinfo() {
         return true;
     }
