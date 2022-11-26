@@ -1,18 +1,20 @@
+mod address_cache;
 mod blockchain;
 mod cli;
 mod electrum;
+mod error;
 
 use std::{process::exit, sync::Arc};
 
+use address_cache::{sqlite_storage::KvDatabase, AddressCache, AddressCacheDatabase};
 use async_std::task::{self, block_on};
 use bdk::{
-    bitcoin::Network, blockchain::Blockchain, database::SqliteDatabase, SyncOptions, Wallet,
+    bitcoin::Network,database::SqliteDatabase, Wallet,
 };
-use blockchain::{ChainWatch, UtreexodBackend};
+use blockchain::{sync::BlockchainSync, ChainWatch, UtreexodBackend};
 use btcd_rpc::client::{BTCDClient, BTCDConfigs, BtcdRpc};
 use clap::Parser;
 use cli::{Cli, Commands};
-use rustreexo::accumulator::stump::Stump;
 use std::fs::DirBuilder;
 
 use crate::electrum::electrum_protocol::Message;
@@ -26,24 +28,24 @@ fn main() {
             rpc_password,
             rpc_host,
         } => {
-            let blockchain = create_rpc_connection(rpc_host, Some(rpc_user), Some(rpc_password));
-            if !test_rpc(&blockchain.rpc) {
+            let rpc = create_rpc_connection(rpc_host, Some(rpc_user), Some(rpc_password));
+            if !test_rpc(&rpc) {
                 println!("Unable to connect with rpc");
                 return;
             }
-            let wallet = load_wallet(data_dir.unwrap(), wallet_desc.unwrap());
-            let wallet = start_sync(wallet, &blockchain).expect("Could not sync");
+            let cache = load_wallet(data_dir.unwrap(), wallet_desc.unwrap());
+            let cache = start_sync(&rpc, cache).expect("Could not sync");
 
             let electrum_server = block_on(electrum::electrum_protocol::ElectrumServer::new(
                 "127.0.0.1:8333",
-                wallet,
-                blockchain,
+                rpc.clone(),
+                cache,
             ))
             .unwrap();
 
             let notify_sender = electrum_server.notify_tx.clone();
             let timer = timer::Timer::new();
-            let mut current_block = ChainWatch::get_block(&electrum_server.rpc);
+            let mut current_block = ChainWatch::get_block(&rpc);
             let rpc = electrum_server.rpc.clone();
             timer
                 .schedule_repeating(chrono::Duration::seconds(5), move || {
@@ -84,20 +86,14 @@ fn setup(data_dir: String, descriptor: String) -> Wallet<SqliteDatabase> {
     }
     wallet.unwrap()
 }
-fn load_wallet(data_dir: String, descriptor: String) -> Wallet<SqliteDatabase> {
-    let database = SqliteDatabase::new(data_dir + "wallet.sqlite");
-    let wallet = Wallet::new(descriptor.as_str(), None, Network::Signet, database);
-    if let Err(err) = wallet {
-        println!("Unexpected error while creating wallet: {err}");
-        exit(1);
-    }
-    wallet.unwrap()
+fn load_wallet(data_dir: String, descriptor: String) -> AddressCache<KvDatabase> {
+    todo!()
 }
 fn create_rpc_connection(
     hostname: String,
     username: Option<String>,
     password: Option<String>,
-) -> UtreexodBackend {
+) -> Arc<BTCDClient> {
     let mut hostname = hostname.split(":");
     let address = if let Some(address) = hostname.next() {
         address.to_string()
@@ -112,20 +108,15 @@ fn create_rpc_connection(
 
     let config = BTCDConfigs::new(false, username, password, Some(address), Some(port));
 
-    let rpc = Arc::new(BTCDClient::new(config).unwrap());
-    UtreexodBackend {
-        rpc: rpc.clone(),
-        accumulator: Stump::new(),
-    }
+    Arc::new(BTCDClient::new(config).unwrap())
 }
 
-fn start_sync<BlockchainImplementation: Blockchain>(
-    wallet: Wallet<SqliteDatabase>,
-    blockchain: &BlockchainImplementation,
-) -> Result<Wallet<SqliteDatabase>, bdk::Error> {
-    wallet.sync(blockchain, SyncOptions::default())?;
-
-    Ok(wallet)
+fn start_sync<D: AddressCacheDatabase, Rpc: BtcdRpc>(
+    rpc: &Arc<Rpc>,
+    address_cache: AddressCache<D>,
+) -> Result<AddressCache<D>, error::Error> {
+    BlockchainSync::sync_all(&**rpc, &address_cache)?;
+    Ok(address_cache)
 }
 /// Finds out whether our RPC works or not
 fn test_rpc(rpc: &BTCDClient) -> bool {

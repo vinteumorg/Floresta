@@ -7,18 +7,19 @@ use std::vec;
 use bdk::bitcoin::consensus::{deserialize, Encodable};
 use bdk::bitcoin::hashes::hex::FromHex;
 use bdk::bitcoin::hashes::{sha256, Hash};
-use bdk::bitcoin::{Block, BlockHash, OutPoint};
+use bdk::bitcoin::{Block, BlockHash};
 use bdk::bitcoin::{Script, Transaction};
-use bdk::{BlockTime, KeychainKind, LocalUtxo, TransactionDetails};
 use btcd_rpc::client::BtcdRpc;
 use btcd_rpc::json_types::VerbosityOutput;
 use rustreexo::accumulator::proof::Proof;
 use rustreexo::accumulator::stump::Stump;
 use sha2::{Digest, Sha512_256};
 
+use crate::address_cache::{AddressCache, AddressCacheDatabase};
+
 #[derive(Debug, Default)]
 pub struct BlockchainSync;
-
+#[allow(unused)]
 impl BlockchainSync {
     pub fn get_block<T: BtcdRpc>(
         rpc: &T,
@@ -38,52 +39,20 @@ impl BlockchainSync {
         }
         Err("Block not found".into())
     }
-    pub fn filter_block<'a>(
-        block: &'a Block,
-        spks: &HashSet<Script>,
-        height: u32,
-    ) -> Vec<(LocalUtxo, TransactionDetails)> {
-        let mut my_utxos = vec![];
-        for transaction in block.txdata.iter() {
-            for (outpoint, vout) in transaction.output.iter().enumerate() {
-                if spks.contains(&vout.script_pubkey) {
-                    let outpoint = OutPoint {
-                        txid: transaction.txid(),
-                        vout: outpoint as u32,
-                    };
-
-                    let utxo = LocalUtxo {
-                        is_spent: false,
-                        keychain: KeychainKind::External,
-                        outpoint,
-                        txout: vout.clone(),
-                    };
-                    let transaction = TransactionDetails {
-                        confirmation_time: Some(BlockTime {
-                            height,
-                            timestamp: block.header.time as u64,
-                        }),
-                        transaction: Some(transaction.clone()),
-                        txid: transaction.txid(),
-                        received: utxo.txout.value,
-                        sent: 0,
-                        fee: None,
-                    };
-                    my_utxos.push((utxo, transaction.clone()));
-                    break;
-                }
-            }
-        }
-
-        my_utxos
+    pub fn sync_all<D: AddressCacheDatabase, Rpc: BtcdRpc>(
+        _rpc: &Rpc,
+        _address_cache: &AddressCache<D>,
+    ) -> Result<(), crate::error::Error> {
+        unimplemented!("sync_all");
     }
-    pub fn sync_range<T: BtcdRpc>(
+
+    pub fn sync_range<T: BtcdRpc, D: AddressCacheDatabase>(
         rpc: Arc<T>,
+        address_cache: &mut AddressCache<D>,
         range: Range<u32>,
         pk_hash_set: HashSet<Script>,
         mut acc: Stump,
-    ) -> Vec<(LocalUtxo, TransactionDetails)> {
-        let mut transactions = vec![];
+    ) {
         println!("==> Catching up to block {}", range.end);
         for block_height in range {
             let block = BlockchainSync::get_block(&*rpc, block_height).unwrap();
@@ -92,12 +61,8 @@ impl BlockchainSync {
             if block_height % 1000 == 0 {
                 println!("Sync at block {block_height}: {}", block.block_hash());
             }
-            let my_outs = BlockchainSync::filter_block(&block, &pk_hash_set, block_height);
-            transactions.extend(my_outs);
+            address_cache.block_process(&block, block_height);
         }
-        println!("{:?}", acc);
-
-        transactions
     }
     fn get_leaf_hashes(
         transaction: &Transaction,
@@ -143,23 +108,18 @@ impl BlockchainSync {
         let acc = acc.modify(&leaf_hashes, &vec![], &proof).unwrap();
         acc
     }
-    pub fn _sync_single<T: BtcdRpc>(
+    pub fn _sync_single<T: BtcdRpc, D: AddressCacheDatabase>(
         rpc: Arc<T>,
+        address_cache: &mut AddressCache<D>,
         blocks: u32,
-        pk_hash_set: HashSet<Script>,
-        acc: Stump,
-    ) -> Vec<(LocalUtxo, TransactionDetails)> {
-        let mut transactions = vec![];
+    ) {
         for block_height in 0..blocks {
             let block = BlockchainSync::get_block(&*rpc, block_height).unwrap();
 
             if block_height % 1000 == 0 {
                 println!("Sync at block {block_height}: {}", block.block_hash());
             }
-            let my_outs = BlockchainSync::filter_block(&block, &pk_hash_set, block_height);
-            transactions.extend(my_outs);
+            address_cache.block_process(&block, block_height);
         }
-        println!("{:?}", acc);
-        transactions
     }
 }

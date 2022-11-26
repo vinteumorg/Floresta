@@ -1,16 +1,10 @@
-use std::{collections::HashSet, sync::Arc};
+use std::sync::Arc;
 pub mod sync;
 
-use bdk::{
-    bitcoin::{
-        consensus::{Decodable, Encodable},
-        hashes::hex::{FromHex, ToHex},
-        BlockHash, Script, Transaction,
-    },
-    blockchain::{Blockchain, Capability, GetBlockHash, GetHeight, GetTx, WalletSync},
-    database::SyncTime,
-    wallet::time::get_timestamp,
-    BlockTime, KeychainKind,
+use bdk::bitcoin::{
+    consensus::{Decodable, Encodable},
+    hashes::hex::{FromHex, ToHex},
+    BlockHash, Transaction,
 };
 use btcd_rpc::{
     client::{BTCDClient, BtcdRpc},
@@ -18,14 +12,13 @@ use btcd_rpc::{
 };
 use rustreexo::accumulator::stump::Stump;
 
-use self::sync::BlockchainSync;
 pub struct UtreexodBackend {
     pub rpc: Arc<BTCDClient>,
     pub accumulator: Stump,
 }
-
-impl GetBlockHash for UtreexodBackend {
-    fn get_block_hash(&self, height: u64) -> Result<bdk::bitcoin::BlockHash, bdk::Error> {
+#[allow(unused)]
+impl UtreexodBackend {
+    pub fn get_block_hash(&self, height: u64) -> Result<bdk::bitcoin::BlockHash, bdk::Error> {
         Ok(BlockHash::from_hex(
             self.rpc
                 .getblockhash(height as usize)
@@ -33,9 +26,7 @@ impl GetBlockHash for UtreexodBackend {
                 .as_str(),
         )?)
     }
-}
-impl GetTx for UtreexodBackend {
-    fn get_tx(
+    pub fn get_tx(
         &self,
         txid: &bdk::bitcoin::Txid,
     ) -> Result<Option<bdk::bitcoin::Transaction>, bdk::Error> {
@@ -46,74 +37,15 @@ impl GetTx for UtreexodBackend {
         }
         Err(bdk::Error::TransactionNotFound)
     }
-}
-impl GetHeight for UtreexodBackend {
-    fn get_height(&self) -> Result<u32, bdk::Error> {
+    pub fn get_height(&self) -> Result<u32, bdk::Error> {
         if let Ok(block) = self.rpc.getbestblock() {
             Ok(block.height as u32)
         } else {
             Ok(0)
         }
     }
-}
-impl WalletSync for UtreexodBackend {
-    fn wallet_setup<D: bdk::database::BatchDatabase>(
-        &self,
-        database: &mut D,
-        progress_update: Box<dyn bdk::blockchain::Progress>,
-    ) -> Result<(), bdk::Error> {
-        self.wallet_sync(database, progress_update)
-    }
-    fn wallet_sync<D: bdk::database::BatchDatabase>(
-        &self,
-        database: &mut D,
-        _progress_update: Box<dyn bdk::blockchain::Progress>,
-    ) -> Result<(), bdk::Error> {
-        let current_height = self.get_height()?;
 
-        let pk_hash_set: HashSet<Script> = database
-            .iter_script_pubkeys(Some(KeychainKind::External))?
-            .into_iter()
-            .collect();
-
-        let sync_height = database
-            .get_sync_time()
-            .unwrap_or_default()
-            .unwrap_or(SyncTime {
-                block_time: BlockTime {
-                    height: 0,
-                    timestamp: 0,
-                },
-            })
-            .block_time
-            .height;
-        let my_utxos = BlockchainSync::sync_range(
-            self.rpc.clone(),
-            sync_height..current_height,
-            pk_hash_set,
-            self.accumulator.clone(),
-        );
-        database.set_sync_time(SyncTime {
-            block_time: BlockTime {
-                height: current_height,
-                timestamp: get_timestamp(),
-            },
-        })?;
-        for (utxo, transaction) in my_utxos {
-            database.set_utxo(&utxo)?;
-            database.set_tx(&transaction)?;
-        }
-        Ok(())
-    }
-}
-impl Blockchain for UtreexodBackend {
-    fn get_capabilities(&self) -> std::collections::HashSet<bdk::blockchain::Capability> {
-        let mut capabilities = HashSet::new();
-        capabilities.insert(Capability::FullHistory);
-        capabilities
-    }
-
-    fn broadcast(&self, tx: &bdk::bitcoin::Transaction) -> Result<(), bdk::Error> {
+    pub fn broadcast(&self, tx: &bdk::bitcoin::Transaction) -> Result<(), bdk::Error> {
         let mut writer = Vec::new();
         let _ = tx
             .consensus_encode(&mut writer)
@@ -124,7 +56,7 @@ impl Blockchain for UtreexodBackend {
             .map_err(|_| bdk::Error::Generic("UtreexodError".into()))
     }
 
-    fn estimate_fee(&self, target: usize) -> Result<bdk::FeeRate, bdk::Error> {
+    pub fn estimate_fee(&self, target: usize) -> Result<bdk::FeeRate, bdk::Error> {
         let feerate = self
             .rpc
             .estimatefee(target as u32)

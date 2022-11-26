@@ -1,22 +1,23 @@
-use crate::blockchain::sync::BlockchainSync;
+use crate::{address_cache::sqlite_storage::KvDatabase, blockchain::sync::BlockchainSync};
+use crate::address_cache::AddressCache;
+use crate::electrum::request::Request;
 use crate::json_rpc_res;
-use crate::{blockchain::UtreexodBackend, electrum::request::Request};
 use async_std::{
     io::BufReader,
     net::{TcpListener, TcpStream},
     prelude::*,
 };
 
+use bdk::bitcoin::hashes::hex::{FromHex, ToHex};
 use bdk::bitcoin::hashes::{sha256, Hash};
 use bdk::bitcoin::Script;
-use bdk::database::BatchDatabase;
-use bdk::SyncOptions;
-use bdk::{database::Database, Wallet};
+
 use btcd_rpc::client::{BTCDClient, BtcdRpc};
 use log::{log, Level};
 use serde_json::{json, Value};
 use sha2::Digest;
 use std::collections::{HashMap, HashSet};
+use std::str::FromStr;
 use std::sync::{
     mpsc::{channel, Receiver, Sender},
     Arc,
@@ -52,10 +53,9 @@ impl Peer {
         }
     }
 }
-pub struct ElectrumServer<D: Database + BatchDatabase> {
-    pub chain: UtreexodBackend,
-    pub wallet: Wallet<D>,
+pub struct ElectrumServer {
     pub rpc: Arc<BTCDClient>,
+    pub address_cache: AddressCache<KvDatabase>,
     pub listener: Option<Arc<TcpListener>>,
     pub peers: HashMap<u32, Arc<Peer>>,
     pub peer_accept: Receiver<Message>,
@@ -69,18 +69,17 @@ pub enum Message {
     NewBlock,
 }
 
-impl<'a, D: Database + BatchDatabase> ElectrumServer<D> {
+impl ElectrumServer {
     pub async fn new(
         address: &'static str,
-        wallet: Wallet<D>,
-        chain: UtreexodBackend,
+        rpc: Arc<BTCDClient>,
+        address_cache: AddressCache<KvDatabase>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let listener = Arc::new(TcpListener::bind(address).await?);
         let (tx, rx) = channel();
         Ok(ElectrumServer {
-            rpc: chain.rpc.clone(),
-            chain,
-            wallet,
+            rpc,
+            address_cache,
             listener: Some(listener),
             peers: HashMap::new(),
             peer_accept: rx,
@@ -126,7 +125,7 @@ impl<'a, D: Database + BatchDatabase> ElectrumServer<D> {
             }
             "server.banner" => json_rpc_res!(request, "Welcome to Electrum"),
             "server.donation_address" => {
-                json_rpc_res!(request, "38kb6SG6QL3NqajvAmAY3gT5MKkLYydUpq")
+                json_rpc_res!(request, "bcrt1q9d4zjf92nvd3zhg6cvyckzaqumk4zre2c0k8hv")
             }
             "server.ping" => json_rpc_res!(request, null),
             // TODO: Return peers?
@@ -159,6 +158,7 @@ impl<'a, D: Database + BatchDatabase> ElectrumServer<D> {
                         self.peers.insert(id, stream);
                     }
                     Message::Message((peer, msg)) => {
+                        println!("{msg}");
                         if let Ok(req) = serde_json::from_str::<Request>(msg.as_str()) {
                             let peer = self.peers.get(&peer);
                             if let None = peer {
@@ -180,16 +180,11 @@ impl<'a, D: Database + BatchDatabase> ElectrumServer<D> {
                     Message::NewBlock => {
                         println!("New Block!");
                         let best = self.rpc.getbestblock().unwrap();
-                        self.wallet
-                            .sync(&self.chain, SyncOptions::default())
-                            .or_else(|err| {
-                                log!(Level::Warn, "Could not sync with tip: {err}");
-                                Err(err)
-                            })
-                            .ok();
 
-                        self.wallet_notify(best.height as u32).await;
-
+                        self.address_cache.block_process(
+                            &BlockchainSync::get_block(&*self.rpc, best.height as u32).unwrap(),
+                            best.height as u32,
+                        );
                         let header = self
                             .rpc
                             .getblockheader(best.hash, false)
@@ -208,6 +203,7 @@ impl<'a, D: Database + BatchDatabase> ElectrumServer<D> {
                                 .write(serde_json::to_string(&result).unwrap().as_bytes())
                                 .await?;
                         }
+                        self.wallet_notify(best.height as u32).await;
                     }
                     Message::Disconnect(id) => {
                         self.peers.remove(&id);
@@ -227,15 +223,13 @@ impl<'a, D: Database + BatchDatabase> ElectrumServer<D> {
                 let hash = get_spk_hash(&out.script_pubkey);
 
                 if let Some(peer) = self.peer_addresses.get(&hash) {
+                    let hash = get_spk_hash(&out.script_pubkey);
                     let status =
                         get_hash_from_u8(format!("{}:{height}:", transaction.txid()).as_bytes());
                     let notify = json!({
                         "jsonrpc": "2.0",
                         "method": "blockchain.scripthash.subscribe",
-                        "params": [{
-                            "scripthash": hash,
-                            "status": status,
-                        }]
+                        "params": [hash, status]
                     });
                     if let Err(err) = peer
                         .write(serde_json::to_string(&notify).unwrap().as_bytes())
@@ -286,10 +280,15 @@ fn get_hash_from_u8(data: &[u8]) -> sha256::Hash {
     let hash = sha2::Sha256::new().chain_update(data).finalize();
     sha256::Hash::from_slice(hash.as_slice()).expect("Engines shouldn't be Err")
 }
-fn get_spk_hash(spk: &Script) -> sha256::Hash {
+pub fn get_spk_hash(spk: &Script) -> sha256::Hash {
     let script_hash = spk.as_bytes();
     let mut hash = sha2::Sha256::new().chain_update(script_hash).finalize();
     hash.reverse();
+    sha256::Hash::from_slice(hash.as_slice()).expect("Engines shouldn't be Err")
+}
+fn get_spk_hash_normal_order(spk: &Script) -> sha256::Hash {
+    let script_hash = spk.as_bytes();
+    let hash = sha2::Sha256::new().chain_update(script_hash).finalize();
     sha256::Hash::from_slice(hash.as_slice()).expect("Engines shouldn't be Err")
 }
 
@@ -316,4 +315,12 @@ macro_rules! json_rpc_res {
             "id": $request.id
         }))
     }
+}
+
+#[test]
+fn test() {
+    let hash = super::electrum_protocol::get_spk_hash(
+        &Script::from_str("00142b6a2924aa9b1b115d1ac3098b0ba0e6ed510f2a").unwrap(),
+    );
+    println!("{}", hash.to_hex());
 }
