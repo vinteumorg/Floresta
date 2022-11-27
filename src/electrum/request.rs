@@ -1,6 +1,6 @@
 #![allow(unused)]
 
-use bdk::bitcoin::psbt::serialize::Serialize;
+use bitcoin::psbt::serialize::Serialize;
 use serde::Deserialize;
 use serde_json::Value;
 pub enum BlockchainRequest {

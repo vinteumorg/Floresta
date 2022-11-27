@@ -4,18 +4,15 @@ mod cli;
 mod electrum;
 mod error;
 
-use std::{process::exit, sync::Arc};
+use std::sync::Arc;
 
 use address_cache::{sqlite_storage::KvDatabase, AddressCache, AddressCacheDatabase};
 use async_std::task::{self, block_on};
-use bdk::{
-    bitcoin::Network,database::SqliteDatabase, Wallet,
-};
-use blockchain::{sync::BlockchainSync, ChainWatch, UtreexodBackend};
+use bitcoin::{hashes::hex::FromHex, Script};
+use blockchain::{sync::BlockchainSync, ChainWatch};
 use btcd_rpc::client::{BTCDClient, BTCDConfigs, BtcdRpc};
 use clap::Parser;
 use cli::{Cli, Commands};
-use std::fs::DirBuilder;
 
 use crate::electrum::electrum_protocol::Message;
 fn main() {
@@ -33,11 +30,13 @@ fn main() {
                 println!("Unable to connect with rpc");
                 return;
             }
-            let cache = load_wallet(data_dir.unwrap(), wallet_desc.unwrap());
-            let cache = start_sync(&rpc, cache).expect("Could not sync");
+            let mut cache = load_wallet(data_dir.unwrap(), wallet_desc.clone().unwrap());
+            let spk = Script::from_hex("00142b6a2924aa9b1b115d1ac3098b0ba0e6ed510f2a").unwrap();
+            cache.cache_address(spk);
+            let cache = start_sync(&rpc, cache, wallet_desc.unwrap()).expect("Could not sync");
 
             let electrum_server = block_on(electrum::electrum_protocol::ElectrumServer::new(
-                "127.0.0.1:8333",
+                "127.0.0.1:50001",
                 rpc.clone(),
                 cache,
             ))
@@ -62,32 +61,12 @@ fn main() {
             ));
             task::block_on(electrum_server.main_loop()).expect("Main loop failed");
         }
-        Commands::Setup {
-            wallet_desc,
-            data_dir,
-        } => {
-            // It's safe to unwrap data_dir because there is a default value for it.
-            setup(data_dir.unwrap(), wallet_desc);
-        }
     }
 }
 
-fn setup(data_dir: String, descriptor: String) -> Wallet<SqliteDatabase> {
-    let builder = DirBuilder::new().recursive(true).create(data_dir.clone());
-    if let Err(_) = builder {
-        println!("Invalid data_dir param {data_dir}");
-        exit(1);
-    }
-    let database = SqliteDatabase::new(data_dir + "wallet.sqlite");
-    let wallet = Wallet::new(descriptor.as_str(), None, Network::Signet, database);
-    if let Err(err) = wallet {
-        println!("Unexpected error while creating wallet: {err}");
-        exit(1);
-    }
-    wallet.unwrap()
-}
-fn load_wallet(data_dir: String, descriptor: String) -> AddressCache<KvDatabase> {
-    todo!()
+fn load_wallet(data_dir: String, _descriptor: String) -> AddressCache<KvDatabase> {
+    let database = KvDatabase::new(data_dir).expect("Could not create a database");
+    AddressCache::new(database)
 }
 fn create_rpc_connection(
     hostname: String,
@@ -110,12 +89,21 @@ fn create_rpc_connection(
 
     Arc::new(BTCDClient::new(config).unwrap())
 }
-
+fn setup_wallet(_descriptor: String) {}
 fn start_sync<D: AddressCacheDatabase, Rpc: BtcdRpc>(
     rpc: &Arc<Rpc>,
-    address_cache: AddressCache<D>,
+    mut address_cache: AddressCache<D>,
+    descriptor: String,
 ) -> Result<AddressCache<D>, error::Error> {
-    BlockchainSync::sync_all(&**rpc, &address_cache)?;
+    let current_hight = rpc.getbestblock()?.height as u32;
+    let sync_range = address_cache.get_sync_limits(current_hight);
+    if let Err(crate::error::Error::WalletNotInitialized) = sync_range {
+        setup_wallet(descriptor);
+
+        BlockchainSync::sync_range(&**rpc, &mut address_cache, 0..=current_hight)?;
+        return Ok(address_cache);
+    }
+    BlockchainSync::sync_range(&**rpc, &mut address_cache, sync_range?)?;
     Ok(address_cache)
 }
 /// Finds out whether our RPC works or not

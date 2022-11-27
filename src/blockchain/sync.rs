@@ -1,68 +1,61 @@
-use std::collections::HashSet;
 use std::io::Write;
-use std::ops::Range;
-use std::sync::Arc;
+use std::ops::RangeInclusive;
 use std::vec;
 
-use bdk::bitcoin::consensus::{deserialize, Encodable};
-use bdk::bitcoin::hashes::hex::FromHex;
-use bdk::bitcoin::hashes::{sha256, Hash};
-use bdk::bitcoin::{Block, BlockHash};
-use bdk::bitcoin::{Script, Transaction};
+use crate::address_cache::{AddressCache, AddressCacheDatabase};
+use crate::error::Error;
+use bitcoin::consensus::{deserialize, Encodable};
+use bitcoin::hashes::hex::FromHex;
+use bitcoin::hashes::{sha256, Hash};
+use bitcoin::Transaction;
+use bitcoin::{Block, BlockHash};
 use btcd_rpc::client::BtcdRpc;
 use btcd_rpc::json_types::VerbosityOutput;
 use rustreexo::accumulator::proof::Proof;
 use rustreexo::accumulator::stump::Stump;
 use sha2::{Digest, Sha512_256};
 
-use crate::address_cache::{AddressCache, AddressCacheDatabase};
-
 #[derive(Debug, Default)]
 pub struct BlockchainSync;
 #[allow(unused)]
 impl BlockchainSync {
-    pub fn get_block<T: BtcdRpc>(
-        rpc: &T,
-        height: u32,
-    ) -> Result<Block, Box<dyn std::error::Error>> {
-        let hash = rpc
-            .getblockhash(height as usize)
-            .map_err(|_| bdk::Error::Generic("RPC Error".into()))?;
+    pub fn get_block<T: BtcdRpc>(rpc: &T, height: u32) -> Result<Block, crate::error::Error> {
+        let hash = rpc.getblockhash(height as usize)?;
 
-        let block = rpc
-            .getblock(hash, false)
-            .map_err(|_| bdk::Error::Generic("RPC Error".into()))?;
+        let block = rpc.getblock(hash, false)?;
         if let VerbosityOutput::Simple(hex) = block {
             let block = Vec::from_hex(hex.as_str())?;
             let block = deserialize(&block)?;
             return Ok(block);
         }
-        Err("Block not found".into())
+        Err(Error::BlockNotFound)
     }
     pub fn sync_all<D: AddressCacheDatabase, Rpc: BtcdRpc>(
-        _rpc: &Rpc,
-        _address_cache: &AddressCache<D>,
+        rpc: &Rpc,
+        address_cache: &mut AddressCache<D>,
     ) -> Result<(), crate::error::Error> {
-        unimplemented!("sync_all");
+        let height = rpc.getbestblock().expect("sync_all: Rpc failed").height;
+        Self::sync_range(rpc, address_cache, 0..=100);
+        Ok(())
     }
 
     pub fn sync_range<T: BtcdRpc, D: AddressCacheDatabase>(
-        rpc: Arc<T>,
+        rpc: &T,
         address_cache: &mut AddressCache<D>,
-        range: Range<u32>,
-        pk_hash_set: HashSet<Script>,
-        mut acc: Stump,
-    ) {
-        println!("==> Catching up to block {}", range.end);
+        range: RangeInclusive<u32>,
+        //mut acc: Stump,
+    ) -> Result<(), crate::error::Error> {
+        println!("==> Catching up to block {}", range.end());
         for block_height in range {
-            let block = BlockchainSync::get_block(&*rpc, block_height).unwrap();
-            acc = BlockchainSync::update_acc(acc, &block, block_height, Proof::default());
+            let block = BlockchainSync::get_block(rpc, block_height)?;
+            //acc = BlockchainSync::update_acc(acc, &block, block_height, Proof::default());
 
             if block_height % 1000 == 0 {
                 println!("Sync at block {block_height}: {}", block.block_hash());
             }
             address_cache.block_process(&block, block_height);
         }
+        Ok(())
     }
     fn get_leaf_hashes(
         transaction: &Transaction,
@@ -108,13 +101,13 @@ impl BlockchainSync {
         let acc = acc.modify(&leaf_hashes, &vec![], &proof).unwrap();
         acc
     }
-    pub fn _sync_single<T: BtcdRpc, D: AddressCacheDatabase>(
-        rpc: Arc<T>,
+    pub fn sync_single<T: BtcdRpc, D: AddressCacheDatabase>(
+        rpc: T,
         address_cache: &mut AddressCache<D>,
         blocks: u32,
     ) {
         for block_height in 0..blocks {
-            let block = BlockchainSync::get_block(&*rpc, block_height).unwrap();
+            let block = BlockchainSync::get_block(&rpc, block_height).unwrap();
 
             if block_height % 1000 == 0 {
                 println!("Sync at block {block_height}: {}", block.block_hash());

@@ -19,16 +19,6 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Starts up your wallet and do nothing else
-    Setup {
-        /// Your wallet's descriptor
-        #[arg(short, long)]
-        wallet_desc: String,
-        /// Where should we store data
-        #[arg(short, long)]
-        #[arg(default_value = Some("~/.utreexo_wallet/".into()))]
-        data_dir: Option<String>,
-    },
     /// Starts your wallet and server
     Run {
         /// Where should we store data

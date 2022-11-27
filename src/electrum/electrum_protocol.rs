@@ -1,23 +1,22 @@
-use crate::{address_cache::sqlite_storage::KvDatabase, blockchain::sync::BlockchainSync};
-use crate::address_cache::AddressCache;
+use crate::address_cache::{AddressCache, CachedTransaction};
 use crate::electrum::request::Request;
-use crate::json_rpc_res;
+use crate::electrum::TransactionHistoryEntry;
+use crate::{address_cache::sqlite_storage::KvDatabase, blockchain::sync::BlockchainSync};
+use crate::{get_arg, json_rpc_res};
 use async_std::{
     io::BufReader,
     net::{TcpListener, TcpStream},
     prelude::*,
 };
 
-use bdk::bitcoin::hashes::hex::{FromHex, ToHex};
-use bdk::bitcoin::hashes::{sha256, Hash};
-use bdk::bitcoin::Script;
+use bitcoin::hashes::{sha256, Hash};
+use bitcoin::{Script, Txid};
 
 use btcd_rpc::client::{BTCDClient, BtcdRpc};
-use log::{log, Level};
+use log::{log, trace, Level};
 use serde_json::{json, Value};
 use sha2::Digest;
 use std::collections::{HashMap, HashSet};
-use std::str::FromStr;
 use std::sync::{
     mpsc::{channel, Receiver, Sender},
     Arc,
@@ -70,11 +69,11 @@ pub enum Message {
 }
 
 impl ElectrumServer {
-    pub async fn new(
+    pub async fn new<'a>(
         address: &'static str,
         rpc: Arc<BTCDClient>,
         address_cache: AddressCache<KvDatabase>,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
+    ) -> Result<ElectrumServer, Box<dyn std::error::Error>> {
         let listener = Arc::new(TcpListener::bind(address).await?);
         let (tx, rx) = channel();
         Ok(ElectrumServer {
@@ -109,19 +108,22 @@ impl ElectrumServer {
             }
             "server.version" => json_rpc_res!(request, ["ElectrumX 1.16.0", "1.4"]),
             // TODO: Create an actual histogram
-            "mempool.get_fee_histogram" => json_rpc_res!(
-                request,
-                [[12, 128812], [4, 92524], [2, 6478638], [1, 22890421]]
-            ),
+            "mempool.get_fee_histogram" => json_rpc_res!(request, []),
             "blockchain.scripthash.subscribe" => {
                 if let Some(hash) = request.params.get(0) {
-                    let hash = serde_json::from_value::<sha256::Hash>(hash.clone())
-                        .map_err(|_| super::error::Error::InvalidParams)?;
-
+                    let hash = serde_json::from_value::<sha256::Hash>(hash.clone())?;
                     self.peer_addresses.insert(hash, peer);
+
+                    let history = self.address_cache.get_address_history(&hash);
+
+                    if history.is_empty() {
+                        return json_rpc_res!(request, null);
+                    }
+                    let status_hash = get_status(history);
+                    return json_rpc_res!(request, status_hash);
                 }
 
-                json_rpc_res!(request, null)
+                Err(super::error::Error::InvalidParams)
             }
             "server.banner" => json_rpc_res!(request, "Welcome to Electrum"),
             "server.donation_address" => {
@@ -143,6 +145,82 @@ impl ElectrumServer {
                     Err(super::error::Error::InvalidParams)
                 }
             }
+            "blockchain.block.headers" => {
+                let start_height = get_arg!(request, u64, 0);
+                let count = get_arg!(request, u64, 1);
+                let mut headers = String::new();
+                let count = if count < 2016 { count } else { 2016 };
+                for height in start_height..(start_height + count) {
+                    let hash = self.rpc.getblockhash(height as usize)?;
+                    let header = self.rpc.getblockheader(hash, false)?.get_simple();
+                    headers.extend(header.chars().into_iter());
+                }
+                json_rpc_res!(request, {
+                    "count": count,
+                    "hex": headers,
+                    "max": 2016
+                })
+            }
+            "blockchain.scripthash.get_history" => {
+                if let Some(script_hash) = request.params.get(0) {
+                    let script_hash =
+                        serde_json::from_value::<sha256::Hash>(script_hash.to_owned())?;
+                    let transactions = self.address_cache.get_address_history(&script_hash);
+                    let mut res = vec![];
+                    for transaction in transactions {
+                        let entry = TransactionHistoryEntry {
+                            tx_hash: transaction.hash,
+                            height: transaction.height,
+                        };
+                        res.push(entry);
+                    }
+
+                    return json_rpc_res!(request, res);
+                }
+
+                Err(super::error::Error::InvalidParams)
+            }
+            "blockchain.transaction.get" => {
+                if let Some(script_hash) = request.params.get(0) {
+                    let tx_id = serde_json::from_value::<Txid>(script_hash.to_owned())?;
+                    let tx = self.address_cache.get_cached_transaction(&tx_id);
+                    if let Some(tx) = tx {
+                        return json_rpc_res!(request, tx);
+                    }
+                }
+                Err(super::error::Error::InvalidParams)
+            }
+            "blockchain.transaction.get_merkle" => {
+                if let Some(script_hash) = request.params.get(0) {
+                    let tx_id = serde_json::from_value::<Txid>(script_hash.to_owned());
+                    let tx_id = tx_id?;
+                    let proof = self.address_cache.get_merkle_proof(&tx_id);
+                    let height = self.address_cache.get_height(&tx_id);
+
+                    if let Some((proof, position)) = proof {
+                        let result = json!({
+                            "merkle": proof,
+                            "block_height": height.unwrap_or(0),
+                            "pos": position
+                        });
+                        return json_rpc_res!(request, result);
+                    }
+                }
+                Err(super::error::Error::InvalidParams)
+            }
+            "blockchain.scripthash.get_balance" => {
+                if let Some(script_hash) = request.params.get(0) {
+                    let script_hash =
+                        serde_json::from_value::<sha256::Hash>(script_hash.to_owned())?;
+                    let balance = self.address_cache.get_address_balance(&script_hash);
+                    let result = json!({
+                        "confirmed": balance,
+                        "unconfirmed": 0
+                    });
+                    return json_rpc_res!(request, result);
+                }
+                Err(super::error::Error::InvalidParams)
+            }
             method => {
                 // TODO: Remove this when all methods are implemented
                 unimplemented!("Unsupported method: {method}");
@@ -158,7 +236,7 @@ impl ElectrumServer {
                         self.peers.insert(id, stream);
                     }
                     Message::Message((peer, msg)) => {
-                        println!("{msg}");
+                        trace!("Message: {msg}");
                         if let Ok(req) = serde_json::from_str::<Request>(msg.as_str()) {
                             let peer = self.peers.get(&peer);
                             if let None = peer {
@@ -169,16 +247,26 @@ impl ElectrumServer {
                                 continue;
                             }
                             let peer = peer.unwrap().to_owned();
+                            let id = req.id;
                             let res = self.handle_blockchain_request(peer.clone(), req);
 
                             if let Ok(res) = res {
+                                peer.write(serde_json::to_string(&res).unwrap().as_bytes())
+                                    .await?;
+                            } else {
+                                let res = json!({
+                                    "jsonrpc": "2.0",
+                                    "id": id,
+                                    "error":"Unknown",
+                                    "data": null
+                                });
                                 peer.write(serde_json::to_string(&res).unwrap().as_bytes())
                                     .await?;
                             }
                         }
                     }
                     Message::NewBlock => {
-                        println!("New Block!");
+                        log!(Level::Debug, "New Block!");
                         let best = self.rpc.getbestblock().unwrap();
 
                         self.address_cache.block_process(
@@ -205,8 +293,10 @@ impl ElectrumServer {
                         }
                         self.wallet_notify(best.height as u32).await;
                     }
-                    Message::Disconnect(id) => {
-                        self.peers.remove(&id);
+                    Message::Disconnect(_) => {
+                        unreachable!();
+
+                        // self.peers.remove(&id);
                     }
                 }
             }
@@ -224,12 +314,13 @@ impl ElectrumServer {
 
                 if let Some(peer) = self.peer_addresses.get(&hash) {
                     let hash = get_spk_hash(&out.script_pubkey);
-                    let status =
-                        get_hash_from_u8(format!("{}:{height}:", transaction.txid()).as_bytes());
+                    let history = self.address_cache.get_address_history(&hash);
+
+                    let status_hash = get_status(history);
                     let notify = json!({
                         "jsonrpc": "2.0",
                         "method": "blockchain.scripthash.subscribe",
-                        "params": [hash, status]
+                        "params": [hash, status_hash]
                     });
                     if let Err(err) = peer
                         .write(serde_json::to_string(&notify).unwrap().as_bytes())
@@ -286,12 +377,35 @@ pub fn get_spk_hash(spk: &Script) -> sha256::Hash {
     hash.reverse();
     sha256::Hash::from_slice(hash.as_slice()).expect("Engines shouldn't be Err")
 }
-fn get_spk_hash_normal_order(spk: &Script) -> sha256::Hash {
-    let script_hash = spk.as_bytes();
-    let hash = sha2::Sha256::new().chain_update(script_hash).finalize();
-    sha256::Hash::from_slice(hash.as_slice()).expect("Engines shouldn't be Err")
+/// As per electrum documentation:
+/// ### To calculate the status of a script hash (or address):
+///
+/// 1. order confirmed transactions to the script hash by increasing height (and position in the block if there are more than one in a block)
+///
+/// 2. form a string that is the concatenation of strings "tx_hash:height:" for each
+/// transaction in order, where:
+///
+///  tx_hash is the transaction hash in hexadecimal
+///  height is the height of the block it is in.
+///
+/// 3. Next, with mempool transactions in any order, append a similar string for those
+/// transactions, but where height is -1 if the transaction has at least one unconfirmed
+/// input, and 0 if all inputs are confirmed.
+///
+/// 4. The status of the script hash is the sha256() hash of the full string expressed
+/// as a hexadecimal string, or null if the string is empty because there are no
+/// transactions.
+fn get_status(transactions: Vec<CachedTransaction>) -> sha256::Hash {
+    let mut status_preimage = String::new();
+    for transaction in transactions {
+        status_preimage.extend(
+            format!("{}:{}:", transaction.hash, transaction.height)
+                .chars()
+                .into_iter(),
+        );
+    }
+    get_hash_from_u8(status_preimage.as_bytes())
 }
-
 #[macro_export]
 macro_rules! json_rpc_res {
     ($request: ident, $result: ident) => (
@@ -316,11 +430,13 @@ macro_rules! json_rpc_res {
         }))
     }
 }
-
-#[test]
-fn test() {
-    let hash = super::electrum_protocol::get_spk_hash(
-        &Script::from_str("00142b6a2924aa9b1b115d1ac3098b0ba0e6ed510f2a").unwrap(),
-    );
-    println!("{}", hash.to_hex());
+#[macro_export]
+macro_rules! get_arg {
+    ($request: ident, $arg_type: ty, $idx: literal) => {
+        if let Some(arg) = $request.params.get($idx) {
+            serde_json::from_value::<$arg_type>(arg.clone())?
+        } else {
+            return Err(super::error::Error::InvalidParams);
+        }
+    };
 }
