@@ -2,6 +2,7 @@ pub mod sqlite_storage;
 use std::{
     collections::{HashMap, HashSet},
     ops::RangeInclusive,
+    str::Split,
     vec,
 };
 
@@ -13,6 +14,7 @@ use bitcoin::{
     hashes::{
         hex::{FromHex, ToHex},
         sha256::{self, Hash},
+        Hash as HashTrait,
     },
     Block, MerkleBlock, Script, Transaction, TxOut,
 };
@@ -20,56 +22,95 @@ use bitcoin::{
 pub struct CachedTransaction {
     pub tx_hex: String,
     pub height: u32,
-    pub merkle_block: MerkleBlock,
+    pub merkle_block: Option<MerkleBlock>,
     pub hash: String,
     pub position: u32,
 }
-impl std::fmt::Display for CachedTransaction {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let merkle_block = serialize_hex(&self.merkle_block);
-        write!(f, "{}:{}:{}", self.tx_hex, self.height, merkle_block)
-    }
-}
-impl From<String> for CachedTransaction {
-    fn from(transaction: String) -> Self {
-        let mut transaction = transaction.split(":");
-        let tx_hex = transaction.nth(0).unwrap().to_string();
-        let height = transaction.nth(1).unwrap().parse::<u32>().unwrap();
-        let merkle_block = Vec::from_hex(transaction.nth(2).unwrap()).unwrap();
-        let merkle_block = deserialize(&merkle_block).unwrap();
-        let tx = Vec::from_hex(transaction.nth(2).unwrap()).unwrap();
-        let tx = deserialize::<Transaction>(&tx).unwrap();
-
+impl Default for CachedTransaction {
+    fn default() -> Self {
         CachedTransaction {
-            tx_hex,
-            height,
-            merkle_block,
-            hash: tx.txid().to_string(),
+            tx_hex: sha256::Hash::all_zeros().to_string(),
+            height: 0,
+            merkle_block: None,
+            hash: sha256::Hash::all_zeros().to_string(),
             position: 0,
         }
     }
 }
-impl From<String> for CachedAddress {
-    /// TODO: Get rid of this unwraps
-    fn from(address: String) -> Self {
-        let mut address = address.split(":");
-        let script_hash = address.next().unwrap().to_string();
-        let script_hash = sha256::Hash::from_hex(&script_hash).unwrap();
-        let balance = address.next().unwrap().parse::<u64>().unwrap();
-        let script = Script::from_hex(address.next().unwrap()).unwrap();
+impl std::fmt::Display for CachedTransaction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let merkle_block = if let Some(merkle_block) = &self.merkle_block {
+            serialize_hex(merkle_block)
+        } else {
+            "".to_string()
+        };
+        write!(f, "{};{};{}", self.tx_hex, self.height, merkle_block)
+    }
+}
+/// TODO: Clean this function up
+fn get_arg<'a>(
+    mut split: Split<'a, &'a str>,
+) -> Result<(&'a str, Split<'a, &'a str>), crate::error::Error> {
+    if let Some(data) = split.nth(0) {
+        return Ok((data, split));
+    }
+    Err(crate::error::Error::DbParseError)
+}
+impl TryFrom<String> for CachedTransaction {
+    type Error = crate::error::Error;
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        let transaction = value.split(";");
+
+        let (tx_hex, transaction) = get_arg(transaction)?;
+
+        let (height, transaction) = get_arg(transaction)?;
+
+        let (merkle_block, _) = get_arg(transaction)?;
+        let merkle_block = Vec::from_hex(merkle_block)?;
+        let merkle_block = deserialize(&merkle_block)?;
+
+        let tx = Vec::from_hex(tx_hex)?;
+        let tx = deserialize::<Transaction>(&tx)?;
+
+        Ok(CachedTransaction {
+            tx_hex: tx_hex.to_string(),
+            height: height.parse::<u32>()?,
+            merkle_block: Some(merkle_block),
+            hash: tx.txid().to_string(),
+            position: 0,
+        })
+    }
+}
+impl TryFrom<String> for CachedAddress {
+    type Error = crate::error::Error;
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        let address = value.split(":");
+        let (script_hash, address) = get_arg(address)?;
+        let script_hash = sha256::Hash::from_hex(&script_hash.to_string())?;
+
+        let (balance, address) = get_arg(address)?;
+
+        let (script, address) = get_arg(address)?;
+        let script = Script::from_hex(script)?;
 
         let mut transactions = vec![];
+
         for transaction in address {
+            if transaction.len() == 0 {
+                continue;
+            }
+
             let transaction = transaction.to_string();
-            let transaction = CachedTransaction::from(transaction);
+            let transaction = CachedTransaction::try_from(transaction)?;
+
             transactions.push(transaction);
         }
-        CachedAddress {
-            balance,
+        Ok(CachedAddress {
+            balance: balance.parse()?,
             script_hash,
             transactions,
             script,
-        }
+        })
     }
 }
 #[derive(Debug, Clone)]
@@ -100,7 +141,9 @@ pub trait AddressCacheDatabase {
     /// be used instead
     fn save(&self, address: &CachedAddress);
     /// Loads all addresses we have cached so far
-    fn load<E>(&self) -> Result<Vec<CachedAddress>, E>;
+    fn load<E>(&self) -> Result<Vec<CachedAddress>, E>
+    where
+        E: From<crate::error::Error> + Into<crate::error::Error> + std::convert::From<kv::Error>;
     /// Updates an address, probably because a new transaction arrived
     fn update(&self, address: &CachedAddress);
     /// TODO: Maybe turn this into another db
@@ -144,20 +187,23 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
                 }
             }
         }
-
+        self.database
+            .set_cache_height(height)
+            .expect("Database is not working");
         my_transactions
     }
     pub fn new(database: D) -> AddressCache<D> {
-        let scripts = database.load::<crate::error::Error>();
+        let scripts = database
+            .load::<crate::error::Error>()
+            .expect("Could not load database");
         let mut address_map = HashMap::new();
         let mut script_set = HashSet::new();
 
-        if let Ok(scripts) = scripts {
-            for address in scripts {
-                script_set.insert(address.script.clone());
-                address_map.insert(address.script_hash, address);
-            }
+        for address in scripts {
+            script_set.insert(address.script.clone());
+            address_map.insert(address.script_hash, address);
         }
+
         AddressCache {
             database,
             address_map,
@@ -195,7 +241,7 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
         let mut hashes = vec![];
 
         if let Some(tx) = self.get_transaction(txid) {
-            for hash in tx.merkle_block.txn.hashes() {
+            for hash in tx.merkle_block.unwrap().txn.hashes() {
                 hashes.push(hash.to_hex());
             }
             // Rust Bitcoin (and Bitcoin Core) includes the target hash, but Electrum
@@ -249,7 +295,7 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
     ) {
         let transaction_to_cache = CachedTransaction {
             height,
-            merkle_block,
+            merkle_block: Some(merkle_block),
             tx_hex: serialize_hex(transaction),
             hash: transaction.txid().to_string(),
             position,
@@ -286,6 +332,8 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
 mod test {
     use bitcoin::{hashes::hex::FromHex, Script};
 
+    use crate::electrum::electrum_protocol::get_spk_hash;
+
     use super::{sqlite_storage::KvDatabase, AddressCache};
 
     #[test]
@@ -299,7 +347,21 @@ mod test {
         let database = KvDatabase::new("/tmp/utreexo/".into()).unwrap();
         let mut cache = AddressCache::new(database);
         let script_pk = Script::from_hex("00").unwrap();
+        let hash = &get_spk_hash(&script_pk);
+
         cache.cache_address(script_pk);
         assert_eq!(cache.address_map.len(), 1);
+        assert_eq!(cache.get_address_balance(hash), 0);
+    }
+    #[test]
+    fn test_persistency() {
+        let database = KvDatabase::new("/tmp/utreexo/".into()).unwrap();
+        let mut cache = AddressCache::new(database);
+        let script_pk = Script::from_hex("4104678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38c4f35504e51ec112de5c384df7ba0b8d578a4c702b6bf11d5fac").unwrap();
+        cache.cache_address(script_pk);
+        drop(cache);
+        let database = KvDatabase::new("/tmp/utreexo/".into()).unwrap();
+        let cache = AddressCache::new(database);
+        assert_eq!(cache.script_set.len(), 1);
     }
 }

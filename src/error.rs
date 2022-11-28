@@ -10,6 +10,8 @@ pub enum Error {
     BlockNotFound,
     WalletNotInitialized,
     DbError(kv::Error),
+    DbParseError,
+    ParseNumError(std::num::ParseIntError),
 }
 
 impl std::fmt::Display for Error {
@@ -22,6 +24,8 @@ impl std::fmt::Display for Error {
             Error::UtreexodError(_) => write!(f, "UtreexodError"),
             Error::WalletNotInitialized => write!(f, "WalletNotInitialized"),
             Error::DbError(err) => write!(f, "Database error {err}"),
+            Error::DbParseError => write!(f, "Database parse error"),
+            Error::ParseNumError(err) => write!(f, "int parse error: {err}"),
         }
     }
 }
@@ -30,6 +34,7 @@ impl_from_error!(ParsingError, bitcoin::hashes::hex::Error);
 impl_from_error!(UtreexodError, UtreexodError);
 impl_from_error!(EncodeError, encode::Error);
 impl_from_error!(DbError, kv::Error);
+impl_from_error!(ParseNumError, std::num::ParseIntError);
 
 impl std::error::Error for Error {}
 #[macro_export]

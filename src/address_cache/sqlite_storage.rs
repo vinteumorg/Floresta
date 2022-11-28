@@ -15,11 +15,18 @@ impl<'a> KvDatabase {
     }
 }
 impl<'a> AddressCacheDatabase for KvDatabase {
-    fn load<E>(&self) -> Result<Vec<super::CachedAddress>, E> {
+    fn load<E>(&self) -> Result<Vec<super::CachedAddress>, E>
+    where
+        E: From<crate::error::Error> + std::convert::From<kv::Error>,
+    {
         let mut addresses = vec![];
-        while let Some(Ok(item)) = self.1.iter().next() {
+        for item in self.1.iter() {
+            let item = item?;
+            if "height".to_string() == item.key::<String>()? {
+                continue;
+            }
             let value: String = item.value().unwrap();
-            let value = CachedAddress::from(value);
+            let value = CachedAddress::try_from(value)?;
             addresses.push(value);
         }
         Ok(addresses)
