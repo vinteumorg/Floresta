@@ -17,7 +17,6 @@ use sha2::{Digest, Sha512_256};
 
 #[derive(Debug, Default)]
 pub struct BlockchainSync;
-#[allow(unused)]
 impl BlockchainSync {
     pub fn get_block<T: BtcdRpc>(rpc: &T, height: u32) -> Result<Block, crate::error::Error> {
         let hash = rpc.getblockhash(height as usize)?;
@@ -30,12 +29,12 @@ impl BlockchainSync {
         }
         Err(Error::BlockNotFound)
     }
-    pub fn sync_all<D: AddressCacheDatabase, Rpc: BtcdRpc>(
+    pub fn _sync_all<D: AddressCacheDatabase, Rpc: BtcdRpc>(
         rpc: &Rpc,
         address_cache: &mut AddressCache<D>,
     ) -> Result<(), crate::error::Error> {
-        let height = rpc.getbestblock().expect("sync_all: Rpc failed").height;
-        Self::sync_range(rpc, address_cache, 0..=100);
+        let height = rpc.getbestblock().expect("sync_all: Rpc failed").height as u32;
+        Self::sync_range(rpc, address_cache, 0..=height)?;
         Ok(())
     }
 
@@ -53,11 +52,14 @@ impl BlockchainSync {
             if block_height % 1000 == 0 {
                 println!("Sync at block {block_height}: {}", block.block_hash());
             }
-            address_cache.block_process(&block, block_height);
+            let proof =
+                Self::get_proof(rpc, block_height).expect("Could not get proof for {block_height}");
+
+            address_cache.block_process(&block, block_height, proof);
         }
         Ok(())
     }
-    fn get_leaf_hashes(
+    fn _get_leaf_hashes(
         transaction: &Transaction,
         vout: u32,
         height: u32,
@@ -90,7 +92,7 @@ impl BlockchainSync {
         let mut leaf_hashes = vec![];
         for transaction in block.txdata.iter() {
             for (i, _) in transaction.output.iter().enumerate() {
-                leaf_hashes.push(BlockchainSync::get_leaf_hashes(
+                leaf_hashes.push(BlockchainSync::_get_leaf_hashes(
                     transaction,
                     i as u32,
                     height,
@@ -101,18 +103,23 @@ impl BlockchainSync {
         let acc = acc.modify(&leaf_hashes, &vec![], &proof).unwrap();
         acc
     }
-    pub fn sync_single<T: BtcdRpc, D: AddressCacheDatabase>(
-        rpc: T,
+    pub fn get_proof<T: BtcdRpc>(rpc: &T, height: u32) -> Result<Proof, crate::error::Error> {
+        Ok(Proof::default())
+    }
+    pub fn _sync_single<T: BtcdRpc, D: AddressCacheDatabase>(
+        rpc: &T,
         address_cache: &mut AddressCache<D>,
         blocks: u32,
     ) {
         for block_height in 0..blocks {
-            let block = BlockchainSync::get_block(&rpc, block_height).unwrap();
+            let block = BlockchainSync::get_block(rpc, block_height).unwrap();
 
             if block_height % 1000 == 0 {
                 println!("Sync at block {block_height}: {}", block.block_hash());
             }
-            address_cache.block_process(&block, block_height);
+            let proof =
+                Self::get_proof(rpc, block_height).expect("Could not get proof for {block_height}");
+            let proof = address_cache.block_process(&block, block_height, proof);
         }
     }
 }

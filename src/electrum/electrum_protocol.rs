@@ -268,10 +268,12 @@ impl ElectrumServer {
                     Message::NewBlock => {
                         log!(Level::Debug, "New Block!");
                         let best = self.rpc.getbestblock().unwrap();
-
+                        let proof = BlockchainSync::get_proof(&*self.rpc, best.height as u32)
+                            .expect(format!("Could not get proof for {}", best.height).as_str());
                         self.address_cache.block_process(
                             &BlockchainSync::get_block(&*self.rpc, best.height as u32).unwrap(),
                             best.height as u32,
+                            proof
                         );
                         let header = self
                             .rpc
@@ -293,10 +295,8 @@ impl ElectrumServer {
                         }
                         self.wallet_notify(best.height as u32).await;
                     }
-                    Message::Disconnect(_) => {
-                        unreachable!();
-
-                        // self.peers.remove(&id);
+                    Message::Disconnect(id) => {
+                        self.peers.remove(&id);
                     }
                 }
             }

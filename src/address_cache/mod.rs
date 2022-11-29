@@ -6,7 +6,7 @@ use std::{
     vec,
 };
 
-use crate::electrum::electrum_protocol::get_spk_hash;
+use crate::{blockchain::sync::BlockchainSync, electrum::electrum_protocol::get_spk_hash};
 use bitcoin::{
     consensus::deserialize,
     consensus::encode::serialize_hex,
@@ -18,6 +18,7 @@ use bitcoin::{
     },
     Block, MerkleBlock, Script, Transaction, TxOut,
 };
+use rustreexo::accumulator::{proof::Proof, stump::Stump};
 #[derive(Debug, Clone)]
 pub struct CachedTransaction {
     pub tx_hex: String,
@@ -105,6 +106,7 @@ impl TryFrom<String> for CachedAddress {
 
             transactions.push(transaction);
         }
+
         Ok(CachedAddress {
             balance: balance.parse()?,
             script_hash,
@@ -163,13 +165,22 @@ pub struct AddressCache<D: AddressCacheDatabase> {
     address_map: HashMap<Hash, CachedAddress>,
     /// Holds all scripts we are interested in.
     script_set: HashSet<Script>,
+    /// Maps transaction ids to a script hash and the position of this transaction in a block
     tx_index: HashMap<Txid, (Hash, usize)>,
+    /// Our utreexo accumulator
+    acc: Stump,
 }
 impl<D: AddressCacheDatabase> AddressCache<D> {
     /// Iterates through a block, finds transactions destined to ourselves.
     /// Returns all transactions we found.
-    pub fn block_process(&mut self, block: &Block, height: u32) -> Vec<(Transaction, TxOut)> {
+    pub fn block_process(
+        &mut self,
+        block: &Block,
+        height: u32,
+        proof: Proof,
+    ) -> Vec<(Transaction, TxOut)> {
         let mut my_transactions = vec![];
+        self.acc = BlockchainSync::update_acc(self.acc.clone(), block, height, proof);
         for (position, transaction) in block.txdata.iter().enumerate() {
             for output in transaction.output.iter() {
                 if self.script_set.contains(&output.script_pubkey) {
@@ -187,6 +198,7 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
                 }
             }
         }
+
         self.database
             .set_cache_height(height)
             .expect("Database is not working");
@@ -196,6 +208,7 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
         let scripts = database
             .load::<crate::error::Error>()
             .expect("Could not load database");
+
         let mut address_map = HashMap::new();
         let mut script_set = HashSet::new();
 
@@ -209,6 +222,7 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
             address_map,
             script_set,
             tx_index: HashMap::new(),
+            acc: Stump::new(),
         }
     }
     fn get_transaction(&self, txid: &Txid) -> Option<CachedTransaction> {
@@ -306,7 +320,6 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
                 transaction.txid(),
                 (address.script_hash, address.transactions.len()),
             );
-
             address.transactions.push(transaction_to_cache);
             self.database.update(&address);
         } else {
@@ -355,11 +368,12 @@ mod test {
     }
     #[test]
     fn test_persistency() {
-        let database = KvDatabase::new("/tmp/utreexo/".into()).unwrap();
-        let mut cache = AddressCache::new(database);
-        let script_pk = Script::from_hex("4104678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38c4f35504e51ec112de5c384df7ba0b8d578a4c702b6bf11d5fac").unwrap();
-        cache.cache_address(script_pk);
-        drop(cache);
+        {
+            let database = KvDatabase::new("/tmp/utreexo/".into()).unwrap();
+            let mut cache = AddressCache::new(database);
+            let script_pk = Script::from_hex("4104678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38c4f35504e51ec112de5c384df7ba0b8d578a4c702b6bf11d5fac").unwrap();
+            cache.cache_address(script_pk);
+        }
         let database = KvDatabase::new("/tmp/utreexo/".into()).unwrap();
         let cache = AddressCache::new(database);
         assert_eq!(cache.script_set.len(), 1);

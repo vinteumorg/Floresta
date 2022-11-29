@@ -48,6 +48,7 @@ impl<'a> AddressCacheDatabase for KvDatabase {
         self.1
             .set(&key, &value)
             .expect("Fatal: Database isn't working");
+        self.1.flush().expect("Could not write to disk");
     }
     fn update(&self, address: &super::CachedAddress) {
         self.save(address);
@@ -63,6 +64,7 @@ impl<'a> AddressCacheDatabase for KvDatabase {
     fn set_cache_height(&self, height: u32) -> Result<(), crate::error::Error> {
         self.0.bucket::<String, String>(Some("meta"))?;
         self.1.set(&"height".to_string(), &height.to_string())?;
+        self.1.flush()?;
         Ok(())
     }
 }

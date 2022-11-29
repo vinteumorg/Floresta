@@ -8,7 +8,6 @@ use std::sync::Arc;
 
 use address_cache::{sqlite_storage::KvDatabase, AddressCache, AddressCacheDatabase};
 use async_std::task::{self, block_on};
-use bitcoin::{hashes::hex::FromHex, Script};
 use blockchain::{sync::BlockchainSync, ChainWatch};
 use btcd_rpc::client::{BTCDClient, BTCDConfigs, BtcdRpc};
 use clap::Parser;
@@ -30,9 +29,7 @@ fn main() {
                 println!("Unable to connect with rpc");
                 return;
             }
-            let mut cache = load_wallet(data_dir.unwrap(), wallet_desc.clone().unwrap());
-            let spk = Script::from_hex("00142b6a2924aa9b1b115d1ac3098b0ba0e6ed510f2a").unwrap();
-            cache.cache_address(spk);
+            let cache = load_wallet(data_dir.unwrap(), wallet_desc.clone().unwrap());
             let cache = start_sync(&rpc, cache, wallet_desc.unwrap()).expect("Could not sync");
 
             let electrum_server = block_on(electrum::electrum_protocol::ElectrumServer::new(
