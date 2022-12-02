@@ -268,12 +268,16 @@ impl ElectrumServer {
                     Message::NewBlock => {
                         log!(Level::Debug, "New Block!");
                         let best = self.rpc.getbestblock().unwrap();
-                        let proof = BlockchainSync::get_proof(&*self.rpc, best.height as u32)
-                            .expect(format!("Could not get proof for {}", best.height).as_str());
+                        let (proof, target_hashes) = BlockchainSync::get_proof(
+                            &*self.rpc, &best.hash,
+                        )
+                        .expect(format!("Could not get proof for {}", best.height).as_str());
+
                         self.address_cache.block_process(
                             &BlockchainSync::get_block(&*self.rpc, best.height as u32).unwrap(),
                             best.height as u32,
-                            proof
+                            proof,
+                            target_hashes,
                         );
                         let header = self
                             .rpc

@@ -24,9 +24,6 @@ pub enum Commands {
         /// Where should we store data
         #[arg(default_value = Some("~/.utreexo_wallet/".into()))]
         data_dir: Option<String>,
-        /// Your wallet's descriptor
-        #[arg(short, long)]
-        wallet_desc: Option<String>,
         /// Your rpc user, as set in Utreexod
         #[arg(long)]
         #[arg(default_value = "")]
@@ -39,5 +36,12 @@ pub enum Commands {
         #[arg(short, long)]
         #[arg(default_value = "localhost:18332")]
         rpc_host: String,
+    },
+    Setup {
+        /// Where should we store data
+        #[arg(default_value = Some("~/.utreexo_wallet/".into()))]
+        data_dir: String,
+        #[arg(default_value = Some("~/.utreexo_wallet/".into()))]
+        wallet_descriptor: String,
     },
 }

@@ -178,9 +178,11 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
         block: &Block,
         height: u32,
         proof: Proof,
+        del_hashes: Vec<sha256::Hash>,
     ) -> Vec<(Transaction, TxOut)> {
         let mut my_transactions = vec![];
-        self.acc = BlockchainSync::update_acc(self.acc.clone(), block, height, proof);
+        self.acc = BlockchainSync::update_acc(&self.acc, &block, height, proof, del_hashes)
+            .expect(format!("Could not update the accumulator at {height}").as_str());
         for (position, transaction) in block.txdata.iter().enumerate() {
             for output in transaction.output.iter() {
                 if self.script_set.contains(&output.script_pubkey) {
@@ -198,7 +200,6 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
                 }
             }
         }
-
         self.database
             .set_cache_height(height)
             .expect("Database is not working");

@@ -57,7 +57,7 @@ impl<'a> AddressCacheDatabase for KvDatabase {
         self.0.bucket::<String, String>(Some("meta"))?;
         let height = self.1.get(&"height".to_string())?;
         if let Some(height) = height {
-            return Ok(height.parse::<u32>().unwrap_or(0));
+            return Ok(height.parse::<u32>()?);
         }
         Err(crate::error::Error::WalletNotInitialized)
     }

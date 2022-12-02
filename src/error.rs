@@ -12,6 +12,7 @@ pub enum Error {
     DbError(kv::Error),
     DbParseError,
     ParseNumError(std::num::ParseIntError),
+    RustreexoError(String),
 }
 
 impl std::fmt::Display for Error {
@@ -26,6 +27,7 @@ impl std::fmt::Display for Error {
             Error::DbError(err) => write!(f, "Database error {err}"),
             Error::DbParseError => write!(f, "Database parse error"),
             Error::ParseNumError(err) => write!(f, "int parse error: {err}"),
+            Error::RustreexoError(err) => write!(f, "Rustreexo error: {err}"),
         }
     }
 }
@@ -35,6 +37,8 @@ impl_from_error!(UtreexodError, UtreexodError);
 impl_from_error!(EncodeError, encode::Error);
 impl_from_error!(DbError, kv::Error);
 impl_from_error!(ParseNumError, std::num::ParseIntError);
+impl_from_error!(RustreexoError, String);
+
 
 impl std::error::Error for Error {}
 #[macro_export]
