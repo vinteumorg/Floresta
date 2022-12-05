@@ -37,11 +37,13 @@ pub enum Commands {
         #[arg(default_value = "localhost:18332")]
         rpc_host: String,
     },
+    /// Setups you wallet, creating the local database and initializing the local cache
+    /// must be executed exactly once.
     Setup {
+        /// Your wallet's descriptor
+        wallet_descriptor: String,
         /// Where should we store data
         #[arg(default_value = Some("~/.utreexo_wallet/".into()))]
         data_dir: String,
-        #[arg(default_value = Some("~/.utreexo_wallet/".into()))]
-        wallet_descriptor: String,
     },
 }

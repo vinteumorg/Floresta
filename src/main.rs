@@ -6,14 +6,16 @@ mod error;
 
 use std::{process::exit, sync::Arc};
 
+use crate::electrum::electrum_protocol::Message;
 use address_cache::{sqlite_storage::KvDatabase, AddressCache, AddressCacheDatabase};
 use async_std::task::{self, block_on};
+use bitcoin::Network;
 use blockchain::{sync::BlockchainSync, ChainWatch};
 use btcd_rpc::client::{BTCDClient, BTCDConfigs, BtcdRpc};
 use clap::Parser;
 use cli::{Cli, Commands};
-use miniscript::Descriptor;
-use crate::electrum::electrum_protocol::Message;
+use miniscript::{Descriptor, DescriptorPublicKey};
+use std::str::FromStr;
 fn main() {
     let params = Cli::parse();
     match params.command {
@@ -92,8 +94,24 @@ fn create_rpc_connection(
 
     Arc::new(BTCDClient::new(config).unwrap())
 }
-fn setup_wallet<D: AddressCacheDatabase>(descriptor: String, wallet: AddressCache<D>) {
+fn setup_wallet<D: AddressCacheDatabase>(descriptor: String, mut wallet: AddressCache<D>) {
+    if let Err(e) = wallet.setup(descriptor.clone()) {
+        println!("Could not setup wallet: {e}");
+        exit(1);
+    }
 
+    let desc =
+        Descriptor::<DescriptorPublicKey>::from_str(&format!("wpkh({}/0/*)", descriptor).as_str())
+            .expect("Error while parsing descriptor");
+    for index in 0..100 {
+        let address = desc
+            .at_derivation_index(index)
+            .address(Network::Signet)
+            .expect("Error while deriving address. Is this an active descriptor?");
+        wallet.cache_address(address.script_pubkey());
+    }
+
+    println!("Wallet setup completed! You can now execute run");
 }
 fn start_sync<D: AddressCacheDatabase, Rpc: BtcdRpc>(
     rpc: &Arc<Rpc>,

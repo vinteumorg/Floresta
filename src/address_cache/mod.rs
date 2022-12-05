@@ -153,6 +153,10 @@ pub trait AddressCacheDatabase {
     fn get_cache_height(&self) -> Result<u32, crate::error::Error>;
     /// Saves the height of the last block we filtered
     fn set_cache_height(&self, height: u32) -> Result<(), crate::error::Error>;
+    /// Saves the descriptor of associated cache
+    fn desc_save(&self, descriptor: String) -> Result<(), crate::error::Error>;
+    /// Get associated descriptor
+    fn desc_get(&self) -> Result<String, crate::error::Error>;
 }
 /// Holds all addresses and associated transactions. We need a database with some basic
 /// methods, to store all data
@@ -300,6 +304,16 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
         self.address_map.insert(hash, new_address);
         self.script_set.insert(script_pk);
     }
+    /// Setup is the first command that should be executed. In a new cache. It sets our wallet's
+    /// state, like the height we should start scanning and the wallet's descriptor.
+    pub fn setup(&self, descriptor: String) -> Result<(), crate::error::Error> {
+        // We don't start from 0, because the genesis's utxo is not spendable, and it don't
+        // have any proof. We skip it and start from block one when filtering.
+        self.database.set_cache_height(1)?;
+        self.database.desc_save(descriptor)
+    }
+    /// Caches a new transaction. This method may be called for addresses we don't follow yet,
+    /// this automatically makes we follow this address.
     pub fn cache_transaction(
         &mut self,
         transaction: &Transaction,

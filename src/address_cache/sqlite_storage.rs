@@ -22,7 +22,8 @@ impl<'a> AddressCacheDatabase for KvDatabase {
         let mut addresses = vec![];
         for item in self.1.iter() {
             let item = item?;
-            if "height".to_string() == item.key::<String>()? {
+            let key = item.key::<String>()?;
+            if "height".to_string() == key || "desc".to_string() == key {
                 continue;
             }
             let value: String = item.value().unwrap();
@@ -66,5 +67,22 @@ impl<'a> AddressCacheDatabase for KvDatabase {
         self.1.set(&"height".to_string(), &height.to_string())?;
         self.1.flush()?;
         Ok(())
+    }
+
+    fn desc_save(&self, descriptor: String) -> Result<(), crate::error::Error> {
+        self.0.bucket::<String, String>(Some("meta"))?;
+        self.1.set(&"desc".to_string(), &descriptor)?;
+        self.1.flush()?;
+
+        Ok(())
+    }
+
+    fn desc_get(&self) -> Result<String, crate::error::Error> {
+        self.0.bucket::<String, String>(Some("meta"))?;
+        let res = self.1.get(&"desc".to_string())?;
+        if let Some(res) = res {
+            return Ok(res);
+        }
+        Err(crate::error::Error::WalletNotInitialized)
     }
 }

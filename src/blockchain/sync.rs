@@ -4,7 +4,7 @@ use std::vec;
 use crate::address_cache::{AddressCache, AddressCacheDatabase};
 use crate::error::Error;
 use bitcoin::consensus::{deserialize, Encodable};
-use bitcoin::hashes::hex::{FromHex, ToHex};
+use bitcoin::hashes::hex::FromHex;
 use bitcoin::hashes::{sha256, Hash};
 use bitcoin::Transaction;
 use bitcoin::{Block, BlockHash};
@@ -165,38 +165,4 @@ fn test_get_leaf_hashes() {
             .unwrap();
     let hash = BlockchainSync::get_leaf_hashes(&tx, 0, 117811, block_hash);
     assert_eq!(hash, expected)
-}
-#[test]
-fn test() {
-    let roots = vec![
-        "340fb65799279ca2329323eff0cfe5e0295e82c0794783890fb738da1bd21f30",
-        "8d7d381820c107b3a0b0ae4d78040ca64f75bc029b26cead9c6980f334034ffc",
-        "ba0144238ab56e717931b99ae385eb8c9a40104328a39a8002abf269265198f1",
-        "fe3bb5ce3786eea7ceabc8c47055a6899c039284536f7d24c39134b9ef39f874",
-    ];
-    let roots = roots
-        .into_iter()
-        .map(|h| sha256::Hash::from_hex(h).unwrap())
-        .collect::<Vec<sha256::Hash>>();
-    let stump = Stump { leafs: 102, roots };
-    let hashes = vec![
-        "12994ae7e11accaf39ed08aa1e92e8d9994acce2c9ff69ff5fd1672c77173e50",
-        "1e1c3ad5c2f4f1110107565f5ef3bff75676efba896d747c22514d27cad11ad3",
-        "187d7c1a5a504f3e4389c776941061df01a8b8c567b01e49b818287702370d09",
-        "2af0cffdb07b40bdb845e67259752e663156ad328585268abf62845c8c69b106",
-        "ab93cac29e663a31a78abbd00e77d9bb9235350aa48d43d42cca4b663212c22b",
-        "c8fa9a172229fcd21d1aaa437451575bf9f2077a4036af7acc4145f4b02e93c5",
-    ];
-    let hashes = hashes
-        .into_iter()
-        .map(|h| sha256::Hash::from_hex(h).unwrap())
-        .collect::<Vec<sha256::Hash>>();
-
-    let proof = Proof::new(vec![0], hashes);
-
-    let del_hash = vec!["788e30eb9b7e80dcf76eba077489982563dfcf37ed83f47c2d864fb312fbcc4d"];
-    let del_hash = del_hash
-        .into_iter()
-        .map(|h| sha256::Hash::from_hex(h).unwrap())
-        .collect::<Vec<sha256::Hash>>();
 }
