@@ -30,7 +30,7 @@ fn main() {
                 println!("Unable to connect with rpc");
                 return;
             }
-            let cache = load_wallet(data_dir.unwrap());
+            let cache = load_wallet(data_dir);
             let cache = start_sync(&rpc, cache).expect("Could not sync");
 
             let electrum_server = block_on(electrum::electrum_protocol::ElectrumServer::new(
