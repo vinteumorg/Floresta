@@ -180,6 +180,11 @@ impl ElectrumServer {
 
                 Err(super::error::Error::InvalidParams)
             }
+            "blockchain.transaction.broadcast" => {
+                let tx = get_arg!(request, String, 0);
+                let hex = self.rpc.sendrawtransaction(tx)?;
+                json_rpc_res!(request, hex)
+            }
             "blockchain.transaction.get" => {
                 if let Some(script_hash) = request.params.get(0) {
                     let tx_id = serde_json::from_value::<Txid>(script_hash.to_owned())?;
