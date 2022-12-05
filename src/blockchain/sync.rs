@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::ops::RangeInclusive;
 use std::vec;
 
@@ -23,7 +24,9 @@ impl BlockchainSync {
         let block = rpc.getblock(hash, false)?;
         if let VerbosityOutput::Simple(hex) = block {
             let block = Vec::from_hex(hex.as_str())?;
-            let block = deserialize(&block)?;
+            let block: Block = deserialize(&block)?;
+            let validation = block.header.validate_pow(&block.header.target());
+            assert!(validation.is_ok());
             return Ok(block);
         }
         Err(Error::BlockNotFound)
@@ -36,7 +39,6 @@ impl BlockchainSync {
         Self::sync_range(rpc, address_cache, 1..=height)?;
         Ok(())
     }
-
     pub fn sync_range<T: BtcdRpc, D: AddressCacheDatabase>(
         rpc: &T,
         address_cache: &mut AddressCache<D>,
@@ -90,17 +92,22 @@ impl BlockchainSync {
     ) -> Result<Stump, crate::error::Error> {
         let block_hash = block.block_hash();
         let mut leaf_hashes = vec![];
-        let res = proof.verify(&del_hashes, acc);
-        assert_eq!(
-            res,
-            Ok(true),
-            "Block: {height} {:?} \n Hashes: {:?}",
-            acc,
-            proof
-        );
+
+        if !proof.verify(&del_hashes, acc)? {
+            return Err(crate::error::Error::InvalidProof);
+        }
+        let mut block_inputs = HashSet::new();
+        for transaction in block.txdata.iter() {
+            for input in transaction.input.iter() {
+                block_inputs.insert((input.previous_output.txid, input.previous_output.vout));
+            }
+        }
+
         for transaction in block.txdata.iter() {
             for (i, output) in transaction.output.iter().enumerate() {
-                if !output.script_pubkey.is_provably_unspendable() {
+                if !output.script_pubkey.is_provably_unspendable()
+                    && !block_inputs.contains(&(transaction.txid(), i as u32))
+                {
                     leaf_hashes.push(BlockchainSync::get_leaf_hashes(
                         transaction,
                         i as u32,

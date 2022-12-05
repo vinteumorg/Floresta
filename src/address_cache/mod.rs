@@ -187,6 +187,7 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
         let mut my_transactions = vec![];
         self.acc = BlockchainSync::update_acc(&self.acc, &block, height, proof, del_hashes)
             .expect(format!("Could not update the accumulator at {height}").as_str());
+
         for (position, transaction) in block.txdata.iter().enumerate() {
             for output in transaction.output.iter() {
                 if self.script_set.contains(&output.script_pubkey) {

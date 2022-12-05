@@ -13,6 +13,7 @@ pub enum Error {
     DbParseError,
     ParseNumError(std::num::ParseIntError),
     RustreexoError(String),
+    InvalidProof,
 }
 
 impl std::fmt::Display for Error {
@@ -28,6 +29,7 @@ impl std::fmt::Display for Error {
             Error::DbParseError => write!(f, "Database parse error"),
             Error::ParseNumError(err) => write!(f, "int parse error: {err}"),
             Error::RustreexoError(err) => write!(f, "Rustreexo error: {err}"),
+            Error::InvalidProof => write!(f, "Invalid proof passed in")
         }
     }
 }
