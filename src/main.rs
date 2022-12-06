@@ -7,10 +7,14 @@ mod error;
 use std::{process::exit, sync::Arc};
 
 use crate::electrum::electrum_protocol::Message;
-use address_cache::{sqlite_storage::KvDatabase, AddressCache, AddressCacheDatabase};
+use address_cache::{kv_database::KvDatabase, AddressCache, AddressCacheDatabase};
 use async_std::task::{self, block_on};
 use bitcoin::Network;
-use blockchain::{sync::BlockchainSync, ChainWatch};
+use blockchain::{
+    chainstore::{ChainStore, KvChainStore},
+    sync::BlockchainSync,
+    ChainWatch,
+};
 use btcd_rpc::client::{BTCDClient, BTCDConfigs, BtcdRpc};
 use clap::Parser;
 use cli::{Cli, Commands};
@@ -32,7 +36,6 @@ fn main() {
             }
             let cache = load_wallet(data_dir);
             let cache = start_sync(&rpc, cache).expect("Could not sync");
-
             let electrum_server = block_on(electrum::electrum_protocol::ElectrumServer::new(
                 "127.0.0.1:50001",
                 rpc.clone(),
@@ -69,9 +72,11 @@ fn main() {
     }
 }
 
-fn load_wallet(data_dir: String) -> AddressCache<KvDatabase> {
-    let database = KvDatabase::new(data_dir).expect("Could not create a database");
-    AddressCache::new(database)
+fn load_wallet(data_dir: String) -> AddressCache<KvDatabase, KvChainStore> {
+    let database = KvDatabase::new(data_dir.clone()).expect("Could not create a database");
+    let chain_store = KvChainStore::new(data_dir).unwrap();
+
+    AddressCache::new(database, chain_store)
 }
 fn create_rpc_connection(
     hostname: String,
@@ -94,7 +99,10 @@ fn create_rpc_connection(
 
     Arc::new(BTCDClient::new(config).unwrap())
 }
-fn setup_wallet<D: AddressCacheDatabase>(descriptor: String, mut wallet: AddressCache<D>) {
+fn setup_wallet<D: AddressCacheDatabase, S: ChainStore>(
+    descriptor: String,
+    mut wallet: AddressCache<D, S>,
+) {
     if let Err(e) = wallet.setup(descriptor.clone()) {
         println!("Could not setup wallet: {e}");
         exit(1);
@@ -113,10 +121,10 @@ fn setup_wallet<D: AddressCacheDatabase>(descriptor: String, mut wallet: Address
 
     println!("Wallet setup completed! You can now execute run");
 }
-fn start_sync<D: AddressCacheDatabase, Rpc: BtcdRpc>(
+fn start_sync<D: AddressCacheDatabase, Rpc: BtcdRpc, S: ChainStore>(
     rpc: &Arc<Rpc>,
-    mut address_cache: AddressCache<D>,
-) -> Result<AddressCache<D>, error::Error> {
+    mut address_cache: AddressCache<D, S>,
+) -> Result<AddressCache<D, S>, error::Error> {
     let current_hight = rpc.getbestblock()?.height as u32;
     let sync_range = address_cache.get_sync_limits(current_hight);
     if let Err(crate::error::Error::WalletNotInitialized) = sync_range {

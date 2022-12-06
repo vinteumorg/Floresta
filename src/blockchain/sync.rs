@@ -4,7 +4,7 @@ use std::vec;
 
 use crate::address_cache::{AddressCache, AddressCacheDatabase};
 use crate::error::Error;
-use bitcoin::consensus::{deserialize, Encodable};
+use bitcoin::consensus::{Encodable, deserialize_partial};
 use bitcoin::hashes::hex::FromHex;
 use bitcoin::hashes::{sha256, Hash};
 use bitcoin::Transaction;
@@ -15,33 +15,34 @@ use rustreexo::accumulator::proof::Proof;
 use rustreexo::accumulator::stump::Stump;
 use sha2::{Digest, Sha512_256};
 
+use super::chainstore::ChainStore;
+
 #[derive(Debug, Default)]
 pub struct BlockchainSync;
 impl BlockchainSync {
     pub fn get_block<T: BtcdRpc>(rpc: &T, height: u32) -> Result<Block, crate::error::Error> {
         let hash = rpc.getblockhash(height as usize)?;
-
         let block = rpc.getblock(hash, false)?;
         if let VerbosityOutput::Simple(hex) = block {
             let block = Vec::from_hex(hex.as_str())?;
-            let block: Block = deserialize(&block)?;
+            let (block, _): (Block, usize) = deserialize_partial(&block).unwrap();
             let validation = block.header.validate_pow(&block.header.target());
             assert!(validation.is_ok());
             return Ok(block);
         }
         Err(Error::BlockNotFound)
     }
-    pub fn _sync_all<D: AddressCacheDatabase, Rpc: BtcdRpc>(
+    pub fn _sync_all<D: AddressCacheDatabase, Rpc: BtcdRpc, S: ChainStore>(
         rpc: &Rpc,
-        address_cache: &mut AddressCache<D>,
+        address_cache: &mut AddressCache<D, S>,
     ) -> Result<(), crate::error::Error> {
         let height = rpc.getbestblock().expect("sync_all: Rpc failed").height as u32;
         Self::sync_range(rpc, address_cache, 1..=height)?;
         Ok(())
     }
-    pub fn sync_range<T: BtcdRpc, D: AddressCacheDatabase>(
+    pub fn sync_range<T: BtcdRpc, D: AddressCacheDatabase, S: ChainStore>(
         rpc: &T,
-        address_cache: &mut AddressCache<D>,
+        address_cache: &mut AddressCache<D, S>,
         range: RangeInclusive<u32>,
     ) -> Result<(), crate::error::Error> {
         println!("==> Catching up to block {}", range.end());
@@ -51,6 +52,10 @@ impl BlockchainSync {
                 .expect("Could not get block proof");
             if block_height % 1000 == 0 {
                 println!("Sync at block {block_height}: {}", block.block_hash());
+                // These operations involves expensive db calls, only make it after some
+                // substantial progress
+                address_cache.save_acc();
+                address_cache.bump_height(block_height);
             }
             address_cache.block_process(&block, block_height, proof, del_hashes);
         }
@@ -141,9 +146,9 @@ impl BlockchainSync {
         let proof = Proof::new(targets, proof_hashes);
         Ok((proof, targethashes))
     }
-    pub fn _sync_single<T: BtcdRpc, D: AddressCacheDatabase>(
+    pub fn _sync_single<T: BtcdRpc, D: AddressCacheDatabase, S: ChainStore>(
         rpc: &T,
-        address_cache: &mut AddressCache<D>,
+        address_cache: &mut AddressCache<D, S>,
         blocks: u32,
     ) {
         for block_height in 0..blocks {
@@ -161,6 +166,7 @@ impl BlockchainSync {
 
 #[test]
 fn test_get_leaf_hashes() {
+    use bitcoin::consensus::deserialize;
     let tx = Vec::from_hex("02000000000101d997ca3adb105089361299c6bcb79b678b79bd949f94c70d396c8813877f7ccf0000000000fdffffff01da160f0000000000160014275f567685bfe080e4789eaca36d9af30327abac0247304402201528001078868c9195ff9358a6d0b529f263e280ae86fc55617283b42ca66f8f02203deb150aeb930a1e21b792ebe50bfab60c51145447ac24a56363791b1517b730012102c97b9dd85d82fbb127bef4d6640ea6cdba460c5d092e7bfc3a7ea3777bc7523a32cc0100").unwrap();
     let tx: Transaction = deserialize(&tx).unwrap();
     let block_hash = bitcoin::hash_types::BlockHash::from_hex(

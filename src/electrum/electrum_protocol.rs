@@ -1,7 +1,8 @@
 use crate::address_cache::{AddressCache, CachedTransaction};
+use crate::blockchain::chainstore::KvChainStore;
 use crate::electrum::request::Request;
 use crate::electrum::TransactionHistoryEntry;
-use crate::{address_cache::sqlite_storage::KvDatabase, blockchain::sync::BlockchainSync};
+use crate::{address_cache::kv_database::KvDatabase, blockchain::sync::BlockchainSync};
 use crate::{get_arg, json_rpc_res};
 use async_std::{
     io::BufReader,
@@ -54,7 +55,7 @@ impl Peer {
 }
 pub struct ElectrumServer {
     pub rpc: Arc<BTCDClient>,
-    pub address_cache: AddressCache<KvDatabase>,
+    pub address_cache: AddressCache<KvDatabase, KvChainStore>,
     pub listener: Option<Arc<TcpListener>>,
     pub peers: HashMap<u32, Arc<Peer>>,
     pub peer_accept: Receiver<Message>,
@@ -72,7 +73,7 @@ impl ElectrumServer {
     pub async fn new<'a>(
         address: &'static str,
         rpc: Arc<BTCDClient>,
-        address_cache: AddressCache<KvDatabase>,
+        address_cache: AddressCache<KvDatabase, KvChainStore>,
     ) -> Result<ElectrumServer, Box<dyn std::error::Error>> {
         let listener = Arc::new(TcpListener::bind(address).await?);
         let (tx, rx) = channel();
@@ -284,6 +285,9 @@ impl ElectrumServer {
                             proof,
                             target_hashes,
                         );
+                        self.address_cache.save_acc();
+                        self.address_cache.bump_height(best.height as u32);
+
                         let header = self
                             .rpc
                             .getblockheader(best.hash, false)

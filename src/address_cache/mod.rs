@@ -1,12 +1,16 @@
-pub mod sqlite_storage;
+pub mod kv_database;
 use std::{
     collections::{HashMap, HashSet},
+    fmt::Write,
     ops::RangeInclusive,
     str::Split,
     vec,
 };
 
-use crate::{blockchain::sync::BlockchainSync, electrum::electrum_protocol::get_spk_hash};
+use crate::{
+    blockchain::{chainstore::ChainStore, sync::BlockchainSync},
+    electrum::electrum_protocol::get_spk_hash,
+};
 use bitcoin::{
     consensus::deserialize,
     consensus::encode::serialize_hex,
@@ -19,7 +23,7 @@ use bitcoin::{
     Block, MerkleBlock, Script, Transaction, TxOut,
 };
 use rustreexo::accumulator::{proof::Proof, stump::Stump};
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CachedTransaction {
     pub tx_hex: String,
     pub height: u32,
@@ -160,7 +164,7 @@ pub trait AddressCacheDatabase {
 }
 /// Holds all addresses and associated transactions. We need a database with some basic
 /// methods, to store all data
-pub struct AddressCache<D: AddressCacheDatabase> {
+pub struct AddressCache<D: AddressCacheDatabase, S: ChainStore> {
     /// A database that will be used to persist all needed to get our address history
     database: D,
     /// Maps a hash to a cached address struct, this is basically an in-memory version
@@ -173,8 +177,11 @@ pub struct AddressCache<D: AddressCacheDatabase> {
     tx_index: HashMap<Txid, (Hash, usize)>,
     /// Our utreexo accumulator
     acc: Stump,
+    /// Since address_cache hold an acc and might need some other blockchain related data
+    /// it's nice to give it a chainstore.
+    chain_store: S,
 }
-impl<D: AddressCacheDatabase> AddressCache<D> {
+impl<D: AddressCacheDatabase, S: ChainStore> AddressCache<D, S> {
     /// Iterates through a block, finds transactions destined to ourselves.
     /// Returns all transactions we found.
     pub fn block_process(
@@ -205,12 +212,58 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
                 }
             }
         }
+        my_transactions
+    }
+    pub fn save_acc(&self) {
+        let mut acc = String::new();
+        acc.write_fmt(format_args!("{} ", self.acc.leafs))
+            .expect("String formatting should not err");
+        for root in self.acc.roots.iter() {
+            acc.write_fmt(format_args!("{root}"))
+                .expect("String formatting should not err");
+        }
+
+        self.chain_store
+            .save_roots(acc)
+            .expect("Chain store is not working");
+    }
+
+    fn load_acc(chain_store: &S) -> Stump {
+        let acc = chain_store.load_roots().expect("Could not load roots");
+        if let Some(acc) = acc {
+            let acc = acc.split(" ").collect::<Vec<_>>();
+            let leaves = acc.get(0).expect("Missing leaves count");
+
+            let leaves = leaves
+                .parse::<u64>()
+                .expect("Invalid number, maybe the accumulator got corrupted?");
+            let acc = acc.get(1);
+            let mut roots = vec![];
+
+            if let Some(acc) = acc {
+                let mut acc = acc.to_string();
+                while acc.len() >= 64 {
+                    let hash = acc.drain(0..64).collect::<String>();
+                    let hash =
+                        sha256::Hash::from_hex(hash.as_str()).expect("Invalid hash provided");
+                    roots.push(hash);
+                }
+            }
+
+            Stump {
+                leafs: leaves,
+                roots,
+            }
+        } else {
+            Stump::new()
+        }
+    }
+    pub fn bump_height(&self, height: u32) {
         self.database
             .set_cache_height(height)
             .expect("Database is not working");
-        my_transactions
     }
-    pub fn new(database: D) -> AddressCache<D> {
+    pub fn new(database: D, chain_store: S) -> AddressCache<D, S> {
         let scripts = database
             .load::<crate::error::Error>()
             .expect("Could not load database");
@@ -222,13 +275,14 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
             script_set.insert(address.script.clone());
             address_map.insert(address.script_hash, address);
         }
-
+        let acc = AddressCache::<D, S>::load_acc(&chain_store);
         AddressCache {
             database,
+            chain_store,
             address_map,
             script_set,
             tx_index: HashMap::new(),
-            acc: Stump::new(),
+            acc,
         }
     }
     fn get_transaction(&self, txid: &Txid) -> Option<CachedTransaction> {
@@ -332,6 +386,9 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
         };
         let hash = get_spk_hash(&out.script_pubkey);
         if let Some(address) = self.address_map.get_mut(&hash) {
+            if address.transactions.contains(&transaction_to_cache) {
+                return;
+            }
             self.tx_index.insert(
                 transaction.txid(),
                 (address.script_hash, address.transactions.len()),
@@ -361,20 +418,23 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
 mod test {
     use bitcoin::{hashes::hex::FromHex, Script};
 
-    use crate::electrum::electrum_protocol::get_spk_hash;
+    use crate::{blockchain::chainstore::KvChainStore, electrum::electrum_protocol::get_spk_hash};
 
-    use super::{sqlite_storage::KvDatabase, AddressCache};
+    use super::{kv_database::KvDatabase, AddressCache};
 
     #[test]
     fn test_create_cache() {
         // None of this should fail
         let database = KvDatabase::new("/tmp/utreexo/".into()).unwrap();
-        let _ = AddressCache::new(database);
+        let chain_store = KvChainStore::new("/tmp/utreexo/".to_owned()).unwrap();
+        let _ = AddressCache::new(database, chain_store);
     }
     #[test]
     fn cache_address() {
         let database = KvDatabase::new("/tmp/utreexo/".into()).unwrap();
-        let mut cache = AddressCache::new(database);
+        let chain_store = KvChainStore::new("/tmp/utreexo/".to_owned()).unwrap();
+
+        let mut cache = AddressCache::new(database, chain_store);
         let script_pk = Script::from_hex("00").unwrap();
         let hash = &get_spk_hash(&script_pk);
 
@@ -386,12 +446,16 @@ mod test {
     fn test_persistency() {
         {
             let database = KvDatabase::new("/tmp/utreexo/".into()).unwrap();
-            let mut cache = AddressCache::new(database);
+            let chain_store = KvChainStore::new("/tmp/utreexo/".to_owned()).unwrap();
+
+            let mut cache = AddressCache::new(database, chain_store);
             let script_pk = Script::from_hex("4104678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38c4f35504e51ec112de5c384df7ba0b8d578a4c702b6bf11d5fac").unwrap();
             cache.cache_address(script_pk);
         }
         let database = KvDatabase::new("/tmp/utreexo/".into()).unwrap();
-        let cache = AddressCache::new(database);
+        let chain_store = KvChainStore::new("/tmp/utreexo/".to_owned()).unwrap();
+
+        let cache = AddressCache::new(database, chain_store);
         assert_eq!(cache.script_set.len(), 1);
     }
 }

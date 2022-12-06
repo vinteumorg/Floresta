@@ -1,5 +1,6 @@
 use std::sync::Arc;
 pub mod sync;
+pub mod chainstore;
 
 use bitcoin::{
     consensus::{Decodable, Encodable},
