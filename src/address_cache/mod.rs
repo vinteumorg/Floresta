@@ -337,8 +337,8 @@ impl<D: AddressCacheDatabase, S: ChainStore> AddressCache<D, S> {
         &self,
         current_hight: u32,
     ) -> Result<RangeInclusive<u32>, crate::error::Error> {
-        let hight = self.database.get_cache_height()?;
-        Ok(hight..=current_hight)
+        let height = self.database.get_cache_height()?;
+        Ok((height + 1)..=current_hight)
     }
     pub fn get_cached_transaction(&self, txid: &Txid) -> Option<String> {
         if let Some(tx) = self.get_transaction(txid) {
@@ -362,9 +362,7 @@ impl<D: AddressCacheDatabase, S: ChainStore> AddressCache<D, S> {
     /// Setup is the first command that should be executed. In a new cache. It sets our wallet's
     /// state, like the height we should start scanning and the wallet's descriptor.
     pub fn setup(&self, descriptor: String) -> Result<(), crate::error::Error> {
-        // We don't start from 0, because the genesis's utxo is not spendable, and it don't
-        // have any proof. We skip it and start from block one when filtering.
-        self.database.set_cache_height(1)?;
+        self.database.set_cache_height(0)?;
         self.database.desc_save(descriptor)
     }
     /// Caches a new transaction. This method may be called for addresses we don't follow yet,

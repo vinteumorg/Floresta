@@ -45,7 +45,8 @@ impl BlockchainSync {
         address_cache: &mut AddressCache<D, S>,
         range: RangeInclusive<u32>,
     ) -> Result<(), crate::error::Error> {
-        println!("==> Catching up to block {}", range.end());
+        let current_height = *range.end();
+        println!("==> Catching up to block {current_height}");
         for block_height in range {
             let block = BlockchainSync::get_block(rpc, block_height)?;
             let (proof, del_hashes) = Self::get_proof(rpc, &block.block_hash().to_string())
@@ -59,6 +60,9 @@ impl BlockchainSync {
             }
             address_cache.block_process(&block, block_height, proof, del_hashes);
         }
+        println!("Done!");
+        address_cache.save_acc();
+        address_cache.bump_height(current_height);
         Ok(())
     }
     fn get_leaf_hashes(

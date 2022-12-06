@@ -234,7 +234,7 @@ impl ElectrumServer {
         }
     }
 
-    pub async fn main_loop(mut self) -> Result<(), std::io::Error> {
+    pub async fn main_loop(mut self) -> Result<(), crate::error::Error> {
         loop {
             if let Ok(message) = self.peer_accept.recv() {
                 match message {
@@ -274,20 +274,9 @@ impl ElectrumServer {
                     Message::NewBlock => {
                         log!(Level::Debug, "New Block!");
                         let best = self.rpc.getbestblock().unwrap();
-                        let (proof, target_hashes) = BlockchainSync::get_proof(
-                            &*self.rpc, &best.hash,
-                        )
-                        .expect(format!("Could not get proof for {}", best.height).as_str());
+                        let limits = self.address_cache.get_sync_limits(best.height as u32)?;
 
-                        self.address_cache.block_process(
-                            &BlockchainSync::get_block(&*self.rpc, best.height as u32).unwrap(),
-                            best.height as u32,
-                            proof,
-                            target_hashes,
-                        );
-                        self.address_cache.save_acc();
-                        self.address_cache.bump_height(best.height as u32);
-
+                        BlockchainSync::sync_range(&*self.rpc, &mut self.address_cache, limits)?;
                         let header = self
                             .rpc
                             .getblockheader(best.hash, false)
