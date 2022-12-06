@@ -49,7 +49,11 @@ impl std::fmt::Display for CachedTransaction {
         } else {
             "".to_string()
         };
-        write!(f, "{};{};{}", self.tx_hex, self.height, merkle_block)
+        write!(
+            f,
+            "{};{};{};{}",
+            self.tx_hex, self.height, self.position, merkle_block
+        )
     }
 }
 /// TODO: Clean this function up
@@ -69,6 +73,7 @@ impl TryFrom<String> for CachedTransaction {
         let (tx_hex, transaction) = get_arg(transaction)?;
 
         let (height, transaction) = get_arg(transaction)?;
+        let (position, transaction) = get_arg(transaction)?;
 
         let (merkle_block, _) = get_arg(transaction)?;
         let merkle_block = Vec::from_hex(merkle_block)?;
@@ -82,7 +87,7 @@ impl TryFrom<String> for CachedTransaction {
             height: height.parse::<u32>()?,
             merkle_block: Some(merkle_block),
             hash: tx.txid().to_string(),
-            position: 0,
+            position: position.parse::<u32>()?,
         })
     }
 }
@@ -270,18 +275,23 @@ impl<D: AddressCacheDatabase, S: ChainStore> AddressCache<D, S> {
 
         let mut address_map = HashMap::new();
         let mut script_set = HashSet::new();
-
+        let mut tx_index = HashMap::new();
         for address in scripts {
+            for (pos, tx) in address.transactions.iter().enumerate() {
+                let txid = Txid::from_hex(&tx.hash).expect("Cached an invalid txid");
+                tx_index.insert(txid, (address.script_hash, pos));
+            }
             script_set.insert(address.script.clone());
             address_map.insert(address.script_hash, address);
         }
+
         let acc = AddressCache::<D, S>::load_acc(&chain_store);
         AddressCache {
             database,
             chain_store,
             address_map,
             script_set,
-            tx_index: HashMap::new(),
+            tx_index,
             acc,
         }
     }
@@ -313,14 +323,15 @@ impl<D: AddressCacheDatabase, S: ChainStore> AddressCache<D, S> {
     /// Returns the Merkle Proof for a given address
     pub fn get_merkle_proof(&self, txid: &Txid) -> Option<(Vec<String>, u32)> {
         let mut hashes = vec![];
-
         if let Some(tx) = self.get_transaction(txid) {
             for hash in tx.merkle_block.unwrap().txn.hashes() {
-                hashes.push(hash.to_hex());
+                // Rust Bitcoin (and Bitcoin Core) includes the target hash, but Electrum
+                // doesn't like this.
+                if hash.as_hash() != txid.as_hash() {
+                    hashes.push(hash.to_hex());
+                }
             }
-            // Rust Bitcoin (and Bitcoin Core) includes the target hash, but Electrum
-            // doesn't like this.
-            hashes.pop();
+
             return Some((hashes, tx.position));
         }
 
@@ -414,11 +425,9 @@ impl<D: AddressCacheDatabase, S: ChainStore> AddressCache<D, S> {
 
 #[cfg(test)]
 mod test {
-    use bitcoin::{hashes::hex::FromHex, Script};
-
-    use crate::{blockchain::chainstore::KvChainStore, electrum::electrum_protocol::get_spk_hash};
-
     use super::{kv_database::KvDatabase, AddressCache};
+    use crate::{blockchain::chainstore::KvChainStore, electrum::electrum_protocol::get_spk_hash};
+    use bitcoin::{hashes::hex::FromHex, Script};
 
     #[test]
     fn test_create_cache() {

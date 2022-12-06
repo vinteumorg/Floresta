@@ -43,7 +43,7 @@ impl<'a> AddressCacheDatabase for KvDatabase {
             "{}:{}:{}:{transactions}",
             address.script_hash,
             address.balance,
-            address.script.to_hex()
+            address.script.to_hex(),
         );
 
         self.1
