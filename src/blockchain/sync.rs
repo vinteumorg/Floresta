@@ -46,13 +46,11 @@ impl BlockchainSync {
         range: RangeInclusive<u32>,
     ) -> Result<(), crate::error::Error> {
         let current_height = *range.end();
-        println!("==> Catching up to block {current_height}");
         for block_height in range {
             let block = BlockchainSync::get_block(rpc, block_height)?;
             let (proof, del_hashes) = Self::get_proof(rpc, &block.block_hash().to_string())
                 .expect("Could not get block proof");
             if block_height % 1000 == 0 {
-                println!("Sync at block {block_height}: {}", block.block_hash());
                 // These operations involves expensive db calls, only make it after some
                 // substantial progress
                 address_cache.save_acc();
@@ -60,7 +58,6 @@ impl BlockchainSync {
             }
             address_cache.block_process(&block, block_height, proof, del_hashes);
         }
-        println!("Done!");
         address_cache.save_acc();
         address_cache.bump_height(current_height);
         Ok(())
