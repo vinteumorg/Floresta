@@ -1,21 +1,21 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::ops::RangeInclusive;
 use std::vec;
 
+use super::chainstore::ChainStore;
+use super::udata::LeafData;
 use crate::address_cache::{AddressCache, AddressCacheDatabase};
 use crate::error::Error;
-use bitcoin::consensus::{Encodable, deserialize_partial};
+use bitcoin::consensus::{deserialize, deserialize_partial, Encodable};
 use bitcoin::hashes::hex::FromHex;
 use bitcoin::hashes::{sha256, Hash};
-use bitcoin::Transaction;
 use bitcoin::{Block, BlockHash};
+use bitcoin::{OutPoint, Transaction, TxOut};
 use btcd_rpc::client::BtcdRpc;
 use btcd_rpc::json_types::VerbosityOutput;
 use rustreexo::accumulator::proof::Proof;
 use rustreexo::accumulator::stump::Stump;
 use sha2::{Digest, Sha512_256};
-
-use super::chainstore::ChainStore;
 
 #[derive(Debug, Default)]
 pub struct BlockchainSync;
@@ -31,6 +31,17 @@ impl BlockchainSync {
             return Ok(block);
         }
         Err(Error::BlockNotFound)
+    }
+    pub fn verify_block_transactions(
+        mut utxos: HashMap<OutPoint, TxOut>,
+        transactions: &[Transaction],
+    ) -> Result<bool, crate::error::Error> {
+        for transaction in transactions {
+            if !transaction.is_coin_base() {
+                transaction.verify(|outpoint| utxos.remove(outpoint))?;
+            }
+        }
+        Ok(true)
     }
     pub fn _sync_all<D: AddressCacheDatabase, Rpc: BtcdRpc, S: ChainStore>(
         rpc: &Rpc,
@@ -48,9 +59,31 @@ impl BlockchainSync {
         let current_height = *range.end();
         for block_height in range {
             let block = BlockchainSync::get_block(rpc, block_height)?;
-            let (proof, del_hashes) = Self::get_proof(rpc, &block.block_hash().to_string())
+
+            let (proof, del_hashes, utxos) = Self::get_proof(rpc, &block.block_hash().to_string())
                 .expect("Could not get block proof");
+            let mut utxo_map = HashMap::new();
+            for utxo in utxos {
+                utxo_map.insert(utxo.prevout, utxo.utxo);
+            }
+            for transaction in block.txdata.iter() {
+                for (idx, out) in transaction.output.iter().enumerate() {
+                    utxo_map.insert(
+                        OutPoint {
+                            txid: transaction.txid(),
+                            vout: idx as u32,
+                        },
+                        out.clone(),
+                    );
+                }
+            }
+            Self::verify_block_transactions(utxo_map, &block.txdata)?;
+
             if block_height % 1000 == 0 {
+                println!(
+                    "Update: height {block_height} progress: {:>5}%",
+                    (block_height as f32 / current_height as f32) * 100 as f32,
+                );
                 // These operations involves expensive db calls, only make it after some
                 // substantial progress
                 address_cache.save_acc();
@@ -62,6 +95,7 @@ impl BlockchainSync {
         address_cache.bump_height(current_height);
         Ok(())
     }
+    // TODO: Move to LeafData
     fn get_leaf_hashes(
         transaction: &Transaction,
         vout: u32,
@@ -89,6 +123,7 @@ impl BlockchainSync {
         sha256::Hash::from_slice(leaf_hash.as_slice())
             .expect("parent_hash: Engines shouldn't be Err")
     }
+
     pub fn update_acc(
         acc: &Stump,
         block: &Block,
@@ -130,8 +165,16 @@ impl BlockchainSync {
     pub fn get_proof<T: BtcdRpc>(
         rpc: &T,
         hash: &String,
-    ) -> Result<(Proof, Vec<sha256::Hash>), crate::error::Error> {
+    ) -> Result<(Proof, Vec<sha256::Hash>, Vec<LeafData>), crate::error::Error> {
         let proof = rpc.getutreexoproof(hash.to_string(), true)?.get_verbose();
+        let preimages: Vec<_> = proof
+            .target_preimages
+            .iter()
+            .map(|preimage| deserialize_partial::<LeafData>(&Vec::from_hex(preimage).unwrap()))
+            .filter(|data| data.is_ok())
+            .map(|data| data.unwrap().0)
+            .collect();
+
         let proof_hashes: Vec<_> = proof
             .proofhashes
             .iter()
@@ -145,7 +188,8 @@ impl BlockchainSync {
             .map(|hash| sha256::Hash::from_hex(hash).unwrap())
             .collect();
         let proof = Proof::new(targets, proof_hashes);
-        Ok((proof, targethashes))
+
+        Ok((proof, targethashes, preimages))
     }
     pub fn _sync_single<T: BtcdRpc, D: AddressCacheDatabase, S: ChainStore>(
         rpc: &T,
@@ -154,7 +198,7 @@ impl BlockchainSync {
     ) {
         for block_height in 0..blocks {
             let block = BlockchainSync::get_block(rpc, block_height).unwrap();
-            let (proof, del_hashes) = Self::get_proof(rpc, &block.block_hash().to_string())
+            let (proof, del_hashes, _) = Self::get_proof(rpc, &block.block_hash().to_string())
                 .expect("Could not get block proof");
 
             if block_height % 1000 == 0 {

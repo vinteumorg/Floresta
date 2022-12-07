@@ -15,6 +15,7 @@ pub enum Error {
     RustreexoError(String),
     InvalidProof,
     IoError(std::io::Error),
+    ValidationError(bitcoin::blockdata::script::Error),
 }
 
 impl std::fmt::Display for Error {
@@ -32,6 +33,7 @@ impl std::fmt::Display for Error {
             Error::RustreexoError(err) => write!(f, "Rustreexo error: {err}"),
             Error::InvalidProof => write!(f, "Invalid proof passed in"),
             Error::IoError(err) => write!(f, "Io error {err}"),
+            Error::ValidationError(err) => write!(f, "Error during script evaluation: {err}"),
         }
     }
 }
@@ -43,6 +45,7 @@ impl_from_error!(DbError, kv::Error);
 impl_from_error!(ParseNumError, std::num::ParseIntError);
 impl_from_error!(RustreexoError, String);
 impl_from_error!(IoError, std::io::Error);
+impl_from_error!(ValidationError, bitcoin::blockdata::script::Error);
 
 impl std::error::Error for Error {}
 #[macro_export]
