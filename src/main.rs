@@ -48,6 +48,7 @@ use blockchain::{
 use btcd_rpc::client::{BTCDClient, BTCDConfigs, BtcdRpc};
 use clap::Parser;
 use cli::{Cli, Commands};
+use log::{log, Level};
 use miniscript::{Descriptor, DescriptorPublicKey};
 use std::str::FromStr;
 fn main() {
@@ -61,11 +62,16 @@ fn main() {
         } => {
             let rpc = create_rpc_connection(rpc_host, Some(rpc_user), Some(rpc_password));
             if !test_rpc(&rpc) {
-                println!("Unable to connect with rpc");
+                log!(Level::Error, "Unable to connect with rpc");
                 return;
             }
+            log!(
+                Level::Info,
+                "Starting sync worker, this might take a while!"
+            );
             let cache = load_wallet(data_dir);
             let cache = start_sync(&rpc, cache).expect("Could not sync");
+            log!(Level::Info, "Starting server...");
             let electrum_server = block_on(electrum::electrum_protocol::ElectrumServer::new(
                 "127.0.0.1:50001",
                 rpc.clone(),
@@ -134,7 +140,7 @@ fn setup_wallet<D: AddressCacheDatabase, S: ChainStore>(
     mut wallet: AddressCache<D, S>,
 ) {
     if let Err(e) = wallet.setup(descriptor.clone()) {
-        println!("Could not setup wallet: {e}");
+        log!(Level::Error, "Could not setup wallet: {e}");
         exit(1);
     }
 
@@ -148,8 +154,10 @@ fn setup_wallet<D: AddressCacheDatabase, S: ChainStore>(
             .expect("Error while deriving address. Is this an active descriptor?");
         wallet.cache_address(address.script_pubkey());
     }
-
-    println!("Wallet setup completed! You can now execute run");
+    log!(
+        Level::Info,
+        "Wallet setup completed! You can now execute run"
+    );
 }
 fn start_sync<D: AddressCacheDatabase, Rpc: BtcdRpc, S: ChainStore>(
     rpc: &Arc<Rpc>,
@@ -158,7 +166,8 @@ fn start_sync<D: AddressCacheDatabase, Rpc: BtcdRpc, S: ChainStore>(
     let current_hight = rpc.getbestblock()?.height as u32;
     let sync_range = address_cache.get_sync_limits(current_hight);
     if let Err(crate::error::Error::WalletNotInitialized) = sync_range {
-        println!("Wallet not set up!");
+        log!(Level::Error, "Wallet not set up!");
+
         exit(1);
     }
 

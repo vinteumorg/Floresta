@@ -13,10 +13,10 @@ use bitcoin::{Block, BlockHash};
 use bitcoin::{OutPoint, Transaction, TxOut};
 use btcd_rpc::client::BtcdRpc;
 use btcd_rpc::json_types::VerbosityOutput;
+use log::{log, Level};
 use rustreexo::accumulator::proof::Proof;
 use rustreexo::accumulator::stump::Stump;
 use sha2::{Digest, Sha512_256};
-
 #[derive(Debug, Default)]
 pub struct BlockchainSync;
 impl BlockchainSync {
@@ -81,7 +81,8 @@ impl BlockchainSync {
             address_cache.block_process(&block, block_height, proof, del_hashes);
 
             if block_height % 1000 == 0 {
-                println!(
+                log!(
+                    Level::Info,
                     "Update: height {block_height} progress: {progress:<2}%",
                     progress = (block_height as f32 / current_height as f32) * 100_f32,
                 );
@@ -203,8 +204,13 @@ impl BlockchainSync {
                 .expect("Could not get block proof");
 
             if block_height % 1000 == 0 {
-                println!("Sync at block {block_height}: {}", block.block_hash());
+                log!(
+                    Level::Info,
+                    "Update: height {block_height} progress: {progress:<2}%",
+                    progress = (block_height as f32 / blocks as f32) * 100_f32,
+                );
             }
+            // FIXME
             let _ = address_cache.block_process(&block, block_height, proof, del_hashes);
         }
     }
