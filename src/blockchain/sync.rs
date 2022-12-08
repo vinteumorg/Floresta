@@ -6,7 +6,7 @@ use super::chainstore::ChainStore;
 use super::udata::LeafData;
 use crate::address_cache::{AddressCache, AddressCacheDatabase};
 use crate::error::Error;
-use bitcoin::consensus::{deserialize, deserialize_partial, Encodable};
+use bitcoin::consensus::{deserialize_partial, Encodable};
 use bitcoin::hashes::hex::FromHex;
 use bitcoin::hashes::{sha256, Hash};
 use bitcoin::{Block, BlockHash};
@@ -78,18 +78,18 @@ impl BlockchainSync {
                 }
             }
             Self::verify_block_transactions(utxo_map, &block.txdata)?;
+            address_cache.block_process(&block, block_height, proof, del_hashes);
 
             if block_height % 1000 == 0 {
                 println!(
-                    "Update: height {block_height} progress: {:>5}%",
-                    (block_height as f32 / current_height as f32) * 100 as f32,
+                    "Update: height {block_height} progress: {progress:<2}%",
+                    progress = (block_height as f32 / current_height as f32) * 100 as f32,
                 );
                 // These operations involves expensive db calls, only make it after some
                 // substantial progress
                 address_cache.save_acc();
                 address_cache.bump_height(block_height);
             }
-            address_cache.block_process(&block, block_height, proof, del_hashes);
         }
         address_cache.save_acc();
         address_cache.bump_height(current_height);
@@ -133,7 +133,6 @@ impl BlockchainSync {
     ) -> Result<Stump, crate::error::Error> {
         let block_hash = block.block_hash();
         let mut leaf_hashes = vec![];
-
         if !proof.verify(&del_hashes, acc)? {
             return Err(crate::error::Error::InvalidProof);
         }
@@ -170,9 +169,11 @@ impl BlockchainSync {
         let preimages: Vec<_> = proof
             .target_preimages
             .iter()
-            .map(|preimage| deserialize_partial::<LeafData>(&Vec::from_hex(preimage).unwrap()))
-            .filter(|data| data.is_ok())
-            .map(|data| data.unwrap().0)
+            .map(|preimage| {
+                deserialize_partial::<LeafData>(&Vec::from_hex(preimage).unwrap())
+                    .unwrap()
+                    .0
+            })
             .collect();
 
         let proof_hashes: Vec<_> = proof
