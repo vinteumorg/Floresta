@@ -23,19 +23,12 @@ use std::sync::{
     Arc,
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Peer {
     _addresses: HashSet<Script>,
     stream: Option<Arc<TcpStream>>,
 }
-impl Default for Peer {
-    fn default() -> Self {
-        Peer {
-            _addresses: HashSet::new(),
-            stream: None,
-        }
-    }
-}
+
 impl Peer {
     pub async fn write(&self, data: &[u8]) -> Result<(), std::io::Error> {
         if let Some(stream) = &self.stream {
@@ -62,6 +55,7 @@ pub struct ElectrumServer {
     pub notify_tx: Sender<Message>,
     pub peer_addresses: HashMap<sha256::Hash, Arc<Peer>>,
 }
+#[allow(clippy::enum_variant_names)]
 pub enum Message {
     NewPeer((u32, Arc<Peer>)),
     Message((u32, String)),
@@ -245,7 +239,7 @@ impl ElectrumServer {
                         trace!("Message: {msg}");
                         if let Ok(req) = serde_json::from_str::<Request>(msg.as_str()) {
                             let peer = self.peers.get(&peer);
-                            if let None = peer {
+                            if peer.is_none() {
                                 log!(
                                     Level::Error,
                                     "Peer sent a message but is not listed as peer"
@@ -290,9 +284,8 @@ impl ElectrumServer {
                                 "hex": header
                             }]
                         });
-                        for (_, peer) in &mut self.peers {
-                            let _ = peer
-                                .write(serde_json::to_string(&result).unwrap().as_bytes())
+                        for peer in &mut self.peers.values() {
+                            peer.write(serde_json::to_string(&result).unwrap().as_bytes())
                                 .await?;
                         }
                         self.wallet_notify(best.height as u32).await;

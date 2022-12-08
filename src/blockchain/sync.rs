@@ -83,7 +83,7 @@ impl BlockchainSync {
             if block_height % 1000 == 0 {
                 println!(
                     "Update: height {block_height} progress: {progress:<2}%",
-                    progress = (block_height as f32 / current_height as f32) * 100 as f32,
+                    progress = (block_height as f32 / current_height as f32) * 100_f32,
                 );
                 // These operations involves expensive db calls, only make it after some
                 // substantial progress

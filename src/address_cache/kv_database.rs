@@ -3,7 +3,7 @@ use bitcoin::hashes::hex::ToHex;
 use kv::{Bucket, Config, Store};
 
 pub struct KvDatabase(Store, Bucket<'static, String, String>);
-impl<'a> KvDatabase {
+impl KvDatabase {
     pub fn new(datadir: String) -> Result<KvDatabase, kv::Error> {
         // Configure the database
         let cfg = Config::new(datadir);
@@ -14,7 +14,7 @@ impl<'a> KvDatabase {
         Ok(KvDatabase(store, bucket))
     }
 }
-impl<'a> AddressCacheDatabase for KvDatabase {
+impl AddressCacheDatabase for KvDatabase {
     fn load<E>(&self) -> Result<Vec<super::CachedAddress>, E>
     where
         E: From<crate::error::Error> + std::convert::From<kv::Error>,
@@ -23,7 +23,7 @@ impl<'a> AddressCacheDatabase for KvDatabase {
         for item in self.1.iter() {
             let item = item?;
             let key = item.key::<String>()?;
-            if "height".to_string() == key || "desc".to_string() == key {
+            if *"height" == key || *"desc" == key {
                 continue;
             }
             let value: String = item.value().unwrap();

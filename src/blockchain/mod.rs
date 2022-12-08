@@ -1,6 +1,6 @@
 use std::sync::Arc;
-pub mod sync;
 pub mod chainstore;
+pub mod sync;
 pub mod udata;
 
 use bitcoin::{

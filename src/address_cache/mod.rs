@@ -23,7 +23,7 @@ use bitcoin::{
     Block, MerkleBlock, Script, Transaction, TxOut,
 };
 use rustreexo::accumulator::{proof::Proof, stump::Stump};
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CachedTransaction {
     pub tx_hex: String,
     pub height: u32,
@@ -57,10 +57,8 @@ impl std::fmt::Display for CachedTransaction {
     }
 }
 /// TODO: Clean this function up
-fn get_arg<'a>(
-    mut split: Split<'a, &'a str>,
-) -> Result<(&'a str, Split<'a, &'a str>), crate::error::Error> {
-    if let Some(data) = split.nth(0) {
+fn get_arg(mut split: Split<char>) -> Result<(&'_ str, Split<char>), crate::error::Error> {
+    if let Some(data) = split.next() {
         return Ok((data, split));
     }
     Err(crate::error::Error::DbParseError)
@@ -68,7 +66,7 @@ fn get_arg<'a>(
 impl TryFrom<String> for CachedTransaction {
     type Error = crate::error::Error;
     fn try_from(value: String) -> Result<Self, Self::Error> {
-        let transaction = value.split(";");
+        let transaction = value.split(';');
 
         let (tx_hex, transaction) = get_arg(transaction)?;
 
@@ -94,9 +92,9 @@ impl TryFrom<String> for CachedTransaction {
 impl TryFrom<String> for CachedAddress {
     type Error = crate::error::Error;
     fn try_from(value: String) -> Result<Self, Self::Error> {
-        let address = value.split(":");
+        let address = value.split(':');
         let (script_hash, address) = get_arg(address)?;
-        let script_hash = sha256::Hash::from_hex(&script_hash.to_string())?;
+        let script_hash = sha256::Hash::from_hex(script_hash)?;
 
         let (balance, address) = get_arg(address)?;
 
@@ -106,7 +104,7 @@ impl TryFrom<String> for CachedAddress {
         let mut transactions = vec![];
 
         for transaction in address {
-            if transaction.len() == 0 {
+            if transaction.is_empty() {
                 continue;
             }
 
@@ -197,8 +195,8 @@ impl<D: AddressCacheDatabase, S: ChainStore> AddressCache<D, S> {
         del_hashes: Vec<sha256::Hash>,
     ) -> Vec<(Transaction, TxOut)> {
         let mut my_transactions = vec![];
-        self.acc = BlockchainSync::update_acc(&self.acc, &block, height, proof, del_hashes)
-            .expect(format!("Could not update the accumulator at {height}").as_str());
+        self.acc = BlockchainSync::update_acc(&self.acc, block, height, proof, del_hashes)
+            .unwrap_or_else(|_| panic!("Could not update the accumulator at {height}"));
 
         for (position, transaction) in block.txdata.iter().enumerate() {
             for output in transaction.output.iter() {
@@ -236,8 +234,8 @@ impl<D: AddressCacheDatabase, S: ChainStore> AddressCache<D, S> {
     fn load_acc(chain_store: &S) -> Stump {
         let acc = chain_store.load_roots().expect("Could not load roots");
         if let Some(acc) = acc {
-            let acc = acc.split(" ").collect::<Vec<_>>();
-            let leaves = acc.get(0).expect("Missing leaves count");
+            let acc = acc.split(' ').collect::<Vec<_>>();
+            let leaves = acc.first().expect("Missing leaves count");
 
             let leaves = leaves
                 .parse::<u64>()
@@ -403,7 +401,7 @@ impl<D: AddressCacheDatabase, S: ChainStore> AddressCache<D, S> {
                 (address.script_hash, address.transactions.len()),
             );
             address.transactions.push(transaction_to_cache);
-            self.database.update(&address);
+            self.database.update(address);
         } else {
             // This means `cache_transaction` have been called with an address we don't
             // follow. This may be useful for caching new addresses without re-scanning.

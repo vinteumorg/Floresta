@@ -1,3 +1,33 @@
+// Written in 2022 by Davidson Souza.
+// SPDX-License-Identifier: CC0-1.0
+
+//! This is a modular-(ish) utreexo powered wallet backend and fully validating node, it's
+//! developed as an experiment to showcase utreexo. This wallet also comes with an Electrum
+//! server out-of-the-box, for people to try out with their favorite wallet.
+//! This codebase consists of three main parts: a blockchain backend, that gets all information
+//! we need from the network. An Electrum Server that talks full Electrum protocol and can be
+//! used with any wallet that understands this protocol. Finally, it has the `AddressCache`,
+//! a watch-only wallet that keeps track of your wallet's transactions.
+//!
+//! Right now, the blockchain backend uses a running utreexod's RPC to get needed data, this
+//! is because Utreexo p2p messages are WIP, and we want to try out utreexo before that, so we use
+//! a client-server base to test, but this is not final nor the goal.
+
+// Coding conventions
+#![deny(clippy::needless_lifetimes)]
+#![deny(unused)]
+#![deny(non_camel_case_types)]
+#![deny(non_snake_case)]
+#![deny(arithmetic_overflow)]
+#![deny(clippy::absurd_extreme_comparisons)]
+#![deny(non_upper_case_globals)]
+#![deny(unused_mut)]
+#![deny(dead_code)]
+#![deny(unused_imports)]
+#![deny(unused_must_use)]
+// FIXME: Rethink enum variant naming
+#![allow(clippy::enum_variant_names)]
+
 mod address_cache;
 mod blockchain;
 mod cli;
@@ -83,7 +113,7 @@ fn create_rpc_connection(
     username: Option<String>,
     password: Option<String>,
 ) -> Arc<BTCDClient> {
-    let mut hostname = hostname.split(":");
+    let mut hostname = hostname.split(':');
     let address = if let Some(address) = hostname.next() {
         address.to_string()
     } else {
@@ -109,7 +139,7 @@ fn setup_wallet<D: AddressCacheDatabase, S: ChainStore>(
     }
 
     let desc =
-        Descriptor::<DescriptorPublicKey>::from_str(&format!("wpkh({}/0/*)", descriptor).as_str())
+        Descriptor::<DescriptorPublicKey>::from_str(format!("wpkh({}/0/*)", descriptor).as_str())
             .expect("Error while parsing descriptor");
     for index in 0..100 {
         let address = desc
@@ -132,12 +162,12 @@ fn start_sync<D: AddressCacheDatabase, Rpc: BtcdRpc, S: ChainStore>(
         exit(1);
     }
 
-    let _ = BlockchainSync::sync_range(&**rpc, &mut address_cache, sync_range?)?;
+    BlockchainSync::sync_range(&**rpc, &mut address_cache, sync_range?)?;
     Ok(address_cache)
 }
 /// Finds out whether our RPC works or not
 fn test_rpc(rpc: &BTCDClient) -> bool {
-    if let Ok(_) = rpc.getinfo() {
+    if rpc.getinfo().is_ok() {
         return true;
     }
     false
