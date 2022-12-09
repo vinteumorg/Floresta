@@ -48,10 +48,19 @@ use blockchain::{
 use btcd_rpc::client::{BTCDClient, BTCDConfigs, BtcdRpc};
 use clap::Parser;
 use cli::{Cli, Commands};
-use log::{log, Level};
+use log::{error, info};
 use miniscript::{Descriptor, DescriptorPublicKey};
+use pretty_env_logger::env_logger::TimestampPrecision;
 use std::str::FromStr;
+
 fn main() {
+    // Setup global logger
+    pretty_env_logger::formatted_timed_builder()
+        .filter_level(log::LevelFilter::Info)
+        .format_timestamp(Some(TimestampPrecision::Seconds))
+        .format_module_path(false)
+        .init();
+
     let params = Cli::parse();
     match params.command {
         Commands::Run {
@@ -62,16 +71,13 @@ fn main() {
         } => {
             let rpc = create_rpc_connection(rpc_host, Some(rpc_user), Some(rpc_password));
             if !test_rpc(&rpc) {
-                log!(Level::Error, "Unable to connect with rpc");
+                info!("Unable to connect with rpc");
                 return;
             }
-            log!(
-                Level::Info,
-                "Starting sync worker, this might take a while!"
-            );
+            info!("Starting sync worker, this might take a while!");
             let cache = load_wallet(data_dir);
             let cache = start_sync(&rpc, cache).expect("Could not sync");
-            log!(Level::Info, "Starting server...");
+            info!("Starting server...");
             let electrum_server = block_on(electrum::electrum_protocol::ElectrumServer::new(
                 "127.0.0.1:50001",
                 rpc.clone(),
@@ -103,7 +109,7 @@ fn main() {
             wallet_descriptor,
         } => {
             let wallet = load_wallet(data_dir);
-            setup_wallet(wallet_descriptor, wallet);
+            setup_wallet(wallet_descriptor, wallet, params.network);
         }
     }
 }
@@ -135,12 +141,21 @@ fn create_rpc_connection(
 
     Arc::new(BTCDClient::new(config).unwrap())
 }
+fn get_net(net: &cli::Network) -> Network {
+    match net {
+        cli::Network::Bitcoin => Network::Bitcoin,
+        cli::Network::Signet => Network::Signet,
+        cli::Network::Testnet => Network::Testnet,
+        cli::Network::Regtest => Network::Regtest,
+    }
+}
 fn setup_wallet<D: AddressCacheDatabase, S: ChainStore>(
     descriptor: String,
     mut wallet: AddressCache<D, S>,
+    network: cli::Network,
 ) {
     if let Err(e) = wallet.setup(descriptor.clone()) {
-        log!(Level::Error, "Could not setup wallet: {e}");
+        error!("Could not setup wallet: {e}");
         exit(1);
     }
 
@@ -150,14 +165,11 @@ fn setup_wallet<D: AddressCacheDatabase, S: ChainStore>(
     for index in 0..100 {
         let address = desc
             .at_derivation_index(index)
-            .address(Network::Signet)
+            .address(get_net(&network))
             .expect("Error while deriving address. Is this an active descriptor?");
         wallet.cache_address(address.script_pubkey());
     }
-    log!(
-        Level::Info,
-        "Wallet setup completed! You can now execute run"
-    );
+    info!("Wallet setup completed! You can now execute run");
 }
 fn start_sync<D: AddressCacheDatabase, Rpc: BtcdRpc, S: ChainStore>(
     rpc: &Arc<Rpc>,
@@ -166,7 +178,7 @@ fn start_sync<D: AddressCacheDatabase, Rpc: BtcdRpc, S: ChainStore>(
     let current_hight = rpc.getbestblock()?.height as u32;
     let sync_range = address_cache.get_sync_limits(current_hight);
     if let Err(crate::error::Error::WalletNotInitialized) = sync_range {
-        log!(Level::Error, "Wallet not set up!");
+        error!("Wallet not set up!");
 
         exit(1);
     }

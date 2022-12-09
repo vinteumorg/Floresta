@@ -13,7 +13,7 @@ use bitcoin::{Block, BlockHash};
 use bitcoin::{OutPoint, Transaction, TxOut};
 use btcd_rpc::client::BtcdRpc;
 use btcd_rpc::json_types::VerbosityOutput;
-use log::{log, Level};
+use log::{info, log, Level};
 use rustreexo::accumulator::proof::Proof;
 use rustreexo::accumulator::stump::Stump;
 use sha2::{Digest, Sha512_256};
@@ -81,10 +81,9 @@ impl BlockchainSync {
             address_cache.block_process(&block, block_height, proof, del_hashes);
 
             if block_height % 1000 == 0 {
-                log!(
-                    Level::Info,
-                    "Update: height {block_height} progress: {progress:<2}%",
-                    progress = (block_height as f32 / current_height as f32) * 100_f32,
+                info!(
+                    "height {block_height:2.0} progress: {progress:<2}%",
+                    progress = ((block_height as f32 / current_height as f32) * 100_f32).round() as u32,
                 );
                 // These operations involves expensive db calls, only make it after some
                 // substantial progress

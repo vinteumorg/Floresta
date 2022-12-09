@@ -19,3 +19,4 @@ chrono = "*"
 kv = "0.24.0"
 bitcoin = {version = "0.29", features = ["serde", "std", "bitcoinconsensus"]}
 miniscript = "9.0.0"
+pretty_env_logger = "*"
