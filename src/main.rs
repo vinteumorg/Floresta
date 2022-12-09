@@ -191,7 +191,7 @@ fn start_sync<D: AddressCacheDatabase, Rpc: BtcdRpc, S: ChainStore>(
         exit(1);
     }
 
-    BlockchainSync::sync_range(&**rpc, &mut address_cache, sync_range?, false)?;
+    BlockchainSync::sync_range(&**rpc, &mut address_cache, sync_range?, true)?;
     Ok(address_cache)
 }
 /// Finds out whether our RPC works or not
