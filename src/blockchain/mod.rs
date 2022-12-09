@@ -6,7 +6,7 @@ pub mod udata;
 use bitcoin::{
     consensus::{Decodable, Encodable},
     hashes::hex::{FromHex, ToHex},
-    BlockHash, Transaction,
+    Block, BlockHash, Transaction,
 };
 use btcd_rpc::{
     client::{BTCDClient, BtcdRpc},
@@ -15,19 +15,34 @@ use btcd_rpc::{
 use rustreexo::accumulator::stump::Stump;
 
 use crate::error::Error;
+/// This trait is the main interface between our blockchain backend and other services.
+/// It'll be useful for transitioning from rpc to a p2p based node
+pub trait Blockchain {
+    /// Returns the block with a given height in our current tip.
+    fn get_block_hash(&self, height: u64) -> Result<bitcoin::BlockHash, Error>;
+    /// Returns a bitcoin [Transaction] given it's txid.
+    fn get_tx(&self, txid: &bitcoin::Txid) -> Result<Option<bitcoin::Transaction>, Error>;
+    /// Get the height of our best know chain.
+    fn get_height(&self) -> Result<u32, Error>;
+    /// Broadcasts a transaction to the network.
+    fn broadcast(&self, tx: &bitcoin::Transaction) -> Result<(), Error>;
+    /// Returns fee estimation for inclusion in `target` blocks.
+    fn estimate_fee(&self, target: usize) -> Result<f64, Error>;
+    /// Returns a block with a given `hash` if any.
+    fn get_block(&self, hash: &BlockHash) -> Result<Block, Error>;
+}
 
 pub struct UtreexodBackend {
     pub rpc: Arc<BTCDClient>,
     pub accumulator: Stump,
 }
-#[allow(unused)]
-impl UtreexodBackend {
-    pub fn get_block_hash(&self, height: u64) -> Result<bitcoin::BlockHash, Error> {
+impl Blockchain for UtreexodBackend {
+    fn get_block_hash(&self, height: u64) -> Result<bitcoin::BlockHash, Error> {
         Ok(BlockHash::from_hex(
             self.rpc.getblockhash(height as usize)?.as_str(),
         )?)
     }
-    pub fn get_tx(&self, txid: &bitcoin::Txid) -> Result<Option<bitcoin::Transaction>, Error> {
+    fn get_tx(&self, txid: &bitcoin::Txid) -> Result<Option<bitcoin::Transaction>, Error> {
         let tx = self.rpc.getrawtransaction(txid.to_hex(), false).unwrap();
         if let VerbosityOutput::Simple(hex) = tx {
             let tx = Transaction::consensus_decode(&mut hex.as_bytes())?;
@@ -35,7 +50,7 @@ impl UtreexodBackend {
         }
         Err(Error::TxNotFound)
     }
-    pub fn get_height(&self) -> Result<u32, Error> {
+    fn get_height(&self) -> Result<u32, Error> {
         if let Ok(block) = self.rpc.getbestblock() {
             Ok(block.height as u32)
         } else {
@@ -43,7 +58,7 @@ impl UtreexodBackend {
         }
     }
 
-    pub fn broadcast(&self, tx: &bitcoin::Transaction) -> Result<(), Error> {
+    fn broadcast(&self, tx: &bitcoin::Transaction) -> Result<(), Error> {
         let mut writer = Vec::new();
         let _ = tx
             .consensus_encode(&mut writer)
@@ -53,9 +68,13 @@ impl UtreexodBackend {
         Ok(())
     }
 
-    pub fn estimate_fee(&self, target: usize) -> Result<f64, Error> {
+    fn estimate_fee(&self, target: usize) -> Result<f64, Error> {
         let feerate = self.rpc.estimatefee(target as u32)?;
         Ok(feerate)
+    }
+
+    fn get_block(&self, _hash: &BlockHash) -> Result<Block, Error> {
+        todo!()
     }
 }
 
