@@ -270,7 +270,7 @@ impl ElectrumServer {
                         let best = self.rpc.getbestblock().unwrap();
                         let limits = self.address_cache.get_sync_limits(best.height as u32)?;
 
-                        BlockchainSync::sync_range(&*self.rpc, &mut self.address_cache, limits)?;
+                        BlockchainSync::sync_range(&*self.rpc, &mut self.address_cache, limits, false)?;
                         let header = self
                             .rpc
                             .getblockheader(best.hash, false)

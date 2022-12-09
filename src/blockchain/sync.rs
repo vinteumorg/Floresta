@@ -48,13 +48,14 @@ impl BlockchainSync {
         address_cache: &mut AddressCache<D, S>,
     ) -> Result<(), crate::error::Error> {
         let height = rpc.getbestblock().expect("sync_all: Rpc failed").height as u32;
-        Self::sync_range(rpc, address_cache, 1..=height)?;
+        Self::sync_range(rpc, address_cache, 1..=height, true)?;
         Ok(())
     }
     pub fn sync_range<T: BtcdRpc, D: AddressCacheDatabase, S: ChainStore>(
         rpc: &T,
         address_cache: &mut AddressCache<D, S>,
         range: RangeInclusive<u32>,
+        ibd: bool,
     ) -> Result<(), crate::error::Error> {
         let current_height = *range.end();
         for block_height in range {
@@ -80,16 +81,20 @@ impl BlockchainSync {
             Self::verify_block_transactions(utxo_map, &block.txdata)?;
             address_cache.block_process(&block, block_height, proof, del_hashes);
 
-            if block_height % 1000 == 0 {
+            if block_height % 1000 == 0 && ibd {
                 info!(
                     "height {block_height:2.0} progress: {progress:<2}%",
-                    progress = ((block_height as f32 / current_height as f32) * 100_f32).round() as u32,
+                    progress =
+                        ((block_height as f32 / current_height as f32) * 100_f32).round() as u32,
                 );
                 // These operations involves expensive db calls, only make it after some
                 // substantial progress
                 address_cache.save_acc();
                 address_cache.bump_height(block_height);
             }
+        }
+        if !ibd {
+            info!("New block height {current_height}");
         }
         address_cache.save_acc();
         address_cache.bump_height(current_height);
