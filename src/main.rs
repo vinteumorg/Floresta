@@ -25,6 +25,15 @@
 #![deny(dead_code)]
 #![deny(unused_imports)]
 #![deny(unused_must_use)]
+#![deny(clippy::assign_op_pattern)]
+#![deny(clippy::almost_swapped)]
+#![deny(clippy::wildcard_imports)]
+#![deny(clippy::while_let_loop)]
+#![deny(clippy::await_holding_lock)]
+#![deny(clippy::borrowed_box)]
+#![deny(clippy::boxed_local)]
+#![deny(clippy::drop_copy)]
+
 // FIXME: Rethink enum variant naming
 #![allow(clippy::enum_variant_names)]
 
@@ -179,7 +188,6 @@ fn start_sync<D: AddressCacheDatabase, Rpc: BtcdRpc, S: ChainStore>(
     let sync_range = address_cache.get_sync_limits(current_hight);
     if let Err(crate::error::Error::WalletNotInitialized) = sync_range {
         error!("Wallet not set up!");
-
         exit(1);
     }
 
