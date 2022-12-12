@@ -1,81 +1,43 @@
-use std::sync::Arc;
+pub mod chain_state;
 pub mod chainstore;
-pub mod sync;
+pub mod error;
+pub mod cli_blockchain;
 pub mod udata;
 
-use bitcoin::{
-    consensus::{Decodable, Encodable},
-    hashes::hex::{FromHex, ToHex},
-    Block, BlockHash, Transaction,
-};
+use std::sync::Arc;
+use bitcoin::{Block, BlockHash, BlockHeader};
 use btcd_rpc::{
     client::{BTCDClient, BtcdRpc},
-    json_types::{transaction::BestBlock, VerbosityOutput},
+    json_types::transaction::BestBlock,
 };
-use rustreexo::accumulator::stump::Stump;
 
-use crate::error::Error;
+use self::error::BlockchainError;
+
+type Result<T> = std::result::Result<T, BlockchainError>;
 /// This trait is the main interface between our blockchain backend and other services.
 /// It'll be useful for transitioning from rpc to a p2p based node
-pub trait Blockchain {
+pub trait BlockchainInterface {
+    /// Accepts a new blok to our local state. Returns the best chain height
+    fn connect_block(&self, block: Block) -> Result<u32>;
     /// Returns the block with a given height in our current tip.
-    fn get_block_hash(&self, height: u64) -> Result<bitcoin::BlockHash, Error>;
+    fn get_block_hash(&self, height: u32) -> Result<bitcoin::BlockHash>;
     /// Returns a bitcoin [Transaction] given it's txid.
-    fn get_tx(&self, txid: &bitcoin::Txid) -> Result<Option<bitcoin::Transaction>, Error>;
+    fn get_tx(&self, txid: &bitcoin::Txid) -> Result<Option<bitcoin::Transaction>>;
     /// Get the height of our best know chain.
-    fn get_height(&self) -> Result<u32, Error>;
+    fn get_height(&self) -> Result<u32>;
     /// Broadcasts a transaction to the network.
-    fn broadcast(&self, tx: &bitcoin::Transaction) -> Result<(), Error>;
+    fn broadcast(&self, tx: &bitcoin::Transaction) -> Result<()>;
     /// Returns fee estimation for inclusion in `target` blocks.
-    fn estimate_fee(&self, target: usize) -> Result<f64, Error>;
+    fn estimate_fee(&self, target: usize) -> Result<f64>;
     /// Returns a block with a given `hash` if any.
-    fn get_block(&self, hash: &BlockHash) -> Result<Block, Error>;
-}
-
-pub struct UtreexodBackend {
-    pub rpc: Arc<BTCDClient>,
-    pub accumulator: Stump,
-}
-impl Blockchain for UtreexodBackend {
-    fn get_block_hash(&self, height: u64) -> Result<bitcoin::BlockHash, Error> {
-        Ok(BlockHash::from_hex(
-            self.rpc.getblockhash(height as usize)?.as_str(),
-        )?)
-    }
-    fn get_tx(&self, txid: &bitcoin::Txid) -> Result<Option<bitcoin::Transaction>, Error> {
-        let tx = self.rpc.getrawtransaction(txid.to_hex(), false).unwrap();
-        if let VerbosityOutput::Simple(hex) = tx {
-            let tx = Transaction::consensus_decode(&mut hex.as_bytes())?;
-            return Ok(Some(tx));
-        }
-        Err(Error::TxNotFound)
-    }
-    fn get_height(&self) -> Result<u32, Error> {
-        if let Ok(block) = self.rpc.getbestblock() {
-            Ok(block.height as u32)
-        } else {
-            Ok(0)
-        }
-    }
-
-    fn broadcast(&self, tx: &bitcoin::Transaction) -> Result<(), Error> {
-        let mut writer = Vec::new();
-        let _ = tx
-            .consensus_encode(&mut writer)
-            .expect("Should be a valid transaction");
-
-        self.rpc.sendrawtransaction(writer.to_hex())?;
-        Ok(())
-    }
-
-    fn estimate_fee(&self, target: usize) -> Result<f64, Error> {
-        let feerate = self.rpc.estimatefee(target as u32)?;
-        Ok(feerate)
-    }
-
-    fn get_block(&self, _hash: &BlockHash) -> Result<Block, Error> {
-        todo!()
-    }
+    fn get_block(&self, hash: &BlockHash) -> Result<Block>;
+    /// Returns the best known block
+    fn get_best_block(&self) -> Result<(u32, BlockHash)>;
+    /// Returns associated header for block with `hash`
+    fn get_block_header(&self, hash: &BlockHash) -> Result<BlockHeader>;
+    /// Register for receiving notifications for some event. Right now it only works for
+    /// new blocks, but may work with transactions in the future too.
+    fn subscribe<F: Fn(Block) -> () + 'static>(&self, callback: F);
 }
 
 pub struct ChainWatch;

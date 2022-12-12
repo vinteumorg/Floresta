@@ -1,6 +1,7 @@
-use crate::impl_from_error;
+use crate::{impl_from_error, blockchain::error::BlockchainError};
 use bitcoin::consensus::encode;
 use btcd_rpc::error::UtreexodError;
+#[allow(unused)]
 #[derive(Debug)]
 pub enum Error {
     UtreexodError(UtreexodError),
@@ -16,6 +17,7 @@ pub enum Error {
     InvalidProof,
     IoError(std::io::Error),
     ValidationError(bitcoin::blockdata::script::Error),
+    ChainError(BlockchainError),
 }
 
 impl std::fmt::Display for Error {
@@ -34,6 +36,8 @@ impl std::fmt::Display for Error {
             Error::InvalidProof => write!(f, "Invalid proof passed in"),
             Error::IoError(err) => write!(f, "Io error {err}"),
             Error::ValidationError(err) => write!(f, "Error during script evaluation: {err}"),
+            Error::ChainError(err) => write!(f, "Error with our blockchain backend: {:?}", err),
+
         }
     }
 }
@@ -46,6 +50,7 @@ impl_from_error!(ParseNumError, std::num::ParseIntError);
 impl_from_error!(RustreexoError, String);
 impl_from_error!(IoError, std::io::Error);
 impl_from_error!(ValidationError, bitcoin::blockdata::script::Error);
+impl_from_error!(ChainError, BlockchainError);
 
 impl std::error::Error for Error {}
 #[macro_export]

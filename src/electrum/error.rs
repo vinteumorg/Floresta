@@ -1,15 +1,14 @@
 use btcd_rpc::error::UtreexodError;
 
-use crate::impl_from_error;
+use crate::{impl_from_error, blockchain::error::BlockchainError};
 #[derive(Debug)]
 pub enum Error {
     BackendError(UtreexodError),
     InvalidParams,
     ParsingError(serde_json::Error),
+    BlockchainError(BlockchainError),
 }
-impl From<UtreexodError> for Error {
-    fn from(err: UtreexodError) -> Self {
-        Error::BackendError(err)
-    }
-}
+
+impl_from_error!(BackendError, UtreexodError);
 impl_from_error!(ParsingError, serde_json::Error);
+impl_from_error!(BlockchainError, BlockchainError);

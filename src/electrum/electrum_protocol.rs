@@ -1,19 +1,22 @@
+use crate::address_cache::kv_database::KvDatabase;
 use crate::address_cache::{AddressCache, CachedTransaction};
-use crate::blockchain::chainstore::KvChainStore;
+
+use crate::blockchain::BlockchainInterface;
 use crate::electrum::request::Request;
 use crate::electrum::TransactionHistoryEntry;
-use crate::{address_cache::kv_database::KvDatabase, blockchain::sync::BlockchainSync};
 use crate::{get_arg, json_rpc_res};
+
 use async_std::{
     io::BufReader,
     net::{TcpListener, TcpStream},
     prelude::*,
 };
 
-use bitcoin::hashes::{sha256, Hash};
-use bitcoin::{Script, Txid};
+use bitcoin::consensus::deserialize;
+use bitcoin::hashes::{hex::ToHex, sha256, Hash};
+use bitcoin::BlockHash;
+use bitcoin::{consensus::serialize, Script, Txid};
 
-use btcd_rpc::client::{BTCDClient, BtcdRpc};
 use log::{log, trace, Level};
 use serde_json::{json, Value};
 use sha2::Digest;
@@ -46,9 +49,9 @@ impl Peer {
         }
     }
 }
-pub struct ElectrumServer {
-    pub rpc: Arc<BTCDClient>,
-    pub address_cache: AddressCache<KvDatabase, KvChainStore>,
+pub struct ElectrumServer<Blockchain: BlockchainInterface> {
+    pub chain: Arc<Blockchain>,
+    pub address_cache: AddressCache<KvDatabase>,
     pub listener: Option<Arc<TcpListener>>,
     pub peers: HashMap<u32, Arc<Peer>>,
     pub peer_accept: Receiver<Message>,
@@ -63,16 +66,16 @@ pub enum Message {
     NewBlock,
 }
 
-impl ElectrumServer {
+impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
     pub async fn new<'a>(
         address: &'static str,
-        rpc: Arc<BTCDClient>,
-        address_cache: AddressCache<KvDatabase, KvChainStore>,
-    ) -> Result<ElectrumServer, Box<dyn std::error::Error>> {
+        address_cache: AddressCache<KvDatabase>,
+        chain: Arc<Blockchain>,
+    ) -> Result<ElectrumServer<Blockchain>, Box<dyn std::error::Error>> {
         let listener = Arc::new(TcpListener::bind(address).await?);
         let (tx, rx) = channel();
         Ok(ElectrumServer {
-            rpc,
+            chain,
             address_cache,
             listener: Some(listener),
             peers: HashMap::new(),
@@ -89,14 +92,10 @@ impl ElectrumServer {
         match request.method.as_str() {
             "blockchain.estimatefee" => json_rpc_res!(request, 0.0001),
             "blockchain.headers.subscribe" => {
-                let best = self.rpc.getbestblock().unwrap();
-                let header = self
-                    .rpc
-                    .getblockheader(best.hash, false)
-                    .unwrap()
-                    .get_simple();
+                let (height, hash) = self.chain.get_best_block().unwrap();
+                let header = self.chain.get_block_header(&hash).unwrap();
                 let result = json!({
-                    "height": best.height,
+                    "height": height,
                     "hex": header
                 });
                 json_rpc_res!(request, result)
@@ -118,7 +117,7 @@ impl ElectrumServer {
                     return json_rpc_res!(request, status_hash);
                 }
 
-                Err(super::error::Error::InvalidParams)
+                Err(super::error::Error::InvalidParams.into())
             }
             "server.banner" => json_rpc_res!(request, "Welcome to Electrum"),
             "server.donation_address" => {
@@ -131,10 +130,12 @@ impl ElectrumServer {
             "blockchain.relayfee" => json_rpc_res!(request, 0.00001),
             "blockchain.block.header" => {
                 if let Some(height) = request.params.get(0) {
+                    let height = height.as_u64().unwrap();
                     let hash = self
-                        .rpc
-                        .getblockhash(height.as_u64().unwrap_or(0) as usize)?;
-                    let header = self.rpc.getblockheader(hash, false)?.get_simple();
+                        .chain
+                        .get_block_hash(height as u32)
+                        .map_err(|_| super::error::Error::InvalidParams)?;
+                    let header = self.chain.get_block_header(&hash).unwrap();
                     json_rpc_res!(request, header)
                 } else {
                     Err(super::error::Error::InvalidParams)
@@ -146,8 +147,13 @@ impl ElectrumServer {
                 let mut headers = String::new();
                 let count = if count < 2016 { count } else { 2016 };
                 for height in start_height..(start_height + count) {
-                    let hash = self.rpc.getblockhash(height as usize)?;
-                    let header = self.rpc.getblockheader(hash, false)?.get_simple();
+                    let hash = self
+                        .chain
+                        .get_block_hash(height as u32)
+                        .map_err(|_| super::error::Error::InvalidParams)?;
+
+                    let header = self.chain.get_block_header(&hash).unwrap();
+                    let header = serialize(&header).to_hex();
                     headers.extend(header.chars().into_iter());
                 }
                 json_rpc_res!(request, {
@@ -177,7 +183,9 @@ impl ElectrumServer {
             }
             "blockchain.transaction.broadcast" => {
                 let tx = get_arg!(request, String, 0);
-                let hex = self.rpc.sendrawtransaction(tx)?;
+                let tx =
+                    deserialize(tx.as_bytes()).map_err(|_| super::error::Error::InvalidParams)?;
+                let hex = self.chain.broadcast(&tx)?;
                 json_rpc_res!(request, hex)
             }
             "blockchain.transaction.get" => {
@@ -266,29 +274,34 @@ impl ElectrumServer {
                         }
                     }
                     Message::NewBlock => {
-                        log!(Level::Debug, "New Block!");
-                        let best = self.rpc.getbestblock().unwrap();
-                        let limits = self.address_cache.get_sync_limits(best.height as u32)?;
+                        // log!(Level::Debug, "New Block!");
+                        // let (height, hash) = self.chain.get_best_block()?;
+                        // let limits = self.address_cache.get_sync_limits(height)?;
 
-                        BlockchainSync::sync_range(&*self.rpc, &mut self.address_cache, limits, false)?;
-                        let header = self
-                            .rpc
-                            .getblockheader(best.hash, false)
-                            .unwrap()
-                            .get_simple();
-                        let result = json!({
-                            "jsonrpc": "2.0",
-                            "method": "blockchain.headers.subscribe",
-                            "params": [{
-                                "height": best.height,
-                                "hex": header
-                            }]
-                        });
-                        for peer in &mut self.peers.values() {
-                            peer.write(serde_json::to_string(&result).unwrap().as_bytes())
-                                .await?;
-                        }
-                        self.wallet_notify(best.height as u32).await;
+                        // BlockchainSync::sync_range(
+                        //     &*self.rpc,
+                        //     &mut self.address_cache,
+                        //     limits,
+                        //     false,
+                        // )?;
+                        // let header = self
+                        //     .chain
+                        //     .getblockheader(best.hash, false)
+                        //     .unwrap()
+                        //     .get_simple();
+                        // let result = json!({
+                        //     "jsonrpc": "2.0",
+                        //     "method": "blockchain.headers.subscribe",
+                        //     "params": [{
+                        //         "height": best.height,
+                        //         "hex": header
+                        //     }]
+                        // });
+                        // for peer in &mut self.peers.values() {
+                        //     peer.write(serde_json::to_string(&result).unwrap().as_bytes())
+                        //         .await?;
+                        // }
+                        // self.wallet_notify(best.height as u32).await;
                     }
                     Message::Disconnect(id) => {
                         self.peers.remove(&id);
@@ -297,10 +310,10 @@ impl ElectrumServer {
             }
         }
     }
-    async fn wallet_notify(&self, height: u32) {
-        let block = BlockchainSync::get_block(&*self.rpc, height);
+    async fn _wallet_notify(&self, hash: BlockHash) {
+        let block = self.chain.get_block(&hash);
         if let Err(err) = block {
-            log!(Level::Error, "Got an error while loading block {}", err);
+            log!(Level::Error, "Got an error while loading block {:?}", err);
             return;
         }
         for transaction in block.unwrap().txdata {

@@ -15,16 +15,12 @@
 
 // Coding conventions
 #![deny(clippy::needless_lifetimes)]
-#![deny(unused)]
+//#![deny(unused)]
 #![deny(non_camel_case_types)]
 #![deny(non_snake_case)]
 #![deny(arithmetic_overflow)]
 #![deny(clippy::absurd_extreme_comparisons)]
 #![deny(non_upper_case_globals)]
-#![deny(unused_mut)]
-#![deny(dead_code)]
-#![deny(unused_imports)]
-#![deny(unused_must_use)]
 #![deny(clippy::assign_op_pattern)]
 #![deny(clippy::almost_swapped)]
 #![deny(clippy::wildcard_imports)]
@@ -33,7 +29,6 @@
 #![deny(clippy::borrowed_box)]
 #![deny(clippy::boxed_local)]
 #![deny(clippy::drop_copy)]
-
 // FIXME: Rethink enum variant naming
 #![allow(clippy::enum_variant_names)]
 
@@ -50,9 +45,7 @@ use address_cache::{kv_database::KvDatabase, AddressCache, AddressCacheDatabase}
 use async_std::task::{self, block_on};
 use bitcoin::Network;
 use blockchain::{
-    chainstore::{ChainStore, KvChainStore},
-    sync::BlockchainSync,
-    ChainWatch,
+    chain_state::ChainState, chainstore::KvChainStore, BlockchainInterface, ChainWatch,
 };
 use btcd_rpc::client::{BTCDClient, BTCDConfigs, BtcdRpc};
 use clap::Parser;
@@ -85,19 +78,18 @@ fn main() {
             }
             info!("Starting sync worker, this might take a while!");
             let cache = load_wallet(data_dir);
-            let cache = start_sync(&rpc, cache).expect("Could not sync");
+            let blockchain_state = Arc::new(ChainState::<KvChainStore>::new());
             info!("Starting server...");
             let electrum_server = block_on(electrum::electrum_protocol::ElectrumServer::new(
                 "127.0.0.1:50001",
-                rpc.clone(),
                 cache,
+                blockchain_state,
             ))
             .unwrap();
 
             let notify_sender = electrum_server.notify_tx.clone();
             let timer = timer::Timer::new();
             let mut current_block = ChainWatch::get_block(&rpc);
-            let rpc = electrum_server.rpc.clone();
             timer
                 .schedule_repeating(chrono::Duration::seconds(5), move || {
                     let new_block = ChainWatch::get_block(&rpc);
@@ -122,12 +114,14 @@ fn main() {
         }
     }
 }
-
-fn load_wallet(data_dir: String) -> AddressCache<KvDatabase, KvChainStore> {
+fn load_chain_state() -> ChainState<KvChainStore> {
+    todo!()
+}
+fn load_wallet(data_dir: String) -> AddressCache<KvDatabase> {
     let database = KvDatabase::new(data_dir.clone()).expect("Could not create a database");
-    let chain_store = KvChainStore::new(data_dir).unwrap();
+    let chain_store = load_chain_state();
 
-    AddressCache::new(database, chain_store)
+    AddressCache::new(database)
 }
 fn create_rpc_connection(
     hostname: String,
@@ -158,9 +152,9 @@ fn get_net(net: &cli::Network) -> Network {
         cli::Network::Regtest => Network::Regtest,
     }
 }
-fn setup_wallet<D: AddressCacheDatabase, S: ChainStore>(
+fn setup_wallet<D: AddressCacheDatabase>(
     descriptor: String,
-    mut wallet: AddressCache<D, S>,
+    mut wallet: AddressCache<D>,
     network: cli::Network,
 ) {
     if let Err(e) = wallet.setup(descriptor.clone()) {
@@ -180,20 +174,7 @@ fn setup_wallet<D: AddressCacheDatabase, S: ChainStore>(
     }
     info!("Wallet setup completed! You can now execute run");
 }
-fn start_sync<D: AddressCacheDatabase, Rpc: BtcdRpc, S: ChainStore>(
-    rpc: &Arc<Rpc>,
-    mut address_cache: AddressCache<D, S>,
-) -> Result<AddressCache<D, S>, error::Error> {
-    let current_hight = rpc.getbestblock()?.height as u32;
-    let sync_range = address_cache.get_sync_limits(current_hight);
-    if let Err(crate::error::Error::WalletNotInitialized) = sync_range {
-        error!("Wallet not set up!");
-        exit(1);
-    }
 
-    BlockchainSync::sync_range(&**rpc, &mut address_cache, sync_range?, true)?;
-    Ok(address_cache)
-}
 /// Finds out whether our RPC works or not
 fn test_rpc(rpc: &BTCDClient) -> bool {
     if rpc.getinfo().is_ok() {
