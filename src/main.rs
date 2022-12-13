@@ -119,7 +119,6 @@ fn load_chain_state() -> ChainState<KvChainStore> {
 }
 fn load_wallet(data_dir: String) -> AddressCache<KvDatabase> {
     let database = KvDatabase::new(data_dir.clone()).expect("Could not create a database");
-    let chain_store = load_chain_state();
 
     AddressCache::new(database)
 }

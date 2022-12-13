@@ -1,12 +1,14 @@
 use crate::address_cache::kv_database::KvDatabase;
 use crate::address_cache::{AddressCache, CachedTransaction};
-
-use crate::blockchain::BlockchainInterface;
+use crate::blockchain::{BlockchainInterface, Notification};
 use crate::electrum::request::Request;
 use crate::electrum::TransactionHistoryEntry;
 use crate::{get_arg, json_rpc_res};
+use futures::{select, FutureExt};
 
+use async_std::sync::RwLock;
 use async_std::{
+    channel::{unbounded, Receiver, Sender},
     io::BufReader,
     net::{TcpListener, TcpStream},
     prelude::*,
@@ -14,17 +16,14 @@ use async_std::{
 
 use bitcoin::consensus::deserialize;
 use bitcoin::hashes::{hex::ToHex, sha256, Hash};
-use bitcoin::BlockHash;
 use bitcoin::{consensus::serialize, Script, Txid};
+use bitcoin::{Transaction, TxOut};
 
-use log::{log, trace, Level};
+use log::{debug, info, log, trace, Level};
 use serde_json::{json, Value};
 use sha2::Digest;
 use std::collections::{HashMap, HashSet};
-use std::sync::{
-    mpsc::{channel, Receiver, Sender},
-    Arc,
-};
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Default)]
 pub struct Peer {
@@ -51,7 +50,7 @@ impl Peer {
 }
 pub struct ElectrumServer<Blockchain: BlockchainInterface> {
     pub chain: Arc<Blockchain>,
-    pub address_cache: AddressCache<KvDatabase>,
+    pub address_cache: Arc<RwLock<AddressCache<KvDatabase>>>,
     pub listener: Option<Arc<TcpListener>>,
     pub peers: HashMap<u32, Arc<Peer>>,
     pub peer_accept: Receiver<Message>,
@@ -73,10 +72,10 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
         chain: Arc<Blockchain>,
     ) -> Result<ElectrumServer<Blockchain>, Box<dyn std::error::Error>> {
         let listener = Arc::new(TcpListener::bind(address).await?);
-        let (tx, rx) = channel();
+        let (tx, rx) = unbounded();
         Ok(ElectrumServer {
             chain,
-            address_cache,
+            address_cache: Arc::new(RwLock::new(address_cache)),
             listener: Some(listener),
             peers: HashMap::new(),
             peer_accept: rx,
@@ -84,7 +83,7 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
             peer_addresses: HashMap::new(),
         })
     }
-    pub fn handle_blockchain_request(
+    pub async fn handle_blockchain_request(
         &mut self,
         peer: Arc<Peer>,
         request: Request,
@@ -108,7 +107,7 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                     let hash = serde_json::from_value::<sha256::Hash>(hash.clone())?;
                     self.peer_addresses.insert(hash, peer);
 
-                    let history = self.address_cache.get_address_history(&hash);
+                    let history = self.address_cache.read().await.get_address_history(&hash);
 
                     if history.is_empty() {
                         return json_rpc_res!(request, null);
@@ -166,7 +165,11 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                 if let Some(script_hash) = request.params.get(0) {
                     let script_hash =
                         serde_json::from_value::<sha256::Hash>(script_hash.to_owned())?;
-                    let transactions = self.address_cache.get_address_history(&script_hash);
+                    let transactions = self
+                        .address_cache
+                        .read()
+                        .await
+                        .get_address_history(&script_hash);
                     let mut res = vec![];
                     for transaction in transactions {
                         let entry = TransactionHistoryEntry {
@@ -191,7 +194,11 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
             "blockchain.transaction.get" => {
                 if let Some(script_hash) = request.params.get(0) {
                     let tx_id = serde_json::from_value::<Txid>(script_hash.to_owned())?;
-                    let tx = self.address_cache.get_cached_transaction(&tx_id);
+                    let tx = self
+                        .address_cache
+                        .read()
+                        .await
+                        .get_cached_transaction(&tx_id);
                     if let Some(tx) = tx {
                         return json_rpc_res!(request, tx);
                     }
@@ -202,8 +209,8 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                 if let Some(script_hash) = request.params.get(0) {
                     let tx_id = serde_json::from_value::<Txid>(script_hash.to_owned());
                     let tx_id = tx_id?;
-                    let proof = self.address_cache.get_merkle_proof(&tx_id);
-                    let height = self.address_cache.get_height(&tx_id);
+                    let proof = self.address_cache.read().await.get_merkle_proof(&tx_id);
+                    let height = self.address_cache.read().await.get_height(&tx_id);
 
                     if let Some((proof, position)) = proof {
                         let result = json!({
@@ -220,7 +227,11 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                 if let Some(script_hash) = request.params.get(0) {
                     let script_hash =
                         serde_json::from_value::<sha256::Hash>(script_hash.to_owned())?;
-                    let balance = self.address_cache.get_address_balance(&script_hash);
+                    let balance = self
+                        .address_cache
+                        .read()
+                        .await
+                        .get_address_balance(&script_hash);
                     let result = json!({
                         "confirmed": balance,
                         "unconfirmed": 0
@@ -237,105 +248,118 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
     }
 
     pub async fn main_loop(mut self) -> Result<(), crate::error::Error> {
+        let (tx, mut rx) = unbounded::<Notification>();
+        self.chain.subscribe(tx);
         loop {
-            if let Ok(message) = self.peer_accept.recv() {
-                match message {
-                    Message::NewPeer((id, stream)) => {
-                        self.peers.insert(id, stream);
+            select! {
+                notification = rx.next().fuse() => {
+                    if let Some(notification) = notification {
+                        self.handle_notification(notification).await;
                     }
-                    Message::Message((peer, msg)) => {
-                        trace!("Message: {msg}");
-                        if let Ok(req) = serde_json::from_str::<Request>(msg.as_str()) {
-                            let peer = self.peers.get(&peer);
-                            if peer.is_none() {
-                                log!(
-                                    Level::Error,
-                                    "Peer sent a message but is not listed as peer"
-                                );
-                                continue;
-                            }
-                            let peer = peer.unwrap().to_owned();
-                            let id = req.id;
-                            let res = self.handle_blockchain_request(peer.clone(), req);
-
-                            if let Ok(res) = res {
-                                peer.write(serde_json::to_string(&res).unwrap().as_bytes())
-                                    .await?;
-                            } else {
-                                let res = json!({
-                                    "jsonrpc": "2.0",
-                                    "id": id,
-                                    "error":"Unknown",
-                                    "data": null
-                                });
-                                peer.write(serde_json::to_string(&res).unwrap().as_bytes())
-                                    .await?;
-                            }
-                        }
-                    }
-                    Message::NewBlock => {
-                        // log!(Level::Debug, "New Block!");
-                        // let (height, hash) = self.chain.get_best_block()?;
-                        // let limits = self.address_cache.get_sync_limits(height)?;
-
-                        // BlockchainSync::sync_range(
-                        //     &*self.rpc,
-                        //     &mut self.address_cache,
-                        //     limits,
-                        //     false,
-                        // )?;
-                        // let header = self
-                        //     .chain
-                        //     .getblockheader(best.hash, false)
-                        //     .unwrap()
-                        //     .get_simple();
-                        // let result = json!({
-                        //     "jsonrpc": "2.0",
-                        //     "method": "blockchain.headers.subscribe",
-                        //     "params": [{
-                        //         "height": best.height,
-                        //         "hex": header
-                        //     }]
-                        // });
-                        // for peer in &mut self.peers.values() {
-                        //     peer.write(serde_json::to_string(&result).unwrap().as_bytes())
-                        //         .await?;
-                        // }
-                        // self.wallet_notify(best.height as u32).await;
-                    }
-                    Message::Disconnect(id) => {
-                        self.peers.remove(&id);
+                },
+                message = self.peer_accept.next().fuse() => {
+                    if let Some(message) = message {
+                        self.handle_message(message).await?;
                     }
                 }
+            };
+        }
+    }
+    async fn handle_notification(&mut self, notification: Notification) {
+        match notification {
+            Notification::NewBlock(block) => {
+                debug!("New Block!");
+                let best = self.chain.get_best_block().expect(
+                    "handle_notification: Could not get current best block from Blockchain",
+                );
+                let result = json!({
+                    "jsonrpc": "2.0",
+                    "method": "blockchain.headers.subscribe",
+                    "params": [{
+                        "height": best.0,
+                        "hex": serialize(&block.header).to_hex()
+                    }]
+                });
+
+                let transactions = self
+                    .address_cache
+                    .write()
+                    .await
+                    .block_process(&block, best.0);
+                for peer in &mut self.peers.values() {
+                    let res = peer
+                        .write(serde_json::to_string(&result).unwrap().as_bytes())
+                        .await;
+                    if res.is_err() {
+                        info!("Could not write to peer {:?}", peer);
+                    }
+                }
+                self.wallet_notify(&transactions).await;
             }
         }
     }
-    async fn _wallet_notify(&self, hash: BlockHash) {
-        let block = self.chain.get_block(&hash);
-        if let Err(err) = block {
-            log!(Level::Error, "Got an error while loading block {:?}", err);
-            return;
-        }
-        for transaction in block.unwrap().txdata {
-            for out in transaction.output.iter() {
-                let hash = get_spk_hash(&out.script_pubkey);
-
-                if let Some(peer) = self.peer_addresses.get(&hash) {
-                    let hash = get_spk_hash(&out.script_pubkey);
-                    let history = self.address_cache.get_address_history(&hash);
-
-                    let status_hash = get_status(history);
-                    let notify = json!({
-                        "jsonrpc": "2.0",
-                        "method": "blockchain.scripthash.subscribe",
-                        "params": [hash, status_hash]
-                    });
-                    if let Err(err) = peer
-                        .write(serde_json::to_string(&notify).unwrap().as_bytes())
-                        .await
-                    {
-                        log!(Level::Error, "{err}");
+    async fn handle_message(&mut self, message: Message) -> Result<(), crate::error::Error> {
+        match message {
+            Message::NewPeer((id, stream)) => {
+                self.peers.insert(id, stream);
+            }
+            Message::Message((peer, msg)) => {
+                trace!("Message: {msg}");
+                if let Ok(req) = serde_json::from_str::<Request>(msg.as_str()) {
+                    let peer = self.peers.get(&peer);
+                    if peer.is_none() {
+                        log!(
+                            Level::Error,
+                            "Peer sent a message but is not listed as peer"
+                        );
+                        return Ok(());
                     }
+                    let peer = peer.unwrap().to_owned();
+                    let id = req.id;
+                    let res = self.handle_blockchain_request(peer.clone(), req).await;
+
+                    if let Ok(res) = res {
+                        peer.write(serde_json::to_string(&res).unwrap().as_bytes())
+                            .await?;
+                    } else {
+                        let res = json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "error":"Unknown",
+                            "data": null
+                        });
+                        peer.write(serde_json::to_string(&res).unwrap().as_bytes())
+                            .await?;
+                    }
+                }
+            }
+            Message::NewBlock => {
+                unreachable!()
+            }
+            Message::Disconnect(id) => {
+                self.peers.remove(&id);
+            }
+        }
+        Ok(())
+    }
+
+    async fn wallet_notify(&self, transactions: &[(Transaction, TxOut)]) {
+        for (_, out) in transactions {
+            let hash = get_spk_hash(&out.script_pubkey);
+            if let Some(peer) = self.peer_addresses.get(&hash) {
+                let history = self.address_cache.read().await.get_address_history(&hash);
+
+                let status_hash = get_status(history);
+                let notify = json!({
+                    "jsonrpc": "2.0",
+                    "method": "blockchain.scripthash.subscribe",
+                    "params": [hash, status_hash]
+                });
+                if let Err(err) = peer
+                    .write(serde_json::to_string(&notify).unwrap().as_bytes())
+                    .await
+                {
+                    log!(Level::Error, "{err}");
                 }
             }
         }
@@ -352,6 +376,7 @@ async fn peer_loop(
     while let Some(Ok(line)) = lines.next().await {
         notify_channel
             .send(Message::Message((id, line)))
+            .await
             .expect("Main loop is broken");
     }
     log!(Level::Info, "Lost a peer");
@@ -369,6 +394,7 @@ pub async fn accept_loop(listener: Arc<TcpListener>, notify_channel: Sender<Mess
             let peer = Arc::new(Peer::new(stream));
             notify_channel
                 .send(Message::NewPeer((id_count, peer)))
+                .await
                 .expect("Main loop is broken");
             id_count += 1;
         }

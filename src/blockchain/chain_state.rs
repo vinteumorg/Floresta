@@ -1,6 +1,7 @@
 use std::{collections::HashMap, fmt::Write};
 
 use crate::{read_lock, write_lock};
+use async_std::channel::Sender;
 use bitcoin::{
     hashes::{hex::FromHex, sha256, Hash},
     Block, BlockHash, BlockHeader, Transaction,
@@ -14,14 +15,14 @@ pub struct ChainStateInner<PersistedState: ChainStore> {
     chainstore: PersistedState,
     best_block: (u32, BlockHash),
     broadcast_queue: Vec<Transaction>,
-    subscribers: Vec<Box<dyn Fn(Block) -> ()>>,
+    subscribers: Vec<Sender<Notification>>,
     /// Fee estimation for 1, 10 and 20 blocks
     fee_estimation: (f64, f64, f64),
 }
 use super::{
     chainstore::{ChainStore, KvChainStore},
     error::BlockchainError,
-    BlockchainInterface,
+    BlockchainInterface, Notification,
 };
 #[allow(unused)]
 pub struct ChainState<PersistedState: ChainStore> {
@@ -148,9 +149,9 @@ impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedSta
         }
         Err(BlockchainError::BlockNotPresent)
     }
-    fn subscribe<F: Fn(bitcoin::Block) -> () + 'static>(&self, callback: F) {
+    fn subscribe(&self, tx: Sender<Notification>) {
         let mut inner = self.inner.write().expect("get_block_hash: Poisoned lock");
-        inner.subscribers.push(Box::new(callback));
+        inner.subscribers.push(tx);
     }
 }
 

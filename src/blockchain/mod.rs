@@ -1,15 +1,16 @@
 pub mod chain_state;
 pub mod chainstore;
-pub mod error;
 pub mod cli_blockchain;
+pub mod error;
 pub mod udata;
 
-use std::sync::Arc;
+use async_std::channel::Sender;
 use bitcoin::{Block, BlockHash, BlockHeader};
 use btcd_rpc::{
     client::{BTCDClient, BtcdRpc},
     json_types::transaction::BestBlock,
 };
+use std::sync::Arc;
 
 use self::error::BlockchainError;
 
@@ -37,7 +38,14 @@ pub trait BlockchainInterface {
     fn get_block_header(&self, hash: &BlockHash) -> Result<BlockHeader>;
     /// Register for receiving notifications for some event. Right now it only works for
     /// new blocks, but may work with transactions in the future too.
-    fn subscribe<F: Fn(Block) -> () + 'static>(&self, callback: F);
+    fn subscribe(&self, tx: Sender<Notification>);
+}
+#[allow(unused)]
+/// A notification is a hook that a type implementing [BlockchainInterface] sends each
+/// time the given event happens. This is use to notify new blocks to the Electrum server.
+/// In the future, it can be expanded to send more data, like transactions.
+pub enum Notification {
+    NewBlock(Block),
 }
 
 pub struct ChainWatch;
