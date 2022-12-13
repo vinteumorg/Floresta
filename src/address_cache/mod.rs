@@ -370,20 +370,20 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
 
 #[cfg(test)]
 mod test {
-    use std::str::FromStr;
-
     use bitcoin::{
         consensus::deserialize,
         hashes::{hex::FromHex, sha256},
-        Address, Transaction,
+        Address, Txid,
     };
+    use std::str::FromStr;
 
     use crate::electrum::electrum_protocol::get_spk_hash;
 
     use super::{kv_database::KvDatabase, AddressCache};
     fn get_test_cache() -> AddressCache<KvDatabase> {
-        let database =
-            KvDatabase::new("/tmp/utreexo/".to_owned()).expect("Could not open database");
+        let random_name = rand::random::<u64>();
+        let database = KvDatabase::new(format!("/tmp/utreexo/{random_name}"))
+            .expect("Could not open database");
         AddressCache::new(database)
     }
     fn get_test_address() -> (Address, sha256::Hash) {
@@ -393,13 +393,9 @@ mod test {
     }
     #[test]
     fn test_create() {
-        let database =
-            KvDatabase::new("/tmp/utreexo/".to_owned()).expect("Could not open database");
-        let address_cache = AddressCache::new(database);
+        let address_cache = get_test_cache();
         let height = address_cache.get_sync_limits(10);
-        assert!(height.is_ok());
-        let height = height.unwrap();
-        assert_eq!(height, 0..=10);
+        assert!(height.is_err());
     }
     #[test]
     fn test_cache_address() {
@@ -444,6 +440,71 @@ mod test {
         let balance = cache.get_address_balance(&script_hash);
         let history = cache.get_address_history(&script_hash);
         let cached_merkle_block = cache.get_merkle_proof(&transaction.txid()).unwrap();
+        assert_eq!(balance, 999890);
+        assert_eq!(
+            history[0].hash,
+            String::from("6bb0665122c7dcecc6e6c45b6384ee2bdce148aea097896e6f3e9e08070353ea")
+        );
+        let expected_hashes = vec![String::from(
+            "e7d6e69230db7dd074cc2610c32be013468f1c224172b347eccdef98f36e0834",
+        )];
+        assert_eq!(cached_merkle_block, (expected_hashes, 1));
+    }
+    #[test]
+    fn test_process_block() {
+        let (address, script_hash) = get_test_address();
+        let mut cache = get_test_cache();
+        cache.cache_address(address.script_pubkey());
+
+        let block = "000000203ea734fa2c8dee7d3194878c9eaf6e83a629f79b3076ec857793995e01010000eb99c679c0305a1ac0f5eb2a07a9f080616105e605b92b8c06129a2451899225ab5481633c4b011e0b26720102020000000001010000000000000000000000000000000000000000000000000000000000000000ffffffff0403efce01feffffff026ef2052a01000000225120a1a1b1376d5165617a50a6d2f59abc984ead8a92df2b25f94b53dbc2151824730000000000000000776a24aa21a9ed1b4c48a7220572ff3ab3d2d1c9231854cb62542fbb1e0a4b21ebbbcde8d652bc4c4fecc7daa2490047304402204b37c41fce11918df010cea4151737868111575df07f7f2945d372e32a6d11dd02201658873a8228d7982df6bdbfff5d0cad1d6f07ee400e2179e8eaad8d115b7ed001000120000000000000000000000000000000000000000000000000000000000000000000000000020000000001017ca523c5e6df0c014e837279ab49be1676a9fe7571c3989aeba1e5d534f4054a0000000000fdffffff01d2410f00000000001600142b6a2924aa9b1b115d1ac3098b0ba0e6ed510f2a02473044022071b8583ba1f10531b68cb5bd269fb0e75714c20c5a8bce49d8a2307d27a082df022069a978dac00dd9d5761aa48c7acc881617fa4d2573476b11685596b17d437595012103b193d06bd0533d053f959b50e3132861527e5a7a49ad59c5e80a265ff6a77605eece0100";
+        let block = deserialize(&Vec::from_hex(block).unwrap()).unwrap();
+        cache.block_process(&block, 118511);
+        assert_eq!(cache.tx_index.len(), 1);
+        let balance = cache.get_address_balance(&script_hash);
+        let history = cache.get_address_history(&script_hash);
+        let transaction_id =
+            Txid::from_str("6bb0665122c7dcecc6e6c45b6384ee2bdce148aea097896e6f3e9e08070353ea")
+                .unwrap();
+        let cached_merkle_block = cache.get_merkle_proof(&transaction_id).unwrap();
+        assert_eq!(balance, 999890);
+        assert_eq!(
+            history[0].hash,
+            String::from("6bb0665122c7dcecc6e6c45b6384ee2bdce148aea097896e6f3e9e08070353ea")
+        );
+        let expected_hashes = vec![String::from(
+            "e7d6e69230db7dd074cc2610c32be013468f1c224172b347eccdef98f36e0834",
+        )];
+        assert_eq!(cached_merkle_block, (expected_hashes, 1));
+    }
+    #[test]
+    fn test_persistency() {
+        let random_name = rand::random::<u64>();
+        let (address, script_hash) = get_test_address();
+        // Create a new address cache
+        {
+            let database = KvDatabase::new(format!("/tmp/utreexo/{random_name}"))
+                .expect("Could not open database");
+            let mut cache = AddressCache::new(database);
+
+            cache.cache_address(address.script_pubkey());
+
+            let block = "000000203ea734fa2c8dee7d3194878c9eaf6e83a629f79b3076ec857793995e01010000eb99c679c0305a1ac0f5eb2a07a9f080616105e605b92b8c06129a2451899225ab5481633c4b011e0b26720102020000000001010000000000000000000000000000000000000000000000000000000000000000ffffffff0403efce01feffffff026ef2052a01000000225120a1a1b1376d5165617a50a6d2f59abc984ead8a92df2b25f94b53dbc2151824730000000000000000776a24aa21a9ed1b4c48a7220572ff3ab3d2d1c9231854cb62542fbb1e0a4b21ebbbcde8d652bc4c4fecc7daa2490047304402204b37c41fce11918df010cea4151737868111575df07f7f2945d372e32a6d11dd02201658873a8228d7982df6bdbfff5d0cad1d6f07ee400e2179e8eaad8d115b7ed001000120000000000000000000000000000000000000000000000000000000000000000000000000020000000001017ca523c5e6df0c014e837279ab49be1676a9fe7571c3989aeba1e5d534f4054a0000000000fdffffff01d2410f00000000001600142b6a2924aa9b1b115d1ac3098b0ba0e6ed510f2a02473044022071b8583ba1f10531b68cb5bd269fb0e75714c20c5a8bce49d8a2307d27a082df022069a978dac00dd9d5761aa48c7acc881617fa4d2573476b11685596b17d437595012103b193d06bd0533d053f959b50e3132861527e5a7a49ad59c5e80a265ff6a77605eece0100";
+            let block = deserialize(&Vec::from_hex(block).unwrap()).unwrap();
+            cache.block_process(&block, 118511);
+            cache.bump_height(118511)
+        }
+        // Load it from disk after persisting the  data
+        let database = KvDatabase::new(format!("/tmp/utreexo/{random_name}"))
+            .expect("Could not open database");
+        let cache = AddressCache::new(database);
+
+        assert_eq!(cache.tx_index.len(), 1);
+        let balance = cache.get_address_balance(&script_hash);
+        let history = cache.get_address_history(&script_hash);
+        let transaction_id =
+            Txid::from_str("6bb0665122c7dcecc6e6c45b6384ee2bdce148aea097896e6f3e9e08070353ea")
+                .unwrap();
+        let cached_merkle_block = cache.get_merkle_proof(&transaction_id).unwrap();
         assert_eq!(balance, 999890);
         assert_eq!(
             history[0].hash,
