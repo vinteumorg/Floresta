@@ -62,7 +62,6 @@ pub enum Message {
     NewPeer((u32, Arc<Peer>)),
     Message((u32, String)),
     Disconnect(u32),
-    NewBlock,
 }
 
 impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
@@ -280,7 +279,10 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                         "hex": serialize(&block.header).to_hex()
                     }]
                 });
-
+                if !self.chain.is_in_idb() || best.0 % 1000 == 0 {
+                    let lock = self.address_cache.write().await;
+                    lock.bump_height(best.0);
+                }
                 let transactions = self
                     .address_cache
                     .write()
@@ -332,9 +334,6 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                             .await?;
                     }
                 }
-            }
-            Message::NewBlock => {
-                unreachable!()
             }
             Message::Disconnect(id) => {
                 self.peers.remove(&id);

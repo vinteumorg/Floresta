@@ -5,12 +5,8 @@ pub mod error;
 pub mod udata;
 
 use async_std::channel::Sender;
-use bitcoin::{Block, BlockHash, BlockHeader};
-use btcd_rpc::{
-    client::{BTCDClient, BtcdRpc},
-    json_types::transaction::BestBlock,
-};
-use std::sync::Arc;
+use bitcoin::{hashes::sha256, Block, BlockHash, BlockHeader};
+use rustreexo::accumulator::proof::Proof;
 
 use self::error::BlockchainError;
 
@@ -18,8 +14,6 @@ type Result<T> = std::result::Result<T, BlockchainError>;
 /// This trait is the main interface between our blockchain backend and other services.
 /// It'll be useful for transitioning from rpc to a p2p based node
 pub trait BlockchainInterface {
-    /// Accepts a new blok to our local state. Returns the best chain height
-    fn connect_block(&self, block: Block) -> Result<u32>;
     /// Returns the block with a given height in our current tip.
     fn get_block_hash(&self, height: u32) -> Result<bitcoin::BlockHash>;
     /// Returns a bitcoin [Transaction] given it's txid.
@@ -39,24 +33,34 @@ pub trait BlockchainInterface {
     /// Register for receiving notifications for some event. Right now it only works for
     /// new blocks, but may work with transactions in the future too.
     fn subscribe(&self, tx: Sender<Notification>);
+    /// Tells whether or not we are on ibd
+    fn is_in_idb(&self) -> bool;
 }
-#[allow(unused)]
+/// A [BlockchainProviderInterface] is the trait that a implementation of blockchain uses to update
+/// the chainstate.
+pub trait BlockchainProviderInterface {
+    /// Sends the notification across all subscribers.
+    fn notify(&self, what: Notification);
+    /// This is one of the most important methods for a ChainState, it gets a block and some utreexo data,
+    /// validates this block and connects to our chain of blocks.
+    fn connect_block(
+        &self,
+        block: &Block,
+        proof: Proof,
+        del_hashes: Vec<sha256::Hash>,
+    ) -> Result<()>;
+    /// If we detect a reorganization of blocks, this function should reconciliate our view of
+    /// the network.
+    fn handle_reorg(&self) -> Result<()>;
+    /// Not used for now, but in a future blockchain with mempool, we can process transactions
+    /// that are not in a block yet.
+    fn handle_transaction(&self) -> Result<()>;
+    /// Persists our data. Should be invoked periodically.
+    fn flush(&self) -> Result<()>;
+}
 /// A notification is a hook that a type implementing [BlockchainInterface] sends each
 /// time the given event happens. This is use to notify new blocks to the Electrum server.
 /// In the future, it can be expanded to send more data, like transactions.
 pub enum Notification {
     NewBlock(Block),
-}
-
-pub struct ChainWatch;
-
-impl ChainWatch {
-    pub fn get_block(rpc: &Arc<BTCDClient>) -> u64 {
-        rpc.getbestblock()
-            .unwrap_or(BestBlock {
-                height: 0,
-                hash: "".into(),
-            })
-            .height
-    }
 }

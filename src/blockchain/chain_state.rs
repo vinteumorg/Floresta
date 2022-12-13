@@ -1,23 +1,38 @@
-use std::{collections::HashMap, fmt::Write};
+use std::{collections::HashMap, io::Write};
 
 use crate::{read_lock, write_lock};
 use async_std::channel::Sender;
 use bitcoin::{
+    consensus::{deserialize_partial, Encodable},
     hashes::{hex::FromHex, sha256, Hash},
     Block, BlockHash, BlockHeader, Transaction,
 };
-use rustreexo::accumulator::stump::Stump;
+use rustreexo::accumulator::{proof::Proof, stump::Stump};
 use std::sync::RwLock;
+
 pub struct ChainStateInner<PersistedState: ChainStore> {
-    block_index: HashMap<u32, BlockHash>,
-    block_headers: HashMap<BlockHash, BlockHeader>,
+    /// Caches the map between height and hash for newest blocks
+    block_index_cache: HashMap<u32, BlockHash>,
+    /// Caches some of the newest block headers for easy access.
+    block_headers_cache: HashMap<BlockHash, BlockHeader>,
+    /// The acc we use for validation.
     acc: Stump,
+    /// All data is persisted here.
     chainstore: PersistedState,
+    /// Best known block, cached in a specific field to faster access.
     best_block: (u32, BlockHash),
+    /// When one of our consumers tries to broadcast a transaction, this transaction gets
+    /// writen to broadcast_queue, and the ChainStateBackend can use it's own logic to actually
+    /// broadcast the tx.
     broadcast_queue: Vec<Transaction>,
+    /// We may have more than one consumer, that access our data through [BlockchainInterface],
+    /// they might need to be notified about new data coming in, like blocks. They do so by calling
+    /// `subscribe` and passing a [async_std::channel::Sender]. We save all Senders here.
     subscribers: Vec<Sender<Notification>>,
     /// Fee estimation for 1, 10 and 20 blocks
     fee_estimation: (f64, f64, f64),
+    /// Are we in Initial Block Download?
+    ibd: bool,
 }
 use super::{
     chainstore::{ChainStore, KvChainStore},
@@ -30,78 +45,95 @@ pub struct ChainState<PersistedState: ChainStore> {
 }
 
 impl<PersistedState: ChainStore> ChainState<PersistedState> {
-    pub fn save_acc(&self) {
+    pub fn save_acc(&self) -> Result<(), bitcoin::consensus::encode::Error> {
         let inner = read_lock!(self);
-        let mut acc = String::new();
-        acc.write_fmt(format_args!("{} ", inner.acc.leafs))
-            .expect("String formatting should not err");
+        let mut ser_acc: Vec<u8> = vec![];
+        inner.acc.leafs.consensus_encode(&mut ser_acc)?;
+
         for root in inner.acc.roots.iter() {
-            acc.write_fmt(format_args!("{root}"))
+            ser_acc
+                .write(&*root)
                 .expect("String formatting should not err");
         }
 
         inner
             .chainstore
-            .save_roots(acc)
+            .save_roots(ser_acc)
             .expect("Chain store is not working");
+        Ok(())
     }
-    pub fn new() -> ChainState<KvChainStore> {
+
+    pub fn new(chainstore: KvChainStore) -> ChainState<KvChainStore> {
         ChainState {
             inner: RwLock::new(ChainStateInner {
-                block_index: HashMap::new(),
-                block_headers: HashMap::new(),
+                chainstore,
+                block_index_cache: HashMap::new(),
+                block_headers_cache: HashMap::new(),
                 acc: Stump::new(),
-                chainstore: KvChainStore::new("/tmp/utreexod".to_owned()).unwrap(),
                 best_block: (0, BlockHash::all_zeros()),
                 broadcast_queue: vec![],
                 subscribers: vec![],
                 fee_estimation: (0_f64, 0_f64, 0_f64),
+                ibd: true,
             }),
         }
     }
-    pub fn load_acc(&self) -> Stump {
-        let inner = read_lock!(self);
-        let acc = inner.chainstore.load_roots().expect("Could not load roots");
-        if let Some(acc) = acc {
-            let acc = acc.split(' ').collect::<Vec<_>>();
-            let leaves = acc.first().expect("Missing leaves count");
+    pub fn load_chain_state(
+        chainstore: KvChainStore,
+    ) -> Result<ChainState<KvChainStore>, kv::Error> {
+        let acc = Self::load_acc(&chainstore);
+        let height = chainstore.load_height()?;
+        // block
 
-            let leaves = leaves
-                .parse::<u64>()
-                .expect("Invalid number, maybe the accumulator got corrupted?");
-            let acc = acc.get(1);
-            let mut roots = vec![];
+        let inner = ChainStateInner {
+            acc,
+            best_block: (height, BlockHash::all_zeros()),
+            block_headers_cache: HashMap::new(),
+            block_index_cache: HashMap::new(),
+            broadcast_queue: Vec::new(),
+            chainstore,
+            fee_estimation: (0_f64, 0_f64, 0_f64),
+            subscribers: Vec::new(),
+            ibd: true
+        };
+        Ok(ChainState {
+            inner: RwLock::new(inner),
+        })
+    }
 
-            if let Some(acc) = acc {
-                let mut acc = acc.to_string();
-                while acc.len() >= 64 {
-                    let hash = acc.drain(0..64).collect::<String>();
-                    let hash =
-                        sha256::Hash::from_hex(hash.as_str()).expect("Invalid hash provided");
-                    roots.push(hash);
-                }
-            }
-
-            Stump {
-                leafs: leaves,
-                roots,
-            }
-        } else {
-            Stump::new()
+    pub fn load_acc<Storage: ChainStore>(data_storage: &Storage) -> Stump {
+        let acc = data_storage
+            .load_roots()
+            .expect("load_acc: Could not read roots");
+        if acc.is_none() {
+            return Stump::new();
+        }
+        let mut acc = acc.unwrap();
+        let mut leaves = acc.drain(0..8).collect::<Vec<u8>>();
+        let (leaves, _) =
+            deserialize_partial::<u64>(&mut leaves).expect("load_acc: Invalid num_leaves");
+        let mut roots = vec![];
+        while acc.len() >= 32 {
+            // Since we only expect hashes after the num_leaves, it should always align with 32 bytes
+            assert_eq!(acc.len() % 32, 0);
+            let root = acc.drain(0..32).collect::<Vec<u8>>();
+            let root = sha256::Hash::from_slice(&root).expect("Invalid hash");
+            roots.push(root);
+        }
+        Stump {
+            leafs: leaves,
+            roots,
         }
     }
 }
 
 impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedState> {
-    fn connect_block(&self, _block: bitcoin::Block) -> super::Result<u32> {
-        // self.acc = BlockchainSync::update_acc(&self.acc, block, height, proof, del_hashes)
-        //     .unwrap_or_else(|_| panic!("Could not update the accumulator at {height}"));
-        todo!()
+    fn is_in_idb(&self) -> bool {
+        self.inner.read().unwrap().ibd
     }
-
     fn get_block_hash(&self, height: u32) -> super::Result<bitcoin::BlockHash> {
         let inner = self.inner.read().expect("get_block_hash: Poisoned lock");
-        if let Some(hash) = inner.block_index.get(&height) {
+        if let Some(hash) = inner.block_index_cache.get(&height) {
             return Ok(*hash);
         }
         Err(BlockchainError::BlockNotPresent)
@@ -144,7 +176,7 @@ impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedSta
 
     fn get_block_header(&self, hash: &BlockHash) -> super::Result<bitcoin::BlockHeader> {
         let inner = read_lock!(self);
-        if let Some(header) = inner.block_headers.get(hash) {
+        if let Some(header) = inner.block_headers_cache.get(hash) {
             return Ok(*header);
         }
         Err(BlockchainError::BlockNotPresent)

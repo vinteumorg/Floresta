@@ -40,17 +40,14 @@ mod error;
 
 use std::{process::exit, sync::Arc};
 
-use crate::electrum::electrum_protocol::Message;
 use address_cache::{kv_database::KvDatabase, AddressCache, AddressCacheDatabase};
 use async_std::task::{self, block_on};
 use bitcoin::Network;
-use blockchain::{
-    chain_state::ChainState, chainstore::KvChainStore, BlockchainInterface, ChainWatch,
-};
+use blockchain::{chain_state::ChainState, chainstore::KvChainStore};
 use btcd_rpc::client::{BTCDClient, BTCDConfigs, BtcdRpc};
 use clap::Parser;
 use cli::{Cli, Commands};
-use log::{error, info};
+use log::{debug, error, info};
 use miniscript::{Descriptor, DescriptorPublicKey};
 use pretty_env_logger::env_logger::TimestampPrecision;
 use std::str::FromStr;
@@ -77,9 +74,16 @@ fn main() {
                 return;
             }
             info!("Starting sync worker, this might take a while!");
-            let cache = load_wallet(data_dir);
-            let blockchain_state = Arc::new(ChainState::<KvChainStore>::new());
-            info!("Starting server...");
+            info!("Starting server");
+            debug!("Loading wallet");
+            let cache = load_wallet(data_dir.clone());
+            debug!("Done loading wallet");
+
+            debug!("Loading database...");
+            let blockchain_state = Arc::new(load_chain_state(&data_dir));
+            debug!("Done loading wallet");
+
+            info!("Starting server");
             let electrum_server = block_on(electrum::electrum_protocol::ElectrumServer::new(
                 "127.0.0.1:50001",
                 cache,
@@ -87,18 +91,6 @@ fn main() {
             ))
             .unwrap();
 
-            let notify_sender = electrum_server.notify_tx.clone();
-            let timer = timer::Timer::new();
-            let mut current_block = ChainWatch::get_block(&rpc);
-            timer
-                .schedule_repeating(chrono::Duration::seconds(5), move || {
-                    let new_block = ChainWatch::get_block(&rpc);
-                    if new_block > current_block {
-                        let _ = notify_sender.send(Message::NewBlock);
-                        current_block = new_block;
-                    }
-                })
-                .ignore();
             task::spawn(electrum::electrum_protocol::accept_loop(
                 electrum_server.listener.clone().unwrap(),
                 electrum_server.notify_tx.clone(),
@@ -114,8 +106,9 @@ fn main() {
         }
     }
 }
-fn load_chain_state() -> ChainState<KvChainStore> {
-    todo!()
+fn load_chain_state(data_dir: &String) -> ChainState<KvChainStore> {
+    let db = KvChainStore::new(data_dir.to_string()).expect("Could not read db");
+    ChainState::<KvChainStore>::load_chain_state(db).expect("Could not retrieve chain state")
 }
 fn load_wallet(data_dir: String) -> AddressCache<KvDatabase> {
     let database = KvDatabase::new(data_dir.clone()).expect("Could not create a database");
