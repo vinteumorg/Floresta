@@ -4,13 +4,13 @@ use btcd_rpc::error::UtreexodError;
 #[derive(Debug)]
 pub enum BlockchainError {
     BlockNotPresent,
-    _TxNotFound,
+    TxNotFound,
     JsonRpcError(UtreexodError),
     ParsingError(bitcoin::hashes::hex::Error),
     BlockValidationError,
     InvalidProof,
     UtreexoError(String),
-    _UnknownError(Box<dyn std::error::Error>),
+    UnknownError(Box<dyn std::error::Error>),
 }
 impl From<UtreexodError> for BlockchainError {
     fn from(err: UtreexodError) -> Self {

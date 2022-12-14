@@ -1,13 +1,17 @@
-use std::{collections::HashMap, io::Write};
+use std::{
+    collections::{HashMap, HashSet},
+    io::Write,
+};
 
 use crate::{read_lock, write_lock};
 use async_std::{channel::Sender, task::block_on};
 use bitcoin::{
     consensus::{deserialize_partial, Encodable},
     hashes::{sha256, Hash},
-    Block, BlockHash, BlockHeader, Transaction,
+    Block, BlockHash, BlockHeader, Transaction, OutPoint, TxOut,
 };
 use rustreexo::accumulator::{proof::Proof, stump::Stump};
+use sha2::{Digest, Sha512_256};
 use std::sync::RwLock;
 
 pub struct ChainStateInner<PersistedState: ChainStore> {
@@ -45,6 +49,83 @@ pub struct ChainState<PersistedState: ChainStore> {
 }
 
 impl<PersistedState: ChainStore> ChainState<PersistedState> {
+    // TODO: Move to LeafData
+    pub fn get_leaf_hashes(
+        transaction: &Transaction,
+        vout: u32,
+        height: u32,
+        block_hash: BlockHash,
+    ) -> sha256::Hash {
+        let header_code = height << 1;
+
+        let mut ser_utxo = vec![];
+        let utxo = transaction.output.get(vout as usize).unwrap();
+        utxo.consensus_encode(&mut ser_utxo).unwrap();
+        let header_code = if transaction.is_coin_base() {
+            header_code | 1
+        } else {
+            header_code
+        };
+
+        let leaf_hash = Sha512_256::new()
+            .chain_update(block_hash)
+            .chain_update(transaction.txid())
+            .chain_update(vout.to_le_bytes())
+            .chain_update(header_code.to_le_bytes())
+            .chain_update(ser_utxo)
+            .finalize();
+        sha256::Hash::from_slice(leaf_hash.as_slice())
+            .expect("parent_hash: Engines shouldn't be Err")
+    }
+    pub fn _verify_block_transactions(
+        mut utxos: HashMap<OutPoint, TxOut>,
+        transactions: &[Transaction],
+    ) -> Result<bool, crate::error::Error> {
+        for transaction in transactions {
+            if !transaction.is_coin_base() {
+                transaction.verify(|outpoint| utxos.remove(outpoint))?;
+            }
+        }
+        Ok(true)
+    }
+    pub fn update_acc(
+        acc: &Stump,
+        block: &Block,
+        height: u32,
+        proof: Proof,
+        del_hashes: Vec<sha256::Hash>,
+    ) -> Result<Stump, BlockchainError> {
+        let block_hash = block.block_hash();
+        let mut leaf_hashes = vec![];
+        if !proof.verify(&del_hashes, acc)? {
+            return Err(BlockchainError::InvalidProof);
+        }
+        let mut block_inputs = HashSet::new();
+        for transaction in block.txdata.iter() {
+            for input in transaction.input.iter() {
+                block_inputs.insert((input.previous_output.txid, input.previous_output.vout));
+            }
+        }
+
+        for transaction in block.txdata.iter() {
+            for (i, output) in transaction.output.iter().enumerate() {
+                if !output.script_pubkey.is_provably_unspendable()
+                    && !block_inputs.contains(&(transaction.txid(), i as u32))
+                {
+                    leaf_hashes.push(Self::get_leaf_hashes(
+                        transaction,
+                        i as u32,
+                        height,
+                        block_hash,
+                    ))
+                }
+            }
+        }
+        let acc = acc.modify(&leaf_hashes, &del_hashes, &proof)?.0;
+
+        Ok(acc)
+    }
+
     pub fn save_acc(&self) -> Result<(), bitcoin::consensus::encode::Error> {
         let inner = read_lock!(self);
         let mut ser_acc: Vec<u8> = vec![];
@@ -83,7 +164,6 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
     ) -> Result<ChainState<KvChainStore>, kv::Error> {
         let acc = Self::load_acc(&chainstore);
         let height = chainstore.load_height()?.unwrap().parse().unwrap();
-        // block
 
         let inner = ChainStateInner {
             acc,
@@ -196,11 +276,15 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
     fn connect_block(
         &self,
         block: &Block,
-        _proof: Proof,
-        _del_hashes: Vec<sha256::Hash>,
+        proof: Proof,
+        del_hashes: Vec<sha256::Hash>,
     ) -> super::Result<()> {
-        self.notify(Notification::NewBlock(block.clone()));
+        let mut inner = self.inner.write().unwrap();
+        let height = self.get_best_block().unwrap().0;
+        inner.acc = Self::update_acc(&inner.acc, block, height, proof, del_hashes)?;
+        drop(inner);
 
+        self.notify(Notification::NewBlock(block.clone()));
         Ok(())
     }
 
