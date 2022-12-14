@@ -15,7 +15,7 @@
 
 // Coding conventions
 #![deny(clippy::needless_lifetimes)]
-//#![deny(unused)]
+#![deny(unused)]
 #![deny(non_camel_case_types)]
 #![deny(non_snake_case)]
 #![deny(arithmetic_overflow)]
