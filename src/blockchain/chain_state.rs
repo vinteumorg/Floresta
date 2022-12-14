@@ -1,10 +1,10 @@
 use std::{collections::HashMap, io::Write};
 
 use crate::{read_lock, write_lock};
-use async_std::channel::Sender;
+use async_std::{channel::Sender, task::block_on};
 use bitcoin::{
     consensus::{deserialize_partial, Encodable},
-    hashes::{hex::FromHex, sha256, Hash},
+    hashes::{sha256, Hash},
     Block, BlockHash, BlockHeader, Transaction,
 };
 use rustreexo::accumulator::{proof::Proof, stump::Stump};
@@ -37,7 +37,7 @@ pub struct ChainStateInner<PersistedState: ChainStore> {
 use super::{
     chainstore::{ChainStore, KvChainStore},
     error::BlockchainError,
-    BlockchainInterface, Notification,
+    BlockchainInterface, BlockchainProviderInterface, Notification,
 };
 #[allow(unused)]
 pub struct ChainState<PersistedState: ChainStore> {
@@ -63,7 +63,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         Ok(())
     }
 
-    pub fn new(chainstore: KvChainStore) -> ChainState<KvChainStore> {
+    pub fn _new(chainstore: KvChainStore) -> ChainState<KvChainStore> {
         ChainState {
             inner: RwLock::new(ChainStateInner {
                 chainstore,
@@ -82,7 +82,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         chainstore: KvChainStore,
     ) -> Result<ChainState<KvChainStore>, kv::Error> {
         let acc = Self::load_acc(&chainstore);
-        let height = chainstore.load_height()?;
+        let height = chainstore.load_height()?.unwrap().parse().unwrap();
         // block
 
         let inner = ChainStateInner {
@@ -94,7 +94,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             chainstore,
             fee_estimation: (0_f64, 0_f64, 0_f64),
             subscribers: Vec::new(),
-            ibd: true
+            ibd: true,
         };
         Ok(ChainState {
             inner: RwLock::new(inner),
@@ -186,7 +186,37 @@ impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedSta
         inner.subscribers.push(tx);
     }
 }
+impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<PersistedState> {
+    fn notify(&self, what: Notification) {
+        for client in self.inner.read().unwrap().subscribers.iter() {
+            let _ = block_on(client.send(what.clone()));
+        }
+    }
 
+    fn connect_block(
+        &self,
+        block: &Block,
+        _proof: Proof,
+        _del_hashes: Vec<sha256::Hash>,
+    ) -> super::Result<()> {
+        self.notify(Notification::NewBlock(block.clone()));
+
+        Ok(())
+    }
+
+    fn handle_reorg(&self) -> super::Result<()> {
+        todo!()
+    }
+
+    fn handle_transaction(&self) -> super::Result<()> {
+        todo!()
+    }
+
+    fn flush(&self) -> super::Result<()> {
+        let _ = self.save_acc();
+        Ok(())
+    }
+}
 #[macro_export]
 macro_rules! read_lock {
     ($obj: ident) => {

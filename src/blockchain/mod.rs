@@ -58,6 +58,7 @@ pub trait BlockchainProviderInterface {
     /// Persists our data. Should be invoked periodically.
     fn flush(&self) -> Result<()>;
 }
+#[derive(Debug, Clone)]
 /// A notification is a hook that a type implementing [BlockchainInterface] sends each
 /// time the given event happens. This is use to notify new blocks to the Electrum server.
 /// In the future, it can be expanded to send more data, like transactions.

@@ -1,7 +1,6 @@
 pub mod kv_database;
 use std::{
     collections::{HashMap, HashSet},
-    ops::RangeInclusive,
     str::Split,
     vec,
 };
@@ -281,13 +280,7 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
 
         None
     }
-    pub fn get_sync_limits(
-        &self,
-        current_hight: u32,
-    ) -> Result<RangeInclusive<u32>, crate::error::Error> {
-        let height = self.database.get_cache_height()?;
-        Ok((height + 1)..=current_hight)
-    }
+
     pub fn get_cached_transaction(&self, txid: &Txid) -> Option<String> {
         if let Some(tx) = self.get_transaction(txid) {
             return Some(tx.tx_hex);
@@ -393,9 +386,7 @@ mod test {
     }
     #[test]
     fn test_create() {
-        let address_cache = get_test_cache();
-        let height = address_cache.get_sync_limits(10);
-        assert!(height.is_err());
+        let _ = get_test_cache();
     }
     #[test]
     fn test_cache_address() {
