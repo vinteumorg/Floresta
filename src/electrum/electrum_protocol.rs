@@ -90,8 +90,8 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
         match request.method.as_str() {
             "blockchain.estimatefee" => json_rpc_res!(request, 0.0001),
             "blockchain.headers.subscribe" => {
-                let (height, hash) = self.chain.get_best_block().unwrap();
-                let header = self.chain.get_block_header(&hash).unwrap();
+                let (height, hash) = self.chain.get_best_block()?;
+                let header = self.chain.get_block_header(&hash)?;
                 let result = json!({
                     "height": height,
                     "hex": header
@@ -326,9 +326,12 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                     } else {
                         let res = json!({
                             "jsonrpc": "2.0",
-                            "id": id,
-                            "error":"Unknown",
-                            "data": null
+                            "error": {
+                                "code": -32000,
+                                "message": "Internal JSON-RPC error.",
+                                "data": null
+                            },
+                            "id": id
                         });
                         peer.write(serde_json::to_string(&res).unwrap().as_bytes())
                             .await?;

@@ -1,16 +1,10 @@
-#![allow(unused)]
-use std::{
-    collections::{HashMap, HashSet},
-    ops::RangeInclusive,
-    sync::Arc,
-    thread,
-};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use bitcoin::{
     consensus::{deserialize_partial, Decodable, Encodable},
     hashes::{
         hex::{FromHex, ToHex},
-        sha256, Hash,
+        sha256,
     },
     Block, BlockHash, OutPoint, Transaction, TxOut,
 };
@@ -18,29 +12,25 @@ use btcd_rpc::{
     client::{BTCDClient, BtcdRpc},
     json_types::VerbosityOutput,
 };
-use rustreexo::accumulator::{proof::Proof, stump::Stump};
-use sha2::{Digest, Sha512_256};
+use rustreexo::accumulator::proof::Proof;
 
 use super::{
-    chain_state::ChainState,
-    chainstore::{ChainStore, KvChainStore},
-    error::BlockchainError,
-    udata::LeafData,
-    Result,
+    chain_state::ChainState, chainstore::KvChainStore, error::BlockchainError, udata::LeafData,
+    BlockchainInterface, BlockchainProviderInterface, Result,
 };
 
 pub struct UtreexodBackend {
     pub rpc: Arc<BTCDClient>,
-    pub chainstate: ChainState<KvChainStore>,
+    pub chainstate: Arc<ChainState<KvChainStore>>,
 }
 
 impl UtreexodBackend {
-    fn get_block_hash(&self, height: u32) -> Result<bitcoin::BlockHash> {
+    fn _get_block_hash(&self, height: u32) -> Result<bitcoin::BlockHash> {
         Ok(BlockHash::from_hex(
             self.rpc.getblockhash(height as usize)?.as_str(),
         )?)
     }
-    fn get_tx(&self, txid: &bitcoin::Txid) -> Result<Option<bitcoin::Transaction>> {
+    fn _get_tx(&self, txid: &bitcoin::Txid) -> Result<Option<bitcoin::Transaction>> {
         let tx = self.rpc.getrawtransaction(txid.to_hex(), false).unwrap();
         if let VerbosityOutput::Simple(hex) = tx {
             let tx = Transaction::consensus_decode(&mut hex.as_bytes())
@@ -67,15 +57,13 @@ impl UtreexodBackend {
         Ok(())
     }
 
-    fn estimate_fee(&self, target: usize) -> Result<f64> {
+    fn _estimate_fee(&self, target: usize) -> Result<f64> {
         let feerate = self.rpc.estimatefee(target as u32)?;
         Ok(feerate)
     }
-}
-impl UtreexodBackend {
-    pub fn get_block<T: BtcdRpc>(rpc: &T, height: u32) -> Result<Block> {
-        let hash = rpc.getblockhash(height as usize)?;
-        let block = rpc.getblock(hash, false)?;
+    pub fn get_block(&self, height: u32) -> Result<Block> {
+        let hash = self.rpc.getblockhash(height as usize)?;
+        let block = self.rpc.getblock(hash, false)?;
         if let VerbosityOutput::Simple(hex) = block {
             let block = Vec::from_hex(hex.as_str())?;
             let (block, _): (Block, usize) = deserialize_partial(&block).unwrap();
@@ -116,13 +104,8 @@ impl UtreexodBackend {
 
         Ok((proof, targethashes, preimages))
     }
-    pub async fn run(self) {
-        loop {
-            // Awaits a couple of seconds before refreshing data
-            async_std::task::sleep(std::time::Duration::from_secs(1)).await;
-        }
-    }
-    pub fn verify_block_transactions(
+
+    pub fn _verify_block_transactions(
         mut utxos: HashMap<OutPoint, TxOut>,
         transactions: &[Transaction],
     ) -> Result<bool> {
@@ -132,5 +115,38 @@ impl UtreexodBackend {
             }
         }
         Ok(true)
+    }
+    pub fn handle_broadcast(&self) -> Result<()> {
+        let tx_list = self.chainstate.get_unbroadcasted();
+        for tx in tx_list {
+            self.broadcast(&tx)?;
+        }
+        Ok(())
+    }
+    pub fn handle_tip_update(&self) -> Result<()> {
+        let height = self.get_height()?;
+        if height > self.chainstate.get_best_block().unwrap().0 {
+            let block = self.get_block(height)?;
+            let (proof, del_hashes, _) =
+                Self::get_proof(&*self.rpc, &block.block_hash().to_string())?;
+
+            self.chainstate.connect_block(&block, proof, del_hashes)?;
+        }
+        Ok(())
+    }
+    pub async fn run(self) {
+        loop {
+            macro_rules! try_and_log {
+                ($what: expr) => {
+                    let result = $what;
+                    if let Err(error) = result {
+                        log::error!("{:?}", error);
+                    }
+                };
+            }
+            async_std::task::sleep(Duration::from_secs(1)).await;
+            try_and_log!(self.handle_broadcast());
+            try_and_log!(self.handle_tip_update());
+        }
     }
 }

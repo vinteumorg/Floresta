@@ -1,6 +1,6 @@
 use bitcoin::blockdata::script;
 use btcd_rpc::error::UtreexodError;
-
+#[allow(unused)]
 #[derive(Debug)]
 pub enum BlockchainError {
     BlockNotPresent,

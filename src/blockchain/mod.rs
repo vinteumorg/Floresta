@@ -2,10 +2,11 @@ pub mod chain_state;
 pub mod chainstore;
 pub mod cli_blockchain;
 pub mod error;
+pub mod mock_chain;
 pub mod udata;
 
 use async_std::channel::Sender;
-use bitcoin::{hashes::sha256, Block, BlockHash, BlockHeader};
+use bitcoin::{hashes::sha256, Block, BlockHash, BlockHeader, Transaction};
 use rustreexo::accumulator::proof::Proof;
 
 use self::error::BlockchainError;
@@ -57,6 +58,8 @@ pub trait BlockchainProviderInterface {
     fn handle_transaction(&self) -> Result<()>;
     /// Persists our data. Should be invoked periodically.
     fn flush(&self) -> Result<()>;
+    /// Returns the list of unbroadcasted transactions.
+    fn get_unbroadcasted(&self) -> Vec<Transaction>;
 }
 #[derive(Debug, Clone)]
 /// A notification is a hook that a type implementing [BlockchainInterface] sends each

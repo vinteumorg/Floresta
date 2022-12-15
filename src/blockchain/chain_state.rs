@@ -8,7 +8,7 @@ use async_std::{channel::Sender, task::block_on};
 use bitcoin::{
     consensus::{deserialize_partial, Encodable},
     hashes::{sha256, Hash},
-    Block, BlockHash, BlockHeader, Transaction, OutPoint, TxOut,
+    Block, BlockHash, BlockHeader, OutPoint, Transaction, TxOut,
 };
 use rustreexo::accumulator::{proof::Proof, stump::Stump};
 use sha2::{Digest, Sha512_256};
@@ -163,7 +163,12 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         chainstore: KvChainStore,
     ) -> Result<ChainState<KvChainStore>, kv::Error> {
         let acc = Self::load_acc(&chainstore);
-        let height = chainstore.load_height()?.unwrap().parse().unwrap();
+        let height = chainstore.load_height()?;
+        let height = if let Some(height) = height {
+            height.parse().unwrap_or(0)
+        } else {
+            0
+        };
 
         let inner = ChainStateInner {
             acc,
@@ -299,6 +304,10 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
     fn flush(&self) -> super::Result<()> {
         let _ = self.save_acc();
         Ok(())
+    }
+    fn get_unbroadcasted(&self) -> Vec<Transaction> {
+        let mut inner = write_lock!(self);
+        inner.broadcast_queue.drain(..).collect()
     }
 }
 #[macro_export]

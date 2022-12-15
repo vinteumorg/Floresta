@@ -52,6 +52,8 @@ use miniscript::{Descriptor, DescriptorPublicKey};
 use pretty_env_logger::env_logger::TimestampPrecision;
 use std::str::FromStr;
 
+use crate::blockchain::cli_blockchain::UtreexodBackend;
+
 fn main() {
     // Setup global logger
     pretty_env_logger::formatted_timed_builder()
@@ -82,15 +84,17 @@ fn main() {
             debug!("Loading database...");
             let blockchain_state = Arc::new(load_chain_state(&data_dir));
             debug!("Done loading wallet");
-
-            info!("Starting server");
+            let chain_provider = UtreexodBackend {
+                chainstate: blockchain_state.clone(),
+                rpc,
+            };
             let electrum_server = block_on(electrum::electrum_protocol::ElectrumServer::new(
                 "127.0.0.1:50001",
                 cache,
                 blockchain_state,
             ))
             .unwrap();
-
+            task::spawn(chain_provider.run());
             task::spawn(electrum::electrum_protocol::accept_loop(
                 electrum_server.listener.clone().unwrap(),
                 electrum_server.notify_tx.clone(),
