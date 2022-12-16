@@ -12,12 +12,14 @@ use btcd_rpc::{
     client::{BTCDClient, BtcdRpc},
     json_types::VerbosityOutput,
 };
+// use log::trace;
 use rustreexo::accumulator::proof::Proof;
 
 use super::{
     chain_state::ChainState, chainstore::KvChainStore, error::BlockchainError, udata::LeafData,
     BlockchainInterface, BlockchainProviderInterface, Result,
 };
+use crate::try_and_log;
 
 pub struct UtreexodBackend {
     pub rpc: Arc<BTCDClient>,
@@ -34,17 +36,14 @@ impl UtreexodBackend {
         let tx = self.rpc.getrawtransaction(txid.to_hex(), false).unwrap();
         if let VerbosityOutput::Simple(hex) = tx {
             let tx = Transaction::consensus_decode(&mut hex.as_bytes())
-                .map_err(|err| BlockchainError::UnknownError(Box::new(err)))?;
+                .map_err(|_| BlockchainError::TxNotFound)?;
             return Ok(Some(tx));
         }
         Err(BlockchainError::TxNotFound)
     }
     fn get_height(&self) -> Result<u32> {
-        if let Ok(block) = self.rpc.getbestblock() {
-            Ok(block.height as u32)
-        } else {
-            Ok(0)
-        }
+        let block = self.rpc.getbestblock()?;
+        Ok(block.height as u32)
     }
 
     fn broadcast(&self, tx: &bitcoin::Transaction) -> Result<()> {
@@ -130,23 +129,42 @@ impl UtreexodBackend {
             let (proof, del_hashes, _) =
                 Self::get_proof(&*self.rpc, &block.block_hash().to_string())?;
 
-            self.chainstate.connect_block(&block, proof, del_hashes)?;
+            self.chainstate
+                .connect_block(&block, proof, del_hashes, height)?;
         }
         Ok(())
     }
-    pub async fn run(self) {
+    fn start_ibd(&self) -> Result<()> {
+        let height = self.get_height()?;
+        let current = self.chainstate.get_best_block()?.0;
+
+        for block_height in (current + 1)..=height {
+            let block = self.get_block(block_height)?;
+            let (proof, del_hashes, _) =
+                Self::get_proof(&*self.rpc, &block.block_hash().to_string())?;
+            self.chainstate
+                .connect_block(&block, proof, del_hashes, block_height)?;
+        }
+
+        Ok(())
+    }
+
+    pub async fn run(self) -> ! {
+        try_and_log!(self.start_ibd());
         loop {
-            macro_rules! try_and_log {
-                ($what: expr) => {
-                    let result = $what;
-                    if let Err(error) = result {
-                        log::error!("{:?}", error);
-                    }
-                };
-            }
             async_std::task::sleep(Duration::from_secs(1)).await;
+
             try_and_log!(self.handle_broadcast());
             try_and_log!(self.handle_tip_update());
         }
     }
+}
+#[macro_export]
+macro_rules! try_and_log {
+    ($what: expr) => {
+        let result = $what;
+        if let Err(error) = result {
+            log::error!("{:?}", error);
+        }
+    };
 }

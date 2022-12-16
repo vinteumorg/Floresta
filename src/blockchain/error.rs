@@ -10,7 +10,18 @@ pub enum BlockchainError {
     BlockValidationError,
     InvalidProof,
     UtreexoError(String),
-    UnknownError(Box<dyn std::error::Error>),
+    DatabaseError(kv::Error),
+    ConsensusDecodeError(bitcoin::consensus::encode::Error),
+}
+impl From<bitcoin::consensus::encode::Error> for BlockchainError {
+    fn from(err: bitcoin::consensus::encode::Error) -> Self {
+        Self::ConsensusDecodeError(err)
+    }
+}
+impl From<kv::Error> for BlockchainError {
+    fn from(err: kv::Error) -> Self {
+        BlockchainError::DatabaseError(err)
+    }
 }
 impl From<UtreexodError> for BlockchainError {
     fn from(err: UtreexodError) -> Self {

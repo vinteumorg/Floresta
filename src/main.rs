@@ -88,17 +88,19 @@ fn main() {
                 chainstate: blockchain_state.clone(),
                 rpc,
             };
+            info!("Starting server");
             let electrum_server = block_on(electrum::electrum_protocol::ElectrumServer::new(
                 "127.0.0.1:50001",
                 cache,
                 blockchain_state,
             ))
             .unwrap();
-            task::spawn(chain_provider.run());
+
             task::spawn(electrum::electrum_protocol::accept_loop(
                 electrum_server.listener.clone().unwrap(),
                 electrum_server.notify_tx.clone(),
             ));
+            task::spawn(chain_provider.run());
             task::block_on(electrum_server.main_loop()).expect("Main loop failed");
         }
         Commands::Setup {

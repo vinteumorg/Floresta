@@ -2,7 +2,6 @@ pub mod chain_state;
 pub mod chainstore;
 pub mod cli_blockchain;
 pub mod error;
-pub mod mock_chain;
 pub mod udata;
 
 use async_std::channel::Sender;
@@ -49,6 +48,7 @@ pub trait BlockchainProviderInterface {
         block: &Block,
         proof: Proof,
         del_hashes: Vec<sha256::Hash>,
+        connect_block: u32,
     ) -> Result<()>;
     /// If we detect a reorganization of blocks, this function should reconciliate our view of
     /// the network.
