@@ -76,13 +76,12 @@ fn main() {
                 return;
             }
             info!("Starting sync worker, this might take a while!");
-            info!("Starting server");
             debug!("Loading wallet");
             let cache = load_wallet(data_dir.clone());
             debug!("Done loading wallet");
 
             debug!("Loading database...");
-            let blockchain_state = Arc::new(load_chain_state(&data_dir));
+            let blockchain_state = Arc::new(load_chain_state(&data_dir, Network::Regtest));
             debug!("Done loading wallet");
             let chain_provider = UtreexodBackend {
                 chainstate: blockchain_state.clone(),
@@ -112,9 +111,19 @@ fn main() {
         }
     }
 }
-fn load_chain_state(data_dir: &String) -> ChainState<KvChainStore> {
+fn load_chain_state(data_dir: &String, network: Network) -> ChainState<KvChainStore> {
     let db = KvChainStore::new(data_dir.to_string()).expect("Could not read db");
-    ChainState::<KvChainStore>::load_chain_state(db).expect("Could not retrieve chain state")
+    match ChainState::<KvChainStore>::load_chain_state(db) {
+        Ok(chainstate) => chainstate,
+        Err(err) => match err {
+            blockchain::error::BlockchainError::ChainNotInitialized => {
+                let db = KvChainStore::new(data_dir.to_string()).expect("Could not read db");
+
+                ChainState::<KvChainStore>::new(db, network)
+            }
+            _ => unreachable!(),
+        },
+    }
 }
 fn load_wallet(data_dir: String) -> AddressCache<KvDatabase> {
     let database = KvDatabase::new(data_dir.clone()).expect("Could not create a database");

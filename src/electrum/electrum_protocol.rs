@@ -4,6 +4,7 @@ use crate::blockchain::{BlockchainInterface, Notification};
 use crate::electrum::request::Request;
 use crate::electrum::TransactionHistoryEntry;
 use crate::{get_arg, json_rpc_res};
+use bitcoin::hashes::hex::FromHex;
 use futures::{select, FutureExt};
 
 use async_std::sync::RwLock;
@@ -14,15 +15,18 @@ use async_std::{
     prelude::*,
 };
 
-use bitcoin::consensus::deserialize;
 use bitcoin::hashes::{hex::ToHex, sha256, Hash};
-use bitcoin::{consensus::serialize, Script, Txid};
+use bitcoin::{
+    consensus::{deserialize, serialize},
+    Script, Txid,
+};
 use bitcoin::{Transaction, TxOut};
 
-use log::{debug, info, log, trace, Level};
+use log::{debug, error, info, log, trace, Level};
 use serde_json::{json, Value};
 use sha2::Digest;
 use std::collections::{HashMap, HashSet};
+use std::process::exit;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Default)]
@@ -94,7 +98,7 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                 let header = self.chain.get_block_header(&hash)?;
                 let result = json!({
                     "height": height,
-                    "hex": header
+                    "hex": serialize(&header).to_hex()
                 });
                 json_rpc_res!(request, result)
             }
@@ -133,7 +137,8 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                         .chain
                         .get_block_hash(height as u32)
                         .map_err(|_| super::error::Error::InvalidParams)?;
-                    let header = self.chain.get_block_header(&hash).unwrap();
+                    let header = self.chain.get_block_header(&hash)?;
+                    let header = serialize(&header).to_hex();
                     json_rpc_res!(request, header)
                 } else {
                     Err(super::error::Error::InvalidParams)
@@ -185,10 +190,13 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
             }
             "blockchain.transaction.broadcast" => {
                 let tx = get_arg!(request, String, 0);
-                let tx =
-                    deserialize(tx.as_bytes()).map_err(|_| super::error::Error::InvalidParams)?;
-                let hex = self.chain.broadcast(&tx)?;
-                json_rpc_res!(request, hex)
+                let hex: Vec<_> =
+                    Vec::from_hex(&tx).map_err(|_| super::error::Error::InvalidParams)?;
+                let tx = deserialize(&hex).map_err(|_| super::error::Error::InvalidParams)?;
+                let hex = self.chain.broadcast(&tx);
+                println!("{:?}", hex);
+                let id = tx.txid();
+                json_rpc_res!(request, id)
             }
             "blockchain.transaction.get" => {
                 if let Some(script_hash) = request.params.get(0) {
@@ -210,7 +218,6 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                     let tx_id = tx_id?;
                     let proof = self.address_cache.read().await.get_merkle_proof(&tx_id);
                     let height = self.address_cache.read().await.get_height(&tx_id);
-
                     if let Some((proof, position)) = proof {
                         let result = json!({
                             "merkle": proof,
@@ -266,28 +273,25 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
     }
     async fn handle_notification(&mut self, notification: Notification) {
         match notification {
-            Notification::NewBlock(block) => {
+            Notification::NewBlock((block, height)) => {
                 debug!("New Block!");
-                let best = self.chain.get_best_block().expect(
-                    "handle_notification: Could not get current best block from Blockchain",
-                );
                 let result = json!({
                     "jsonrpc": "2.0",
                     "method": "blockchain.headers.subscribe",
                     "params": [{
-                        "height": best.0,
+                        "height": height,
                         "hex": serialize(&block.header).to_hex()
                     }]
                 });
-                if !self.chain.is_in_idb() || best.0 % 1000 == 0 {
+                if !self.chain.is_in_idb() || height % 1000 == 0 {
                     let lock = self.address_cache.write().await;
-                    lock.bump_height(best.0);
+                    lock.bump_height(height);
                 }
                 let transactions = self
                     .address_cache
                     .write()
                     .await
-                    .block_process(&block, best.0);
+                    .block_process(&block, height);
                 for peer in &mut self.peers.values() {
                     let res = peer
                         .write(serde_json::to_string(&result).unwrap().as_bytes())
@@ -317,24 +321,27 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                         return Ok(());
                     }
                     let peer = peer.unwrap().to_owned();
-                    let id = req.id;
+                    let _id = req.id;
                     let res = self.handle_blockchain_request(peer.clone(), req).await;
 
                     if let Ok(res) = res {
                         peer.write(serde_json::to_string(&res).unwrap().as_bytes())
                             .await?;
                     } else {
-                        let res = json!({
-                            "jsonrpc": "2.0",
-                            "error": {
-                                "code": -32000,
-                                "message": "Internal JSON-RPC error.",
-                                "data": null
-                            },
-                            "id": id
-                        });
-                        peer.write(serde_json::to_string(&res).unwrap().as_bytes())
-                            .await?;
+                        let error = res.unwrap_err();
+                        error!("Error while handling request: {:?}", error);
+                        exit(0);
+                        // let res = json!({
+                        //     "jsonrpc": "2.0",
+                        //     "error": {
+                        //         "code": -32000,
+                        //         "message": "Internal JSON-RPC error.",
+                        //         "data": null
+                        //     },
+                        //     "id": id
+                        // });
+                        // peer.write(serde_json::to_string(&res).unwrap().as_bytes())
+                        //     .await?;
                     }
                 }
             }

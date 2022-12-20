@@ -21,6 +21,7 @@ bitcoin = {version = "0.29", features = ["serde", "std", "bitcoinconsensus"]}
 miniscript = "9.0.0"
 pretty_env_logger = "0.4.0"
 futures = "0.3.4"
+lazy_static = "*"
 
 [dev-dependencies]
 # for random filenames in tests

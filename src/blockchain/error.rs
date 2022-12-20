@@ -12,6 +12,7 @@ pub enum BlockchainError {
     UtreexoError(String),
     DatabaseError(kv::Error),
     ConsensusDecodeError(bitcoin::consensus::encode::Error),
+    ChainNotInitialized
 }
 impl From<bitcoin::consensus::encode::Error> for BlockchainError {
     fn from(err: bitcoin::consensus::encode::Error) -> Self {

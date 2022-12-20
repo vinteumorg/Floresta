@@ -66,5 +66,5 @@ pub trait BlockchainProviderInterface {
 /// time the given event happens. This is use to notify new blocks to the Electrum server.
 /// In the future, it can be expanded to send more data, like transactions.
 pub enum Notification {
-    NewBlock(Block),
+    NewBlock((Block, u32)),
 }

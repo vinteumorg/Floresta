@@ -2,13 +2,15 @@ use std::{
     collections::{HashMap, HashSet},
     io::Write,
 };
-
+lazy_static::lazy_static!(
+    static ref REGTEST_GENESIS: Block = deserialize(&Vec::from_hex("0100000000000000000000000000000000000000000000000000000000000000000000003ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4adae5494dffff7f20020000000101000000010000000000000000000000000000000000000000000000000000000000000000ffffffff4d04ffff001d0104455468652054696d65732030332f4a616e2f32303039204368616e63656c6c6f72206f6e206272696e6b206f66207365636f6e64206261696c6f757420666f722062616e6b73ffffffff0100f2052a01000000434104678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38c4f35504e51ec112de5c384df7ba0b8d578a4c702b6bf11d5fac00000000").unwrap()).unwrap();
+);
 use crate::{read_lock, write_lock};
 use async_std::{channel::Sender, task::block_on};
 use bitcoin::{
     consensus::{deserialize, deserialize_partial, Encodable},
-    hashes::{sha256, Hash},
-    Block, BlockHash, BlockHeader, OutPoint, Transaction, TxOut,
+    hashes::{hex::FromHex, sha256, Hash},
+    Block, BlockHash, BlockHeader, Network, OutPoint, Transaction, TxOut,
 };
 use rustreexo::accumulator::{proof::Proof, stump::Stump};
 use sha2::{Digest, Sha512_256};
@@ -144,14 +146,26 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         Ok(())
     }
 
-    pub fn _new(chainstore: KvChainStore) -> ChainState<KvChainStore> {
+    pub fn new(chainstore: KvChainStore, network: Network) -> ChainState<KvChainStore> {
+        let genesis = match network {
+            Network::Bitcoin => todo!(),
+            Network::Testnet => todo!(),
+            Network::Signet => todo!(),
+            Network::Regtest => &REGTEST_GENESIS,
+        };
+        let mut block_index_cache = HashMap::new();
+        let mut block_headers_cache = HashMap::new();
+
+        block_index_cache.insert(0, genesis.block_hash());
+        block_headers_cache.insert(genesis.block_hash(), genesis.header);
+
         ChainState {
             inner: RwLock::new(ChainStateInner {
                 chainstore,
-                block_index_cache: HashMap::new(),
-                block_headers_cache: HashMap::new(),
+                block_index_cache,
+                block_headers_cache,
                 acc: Stump::new(),
-                best_block: (0, BlockHash::all_zeros()),
+                best_block: (0, genesis.block_hash()),
                 broadcast_queue: vec![],
                 subscribers: vec![],
                 fee_estimation: (0_f64, 0_f64, 0_f64),
@@ -164,19 +178,17 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
     ) -> Result<ChainState<KvChainStore>, BlockchainError> {
         let acc = Self::load_acc(&chainstore);
         let height = chainstore.load_height()?;
-        let headers_map = Self::get_headers(&chainstore)?;
+        let (headers_map, best_hash, block_index) = Self::get_headers(&chainstore)?;
         let height = if let Some(height) = height {
             height.parse().unwrap_or(0)
         } else {
             0
         };
-        println!("{:?}", headers_map);
-
         let inner = ChainStateInner {
             acc,
-            best_block: (height, BlockHash::all_zeros()),
+            best_block: (height, best_hash),
             block_headers_cache: headers_map,
-            block_index_cache: HashMap::new(),
+            block_index_cache: block_index,
             broadcast_queue: Vec::new(),
             chainstore,
             fee_estimation: (0_f64, 0_f64, 0_f64),
@@ -189,21 +201,36 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
     }
     pub fn get_headers(
         chainstore: &KvChainStore,
-    ) -> Result<HashMap<BlockHash, BlockHeader>, BlockchainError> {
+    ) -> Result<
+        (
+            HashMap<BlockHash, BlockHeader>,
+            BlockHash,
+            HashMap<u32, BlockHash>,
+        ),
+        BlockchainError,
+    > {
         let block_headers = chainstore.get_headers()?;
         if block_headers.is_none() {
-            return Ok(HashMap::new());
+            return Err(BlockchainError::ChainNotInitialized);
         }
-        let mut block_headers = block_headers.unwrap();
+
         let mut headers_map = HashMap::new();
+        let mut block_index = HashMap::new();
+        let mut height = 1;
+        let mut block_headers = block_headers.unwrap();
+        let mut best = BlockHash::all_zeros();
 
         while block_headers.len() >= 80 {
             let header = block_headers.drain(0..80).collect::<Vec<_>>();
             let header: BlockHeader = deserialize(&header)?;
+            best = header.block_hash();
+
+            block_index.insert(height, header.block_hash());
             headers_map.insert(header.block_hash(), header);
+            height += 1;
         }
 
-        Ok(headers_map)
+        Ok((headers_map, best, block_index))
     }
     pub fn load_acc<Storage: ChainStore>(data_storage: &Storage) -> Stump {
         let acc = data_storage
@@ -304,18 +331,30 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
         del_hashes: Vec<sha256::Hash>,
         height: u32,
     ) -> super::Result<()> {
-        println!("Processing block {:?}", height);
-
         let mut inner = self.inner.write().unwrap();
-
+        let best_block = inner.best_block;
         inner.acc = Self::update_acc(&inner.acc, block, height, proof, del_hashes)?;
-        inner.best_block = (height, block.block_hash());
-
+        if !block.check_merkle_root() {
+            return Err(BlockchainError::BlockValidationError);
+        }
+        if !block.check_witness_commitment() {
+            return Err(BlockchainError::BlockValidationError);
+        }
+        if block.header.prev_blockhash != best_block.1 {
+            return Err(BlockchainError::BlockValidationError);
+        }
+        let hash = block
+            .header
+            .validate_pow(&block.header.target())
+            .map_err(|_| BlockchainError::BlockValidationError)?;
+        inner.best_block = (height, hash);
+        inner.block_headers_cache.insert(hash, block.header);
+        inner.block_index_cache.insert(height, hash);
         // Remember to drop this lock. self.notify will try to read from inner, and since
         // we hold a write lock, we'll end in a deadlock.
         drop(inner);
 
-        self.notify(Notification::NewBlock(block.clone()));
+        self.notify(Notification::NewBlock((block.to_owned(), height)));
 
         Ok(())
     }

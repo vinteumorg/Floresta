@@ -182,6 +182,30 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
         let mut my_transactions = vec![];
 
         for (position, transaction) in block.txdata.iter().enumerate() {
+            if let Some((script, _)) = self.tx_index.get(&transaction.txid()) {
+                // If a transaction is spending some utxo we own
+                let script = self.address_map.get(script).unwrap();
+                let tx = self.get_transaction(&transaction.txid()).unwrap();
+                let tx: Transaction = deserialize(&Vec::from_hex(&tx.tx_hex).unwrap()).unwrap();
+                let output = tx
+                    .output
+                    .iter()
+                    .find(|out| out.script_pubkey == script.script)
+                    .unwrap();
+                my_transactions.push((transaction.clone(), output.clone()));
+                let my_txid = transaction.txid();
+                let merkle_block =
+                    MerkleBlock::from_block_with_predicate(block, |txid| *txid == my_txid);
+                self.cache_transaction(
+                    transaction,
+                    height,
+                    output.value,
+                    merkle_block,
+                    position as u32,
+                    true,
+                    &output.script_pubkey,
+                );
+            }
             for output in transaction.output.iter() {
                 if self.script_set.contains(&output.script_pubkey) {
                     my_transactions.push((transaction.clone(), output.clone()));

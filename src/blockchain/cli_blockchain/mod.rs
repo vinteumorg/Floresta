@@ -12,7 +12,7 @@ use btcd_rpc::{
     client::{BTCDClient, BtcdRpc},
     json_types::VerbosityOutput,
 };
-// use log::trace;
+use log::info;
 use rustreexo::accumulator::proof::Proof;
 
 use super::{
@@ -124,13 +124,16 @@ impl UtreexodBackend {
     }
     pub fn handle_tip_update(&self) -> Result<()> {
         let height = self.get_height()?;
-        if height > self.chainstate.get_best_block().unwrap().0 {
-            let block = self.get_block(height)?;
-            let (proof, del_hashes, _) =
-                Self::get_proof(&*self.rpc, &block.block_hash().to_string())?;
+        let local_best = self.chainstate.get_best_block().unwrap().0;
+        if height > local_best {
+            for block_height in (local_best + 1)..=height {
+                let block = self.get_block(block_height)?;
+                let (proof, del_hashes, _) =
+                    Self::get_proof(&*self.rpc, &block.block_hash().to_string())?;
 
-            self.chainstate
-                .connect_block(&block, proof, del_hashes, height)?;
+                self.chainstate
+                    .connect_block(&block, proof, del_hashes, block_height)?;
+            }
         }
         Ok(())
     }
@@ -145,7 +148,7 @@ impl UtreexodBackend {
             self.chainstate
                 .connect_block(&block, proof, del_hashes, block_height)?;
         }
-
+        info!("Leaving Initial Block Download at height {height}");
         Ok(())
     }
 
@@ -156,6 +159,7 @@ impl UtreexodBackend {
 
             try_and_log!(self.handle_broadcast());
             try_and_log!(self.handle_tip_update());
+            try_and_log!(self.chainstate.flush());
         }
     }
 }
