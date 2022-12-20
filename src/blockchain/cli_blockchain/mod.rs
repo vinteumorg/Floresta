@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use bitcoin::{
     consensus::{deserialize_partial, Encodable},
@@ -6,7 +6,7 @@ use bitcoin::{
         hex::{FromHex, ToHex},
         sha256,
     },
-    Block, BlockHash, OutPoint, Transaction, TxOut,
+    Block, BlockHash,
 };
 use btcd_rpc::{
     client::{BTCDClient, BtcdRpc},
@@ -95,17 +95,6 @@ impl UtreexodBackend {
         Ok((proof, targethashes, preimages))
     }
 
-    pub fn _verify_block_transactions(
-        mut utxos: HashMap<OutPoint, TxOut>,
-        transactions: &[Transaction],
-    ) -> Result<bool> {
-        for transaction in transactions {
-            if !transaction.is_coin_base() {
-                transaction.verify(|outpoint| utxos.remove(outpoint))?;
-            }
-        }
-        Ok(true)
-    }
     pub fn handle_broadcast(&self) -> Result<()> {
         let tx_list = self.chainstate.get_unbroadcasted();
         for tx in tx_list {

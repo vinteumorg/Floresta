@@ -5,12 +5,20 @@ pub enum BlockchainError {
     BlockNotPresent,
     JsonRpcError(UtreexodError),
     ParsingError(bitcoin::hashes::hex::Error),
-    BlockValidationError,
+    BlockValidationError(BlockValidationErrors),
     InvalidProof,
     UtreexoError(String),
     DatabaseError(kv::Error),
     ConsensusDecodeError(bitcoin::consensus::encode::Error),
-    ChainNotInitialized
+    ChainNotInitialized,
+}
+#[derive(Debug)]
+pub enum BlockValidationErrors {
+    PrevBlockNotFound,
+    InvalidTx,
+    NotEnoughPow,
+    BadMerkleRoot,
+    BadWitnessCommitment,
 }
 impl From<bitcoin::consensus::encode::Error> for BlockchainError {
     fn from(err: bitcoin::consensus::encode::Error) -> Self {
@@ -34,7 +42,7 @@ impl From<bitcoin::hashes::hex::Error> for BlockchainError {
 }
 impl From<script::Error> for BlockchainError {
     fn from(_: script::Error) -> Self {
-        BlockchainError::BlockValidationError
+        BlockchainError::BlockValidationError(BlockValidationErrors::InvalidTx)
     }
 }
 impl From<String> for BlockchainError {

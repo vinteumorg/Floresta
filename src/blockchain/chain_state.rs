@@ -10,6 +10,7 @@ use async_std::{channel::Sender, task::block_on};
 use bitcoin::{
     consensus::{deserialize, deserialize_partial, Encodable},
     hashes::{hex::FromHex, sha256, Hash},
+    util::uint::Uint256,
     Block, BlockHash, BlockHeader, Network, OutPoint, Transaction, TxOut,
 };
 use rustreexo::accumulator::{proof::Proof, stump::Stump};
@@ -42,7 +43,7 @@ pub struct ChainStateInner<PersistedState: ChainStore> {
 }
 use super::{
     chainstore::{ChainStore, KvChainStore},
-    error::BlockchainError,
+    error::{BlockValidationErrors, BlockchainError},
     BlockchainInterface, BlockchainProviderInterface, Notification,
 };
 pub struct ChainState<PersistedState: ChainStore> {
@@ -78,7 +79,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         sha256::Hash::from_slice(leaf_hash.as_slice())
             .expect("parent_hash: Engines shouldn't be Err")
     }
-    pub fn _verify_block_transactions(
+    pub fn verify_block_transactions(
         mut utxos: HashMap<OutPoint, TxOut>,
         transactions: &[Transaction],
     ) -> Result<bool, crate::error::Error> {
@@ -88,6 +89,30 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             }
         }
         Ok(true)
+    }
+    fn calc_next_work_required(last_block: &BlockHeader, first_block: &BlockHeader) -> Uint256 {
+        let cur_target = last_block.target();
+        let timespan = first_block.time - last_block.time;
+        let new_target = cur_target.mul_u32(timespan);
+        let new_target = new_target.mul_u32(2016 * 6 * 60);
+
+        new_target
+    }
+    fn get_next_required_work(&self, last_block: &BlockHeader, next_height: u32) -> Uint256 {
+        // Retarget
+        if next_height % 2016 == 0 {
+            // First block in this epoch
+            let first_block_height = next_height - 2016;
+            let first_block = self
+                .get_block_hash(first_block_height)
+                .expect("This block should be present");
+            let first_block = self
+                .get_block_header(&first_block)
+                .expect("This block should also be present");
+
+            return Self::calc_next_work_required(last_block, &first_block);
+        }
+        last_block.target()
     }
     pub fn update_acc(
         acc: &Stump,
@@ -144,7 +169,6 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             .expect("Chain store is not working");
         Ok(())
     }
-
     pub fn new(chainstore: KvChainStore, network: Network) -> ChainState<KvChainStore> {
         let genesis = match network {
             Network::Bitcoin => todo!(),
@@ -296,7 +320,7 @@ impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedSta
     }
 
     fn get_block(&self, _hash: &BlockHash) -> super::Result<bitcoin::Block> {
-        todo!()
+        unimplemented!("This chainstate doesn't hold full blocks")
     }
 
     fn get_best_block(&self) -> super::Result<(u32, BlockHash)> {
@@ -322,7 +346,6 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
             let _ = block_on(client.send(what.clone()));
         }
     }
-
     fn connect_block(
         &self,
         block: &Block,
@@ -330,30 +353,53 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
         del_hashes: Vec<sha256::Hash>,
         height: u32,
     ) -> super::Result<()> {
-        let mut inner = self.inner.write().unwrap();
+        let inner = self.inner.read().unwrap();
         let best_block = inner.best_block;
-        inner.acc = Self::update_acc(&inner.acc, block, height, proof, del_hashes)?;
+        let acc = Self::update_acc(&inner.acc, block, height, proof, del_hashes)?;
+
         if !block.check_merkle_root() {
-            return Err(BlockchainError::BlockValidationError);
+            return Err(BlockchainError::BlockValidationError(
+                BlockValidationErrors::BadMerkleRoot,
+            ));
         }
         if !block.check_witness_commitment() {
-            return Err(BlockchainError::BlockValidationError);
+            return Err(BlockchainError::BlockValidationError(
+                BlockValidationErrors::BadWitnessCommitment,
+            ));
         }
         if block.header.prev_blockhash != best_block.1 {
-            return Err(BlockchainError::BlockValidationError);
+            return Err(BlockchainError::BlockValidationError(
+                BlockValidationErrors::PrevBlockNotFound,
+            ));
         }
-        let hash = block
-            .header
-            .validate_pow(&block.header.target())
-            .map_err(|_| BlockchainError::BlockValidationError)?;
+        let prev_block = inner
+            .block_headers_cache
+            .get(&best_block.1)
+            .expect("At this point, we must have this header");
+        // Check pow
+        let target = self.get_next_required_work(prev_block, height);
+        let hash = block.header.validate_pow(&target).map_err(|_| {
+            BlockchainError::BlockValidationError(BlockValidationErrors::NotEnoughPow)
+        })?;
+
+        let mut utxos = HashMap::new();
+        for tx in block.txdata.iter() {
+            for (vout, out) in tx.output.iter().enumerate() {
+                utxos.insert(OutPoint::new(tx.txid(), vout as u32), out.clone());
+            }
+        }
+        Self::verify_block_transactions(utxos, &block.txdata)
+            .map_err(|_| BlockchainError::BlockValidationError(BlockValidationErrors::InvalidTx))?;
+        self.notify(Notification::NewBlock((block.to_owned(), height)));
+        // Drop this lock because we need a write lock to inner, if we hold this lock this will
+        // cause a deadlock.
+        drop(inner);
+        // Updates our local view of the network
+        let mut inner = self.inner.write().unwrap();
+        inner.acc = acc;
         inner.best_block = (height, hash);
         inner.block_headers_cache.insert(hash, block.header);
         inner.block_index_cache.insert(height, hash);
-        // Remember to drop this lock. self.notify will try to read from inner, and since
-        // we hold a write lock, we'll end in a deadlock.
-        drop(inner);
-
-        self.notify(Notification::NewBlock((block.to_owned(), height)));
 
         Ok(())
     }
@@ -363,7 +409,7 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
     }
 
     fn handle_transaction(&self) -> super::Result<()> {
-        todo!()
+        unimplemented!("This chian_state has no mempool")
     }
 
     fn flush(&self) -> super::Result<()> {
