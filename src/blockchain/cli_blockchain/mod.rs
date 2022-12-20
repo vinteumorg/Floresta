@@ -129,6 +129,7 @@ impl UtreexodBackend {
                 .connect_block(&block, proof, del_hashes, block_height)?;
         }
         info!("Leaving Initial Block Download at height {height}");
+        self.chainstate.toggle_ibd(false);
         Ok(())
     }
 

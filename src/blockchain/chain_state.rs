@@ -343,6 +343,10 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
             let _ = block_on(client.send(what.clone()));
         }
     }
+    fn toggle_ibd(&self, is_ibd: bool) {
+        let mut inner = write_lock!(self);
+        inner.ibd = is_ibd;
+    }
     fn connect_block(
         &self,
         block: &Block,

@@ -81,7 +81,8 @@ fn main() {
             debug!("Done loading wallet");
 
             debug!("Loading database...");
-            let blockchain_state = Arc::new(load_chain_state(&data_dir, Network::Regtest));
+            let blockchain_state = Arc::new(load_chain_state(&data_dir, get_net(&params.network)));
+
             debug!("Done loading wallet");
             let chain_provider = UtreexodBackend {
                 chainstate: blockchain_state.clone(),
@@ -102,6 +103,7 @@ fn main() {
                 electrum_server.notify_tx.clone(),
             ));
             task::spawn(chain_provider.run());
+            info!("Server running on: 127.0.0.0.1:50001");
             task::block_on(electrum_server.main_loop()).expect("Main loop failed");
         }
         Commands::Setup {

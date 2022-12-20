@@ -60,6 +60,8 @@ pub trait BlockchainProviderInterface {
     fn flush(&self) -> Result<()>;
     /// Returns the list of unbroadcasted transactions.
     fn get_unbroadcasted(&self) -> Vec<Transaction>;
+    /// Toggle ibd on/off
+    fn toggle_ibd(&self, is_ibd: bool);
 }
 #[derive(Debug, Clone)]
 /// A notification is a hook that a type implementing [BlockchainInterface] sends each
