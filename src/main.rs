@@ -88,6 +88,8 @@ fn main() {
                 rpc,
             };
             info!("Starting server");
+            // Create a new electrum server, we need to block_on because `ElectrumServer::new` is `async`
+            // but our main isn't, so we can't `.await` on it.
             let electrum_server = block_on(electrum::electrum_protocol::ElectrumServer::new(
                 "127.0.0.1:50001",
                 cache,
@@ -169,9 +171,8 @@ fn setup_wallet<D: AddressCacheDatabase>(
         exit(1);
     }
 
-    let desc =
-        Descriptor::<DescriptorPublicKey>::from_str(format!("wpkh({}/0/*)", descriptor).as_str())
-            .expect("Error while parsing descriptor");
+    let desc = Descriptor::<DescriptorPublicKey>::from_str(descriptor.as_str())
+        .expect("Error while parsing descriptor");
     for index in 0..100 {
         let address = desc
             .at_derivation_index(index)
