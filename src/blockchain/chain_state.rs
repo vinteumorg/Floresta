@@ -8,6 +8,7 @@ lazy_static::lazy_static!(
 use crate::{read_lock, write_lock};
 use async_std::{channel::Sender, task::block_on};
 use bitcoin::{
+    blockdata::constants::genesis_block,
     consensus::{deserialize, deserialize_partial, Encodable},
     hashes::{hex::FromHex, sha256, Hash},
     util::uint::Uint256,
@@ -170,12 +171,8 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         Ok(())
     }
     pub fn new(chainstore: KvChainStore, network: Network) -> ChainState<KvChainStore> {
-        let genesis = match network {
-            Network::Bitcoin => todo!(),
-            Network::Testnet => todo!(),
-            Network::Signet => todo!(),
-            Network::Regtest => &REGTEST_GENESIS,
-        };
+        let genesis = genesis_block(network);
+
         let mut block_index_cache = HashMap::new();
         let mut block_headers_cache = HashMap::new();
 
@@ -191,7 +188,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
                 best_block: (0, genesis.block_hash()),
                 broadcast_queue: vec![],
                 subscribers: vec![],
-                fee_estimation: (0_f64, 0_f64, 0_f64),
+                fee_estimation: (1_f64, 1_f64, 1_f64),
                 ibd: true,
             }),
         }
@@ -369,7 +366,7 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
         }
         if block.header.prev_blockhash != best_block.1 {
             return Err(BlockchainError::BlockValidationError(
-                BlockValidationErrors::PrevBlockNotFound,
+                BlockValidationErrors::PrevBlockNotFound(block.header.prev_blockhash),
             ));
         }
         let prev_block = inner

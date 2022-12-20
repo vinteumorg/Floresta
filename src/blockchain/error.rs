@@ -1,4 +1,4 @@
-use bitcoin::blockdata::script;
+use bitcoin::{blockdata::script, BlockHash};
 use btcd_rpc::error::UtreexodError;
 #[derive(Debug)]
 pub enum BlockchainError {
@@ -14,7 +14,7 @@ pub enum BlockchainError {
 }
 #[derive(Debug)]
 pub enum BlockValidationErrors {
-    PrevBlockNotFound,
+    PrevBlockNotFound(BlockHash),
     InvalidTx,
     NotEnoughPow,
     BadMerkleRoot,
