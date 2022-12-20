@@ -61,7 +61,6 @@ pub struct ElectrumServer<Blockchain: BlockchainInterface> {
     pub notify_tx: Sender<Message>,
     pub peer_addresses: HashMap<sha256::Hash, Arc<Peer>>,
 }
-#[allow(clippy::enum_variant_names)]
 pub enum Message {
     NewPeer((u32, Arc<Peer>)),
     Message((u32, String)),

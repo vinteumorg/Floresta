@@ -45,7 +45,6 @@ use super::{
     error::BlockchainError,
     BlockchainInterface, BlockchainProviderInterface, Notification,
 };
-#[allow(unused)]
 pub struct ChainState<PersistedState: ChainStore> {
     inner: RwLock<ChainStateInner<PersistedState>>,
 }

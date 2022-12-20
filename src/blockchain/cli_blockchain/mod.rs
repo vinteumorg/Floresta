@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use bitcoin::{
-    consensus::{deserialize_partial, Decodable, Encodable},
+    consensus::{deserialize_partial, Encodable},
     hashes::{
         hex::{FromHex, ToHex},
         sha256,
@@ -31,15 +31,6 @@ impl UtreexodBackend {
         Ok(BlockHash::from_hex(
             self.rpc.getblockhash(height as usize)?.as_str(),
         )?)
-    }
-    fn _get_tx(&self, txid: &bitcoin::Txid) -> Result<Option<bitcoin::Transaction>> {
-        let tx = self.rpc.getrawtransaction(txid.to_hex(), false).unwrap();
-        if let VerbosityOutput::Simple(hex) = tx {
-            let tx = Transaction::consensus_decode(&mut hex.as_bytes())
-                .map_err(|_| BlockchainError::TxNotFound)?;
-            return Ok(Some(tx));
-        }
-        Err(BlockchainError::TxNotFound)
     }
     fn get_height(&self) -> Result<u32> {
         let block = self.rpc.getbestblock()?;
