@@ -22,7 +22,7 @@ use bitcoin::{
 };
 use bitcoin::{Transaction, TxOut};
 
-use log::{debug, error, info, log, trace, Level};
+use log::{error, info, log, trace, Level};
 use serde_json::{json, Value};
 use sha2::Digest;
 use std::collections::{HashMap, HashSet};
@@ -191,9 +191,7 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                 let tx = get_arg!(request, String, 0);
                 let hex: Vec<_> =
                     Vec::from_hex(&tx).map_err(|_| super::error::Error::InvalidParams)?;
-                let tx = deserialize(&hex).map_err(|_| super::error::Error::InvalidParams)?;
-                let hex = self.chain.broadcast(&tx);
-                println!("{:?}", hex);
+                let tx: Transaction = deserialize(&hex).map_err(|_| super::error::Error::InvalidParams)?;
                 let id = tx.txid();
                 json_rpc_res!(request, id)
             }
@@ -273,7 +271,7 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
     async fn handle_notification(&mut self, notification: Notification) {
         match notification {
             Notification::NewBlock((block, height)) => {
-                debug!("New Block!");
+                trace!("New Block!");
                 let result = json!({
                     "jsonrpc": "2.0",
                     "method": "blockchain.headers.subscribe",

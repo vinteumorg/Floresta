@@ -91,29 +91,36 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         }
         Ok(true)
     }
-    fn calc_next_work_required(last_block: &BlockHeader, first_block: &BlockHeader) -> Uint256 {
+    fn calc_next_work_required(last_block: &BlockHeader, first_block: &BlockHeader) -> u32 {
         let cur_target = last_block.target();
-        let timespan = first_block.time - last_block.time;
-        let new_target = cur_target.mul_u32(timespan);
-        let new_target = new_target.mul_u32(2016 * 6 * 60);
 
-        new_target
+        let expected_timespan = Uint256::from_u64(14 * 24 * 60 * 60).unwrap();
+        let actual_timespan = last_block.time - first_block.time;
+
+        let new_target = cur_target.mul_u32(actual_timespan);
+        let new_target = new_target / expected_timespan;
+
+        BlockHeader::compact_target_from_u256(&new_target)
     }
     fn get_next_required_work(&self, last_block: &BlockHeader, next_height: u32) -> Uint256 {
         // Retarget
-        if next_height % 2016 == 0 {
+        if (next_height) % 2016 == 0 {
             // First block in this epoch
-            let first_block_height = next_height - 2016;
-            let first_block = self
-                .get_block_hash(first_block_height)
-                .expect("This block should be present");
-            let first_block = self
-                .get_block_header(&first_block)
-                .expect("This block should also be present");
+            let first_block = self.get_block_header_by_height(next_height - 2016);
+            let last_block = self.get_block_header_by_height(next_height - 1);
 
-            return Self::calc_next_work_required(last_block, &first_block);
+            let next_bits = Self::calc_next_work_required(&last_block, &first_block);
+            return BlockHeader::u256_from_compact_target(next_bits);
         }
         last_block.target()
+    }
+    // This function should be only called if a block is garanteed to be on chain
+    fn get_block_header_by_height(&self, height: u32) -> BlockHeader {
+        let block = self
+            .get_block_hash(height)
+            .expect("This block should be present");
+        self.get_block_header(&block)
+            .expect("This block should also be present")
     }
     pub fn update_acc(
         acc: &Stump,
@@ -218,6 +225,16 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         Ok(ChainState {
             inner: RwLock::new(inner),
         })
+    }
+    pub fn save_headers(&self) -> super::Result<()> {
+        let mut headers = Vec::new();
+        for height in 0..self.get_height().unwrap() {
+            let header = self.get_block_header_by_height(height);
+            headers.extend(bitcoin::consensus::serialize(&header));
+        }
+        let inner = read_lock!(self);
+        inner.chainstore.save_headers(headers)?;
+        Ok(())
     }
     pub fn get_headers(
         chainstore: &KvChainStore,
@@ -351,6 +368,7 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
         &self,
         block: &Block,
         proof: Proof,
+        inputs: HashMap<OutPoint, TxOut>,
         del_hashes: Vec<sha256::Hash>,
         height: u32,
     ) -> super::Result<()> {
@@ -383,14 +401,12 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
             BlockchainError::BlockValidationError(BlockValidationErrors::NotEnoughPow)
         })?;
 
-        let mut utxos = HashMap::new();
-        for tx in block.txdata.iter() {
-            for (vout, out) in tx.output.iter().enumerate() {
-                utxos.insert(OutPoint::new(tx.txid(), vout as u32), out.clone());
-            }
-        }
-        Self::verify_block_transactions(utxos, &block.txdata)
+        Self::verify_block_transactions(inputs, &block.txdata)
             .map_err(|_| BlockchainError::BlockValidationError(BlockValidationErrors::InvalidTx))?;
+
+        // ... If we came this far, we consider this block valid ...
+
+        // Notify others we have a new block
         self.notify(Notification::NewBlock((block.to_owned(), height)));
         // Drop this lock because we need a write lock to inner, if we hold this lock this will
         // cause a deadlock.
@@ -414,7 +430,8 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
     }
 
     fn flush(&self) -> super::Result<()> {
-        let _ = self.save_acc();
+        self.save_acc()?;
+        self.save_headers()?;
         Ok(())
     }
     fn get_unbroadcasted(&self) -> Vec<Transaction> {
@@ -433,4 +450,25 @@ macro_rules! write_lock {
     ($obj: ident) => {
         $obj.inner.write().expect("get_block_hash: Poisoned lock")
     };
+}
+
+#[cfg(test)]
+mod test {
+    use bitcoin::{consensus::deserialize, hashes::hex::FromHex, BlockHeader};
+
+    use crate::blockchain::chainstore::KvChainStore;
+
+    #[test]
+    fn test_calc_next_work_required() {
+        let mut first_block = Vec::from_hex("0100000000000000000000000000000000000000000000000000000000000000000000003ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a008f4d5fae77031e8ad22203").unwrap();
+        let first_block: BlockHeader = deserialize(&mut first_block).unwrap();
+
+        let mut last_block = Vec::from_hex("00000020dec6741f7dc5df6661bcb2d3ec2fceb14bd0e6def3db80da904ed1eeb8000000d1f308132e6a72852c04b059e92928ea891ae6d513cd3e67436f908c804ec7be51df535fae77031e4d00f800").unwrap();
+        let last_block = deserialize(&mut last_block).unwrap();
+
+        let next_target =
+            super::ChainState::<KvChainStore>::calc_next_work_required(&last_block, &first_block);
+
+        assert_eq!(0x1e012fa7, next_target);
+    }
 }

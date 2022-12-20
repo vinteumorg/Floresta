@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use bitcoin::{
     consensus::{deserialize_partial, Encodable},
@@ -6,7 +6,7 @@ use bitcoin::{
         hex::{FromHex, ToHex},
         sha256,
     },
-    Block, BlockHash,
+    Block, BlockHash, OutPoint,
 };
 use btcd_rpc::{
     client::{BTCDClient, BtcdRpc},
@@ -107,14 +107,32 @@ impl UtreexodBackend {
         let local_best = self.chainstate.get_best_block().unwrap().0;
         if height > local_best {
             for block_height in (local_best + 1)..=height {
-                let block = self.get_block(block_height)?;
-                let (proof, del_hashes, _) =
-                    Self::get_proof(&*self.rpc, &block.block_hash().to_string())?;
-
-                self.chainstate
-                    .connect_block(&block, proof, del_hashes, block_height)?;
+                self.process_block(block_height)?;
             }
         }
+        Ok(())
+    }
+    fn process_block(&self, block_height: u32) -> Result<()> {
+        let block = self.get_block(block_height)?;
+        let (proof, del_hashes, leaf_data) =
+            Self::get_proof(&*self.rpc, &block.block_hash().to_string())?;
+        let mut inputs = HashMap::new();
+        for tx in block.txdata.iter() {
+            for (vout, out) in tx.output.iter().enumerate() {
+                inputs.insert(
+                    OutPoint {
+                        txid: tx.txid(),
+                        vout: vout as u32,
+                    },
+                    out.clone(),
+                );
+            }
+        }
+        for leaf in leaf_data {
+            inputs.insert(leaf.prevout, leaf.utxo);
+        }
+        self.chainstate
+            .connect_block(&block, proof, inputs, del_hashes, block_height)?;
         Ok(())
     }
     fn start_ibd(&self) -> Result<()> {
@@ -122,11 +140,10 @@ impl UtreexodBackend {
         let current = self.chainstate.get_best_block()?.0;
 
         for block_height in (current + 1)..=height {
-            let block = self.get_block(block_height)?;
-            let (proof, del_hashes, _) =
-                Self::get_proof(&*self.rpc, &block.block_hash().to_string())?;
-            self.chainstate
-                .connect_block(&block, proof, del_hashes, block_height)?;
+            if block_height % 2016 == 0{
+                println!("Sync at block {block_height}");
+            }
+            self.process_block(block_height)?;
         }
         info!("Leaving Initial Block Download at height {height}");
         self.chainstate.toggle_ibd(false);

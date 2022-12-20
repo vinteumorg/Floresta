@@ -4,8 +4,10 @@ pub mod cli_blockchain;
 pub mod error;
 pub mod udata;
 
+use std::collections::HashMap;
+
 use async_std::channel::Sender;
-use bitcoin::{hashes::sha256, Block, BlockHash, BlockHeader, Transaction};
+use bitcoin::{hashes::sha256, Block, BlockHash, BlockHeader, OutPoint, Transaction, TxOut};
 use rustreexo::accumulator::proof::Proof;
 
 use self::error::BlockchainError;
@@ -47,8 +49,9 @@ pub trait BlockchainProviderInterface {
         &self,
         block: &Block,
         proof: Proof,
+        inputs: HashMap<OutPoint, TxOut>,
         del_hashes: Vec<sha256::Hash>,
-        connect_block: u32,
+        height: u32,
     ) -> Result<()>;
     /// If we detect a reorganization of blocks, this function should reconciliate our view of
     /// the network.
