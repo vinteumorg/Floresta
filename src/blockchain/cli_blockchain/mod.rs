@@ -138,10 +138,10 @@ impl UtreexodBackend {
     fn start_ibd(&self) -> Result<()> {
         let height = self.get_height()?;
         let current = self.chainstate.get_best_block()?.0;
-
+        info!("Start Initial Block Download at {}%", current/height * 100_64);
         for block_height in (current + 1)..=height {
             if block_height % 2016 == 0{
-                println!("Sync at block {block_height}");
+                info!("Sync at block {block_height}");
             }
             self.process_block(block_height)?;
         }
