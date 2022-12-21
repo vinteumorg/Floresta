@@ -19,10 +19,6 @@ use sha2::{Digest, Sha512_256};
 use std::sync::RwLock;
 
 pub struct ChainStateInner<PersistedState: ChainStore> {
-    /// Caches the map between height and hash for newest blocks
-    block_index_cache: HashMap<u32, BlockHash>,
-    /// Caches some of the newest block headers for easy access.
-    block_headers_cache: HashMap<BlockHash, BlockHeader>,
     /// The acc we use for validation.
     acc: Stump,
     /// All data is persisted here.
@@ -164,7 +160,6 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         let inner = read_lock!(self);
         let mut ser_acc: Vec<u8> = vec![];
         inner.acc.leafs.consensus_encode(&mut ser_acc)?;
-
         for root in inner.acc.roots.iter() {
             ser_acc
                 .write(&*root)
@@ -179,18 +174,12 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
     }
     pub fn new(chainstore: KvChainStore, network: Network) -> ChainState<KvChainStore> {
         let genesis = genesis_block(network);
-
-        let mut block_index_cache = HashMap::new();
-        let mut block_headers_cache = HashMap::new();
-
-        block_index_cache.insert(0, genesis.block_hash());
-        block_headers_cache.insert(genesis.block_hash(), genesis.header);
-
+        chainstore
+            .save_header(&genesis.header, 0)
+            .expect("Error while saving genesis");
         ChainState {
             inner: RwLock::new(ChainStateInner {
                 chainstore,
-                block_index_cache,
-                block_headers_cache,
                 acc: Stump::new(),
                 best_block: (0, genesis.block_hash()),
                 broadcast_queue: vec![],
@@ -204,71 +193,31 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         chainstore: KvChainStore,
     ) -> Result<ChainState<KvChainStore>, BlockchainError> {
         let acc = Self::load_acc(&chainstore);
+
         let height = chainstore.load_height()?;
-        let (headers_map, best_hash, block_index) = Self::get_headers(&chainstore)?;
-        let height = if let Some(height) = height {
-            height.parse().unwrap_or(0)
-        } else {
-            0
-        };
+        if height.is_none() {
+            return Err(BlockchainError::ChainNotInitialized);
+        }
+        let height = height.unwrap();
+        let tip_hash = chainstore
+            .get_block_hash(height)?
+            .expect("If we are at block `height`, we must have its header");
+
         let inner = ChainStateInner {
             acc,
-            best_block: (height, best_hash),
-            block_headers_cache: headers_map,
-            block_index_cache: block_index,
+            best_block: (height, tip_hash),
             broadcast_queue: Vec::new(),
             chainstore,
             fee_estimation: (0_f64, 0_f64, 0_f64),
             subscribers: Vec::new(),
             ibd: true,
         };
+
         Ok(ChainState {
             inner: RwLock::new(inner),
         })
     }
-    pub fn save_headers(&self) -> super::Result<()> {
-        let mut headers = Vec::new();
-        for height in 0..self.get_height().unwrap() {
-            let header = self.get_block_header_by_height(height);
-            headers.extend(bitcoin::consensus::serialize(&header));
-        }
-        let inner = read_lock!(self);
-        inner.chainstore.save_headers(headers)?;
-        Ok(())
-    }
-    pub fn get_headers(
-        chainstore: &KvChainStore,
-    ) -> Result<
-        (
-            HashMap<BlockHash, BlockHeader>,
-            BlockHash,
-            HashMap<u32, BlockHash>,
-        ),
-        BlockchainError,
-    > {
-        let block_headers = chainstore.get_headers()?;
-        if block_headers.is_none() {
-            return Err(BlockchainError::ChainNotInitialized);
-        }
 
-        let mut headers_map = HashMap::new();
-        let mut block_index = HashMap::new();
-        let mut height = 1;
-        let mut block_headers = block_headers.unwrap();
-        let mut best = BlockHash::all_zeros();
-
-        while block_headers.len() >= 80 {
-            let header = block_headers.drain(0..80).collect::<Vec<_>>();
-            let header: BlockHeader = deserialize(&header)?;
-            best = header.block_hash();
-
-            block_index.insert(height, header.block_hash());
-            headers_map.insert(header.block_hash(), header);
-            height += 1;
-        }
-
-        Ok((headers_map, best, block_index))
-    }
     pub fn load_acc<Storage: ChainStore>(data_storage: &Storage) -> Stump {
         let acc = data_storage
             .load_roots()
@@ -301,8 +250,8 @@ impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedSta
     }
     fn get_block_hash(&self, height: u32) -> super::Result<bitcoin::BlockHash> {
         let inner = self.inner.read().expect("get_block_hash: Poisoned lock");
-        if let Some(hash) = inner.block_index_cache.get(&height) {
-            return Ok(*hash);
+        if let Some(hash) = inner.chainstore.get_block_hash(height)? {
+            return Ok(hash);
         }
         Err(BlockchainError::BlockNotPresent)
     }
@@ -344,8 +293,8 @@ impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedSta
 
     fn get_block_header(&self, hash: &BlockHash) -> super::Result<bitcoin::BlockHeader> {
         let inner = read_lock!(self);
-        if let Some(header) = inner.block_headers_cache.get(hash) {
-            return Ok(*header);
+        if let Some(header) = inner.chainstore.get_header(hash)? {
+            return Ok(header);
         }
         Err(BlockchainError::BlockNotPresent)
     }
@@ -391,12 +340,9 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
                 BlockValidationErrors::PrevBlockNotFound(block.header.prev_blockhash),
             ));
         }
-        let prev_block = inner
-            .block_headers_cache
-            .get(&best_block.1)
-            .expect("At this point, we must have this header");
+        let prev_block = self.get_block_header(&best_block.1)?;
         // Check pow
-        let target = self.get_next_required_work(prev_block, height);
+        let target = self.get_next_required_work(&prev_block, height);
         let hash = block.header.validate_pow(&target).map_err(|_| {
             BlockchainError::BlockValidationError(BlockValidationErrors::NotEnoughPow)
         })?;
@@ -408,6 +354,8 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
 
         // Notify others we have a new block
         self.notify(Notification::NewBlock((block.to_owned(), height)));
+        inner.chainstore.save_header(&block.header, height)?;
+
         // Drop this lock because we need a write lock to inner, if we hold this lock this will
         // cause a deadlock.
         drop(inner);
@@ -415,8 +363,6 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
         let mut inner = self.inner.write().unwrap();
         inner.acc = acc;
         inner.best_block = (height, hash);
-        inner.block_headers_cache.insert(hash, block.header);
-        inner.block_index_cache.insert(height, hash);
 
         Ok(())
     }
@@ -431,7 +377,10 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
 
     fn flush(&self) -> super::Result<()> {
         self.save_acc()?;
-        self.save_headers()?;
+        let inner = read_lock!(self);
+        inner.chainstore.flush()?;
+        inner.chainstore.save_height(inner.best_block.0)?;
+
         Ok(())
     }
     fn get_unbroadcasted(&self) -> Vec<Transaction> {
