@@ -42,6 +42,7 @@ use std::{process::exit, sync::Arc};
 
 use address_cache::{kv_database::KvDatabase, AddressCache, AddressCacheDatabase};
 use async_std::task::{self, block_on};
+
 use bitcoin::Network;
 use blockchain::{chain_state::ChainState, chainstore::KvChainStore};
 use btcd_rpc::client::{BTCDClient, BTCDConfigs, BtcdRpc};
@@ -108,10 +109,10 @@ fn main() {
         }
         Commands::Setup {
             data_dir,
-            wallet_descriptor,
+            wallet_xpub,
         } => {
             let wallet = load_wallet(data_dir);
-            setup_wallet(wallet_descriptor, wallet, params.network);
+            setup_wallet(wallet_xpub, wallet, params.network);
         }
     }
 }
@@ -131,7 +132,6 @@ fn load_chain_state(data_dir: &String, network: Network) -> ChainState<KvChainSt
 }
 fn load_wallet(data_dir: String) -> AddressCache<KvDatabase> {
     let database = KvDatabase::new(data_dir.clone()).expect("Could not create a database");
-
     AddressCache::new(database)
 }
 fn create_rpc_connection(
@@ -164,15 +164,27 @@ fn get_net(net: &cli::Network) -> Network {
     }
 }
 fn setup_wallet<D: AddressCacheDatabase>(
-    descriptor: String,
+    xpub: String,
     mut wallet: AddressCache<D>,
     network: cli::Network,
 ) {
-    if let Err(e) = wallet.setup(descriptor.clone()) {
+    if let Err(e) = wallet.setup(xpub.clone()) {
         error!("Could not setup wallet: {e}");
         exit(1);
     }
+    let main_desc = format!("wpkh({xpub}/0/*)");
+    let change_desc = format!("wpkh({xpub}/1/*)");
 
+    derive_addresses(main_desc, &mut wallet, &network);
+    derive_addresses(change_desc, &mut wallet, &network);
+
+    info!("Wallet setup completed! You can now execute run");
+}
+fn derive_addresses<D: AddressCacheDatabase>(
+    descriptor: String,
+    wallet: &mut AddressCache<D>,
+    network: &cli::Network,
+) {
     let desc = Descriptor::<DescriptorPublicKey>::from_str(descriptor.as_str())
         .expect("Error while parsing descriptor");
     for index in 0..100 {
@@ -182,12 +194,10 @@ fn setup_wallet<D: AddressCacheDatabase>(
             .expect("Error while deriving address. Is this an active descriptor?");
         wallet.cache_address(address.script_pubkey());
     }
-    info!("Wallet setup completed! You can now execute run");
 }
-
 /// Finds out whether our RPC works or not
 fn test_rpc(rpc: &BTCDClient) -> bool {
-    if rpc.getinfo().is_ok() {
+    if rpc.getbestblock().is_ok() {
         return true;
     }
     false

@@ -63,7 +63,7 @@ pub enum Commands {
     /// must be executed exactly once.
     Setup {
         /// Your wallet's descriptor
-        wallet_descriptor: String,
+        wallet_xpub: String,
         /// Where should we store data
         data_dir: String,
     },

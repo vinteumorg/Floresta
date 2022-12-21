@@ -42,8 +42,10 @@ impl UtreexodBackend {
         let _ = tx
             .consensus_encode(&mut writer)
             .expect("Should be a valid transaction");
-
-        self.rpc.sendrawtransaction(writer.to_hex())?;
+        if let Err(_) = self.rpc.sendrawtransaction(writer.to_hex()) {
+            // Reschedule this transaction to broadcast until we succeed
+            self.chainstate.broadcast(tx)?;
+        }
         Ok(())
     }
 
@@ -135,12 +137,13 @@ impl UtreexodBackend {
             .connect_block(&block, proof, inputs, del_hashes, block_height)?;
         Ok(())
     }
-    fn start_ibd(&self) -> Result<()> {
+    async fn start_ibd(&self) -> Result<()> {
         let height = self.get_height()?;
         let current = self.chainstate.get_best_block()?.0;
         info!("Start Initial Block Download at height {current} of {height}");
         for block_height in (current + 1)..=height {
             if block_height % 2016 == 0 {
+                //yield_now().await;
                 info!("Sync at block {block_height}");
                 if block_height % 100_000 == 0 {
                     self.chainstate.flush()?;
@@ -156,7 +159,7 @@ impl UtreexodBackend {
     }
 
     pub async fn run(self) -> ! {
-        try_and_log!(self.start_ibd());
+        try_and_log!(self.start_ibd().await);
         loop {
             async_std::task::sleep(Duration::from_secs(1)).await;
 

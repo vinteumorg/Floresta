@@ -191,7 +191,9 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                 let tx = get_arg!(request, String, 0);
                 let hex: Vec<_> =
                     Vec::from_hex(&tx).map_err(|_| super::error::Error::InvalidParams)?;
-                let tx: Transaction = deserialize(&hex).map_err(|_| super::error::Error::InvalidParams)?;
+                let tx: Transaction =
+                    deserialize(&hex).map_err(|_| super::error::Error::InvalidParams)?;
+                self.chain.broadcast(&tx)?;
                 let id = tx.txid();
                 json_rpc_res!(request, id)
             }
@@ -271,7 +273,6 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
     async fn handle_notification(&mut self, notification: Notification) {
         match notification {
             Notification::NewBlock((block, height)) => {
-                trace!("New Block!");
                 let result = json!({
                     "jsonrpc": "2.0",
                     "method": "blockchain.headers.subscribe",
