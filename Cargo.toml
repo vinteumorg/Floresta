@@ -3,8 +3,6 @@ name = "utreexo-wallet"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 rustreexo = { git = "https://www.github.com/Davidson-Souza/rustreexo", branch = "drop_rust-bitcoin"}
 btcd-rpc = { git = "https://github.com/Davidson-Souza/rust-btcd-rpc", features = ["utreexod"]}
