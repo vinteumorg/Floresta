@@ -20,6 +20,8 @@ use bitcoin::{
     },
     Block, Script, Transaction, TxOut,
 };
+/// Every address contains zero or more associated transactions, this struct defines what
+/// data we store for those.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CachedTransaction {
     pub tx_hex: String,
@@ -41,7 +43,7 @@ impl Default for CachedTransaction {
         }
     }
 }
-
+/// An address inside our cache, contains all information we need to satisfy electrum's requests
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CachedAddress {
     script_hash: Hash,
@@ -65,7 +67,7 @@ impl CachedAddress {
         }
     }
 }
-
+/// Public trait defining a common interface for databases to be used with our cache
 pub trait AddressCacheDatabase {
     /// Saves a new address to the database. If the address already exists, `update` should
     /// be used instead
@@ -239,6 +241,8 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
         }
         None
     }
+    /// Adds a new address to track, should be called at wallet setup and every once in a while
+    /// to cache new addresses, as we use the first ones. Only requires a script to cache.
     pub fn cache_address(&mut self, script_pk: Script) {
         let hash = get_spk_hash(&script_pk);
         let new_address = CachedAddress {

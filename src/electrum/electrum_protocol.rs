@@ -448,6 +448,8 @@ fn get_status(transactions: Vec<CachedTransaction>) -> sha256::Hash {
     get_hash_from_u8(status_preimage.as_bytes())
 }
 #[macro_export]
+/// Builds the response as defined by jsonrpc v2.0. Request should have type [Request] and the
+/// response is always a [Json]
 macro_rules! json_rpc_res {
     ($request: ident, $result: ident) => (
         Ok(json!({
@@ -472,6 +474,7 @@ macro_rules! json_rpc_res {
     }
 }
 #[macro_export]
+/// Returns and parses a value from the request json or fails with [super::error::Error::InvalidParams].
 macro_rules! get_arg {
     ($request: ident, $arg_type: ty, $idx: literal) => {
         if let Some(arg) = $request.params.get($idx) {

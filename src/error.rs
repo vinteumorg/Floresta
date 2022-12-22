@@ -47,6 +47,8 @@ impl_from_error!(SerdeJsonError, serde_json::Error);
 
 impl std::error::Error for Error {}
 #[macro_export]
+/// Implements [From<T>] where [T] is a possible error outcome in this crate, this macro only
+/// takes [T] and builds [Error] with the right variant.
 macro_rules! impl_from_error {
     ($field: ident, $error: ty) => {
         impl From<$error> for Error {

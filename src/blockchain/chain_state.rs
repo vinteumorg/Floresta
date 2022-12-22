@@ -389,12 +389,14 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
     }
 }
 #[macro_export]
+/// Grabs a RwLock for reading
 macro_rules! read_lock {
     ($obj: ident) => {
         $obj.inner.read().expect("get_block_hash: Poisoned lock")
     };
 }
 #[macro_export]
+/// Grabs a RwLock for writing
 macro_rules! write_lock {
     ($obj: ident) => {
         $obj.inner.write().expect("get_block_hash: Poisoned lock")

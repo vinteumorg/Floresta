@@ -27,6 +27,7 @@
 #![deny(clippy::needless_lifetimes)]
 #![deny(clippy::wildcard_imports)]
 #![deny(clippy::while_let_loop)]
+#![deny(missing_docs)]
 #![deny(non_camel_case_types)]
 #![deny(non_snake_case)]
 #![deny(non_upper_case_globals)]

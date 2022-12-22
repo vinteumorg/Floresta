@@ -170,6 +170,7 @@ impl UtreexodBackend {
     }
 }
 #[macro_export]
+/// Attempt to execute a function, and logs the error, if any.
 macro_rules! try_and_log {
     ($what: expr) => {
         let result = $what;
