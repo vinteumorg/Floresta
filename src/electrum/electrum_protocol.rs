@@ -22,11 +22,10 @@ use bitcoin::{
 };
 use bitcoin::{Transaction, TxOut};
 
-use log::{error, info, log, trace, Level};
+use log::{info, log, trace, Level};
 use serde_json::{json, Value};
 use sha2::Digest;
 use std::collections::{HashMap, HashSet};
-use std::process::exit;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Default)]
@@ -319,27 +318,24 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                         return Ok(());
                     }
                     let peer = peer.unwrap().to_owned();
-                    let _id = req.id;
+                    let id = req.id;
                     let res = self.handle_blockchain_request(peer.clone(), req).await;
 
                     if let Ok(res) = res {
                         peer.write(serde_json::to_string(&res).unwrap().as_bytes())
                             .await?;
                     } else {
-                        let error = res.unwrap_err();
-                        error!("Error while handling request: {:?}", error);
-                        exit(0);
-                        // let res = json!({
-                        //     "jsonrpc": "2.0",
-                        //     "error": {
-                        //         "code": -32000,
-                        //         "message": "Internal JSON-RPC error.",
-                        //         "data": null
-                        //     },
-                        //     "id": id
-                        // });
-                        // peer.write(serde_json::to_string(&res).unwrap().as_bytes())
-                        //     .await?;
+                        let res = json!({
+                            "jsonrpc": "2.0",
+                            "error": {
+                                "code": -32000,
+                                "message": "Internal JSON-RPC error.",
+                                "data": null
+                            },
+                            "id": id
+                        });
+                        peer.write(serde_json::to_string(&res).unwrap().as_bytes())
+                            .await?;
                     }
                 }
             }
