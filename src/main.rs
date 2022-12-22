@@ -13,24 +13,24 @@
 //! is because Utreexo p2p messages are WIP, and we want to try out utreexo before that, so we use
 //! a client-server base to test, but this is not final nor the goal.
 
-// Coding conventions
-#![deny(clippy::needless_lifetimes)]
-#![deny(unused)]
-#![deny(non_camel_case_types)]
-#![deny(non_snake_case)]
+// Coding conventions (lexicographically sorted)
 #![deny(arithmetic_overflow)]
 #![deny(clippy::absurd_extreme_comparisons)]
-#![deny(non_upper_case_globals)]
-#![deny(clippy::assign_op_pattern)]
 #![deny(clippy::almost_swapped)]
-#![deny(clippy::wildcard_imports)]
-#![deny(clippy::while_let_loop)]
+#![deny(clippy::assign_op_pattern)]
 #![deny(clippy::await_holding_lock)]
 #![deny(clippy::borrowed_box)]
 #![deny(clippy::boxed_local)]
 #![deny(clippy::drop_copy)]
 // FIXME: Rethink enum variant naming
 #![allow(clippy::enum_variant_names)]
+#![deny(clippy::needless_lifetimes)]
+#![deny(clippy::wildcard_imports)]
+#![deny(clippy::while_let_loop)]
+#![deny(non_camel_case_types)]
+#![deny(non_snake_case)]
+#![deny(non_upper_case_globals)]
+#![deny(unused)]
 
 mod address_cache;
 mod blockchain;
