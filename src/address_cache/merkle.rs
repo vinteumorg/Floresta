@@ -1,12 +1,9 @@
-#![allow(unused)]
-use std::str::FromStr;
-
 use bitcoin::{
-    consensus::{deserialize, Decodable, Encodable},
-    hashes::{sha256, sha256d, Hash, HashEngine},
-    Block, Transaction, Txid, VarInt,
+    consensus::{Decodable, Encodable},
+    hashes::{sha256d, Hash, HashEngine},
+    Block, Txid,
 };
-#[derive(Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct MerkleProof {
     target: Txid,
     pos: u64,
@@ -26,6 +23,10 @@ impl MerkleProof {
             pos: 0,
         }
     }
+    /// Returns the hashes for this proof
+    pub fn hashes(&self) -> Vec<sha256d::Hash> {
+        self.hashes.clone()
+    }
     /// Creates a new proof from a list of hashes and a target. Target is a 64 bits
     /// unsigned integer indicating the index of a transaction we with to prove. Note that
     /// this only proves one tx at the time.
@@ -44,6 +45,7 @@ impl MerkleProof {
         let tx_list: Vec<_> = block.txdata.iter().map(|tx| tx.txid().as_hash()).collect();
         Self::from_block_hashes(tx_list, target)
     }
+    #[allow(unused)]
     /// Verifies a proof by hashing up all nodes until reach a root, and compare `root` with
     /// computed root.
     pub fn verify(&self, root: sha256d::Hash) -> Result<bool, String> {
@@ -155,12 +157,8 @@ impl Encodable for MerkleProof {
 #[cfg(test)]
 mod test {
     use crate::address_cache::merkle::MerkleProof;
-    use bitcoin::{
-        consensus::{deserialize, serialize},
-        hashes::sha256d,
-    };
+    use bitcoin::{consensus::deserialize, hashes::sha256d};
     use std::str::FromStr;
-
     #[test]
     fn test_merkle_root() {
         let hashes = vec![
@@ -183,7 +181,7 @@ mod test {
     }
     #[test]
     fn test_serialization() {
-        use bitcoin::consensus::{deserialize_partial, serialize};
+        use bitcoin::consensus::serialize;
         let hashes = vec![
             "9fe0683d05e5a8ce867712f0f744a1e9893365307d433ab3b8f65dfc59d561de",
             "9e2804f04a9d52ad4b67e10cba631934915a7d6d083126b338dda680522bb602",

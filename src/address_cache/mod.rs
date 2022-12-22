@@ -1,4 +1,7 @@
 pub mod kv_database;
+pub mod merkle;
+use merkle::MerkleProof;
+
 use std::{
     collections::{HashMap, HashSet},
     str::Split,
@@ -15,13 +18,13 @@ use bitcoin::{
         sha256::{self, Hash},
         Hash as HashTrait,
     },
-    Block, MerkleBlock, Script, Transaction, TxOut,
+    Block, Script, Transaction, TxOut,
 };
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CachedTransaction {
     pub tx_hex: String,
     pub height: u32,
-    pub merkle_block: Option<MerkleBlock>,
+    pub merkle_block: Option<MerkleProof>,
     pub hash: String,
     pub position: u32,
     pub is_spend: bool,
@@ -193,9 +196,9 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
                     .find(|out| out.script_pubkey == script.script)
                     .unwrap();
                 my_transactions.push((transaction.clone(), output.clone()));
-                let my_txid = transaction.txid();
-                let merkle_block =
-                    MerkleBlock::from_block_with_predicate(block, |txid| *txid == my_txid);
+
+                let merkle_block = MerkleProof::from_block(block, position as u64);
+
                 self.cache_transaction(
                     transaction,
                     height,
@@ -209,9 +212,9 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
             for output in transaction.output.iter() {
                 if self.script_set.contains(&output.script_pubkey) {
                     my_transactions.push((transaction.clone(), output.clone()));
-                    let my_txid = transaction.txid();
-                    let merkle_block =
-                        MerkleBlock::from_block_with_predicate(block, |txid| *txid == my_txid);
+
+                    let merkle_block = MerkleProof::from_block(block, position as u64);
+
                     self.cache_transaction(
                         transaction,
                         height,
@@ -247,7 +250,6 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
             script_set.insert(address.script.clone());
             address_map.insert(address.script_hash, address);
         }
-
         AddressCache {
             database,
             address_map,
@@ -284,10 +286,10 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
     pub fn get_merkle_proof(&self, txid: &Txid) -> Option<(Vec<String>, u32)> {
         let mut hashes = vec![];
         if let Some(tx) = self.get_transaction(txid) {
-            for hash in tx.merkle_block.unwrap().txn.hashes() {
+            for hash in tx.merkle_block.unwrap().hashes() {
                 // Rust Bitcoin (and Bitcoin Core) includes the target hash, but Electrum
                 // doesn't like this.
-                if hash.as_hash() != txid.as_hash() {
+                if hash != txid.as_hash() {
                     hashes.push(hash.to_hex());
                 }
             }
@@ -337,7 +339,7 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
         transaction: &Transaction,
         height: u32,
         value: u64,
-        merkle_block: MerkleBlock,
+        merkle_block: MerkleProof,
         position: u32,
         is_spend: bool,
         script: &Script,
@@ -433,7 +435,7 @@ mod test {
         let transaction = Vec::from_hex(transaction).unwrap();
         let transaction = deserialize(&transaction).unwrap();
 
-        let merkle_block = "000000203ea734fa2c8dee7d3194878c9eaf6e83a629f79b3076ec857793995e01010000eb99c679c0305a1ac0f5eb2a07a9f080616105e605b92b8c06129a2451899225ab5481633c4b011e0b267201020000000234086ef398efcdec47b37241221c8f4613e02bc31026cc74d07ddb3092e6d6e7ea530307089e3e6f6e8997a0ae48e1dc2bee84635bc4e6c6ecdcc7225166b06b0105";
+        let merkle_block = "0100000000000000ea530307089e3e6f6e8997a0ae48e1dc2bee84635bc4e6c6ecdcc7225166b06b010000000000000034086ef398efcdec47b37241221c8f4613e02bc31026cc74d07ddb3092e6d6e7";
         let merkle_block = Vec::from_hex(merkle_block).unwrap();
         let merkle_block = deserialize(&merkle_block).unwrap();
 
