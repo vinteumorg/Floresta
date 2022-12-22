@@ -1,10 +1,10 @@
 pub mod kv_database;
 pub mod merkle;
 use merkle::MerkleProof;
+use serde::{Deserialize, Serialize};
 
 use std::{
     collections::{HashMap, HashSet},
-    str::Split,
     vec,
 };
 
@@ -20,7 +20,7 @@ use bitcoin::{
     },
     Block, Script, Transaction, TxOut,
 };
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CachedTransaction {
     pub tx_hex: String,
     pub height: u32,
@@ -41,87 +41,8 @@ impl Default for CachedTransaction {
         }
     }
 }
-impl std::fmt::Display for CachedTransaction {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let merkle_block = if let Some(merkle_block) = &self.merkle_block {
-            serialize_hex(merkle_block)
-        } else {
-            "".to_string()
-        };
-        write!(
-            f,
-            "{};{};{};{}",
-            self.tx_hex, self.height, self.position, merkle_block
-        )
-    }
-}
-fn get_arg(mut split: Split<char>) -> Result<(&'_ str, Split<char>), crate::error::Error> {
-    if let Some(data) = split.next() {
-        return Ok((data, split));
-    }
-    Err(crate::error::Error::DbParseError)
-}
-impl TryFrom<String> for CachedTransaction {
-    type Error = crate::error::Error;
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        let transaction = value.split(';');
 
-        let (tx_hex, transaction) = get_arg(transaction)?;
-
-        let (height, transaction) = get_arg(transaction)?;
-        let (position, transaction) = get_arg(transaction)?;
-
-        let (merkle_block, _) = get_arg(transaction)?;
-        let merkle_block = Vec::from_hex(merkle_block)?;
-        let merkle_block = deserialize(&merkle_block)?;
-
-        let tx = Vec::from_hex(tx_hex)?;
-        let tx = deserialize::<Transaction>(&tx)?;
-
-        Ok(CachedTransaction {
-            tx_hex: tx_hex.to_string(),
-            height: height.parse::<u32>()?,
-            merkle_block: Some(merkle_block),
-            hash: tx.txid().to_string(),
-            position: position.parse::<u32>()?,
-            is_spend: false,
-        })
-    }
-}
-impl TryFrom<String> for CachedAddress {
-    type Error = crate::error::Error;
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        let address = value.split(':');
-        let (script_hash, address) = get_arg(address)?;
-        let script_hash = sha256::Hash::from_hex(script_hash)?;
-
-        let (balance, address) = get_arg(address)?;
-
-        let (script, address) = get_arg(address)?;
-        let script = Script::from_hex(script)?;
-
-        let mut transactions = vec![];
-
-        for transaction in address {
-            if transaction.is_empty() {
-                continue;
-            }
-
-            let transaction = transaction.to_string();
-            let transaction = CachedTransaction::try_from(transaction)?;
-
-            transactions.push(transaction);
-        }
-
-        Ok(CachedAddress {
-            balance: balance.parse()?,
-            script_hash,
-            transactions,
-            script,
-        })
-    }
-}
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CachedAddress {
     script_hash: Hash,
     balance: u64,
@@ -144,6 +65,7 @@ impl CachedAddress {
         }
     }
 }
+
 pub trait AddressCacheDatabase {
     /// Saves a new address to the database. If the address already exists, `update` should
     /// be used instead
@@ -151,7 +73,10 @@ pub trait AddressCacheDatabase {
     /// Loads all addresses we have cached so far
     fn load<E>(&self) -> Result<Vec<CachedAddress>, E>
     where
-        E: From<crate::error::Error> + Into<crate::error::Error> + std::convert::From<kv::Error>;
+        E: From<crate::error::Error>
+            + Into<crate::error::Error>
+            + std::convert::From<kv::Error>
+            + std::convert::From<serde_json::Error>;
     /// Updates an address, probably because a new transaction arrived
     fn update(&self, address: &CachedAddress);
     /// TODO: Maybe turn this into another db
@@ -286,17 +211,18 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
     pub fn get_merkle_proof(&self, txid: &Txid) -> Option<(Vec<String>, u32)> {
         let mut hashes = vec![];
         if let Some(tx) = self.get_transaction(txid) {
-            for hash in tx.merkle_block.unwrap().hashes() {
-                // Rust Bitcoin (and Bitcoin Core) includes the target hash, but Electrum
-                // doesn't like this.
-                if hash != txid.as_hash() {
-                    hashes.push(hash.to_hex());
-                }
+            // If a given transaction is cached, but the merkle tree doesn't exist, that means
+            // an unconfirmed transaction.
+            if tx.merkle_block.is_none() {
+                return None;
             }
-
+            for hash in tx.merkle_block.unwrap().hashes() {
+                hashes.push(hash.to_hex());
+            }
             return Some((hashes, tx.position));
         }
-
+        // Tx not found
+        // TODO: Ain't that an error?
         None
     }
     pub fn get_height(&self, txid: &Txid) -> Option<u32> {

@@ -1,4 +1,4 @@
-use crate::{impl_from_error, blockchain::error::BlockchainError};
+use crate::{blockchain::error::BlockchainError, impl_from_error};
 use bitcoin::consensus::encode;
 use btcd_rpc::error::UtreexodError;
 #[derive(Debug)]
@@ -8,12 +8,12 @@ pub enum Error {
     EncodeError(encode::Error),
     WalletNotInitialized,
     DbError(kv::Error),
-    DbParseError,
     ParseNumError(std::num::ParseIntError),
     RustreexoError(String),
     IoError(std::io::Error),
     ValidationError(bitcoin::blockdata::script::Error),
     ChainError(BlockchainError),
+    SerdeJsonError(serde_json::Error),
 }
 
 impl std::fmt::Display for Error {
@@ -24,13 +24,12 @@ impl std::fmt::Display for Error {
             Error::UtreexodError(_) => write!(f, "UtreexodError"),
             Error::WalletNotInitialized => write!(f, "WalletNotInitialized"),
             Error::DbError(err) => write!(f, "Database error {err}"),
-            Error::DbParseError => write!(f, "Database parse error"),
             Error::ParseNumError(err) => write!(f, "int parse error: {err}"),
             Error::RustreexoError(err) => write!(f, "Rustreexo error: {err}"),
             Error::IoError(err) => write!(f, "Io error {err}"),
             Error::ValidationError(err) => write!(f, "Error during script evaluation: {err}"),
             Error::ChainError(err) => write!(f, "Error with our blockchain backend: {:?}", err),
-
+            Error::SerdeJsonError(err) => write!(f, "Error serializing object {err}"),
         }
     }
 }
@@ -44,6 +43,7 @@ impl_from_error!(RustreexoError, String);
 impl_from_error!(IoError, std::io::Error);
 impl_from_error!(ValidationError, bitcoin::blockdata::script::Error);
 impl_from_error!(ChainError, BlockchainError);
+impl_from_error!(SerdeJsonError, serde_json::Error);
 
 impl std::error::Error for Error {}
 #[macro_export]

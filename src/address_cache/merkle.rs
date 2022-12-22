@@ -3,7 +3,8 @@ use bitcoin::{
     hashes::{sha256d, Hash, HashEngine},
     Block, Txid,
 };
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+use serde::{Deserialize, Serialize};
+#[derive(Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MerkleProof {
     target: Txid,
     pos: u64,
