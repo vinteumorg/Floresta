@@ -112,30 +112,37 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
         let mut my_transactions = vec![];
 
         for (position, transaction) in block.txdata.iter().enumerate() {
-            if let Some((script, _)) = self.tx_index.get(&transaction.txid()) {
-                // If a transaction is spending some utxo we own
-                let script = self.address_map.get(script).unwrap();
-                let tx = self.get_transaction(&transaction.txid()).unwrap();
-                let tx: Transaction = deserialize(&Vec::from_hex(&tx.tx_hex).unwrap()).unwrap();
-                let output = tx
-                    .output
-                    .iter()
-                    .find(|out| out.script_pubkey == script.script)
-                    .unwrap();
-                my_transactions.push((transaction.clone(), output.clone()));
+            for txin in transaction.input.iter() {
+                // TODO: Simplify this whole thing
+                if let Some((script, _)) = self.tx_index.get(&txin.previous_output.txid) {
+                    // If a transaction is spending some utxo we own
+                    let script = self.address_map.get(script).unwrap();
+                    let tx = self.get_transaction(&txin.previous_output.txid).unwrap();
+                    let tx: Transaction = deserialize(&Vec::from_hex(&tx.tx_hex).unwrap()).unwrap();
 
-                let merkle_block = MerkleProof::from_block(block, position as u64);
+                    let output = tx.output.get(txin.previous_output.vout as usize).unwrap();
+                    // A transaction can get in our cache, even if none of the outputs are ours,
+                    // if it's a wallet spend. In this case, we might have a false-positive when those
+                    // outputs are spent. This if prevents from caching tx we don't actually care about.
+                    if output.script_pubkey != script.script {
+                        continue;
+                    }
+                    my_transactions.push((transaction.clone(), output.clone()));
 
-                self.cache_transaction(
-                    transaction,
-                    height,
-                    output.value,
-                    merkle_block,
-                    position as u32,
-                    true,
-                    &output.script_pubkey,
-                );
+                    let merkle_block = MerkleProof::from_block(block, position as u64);
+
+                    self.cache_transaction(
+                        transaction,
+                        height,
+                        output.value,
+                        merkle_block,
+                        position as u32,
+                        true,
+                        &output.script_pubkey,
+                    );
+                }
             }
+
             for output in transaction.output.iter() {
                 if self.script_set.contains(&output.script_pubkey) {
                     my_transactions.push((transaction.clone(), output.clone()));
@@ -274,6 +281,10 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
         is_spend: bool,
         script: &Script,
     ) {
+        // Don't save duplicated transactions
+        if self.tx_index.contains_key(&transaction.txid()) {
+            return;
+        }
         let transaction_to_cache = CachedTransaction {
             height,
             merkle_block: Some(merkle_block),
