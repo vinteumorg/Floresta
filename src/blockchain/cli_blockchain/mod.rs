@@ -143,7 +143,6 @@ impl UtreexodBackend {
         info!("Start Initial Block Download at height {current} of {height}");
         for block_height in (current + 1)..=height {
             if block_height % 2016 == 0 {
-                //yield_now().await;
                 info!("Sync at block {block_height}");
                 if block_height % 100_000 == 0 {
                     self.chainstate.flush()?;

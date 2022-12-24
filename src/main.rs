@@ -140,19 +140,7 @@ fn create_rpc_connection(
     username: Option<String>,
     password: Option<String>,
 ) -> Arc<BTCDClient> {
-    let mut hostname = hostname.split(':');
-    let address = if let Some(address) = hostname.next() {
-        address.to_string()
-    } else {
-        "localhost".to_string()
-    };
-    let port = if let Some(port) = hostname.next() {
-        port.parse().unwrap_or(8332)
-    } else {
-        8332
-    };
-
-    let config = BTCDConfigs::new(false, username, password, Some(address), Some(port));
+    let config = BTCDConfigs::new(false, username, password, hostname, Some(0));
 
     Arc::new(BTCDClient::new(config).unwrap())
 }
@@ -198,6 +186,7 @@ fn derive_addresses<D: AddressCacheDatabase>(
 }
 /// Finds out whether our RPC works or not
 fn test_rpc(rpc: &BTCDClient) -> bool {
+    println!("{:?}", rpc.getbestblock());
     if rpc.getbestblock().is_ok() {
         return true;
     }
