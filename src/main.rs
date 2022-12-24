@@ -72,7 +72,7 @@ fn main() {
             rpc_password,
             rpc_host,
         } => {
-            let rpc = create_rpc_connection(rpc_host, Some(rpc_user), Some(rpc_password));
+            let rpc = create_rpc_connection(&rpc_host, Some(rpc_user), Some(rpc_password));
             if !test_rpc(&rpc) {
                 info!("Unable to connect with rpc");
                 return;
@@ -89,6 +89,7 @@ fn main() {
             let chain_provider = UtreexodBackend {
                 chainstate: blockchain_state.clone(),
                 rpc,
+                hostname: rpc_host
             };
             info!("Starting server");
             // Create a new electrum server, we need to block_on because `ElectrumServer::new` is `async`
@@ -104,7 +105,7 @@ fn main() {
                 electrum_server.listener.clone().unwrap(),
                 electrum_server.notify_tx.clone(),
             ));
-            task::spawn(chain_provider.run());
+            task::spawn(chain_provider.run(true));
             info!("Server running on: 127.0.0.0.1:50001");
             task::block_on(electrum_server.main_loop()).expect("Main loop failed");
         }
@@ -136,11 +137,11 @@ fn load_wallet(data_dir: String) -> AddressCache<KvDatabase> {
     AddressCache::new(database)
 }
 fn create_rpc_connection(
-    hostname: String,
+    hostname: &String,
     username: Option<String>,
     password: Option<String>,
 ) -> Arc<BTCDClient> {
-    let config = BTCDConfigs::new(false, username, password, hostname, Some(0));
+    let config = BTCDConfigs::new(false, username, password, Some(hostname.to_owned()), Some(38331));
 
     Arc::new(BTCDClient::new(config).unwrap())
 }

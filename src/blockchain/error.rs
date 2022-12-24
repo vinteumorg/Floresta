@@ -11,6 +11,7 @@ pub enum BlockchainError {
     DatabaseError(kv::Error),
     ConsensusDecodeError(bitcoin::consensus::encode::Error),
     ChainNotInitialized,
+    IoError(std::io::Error),
 }
 #[derive(Debug)]
 pub enum BlockValidationErrors {
@@ -48,5 +49,10 @@ impl From<script::Error> for BlockchainError {
 impl From<String> for BlockchainError {
     fn from(err: String) -> Self {
         BlockchainError::UtreexoError(err)
+    }
+}
+impl From<std::io::Error> for BlockchainError {
+    fn from(e: std::io::Error) -> Self {
+        BlockchainError::IoError(e)
     }
 }

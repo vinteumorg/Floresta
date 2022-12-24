@@ -2,10 +2,11 @@
 //! data needed for validating some piece of information, like a transaction and a block.
 
 use bitcoin::{consensus::Decodable, BlockHash, OutPoint, TxOut};
+use serde::Deserialize;
 
 /// Leaf data is the data that is hashed when adding to utreexo state. It contains validation
 /// data and some commitments to make it harder to attack an utreexo-only node.
-#[derive(Debug)]
+#[derive(Debug, Deserialize)]
 pub struct LeafData {
     /// A commitment to the block creating this utxo
     pub block_hash: BlockHash,

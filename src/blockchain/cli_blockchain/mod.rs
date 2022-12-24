@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, net::TcpStream, sync::Arc, time::Duration};
 
 use bitcoin::{
     consensus::{deserialize_partial, Encodable},
@@ -10,10 +10,11 @@ use bitcoin::{
 };
 use btcd_rpc::{
     client::{BTCDClient, BtcdRpc},
-    json_types::VerbosityOutput,
+    json_types::{blockchain::GetUtreexoProofResult, VerbosityOutput},
 };
 use log::info;
 use rustreexo::accumulator::proof::Proof;
+use serde::Deserialize;
 
 use super::{
     chain_state::ChainState, chainstore::KvChainStore, error::BlockchainError, udata::LeafData,
@@ -22,6 +23,7 @@ use super::{
 use crate::try_and_log;
 
 pub struct UtreexodBackend {
+    pub hostname: String,
     pub rpc: Arc<BTCDClient>,
     pub chainstate: Arc<ChainState<KvChainStore>>,
 }
@@ -70,6 +72,11 @@ impl UtreexodBackend {
         hash: &String,
     ) -> Result<(Proof, Vec<sha256::Hash>, Vec<LeafData>)> {
         let proof = rpc.getutreexoproof(hash.to_string(), true)?.get_verbose();
+        Self::process_proof(proof)
+    }
+    fn process_proof(
+        proof: GetUtreexoProofResult,
+    ) -> Result<(Proof, Vec<sha256::Hash>, Vec<LeafData>)> {
         let preimages: Vec<_> = proof
             .target_preimages
             .iter()
@@ -156,9 +163,54 @@ impl UtreexodBackend {
 
         Ok(())
     }
+    async fn process_batch_block(&self) -> Result<()> {
+        let socket = TcpStream::connect(&"127.0.0.1:8080")?;
+        let height = self.get_height()?;
+        let current = self.chainstate.get_best_block()?.0;
 
-    pub async fn run(self) -> ! {
-        try_and_log!(self.start_ibd().await);
+        for _ in (current + 1)..=height {
+            let block_data: BlockData =
+                ciborium::de::from_reader(&socket).expect("Got invalid data");
+            let (proof, del_hashes, leaf_data) = Self::process_proof(block_data.proof)?;
+            let mut inputs = HashMap::new();
+            for tx in block_data.block.txdata.iter() {
+                for (vout, out) in tx.output.iter().enumerate() {
+                    inputs.insert(
+                        OutPoint {
+                            txid: tx.txid(),
+                            vout: vout as u32,
+                        },
+                        out.clone(),
+                    );
+                }
+            }
+            if block_data.height % 2016 == 0 {
+                info!("Sync at block {}", block_data.height);
+                if block_data.height % 100_000 == 0 {
+                    self.chainstate.flush()?;
+                }
+            }
+            for leaf in leaf_data {
+                inputs.insert(leaf.prevout, leaf.utxo);
+            }
+            self.chainstate.connect_block(
+                &block_data.block,
+                proof,
+                inputs,
+                del_hashes,
+                block_data.height,
+            )?;
+        }
+
+        Ok(())
+    }
+    pub async fn run(self, batch_ibd: bool) -> ! {
+        if batch_ibd {
+            try_and_log!(self.process_batch_block().await);
+        } else {
+            try_and_log!(self.start_ibd().await);
+        }
+
         loop {
             async_std::task::sleep(Duration::from_secs(1)).await;
 
@@ -177,4 +229,10 @@ macro_rules! try_and_log {
             log::error!("{:?}", error);
         }
     };
+}
+#[derive(Debug, Deserialize)]
+struct BlockData {
+    height: u32,
+    block: Block,
+    proof: GetUtreexoProofResult,
 }
