@@ -12,7 +12,7 @@ use btcd_rpc::{
     client::{BTCDClient, BtcdRpc},
     json_types::{blockchain::GetUtreexoProofResult, VerbosityOutput},
 };
-use log::info;
+use log::{error, info};
 use rustreexo::accumulator::proof::Proof;
 use serde::Deserialize;
 
@@ -23,7 +23,8 @@ use super::{
 use crate::try_and_log;
 
 pub struct UtreexodBackend {
-    pub hostname: String,
+    pub use_external_sync: bool,
+    pub external_sync_hostname: Option<String>,
     pub rpc: Arc<BTCDClient>,
     pub chainstate: Arc<ChainState<KvChainStore>>,
 }
@@ -164,13 +165,17 @@ impl UtreexodBackend {
         Ok(())
     }
     async fn process_batch_block(&self) -> Result<()> {
-        let socket = TcpStream::connect(&"127.0.0.1:8080")?;
+        let socket = TcpStream::connect(self.external_sync_hostname.to_owned().unwrap().as_str())?;
         let height = self.get_height()?;
         let current = self.chainstate.get_best_block()?.0;
 
         for _ in (current + 1)..=height {
-            let block_data: BlockData =
-                ciborium::de::from_reader(&socket).expect("Got invalid data");
+            let block_data = rmp_serde::decode::from_read::<_, BlockData>(&socket);
+            if block_data.is_err() {
+                error!("{:?}", block_data);
+                break;
+            }
+            let block_data = block_data.unwrap();
             let (proof, del_hashes, leaf_data) = Self::process_proof(block_data.proof)?;
             let mut inputs = HashMap::new();
             for tx in block_data.block.txdata.iter() {
@@ -204,8 +209,8 @@ impl UtreexodBackend {
 
         Ok(())
     }
-    pub async fn run(self, batch_ibd: bool) -> ! {
-        if batch_ibd {
+    pub async fn run(self) -> ! {
+        if self.use_external_sync {
             try_and_log!(self.process_batch_block().await);
         } else {
             try_and_log!(self.start_ibd().await);

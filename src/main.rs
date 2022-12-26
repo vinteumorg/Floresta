@@ -71,8 +71,12 @@ fn main() {
             rpc_user,
             rpc_password,
             rpc_host,
+            external_sync,
+            use_external_sync,
+            rpc_port,
         } => {
-            let rpc = create_rpc_connection(&rpc_host, Some(rpc_user), Some(rpc_password));
+            let rpc =
+                create_rpc_connection(&rpc_host, rpc_port, Some(rpc_user), Some(rpc_password));
             if !test_rpc(&rpc) {
                 info!("Unable to connect with rpc");
                 return;
@@ -89,7 +93,8 @@ fn main() {
             let chain_provider = UtreexodBackend {
                 chainstate: blockchain_state.clone(),
                 rpc,
-                hostname: rpc_host
+                external_sync_hostname: external_sync,
+                use_external_sync,
             };
             info!("Starting server");
             // Create a new electrum server, we need to block_on because `ElectrumServer::new` is `async`
@@ -105,7 +110,7 @@ fn main() {
                 electrum_server.listener.clone().unwrap(),
                 electrum_server.notify_tx.clone(),
             ));
-            task::spawn(chain_provider.run(true));
+            task::spawn(chain_provider.run());
             info!("Server running on: 127.0.0.0.1:50001");
             task::block_on(electrum_server.main_loop()).expect("Main loop failed");
         }
@@ -138,10 +143,17 @@ fn load_wallet(data_dir: String) -> AddressCache<KvDatabase> {
 }
 fn create_rpc_connection(
     hostname: &String,
+    rpc_port: u32,
     username: Option<String>,
     password: Option<String>,
 ) -> Arc<BTCDClient> {
-    let config = BTCDConfigs::new(false, username, password, Some(hostname.to_owned()), Some(38331));
+    let config = BTCDConfigs::new(
+        false,
+        username,
+        password,
+        Some(hostname.to_owned()),
+        Some(rpc_port as usize),
+    );
 
     Arc::new(BTCDClient::new(config).unwrap())
 }
@@ -187,7 +199,6 @@ fn derive_addresses<D: AddressCacheDatabase>(
 }
 /// Finds out whether our RPC works or not
 fn test_rpc(rpc: &BTCDClient) -> bool {
-    println!("{:?}", rpc.getbestblock());
     if rpc.getbestblock().is_ok() {
         return true;
     }

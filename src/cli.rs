@@ -56,8 +56,19 @@ pub enum Commands {
         rpc_password: String,
         /// The hostname:port of Utreexod
         #[arg(short, long)]
-        #[arg(default_value = "localhost:18332")]
+        #[arg(default_value = "localhost")]
         rpc_host: String,
+
+        #[arg(long)]
+        #[arg(default_value_t = 8332)]
+        rpc_port: u32,
+        /// Whether or not we want to sync with a external provider
+        #[arg(long)]
+        #[arg(default_value_t = false)]
+        use_external_sync: bool,
+        /// If use_external_sync is set, this option provides which server we use
+        #[arg(long)]
+        external_sync: Option<String>,
     },
     /// Setups you wallet, creating the local database and initializing the local cache
     /// must be executed exactly once.
