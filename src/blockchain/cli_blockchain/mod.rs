@@ -166,6 +166,7 @@ impl UtreexodBackend {
     }
     async fn process_batch_block(&self) -> Result<()> {
         let socket = TcpStream::connect(self.external_sync_hostname.to_owned().unwrap().as_str())?;
+
         let height = self.get_height()?;
         let current = self.chainstate.get_best_block()?.0;
 
@@ -189,9 +190,9 @@ impl UtreexodBackend {
                     );
                 }
             }
-            if block_data.height % 2016 == 0 {
+            if block_data.height % 2016 == 0 || block_data.height % 10_000 == 0 {
                 info!("Sync at block {}", block_data.height);
-                if block_data.height % 100_000 == 0 {
+                if block_data.height % 10_000 == 0 {
                     self.chainstate.flush()?;
                 }
             }
