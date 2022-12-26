@@ -54,9 +54,9 @@ impl MerkleProof {
         let mut placement = self.pos;
         for hash in self.hashes.iter() {
             if placement & 1 == 0 {
-                computed = Self::parent_hash(&computed, &hash);
+                computed = Self::parent_hash(&computed, hash);
             } else {
-                computed = Self::parent_hash(&hash, &computed);
+                computed = Self::parent_hash(hash, &computed);
             }
             placement >>= 1;
         }

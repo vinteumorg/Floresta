@@ -117,7 +117,7 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                     return json_rpc_res!(request, status_hash);
                 }
 
-                Err(super::error::Error::InvalidParams.into())
+                Err(super::error::Error::InvalidParams)
             }
             "server.banner" => json_rpc_res!(request, "Welcome to Electrum"),
             "server.donation_address" => {

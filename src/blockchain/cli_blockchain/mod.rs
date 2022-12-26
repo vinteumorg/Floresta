@@ -45,7 +45,7 @@ impl UtreexodBackend {
         let _ = tx
             .consensus_encode(&mut writer)
             .expect("Should be a valid transaction");
-        if let Err(_) = self.rpc.sendrawtransaction(writer.to_hex()) {
+        if self.rpc.sendrawtransaction(writer.to_hex()).is_err() {
             // Reschedule this transaction to broadcast until we succeed
             self.chainstate.broadcast(tx)?;
         }

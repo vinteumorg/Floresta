@@ -222,9 +222,7 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
         if let Some(tx) = self.get_transaction(txid) {
             // If a given transaction is cached, but the merkle tree doesn't exist, that means
             // an unconfirmed transaction.
-            if tx.merkle_block.is_none() {
-                return None;
-            }
+            tx.merkle_block.as_ref()?;
             for hash in tx.merkle_block.unwrap().hashes() {
                 hashes.push(hash.to_hex());
             }
@@ -271,6 +269,7 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
     }
     /// Caches a new transaction. This method may be called for addresses we don't follow yet,
     /// this automatically makes we follow this address.
+    #[allow(clippy::too_many_arguments)]
     pub fn cache_transaction(
         &mut self,
         transaction: &Transaction,
@@ -293,7 +292,7 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
             position,
             is_spend,
         };
-        let hash = get_spk_hash(&script);
+        let hash = get_spk_hash(script);
         if let Some(address) = self.address_map.get_mut(&hash) {
             if address.transactions.contains(&transaction_to_cache) {
                 return;

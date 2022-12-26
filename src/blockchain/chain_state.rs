@@ -160,9 +160,10 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         let inner = read_lock!(self);
         let mut ser_acc: Vec<u8> = vec![];
         inner.acc.leafs.consensus_encode(&mut ser_acc)?;
+        #[allow(clippy::significant_drop_in_scrutinee)]
         for root in inner.acc.roots.iter() {
             ser_acc
-                .write(&*root)
+                .write_all(root)
                 .expect("String formatting should not err");
         }
 
@@ -226,9 +227,9 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             return Stump::new();
         }
         let mut acc = acc.unwrap();
-        let mut leaves = acc.drain(0..8).collect::<Vec<u8>>();
+        let leaves = acc.drain(0..8).collect::<Vec<u8>>();
         let (leaves, _) =
-            deserialize_partial::<u64>(&mut leaves).expect("load_acc: Invalid num_leaves");
+            deserialize_partial::<u64>(&leaves).expect("load_acc: Invalid num_leaves");
         let mut roots = vec![];
         while acc.len() >= 32 {
             // Since we only expect hashes after the num_leaves, it should always align with 32 bytes
@@ -305,7 +306,9 @@ impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedSta
 }
 impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<PersistedState> {
     fn notify(&self, what: Notification) {
-        for client in self.inner.read().unwrap().subscribers.iter() {
+        let inner = self.inner.read().unwrap();
+        let subs = inner.subscribers.iter();
+        for client in subs {
             let _ = block_on(client.send(what.clone()));
         }
     }
@@ -411,11 +414,11 @@ mod test {
 
     #[test]
     fn test_calc_next_work_required() {
-        let mut first_block = Vec::from_hex("0100000000000000000000000000000000000000000000000000000000000000000000003ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a008f4d5fae77031e8ad22203").unwrap();
-        let first_block: BlockHeader = deserialize(&mut first_block).unwrap();
+        let first_block = Vec::from_hex("0100000000000000000000000000000000000000000000000000000000000000000000003ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a008f4d5fae77031e8ad22203").unwrap();
+        let first_block: BlockHeader = deserialize(&first_block).unwrap();
 
-        let mut last_block = Vec::from_hex("00000020dec6741f7dc5df6661bcb2d3ec2fceb14bd0e6def3db80da904ed1eeb8000000d1f308132e6a72852c04b059e92928ea891ae6d513cd3e67436f908c804ec7be51df535fae77031e4d00f800").unwrap();
-        let last_block = deserialize(&mut last_block).unwrap();
+        let last_block = Vec::from_hex("00000020dec6741f7dc5df6661bcb2d3ec2fceb14bd0e6def3db80da904ed1eeb8000000d1f308132e6a72852c04b059e92928ea891ae6d513cd3e67436f908c804ec7be51df535fae77031e4d00f800").unwrap();
+        let last_block = deserialize(&last_block).unwrap();
 
         let next_target =
             super::ChainState::<KvChainStore>::calc_next_work_required(&last_block, &first_block);

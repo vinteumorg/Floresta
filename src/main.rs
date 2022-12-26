@@ -138,7 +138,7 @@ fn load_chain_state(data_dir: &String, network: Network) -> ChainState<KvChainSt
     }
 }
 fn load_wallet(data_dir: String) -> AddressCache<KvDatabase> {
-    let database = KvDatabase::new(data_dir.clone()).expect("Could not create a database");
+    let database = KvDatabase::new(data_dir).expect("Could not create a database");
     AddressCache::new(database)
 }
 fn create_rpc_connection(
@@ -192,7 +192,7 @@ fn derive_addresses<D: AddressCacheDatabase>(
     for index in 0..100 {
         let address = desc
             .at_derivation_index(index)
-            .address(get_net(&network))
+            .address(get_net(network))
             .expect("Error while deriving address. Is this an active descriptor?");
         wallet.cache_address(address.script_pubkey());
     }
