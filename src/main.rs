@@ -125,7 +125,7 @@ fn main() {
 }
 fn load_chain_state(data_dir: &String, network: Network) -> ChainState<KvChainStore> {
     let db = KvChainStore::new(data_dir.to_string()).expect("Could not read db");
-    match ChainState::<KvChainStore>::load_chain_state(db) {
+    match ChainState::<KvChainStore>::load_chain_state(db, network) {
         Ok(chainstate) => chainstate,
         Err(err) => match err {
             blockchain::error::BlockchainError::ChainNotInitialized => {

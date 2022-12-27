@@ -1,4 +1,5 @@
 pub mod chain_state;
+mod chainparams;
 pub mod chainstore;
 pub mod cli_blockchain;
 pub mod error;

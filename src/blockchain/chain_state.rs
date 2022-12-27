@@ -1,8 +1,9 @@
-use std::{
-    collections::{HashMap, HashSet},
-    io::Write,
+use super::{
+    chainparams::ChainParams,
+    chainstore::{ChainStore, KvChainStore},
+    error::{BlockValidationErrors, BlockchainError},
+    BlockchainInterface, BlockchainProviderInterface, Notification,
 };
-
 use crate::{read_lock, write_lock};
 use async_std::{channel::Sender, task::block_on};
 use bitcoin::{
@@ -14,8 +15,11 @@ use bitcoin::{
 };
 use rustreexo::accumulator::{proof::Proof, stump::Stump};
 use sha2::{Digest, Sha512_256};
-use std::sync::RwLock;
-
+use std::{sync::RwLock, time::UNIX_EPOCH};
+use std::{
+    collections::{HashMap, HashSet},
+    io::Write,
+};
 pub struct ChainStateInner<PersistedState: ChainStore> {
     /// The acc we use for validation.
     acc: Stump,
@@ -35,12 +39,10 @@ pub struct ChainStateInner<PersistedState: ChainStore> {
     fee_estimation: (f64, f64, f64),
     /// Are we in Initial Block Download?
     ibd: bool,
+    /// Global parameter of the chain we are in
+    chain_params: ChainParams,
 }
-use super::{
-    chainstore::{ChainStore, KvChainStore},
-    error::{BlockValidationErrors, BlockchainError},
-    BlockchainInterface, BlockchainProviderInterface, Notification,
-};
+
 pub struct ChainState<PersistedState: ChainStore> {
     inner: RwLock<ChainStateInner<PersistedState>>,
 }
@@ -85,10 +87,14 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         }
         Ok(true)
     }
-    fn calc_next_work_required(last_block: &BlockHeader, first_block: &BlockHeader) -> u32 {
+    fn calc_next_work_required(
+        last_block: &BlockHeader,
+        first_block: &BlockHeader,
+        params: ChainParams,
+    ) -> u32 {
         let cur_target = last_block.target();
 
-        let expected_timespan = Uint256::from_u64(14 * 24 * 60 * 60).unwrap();
+        let expected_timespan = Uint256::from_u64(params.pow_target_timespan).unwrap();
         let actual_timespan = last_block.time - first_block.time;
 
         let new_target = cur_target.mul_u32(actual_timespan);
@@ -97,18 +103,39 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         BlockHeader::compact_target_from_u256(&new_target)
     }
     fn get_next_required_work(&self, last_block: &BlockHeader, next_height: u32) -> Uint256 {
+        let params = self.chain_params();
+        let last_block_time = UNIX_EPOCH + std::time::Duration::from_secs(last_block.time as u64);
+        // Special testnet rule, if a block takes more than 20 minutes to mine, we can
+        // mine a block with diff 1
+        if params.pow_allow_min_diff
+            && last_block_time + std::time::Duration::from_secs(20 * 60)
+                > std::time::SystemTime::now()
+        {
+            return params.max_target;
+        }
         // Retarget
-        if (next_height) % 2016 == 0 {
+        // Regtest don't have retarget
+        if !params.pow_allow_no_retarget && (next_height) % 2016 == 0 {
             // First block in this epoch
             let first_block = self.get_block_header_by_height(next_height - 2016);
             let last_block = self.get_block_header_by_height(next_height - 1);
 
-            let next_bits = Self::calc_next_work_required(&last_block, &first_block);
-            return BlockHeader::u256_from_compact_target(next_bits);
+            let next_bits =
+                Self::calc_next_work_required(&last_block, &first_block, self.chain_params());
+            let target = BlockHeader::u256_from_compact_target(next_bits);
+            if target > params.max_target {
+                return target;
+            }
+            return params.max_target;
         }
         last_block.target()
     }
-    // This function should be only called if a block is garanteed to be on chain
+    /// Returns the chain_params struct for the current network
+    fn chain_params(&self) -> ChainParams {
+        let inner = read_lock!(self);
+        inner.chain_params.clone()
+    }
+    // This function should be only called if a block is guaranteed to be on chain
     fn get_block_header_by_height(&self, height: u32) -> BlockHeader {
         let block = self
             .get_block_hash(height)
@@ -185,11 +212,13 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
                 subscribers: vec![],
                 fee_estimation: (1_f64, 1_f64, 1_f64),
                 ibd: true,
+                chain_params: network.into(),
             }),
         }
     }
     pub fn load_chain_state(
         chainstore: KvChainStore,
+        network: Network,
     ) -> Result<ChainState<KvChainStore>, BlockchainError> {
         let acc = Self::load_acc(&chainstore);
 
@@ -210,6 +239,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             fee_estimation: (0_f64, 0_f64, 0_f64),
             subscribers: Vec::new(),
             ibd: true,
+            chain_params: network.into(),
         };
 
         Ok(ChainState {
@@ -406,9 +436,9 @@ macro_rules! write_lock {
 
 #[cfg(test)]
 mod test {
-    use bitcoin::{consensus::deserialize, hashes::hex::FromHex, BlockHeader};
+    use bitcoin::{consensus::deserialize, hashes::hex::FromHex, BlockHeader, Network};
 
-    use crate::blockchain::chainstore::KvChainStore;
+    use crate::blockchain::{chainparams::ChainParams, chainstore::KvChainStore};
 
     #[test]
     fn test_calc_next_work_required() {
@@ -418,8 +448,11 @@ mod test {
         let last_block = Vec::from_hex("00000020dec6741f7dc5df6661bcb2d3ec2fceb14bd0e6def3db80da904ed1eeb8000000d1f308132e6a72852c04b059e92928ea891ae6d513cd3e67436f908c804ec7be51df535fae77031e4d00f800").unwrap();
         let last_block = deserialize(&last_block).unwrap();
 
-        let next_target =
-            super::ChainState::<KvChainStore>::calc_next_work_required(&last_block, &first_block);
+        let next_target = super::ChainState::<KvChainStore>::calc_next_work_required(
+            &last_block,
+            &first_block,
+            ChainParams::from(Network::Bitcoin),
+        );
 
         assert_eq!(0x1e012fa7, next_target);
     }
