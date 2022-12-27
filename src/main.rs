@@ -38,6 +38,7 @@ mod blockchain;
 mod cli;
 mod electrum;
 mod error;
+mod wallet_input;
 
 use std::{process::exit, sync::Arc};
 
@@ -174,9 +175,10 @@ fn setup_wallet<D: AddressCacheDatabase>(
         error!("Could not setup wallet: {e}");
         exit(1);
     }
+    let xpub = wallet_input::extended_pub_key::from_wif(xpub.as_str()).expect("Invalid xpub");
     let main_desc = format!("wpkh({xpub}/0/*)");
     let change_desc = format!("wpkh({xpub}/1/*)");
-
+    println!("{main_desc}");
     derive_addresses(main_desc, &mut wallet, &network);
     derive_addresses(change_desc, &mut wallet, &network);
 

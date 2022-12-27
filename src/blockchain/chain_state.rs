@@ -236,7 +236,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             best_block: (height, tip_hash),
             broadcast_queue: Vec::new(),
             chainstore,
-            fee_estimation: (0_f64, 0_f64, 0_f64),
+            fee_estimation: (1_f64, 1_f64, 1_f64),
             subscribers: Vec::new(),
             ibd: true,
             chain_params: network.into(),
