@@ -286,7 +286,7 @@ impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedSta
     }
 
     fn get_tx(&self, _txid: &bitcoin::Txid) -> super::Result<Option<bitcoin::Transaction>> {
-        todo!()
+        unimplemented!("This chainstate doesn't hold any tx")
     }
 
     fn get_height(&self) -> super::Result<u32> {
