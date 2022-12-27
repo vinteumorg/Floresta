@@ -1,6 +1,6 @@
 use btcd_rpc::error::UtreexodError;
 
-use crate::{impl_from_error, blockchain::error::BlockchainError};
+use crate::{blockchain::error::BlockchainError, impl_from_error};
 #[derive(Debug)]
 pub enum Error {
     BackendError(UtreexodError),

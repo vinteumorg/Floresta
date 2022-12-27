@@ -15,11 +15,11 @@ use bitcoin::{
 };
 use rustreexo::accumulator::{proof::Proof, stump::Stump};
 use sha2::{Digest, Sha512_256};
-use std::{sync::RwLock, time::UNIX_EPOCH};
 use std::{
     collections::{HashMap, HashSet},
     io::Write,
 };
+use std::{sync::RwLock, time::UNIX_EPOCH};
 pub struct ChainStateInner<PersistedState: ChainStore> {
     /// The acc we use for validation.
     acc: Stump,
