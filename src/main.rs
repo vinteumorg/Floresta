@@ -100,7 +100,7 @@ fn main() {
             // Create a new electrum server, we need to block_on because `ElectrumServer::new` is `async`
             // but our main isn't, so we can't `.await` on it.
             let electrum_server = block_on(electrum::electrum_protocol::ElectrumServer::new(
-                "127.0.0.1:50001",
+                "0.0.0.0:50001",
                 cache,
                 blockchain_state,
             ))
@@ -111,7 +111,7 @@ fn main() {
                 electrum_server.notify_tx.clone(),
             ));
             task::spawn(chain_provider.run());
-            info!("Server running on: 127.0.0.0.1:50001");
+            info!("Server running on: 0.0.0.0:50001");
             task::block_on(electrum_server.main_loop()).expect("Main loop failed");
         }
         Commands::Setup {
