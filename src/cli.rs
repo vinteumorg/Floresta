@@ -50,7 +50,6 @@ pub enum Commands {
         data_dir: Option<String>,
         /// Add a xpub to our wallet
         #[arg(long)]
-        #[arg(default_value = "")]
         wallet_xpub: Option<Vec<String>>,
         /// Your rpc user, as set in Utreexod
         #[arg(long)]

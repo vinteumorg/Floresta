@@ -87,9 +87,9 @@ pub trait AddressCacheDatabase {
     /// Saves the height of the last block we filtered
     fn set_cache_height(&self, height: u32) -> Result<(), crate::error::Error>;
     /// Saves the descriptor of associated cache
-    fn desc_save(&self, descriptor: String) -> Result<(), crate::error::Error>;
-    /// Get associated descriptor
-    fn desc_get(&self) -> Result<String, crate::error::Error>;
+    fn desc_save(&self, descriptor: &str) -> Result<(), crate::error::Error>;
+    /// Get associated descriptors
+    fn descs_get(&self) -> Result<Vec<String>, crate::error::Error>;
 }
 /// Holds all addresses and associated transactions. We need a database with some basic
 /// methods, to store all data
@@ -263,8 +263,18 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
     }
     /// Setup is the first command that should be executed. In a new cache. It sets our wallet's
     /// state, like the height we should start scanning and the wallet's descriptor.
-    pub fn setup(&self, descriptor: String) -> Result<(), crate::error::Error> {
-        self.database.set_cache_height(0)?;
+    pub fn setup(&self) -> Result<(), crate::error::Error> {
+        if self.database.descs_get().is_err() {
+            self.database.set_cache_height(0)?;
+        }
+        Ok(())
+    }
+    /// Tells whether or not a descriptor is already cached
+    pub fn is_cached(&self, desc: &String) -> Result<bool, crate::error::Error> {
+        let known_descs = self.database.descs_get()?;
+        Ok(known_descs.contains(desc))
+    }
+    pub fn push_descriptor(&self, descriptor: &str) -> Result<(), crate::error::Error> {
         self.database.desc_save(descriptor)
     }
     /// Caches a new transaction. This method may be called for addresses we don't follow yet,

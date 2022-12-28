@@ -61,20 +61,23 @@ impl AddressCacheDatabase for KvDatabase {
         Ok(())
     }
 
-    fn desc_save(&self, descriptor: String) -> Result<(), crate::error::Error> {
-        self.0.bucket::<String, String>(Some("meta"))?;
-        self.1.set(&"desc".to_string(), &serialize(&descriptor))?;
+    fn desc_save(&self, descriptor: &str) -> Result<(), crate::error::Error> {
+        self.0.bucket::<String, Vec<u8>>(Some("meta"))?;
+        let mut descs = self.descs_get()?;
+        descs.push(descriptor.to_string());
+        self.1
+            .set(&"desc".to_string(), &serde_json::to_vec(&descs).unwrap())?;
         self.1.flush()?;
 
         Ok(())
     }
 
-    fn desc_get(&self) -> Result<String, crate::error::Error> {
-        self.0.bucket::<String, String>(Some("meta"))?;
+    fn descs_get(&self) -> Result<Vec<String>, crate::error::Error> {
+        self.0.bucket::<String, Vec<u8>>(Some("meta"))?;
         let res = self.1.get(&"desc".to_string())?;
         if let Some(res) = res {
-            return Ok(deserialize(&res)?);
+            return Ok(serde_json::de::from_slice(&res)?);
         }
-        Err(crate::error::Error::WalletNotInitialized)
+        Ok(vec![])
     }
 }

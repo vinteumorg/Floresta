@@ -52,7 +52,7 @@ use btcd_rpc::client::{BTCDClient, BTCDConfigs, BtcdRpc};
 use clap::Parser;
 use cli::{Cli, Commands};
 use config_file::ConfigFile;
-use log::{debug, error, info};
+use log::{debug, info};
 use miniscript::{Descriptor, DescriptorPublicKey};
 use pretty_env_logger::env_logger::TimestampPrecision;
 use std::str::FromStr;
@@ -87,14 +87,18 @@ fn main() {
             );
             debug!("Loading wallet");
             let mut wallet = load_wallet(&data_dir);
+            wallet.setup().expect("Could not initialize wallet");
             debug!("Done loading wallet");
 
-            setup_wallet(
+            let result = setup_wallet(
                 get_one_or_another(wallet_xpub, data.wallet.xpubs, vec![]),
                 &mut wallet,
                 params.network.clone(),
             );
-
+            if let Err(e) = result {
+                log::error!("Something went wrong while setting wallet up: {e}");
+                return;
+            }
             let rpc = create_rpc_connection(
                 &get_one_or_another(rpc_host, data.rpc.rpc_host, "localhost".into()),
                 get_one_or_another(rpc_port, data.rpc.rpc_port, 8332),
@@ -190,25 +194,38 @@ fn get_net(net: &cli::Network) -> Network {
     }
 }
 fn setup_wallet<D: AddressCacheDatabase>(
-    xpub: Vec<String>,
+    xpubs: Vec<String>,
     wallet: &mut AddressCache<D>,
     network: cli::Network,
-) {
-    if xpub.is_empty() {
-        return;
+) -> Result<(), crate::error::Error> {
+    if xpubs.is_empty() {
+        return Ok(());
     }
-    if let Err(e) = wallet.setup(xpub[0].clone()) {
-        error!("Could not setup wallet: {e}");
-        exit(1);
+    for key in xpubs {
+        // Don't cache a descriptor twice
+        if wallet.is_cached(&key)? {
+            continue;
+        }
+        // Parses the descriptor and get an external and change descriptors
+        let xpub = wallet_input::extended_pub_key::from_wif(key.as_str());
+        if xpub.is_err() {
+            let error = xpub.unwrap_err();
+            log::error!("Invalid xpub provided: {key} \nReason: {:?}", error);
+            exit(0);
+        }
+        let xpub = xpub.unwrap();
+        let main_desc = format!("wpkh({xpub}/0/*)");
+        let change_desc = format!("wpkh({xpub}/1/*)");
+        // Saves our descriptors on disk for further derivations
+        wallet.push_descriptor(&main_desc)?;
+        wallet.push_descriptor(&change_desc)?;
+        // Derives a bunch of addresses to keep track of
+        derive_addresses(main_desc, wallet, &network);
+        derive_addresses(change_desc, wallet, &network);
     }
-    let xpub = wallet_input::extended_pub_key::from_wif(xpub[0].as_str()).expect("Invalid xpub");
-    let main_desc = format!("wpkh({xpub}/0/*)");
-    let change_desc = format!("wpkh({xpub}/1/*)");
-    println!("{main_desc}");
-    derive_addresses(main_desc, wallet, &network);
-    derive_addresses(change_desc, wallet, &network);
 
-    info!("Wallet setup completed! You can now execute run");
+    info!("Wallet setup completed!");
+    Ok(())
 }
 fn derive_addresses<D: AddressCacheDatabase>(
     descriptor: String,
