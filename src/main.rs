@@ -36,11 +36,12 @@
 mod address_cache;
 mod blockchain;
 mod cli;
+mod config_file;
 mod electrum;
 mod error;
 mod wallet_input;
 
-use std::{process::exit, sync::Arc};
+use std::{path::PathBuf, process::exit, sync::Arc};
 
 use address_cache::{kv_database::KvDatabase, AddressCache, AddressCacheDatabase};
 use async_std::task::{self, block_on};
@@ -50,6 +51,7 @@ use blockchain::{chain_state::ChainState, chainstore::KvChainStore};
 use btcd_rpc::client::{BTCDClient, BTCDConfigs, BtcdRpc};
 use clap::Parser;
 use cli::{Cli, Commands};
+use config_file::ConfigFile;
 use log::{debug, error, info};
 use miniscript::{Descriptor, DescriptorPublicKey};
 use pretty_env_logger::env_logger::TimestampPrecision;
@@ -66,6 +68,7 @@ fn main() {
         .init();
 
     let params = Cli::parse();
+    let data = ConfigFile::default();
     match params.command {
         Commands::Run {
             data_dir,
@@ -75,17 +78,39 @@ fn main() {
             external_sync,
             use_external_sync,
             rpc_port,
+            wallet_xpub,
         } => {
-            let rpc =
-                create_rpc_connection(&rpc_host, rpc_port, Some(rpc_user), Some(rpc_password));
+            let data_dir = get_one_or_another(
+                data_dir,
+                dirs::home_dir().map(|x: PathBuf| x.to_str().unwrap_or_default().to_owned()),
+                "wallet".into(),
+            );
+            debug!("Loading wallet");
+            let mut wallet = load_wallet(&data_dir);
+            debug!("Done loading wallet");
+
+            setup_wallet(
+                get_one_or_another(wallet_xpub, data.wallet.xpubs, vec![]),
+                &mut wallet,
+                params.network.clone(),
+            );
+
+            let rpc = create_rpc_connection(
+                &get_one_or_another(rpc_host, data.rpc.rpc_host, "localhost".into()),
+                get_one_or_another(rpc_port, data.rpc.rpc_port, 8332),
+                Some(get_one_or_another(rpc_user, data.rpc.rpc_user, "".into())),
+                Some(get_one_or_another(
+                    rpc_password,
+                    data.rpc.rpc_password,
+                    "".into(),
+                )),
+            );
+
             if !test_rpc(&rpc) {
                 info!("Unable to connect with rpc");
                 return;
             }
             info!("Starting sync worker, this might take a while!");
-            debug!("Loading wallet");
-            let cache = load_wallet(data_dir.clone());
-            debug!("Done loading wallet");
 
             debug!("Loading database...");
             let blockchain_state = Arc::new(load_chain_state(&data_dir, get_net(&params.network)));
@@ -94,7 +119,11 @@ fn main() {
             let chain_provider = UtreexodBackend {
                 chainstate: blockchain_state.clone(),
                 rpc,
-                external_sync_hostname: external_sync,
+                external_sync_hostname: get_one_or_another(
+                    external_sync,
+                    data.misc.external_sync,
+                    "".into(),
+                ),
                 use_external_sync,
             };
             info!("Starting server");
@@ -102,7 +131,7 @@ fn main() {
             // but our main isn't, so we can't `.await` on it.
             let electrum_server = block_on(electrum::electrum_protocol::ElectrumServer::new(
                 "0.0.0.0:50001",
-                cache,
+                wallet,
                 blockchain_state,
             ))
             .unwrap();
@@ -114,13 +143,6 @@ fn main() {
             task::spawn(chain_provider.run());
             info!("Server running on: 0.0.0.0:50001");
             task::block_on(electrum_server.main_loop()).expect("Main loop failed");
-        }
-        Commands::Setup {
-            data_dir,
-            wallet_xpub,
-        } => {
-            let wallet = load_wallet(data_dir);
-            setup_wallet(wallet_xpub, wallet, params.network);
         }
     }
 }
@@ -138,8 +160,8 @@ fn load_chain_state(data_dir: &String, network: Network) -> ChainState<KvChainSt
         },
     }
 }
-fn load_wallet(data_dir: String) -> AddressCache<KvDatabase> {
-    let database = KvDatabase::new(data_dir).expect("Could not create a database");
+fn load_wallet(data_dir: &String) -> AddressCache<KvDatabase> {
+    let database = KvDatabase::new(data_dir.to_owned()).expect("Could not create a database");
     AddressCache::new(database)
 }
 fn create_rpc_connection(
@@ -158,6 +180,7 @@ fn create_rpc_connection(
 
     Arc::new(BTCDClient::new(config).unwrap())
 }
+
 fn get_net(net: &cli::Network) -> Network {
     match net {
         cli::Network::Bitcoin => Network::Bitcoin,
@@ -167,20 +190,23 @@ fn get_net(net: &cli::Network) -> Network {
     }
 }
 fn setup_wallet<D: AddressCacheDatabase>(
-    xpub: String,
-    mut wallet: AddressCache<D>,
+    xpub: Vec<String>,
+    wallet: &mut AddressCache<D>,
     network: cli::Network,
 ) {
-    if let Err(e) = wallet.setup(xpub.clone()) {
+    if xpub.is_empty() {
+        return;
+    }
+    if let Err(e) = wallet.setup(xpub[0].clone()) {
         error!("Could not setup wallet: {e}");
         exit(1);
     }
-    let xpub = wallet_input::extended_pub_key::from_wif(xpub.as_str()).expect("Invalid xpub");
+    let xpub = wallet_input::extended_pub_key::from_wif(xpub[0].as_str()).expect("Invalid xpub");
     let main_desc = format!("wpkh({xpub}/0/*)");
     let change_desc = format!("wpkh({xpub}/1/*)");
     println!("{main_desc}");
-    derive_addresses(main_desc, &mut wallet, &network);
-    derive_addresses(change_desc, &mut wallet, &network);
+    derive_addresses(main_desc, wallet, &network);
+    derive_addresses(change_desc, wallet, &network);
 
     info!("Wallet setup completed! You can now execute run");
 }
@@ -205,4 +231,20 @@ fn test_rpc(rpc: &BTCDClient) -> bool {
         return true;
     }
     false
+}
+/// Returns the value that is defined, if a is defined, return b. If b is defined and and
+/// a not, returns b. If a and b is defined, returns a, etc.
+fn get_one_or_another<A, B, Return>(a: Option<A>, b: Option<B>, default: Return) -> Return
+where
+    A: Into<Return>,
+    B: Into<Return>,
+{
+    if let Some(a) = a {
+        return a.into();
+    }
+    if let Some(b) = b {
+        return b.into();
+    }
+
+    default
 }

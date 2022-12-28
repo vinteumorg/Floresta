@@ -24,7 +24,7 @@ use crate::try_and_log;
 
 pub struct UtreexodBackend {
     pub use_external_sync: bool,
-    pub external_sync_hostname: Option<String>,
+    pub external_sync_hostname: String,
     pub rpc: Arc<BTCDClient>,
     pub chainstate: Arc<ChainState<KvChainStore>>,
 }
@@ -165,7 +165,7 @@ impl UtreexodBackend {
         Ok(())
     }
     async fn process_batch_block(&self) -> Result<()> {
-        let socket = TcpStream::connect(self.external_sync_hostname.to_owned().unwrap().as_str())?;
+        let socket = TcpStream::connect(self.external_sync_hostname.to_owned().as_str())?;
 
         let height = self.get_height()?;
         let current = self.chainstate.get_best_block()?.0;

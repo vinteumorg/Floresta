@@ -1,0 +1,11 @@
+[wallet]
+xpubs = []
+
+[rpc]
+rpc_user = ""
+rpc_password = ""
+rpc_host = ""
+rpc_port = ""
+
+[misc]
+external_sync = ""

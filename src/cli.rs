@@ -28,7 +28,7 @@ impl std::fmt::Display for Network {
 pub struct Cli {
     /// Sets a custom config file
     #[arg(short, long, value_name = "FILE")]
-    pub config: Option<PathBuf>,
+    pub config_file: Option<PathBuf>,
     /// Which network should we use
     #[arg(short, long, default_value_t=Network::Bitcoin)]
     pub network: Network,
@@ -45,23 +45,27 @@ pub enum Commands {
     /// Starts your wallet and server
     Run {
         /// Where should we store data
-        data_dir: String,
+        #[arg(long)]
+        #[arg(default_value = "")]
+        data_dir: Option<String>,
+        /// Add a xpub to our wallet
+        #[arg(long)]
+        #[arg(default_value = "")]
+        wallet_xpub: Option<Vec<String>>,
         /// Your rpc user, as set in Utreexod
         #[arg(long)]
         #[arg(default_value = "")]
-        rpc_user: String,
+        rpc_user: Option<String>,
         /// Your rpc password, as set in Utreexod
         #[arg(long)]
         #[arg(default_value = "")]
-        rpc_password: String,
+        rpc_password: Option<String>,
         /// The hostname:port of Utreexod
         #[arg(short, long)]
         #[arg(default_value = "localhost")]
-        rpc_host: String,
-
+        rpc_host: Option<String>,
         #[arg(long)]
-        #[arg(default_value_t = 8332)]
-        rpc_port: u32,
+        rpc_port: Option<u32>,
         /// Whether or not we want to sync with a external provider
         #[arg(long)]
         #[arg(default_value_t = false)]
@@ -69,13 +73,5 @@ pub enum Commands {
         /// If use_external_sync is set, this option provides which server we use
         #[arg(long)]
         external_sync: Option<String>,
-    },
-    /// Setups you wallet, creating the local database and initializing the local cache
-    /// must be executed exactly once.
-    Setup {
-        /// Your wallet's descriptor
-        wallet_xpub: String,
-        /// Where should we store data
-        data_dir: String,
     },
 }

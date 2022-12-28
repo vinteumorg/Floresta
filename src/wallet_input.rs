@@ -86,11 +86,7 @@ pub mod extended_pub_key {
 
 #[cfg(test)]
 pub mod test {
-    #[allow(unused)]
-    use bitcoin::{
-        secp256k1::Secp256k1,
-        util::bip32::{ChildNumber, DerivationPath, ExtendedPrivKey},
-    };
+    use bitcoin::{secp256k1::Secp256k1, util::bip32::ChildNumber};
     use bitcoin::{Address, Network};
 
     #[test]
