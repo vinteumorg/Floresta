@@ -46,22 +46,18 @@ pub enum Commands {
     Run {
         /// Where should we store data
         #[arg(long)]
-        #[arg(default_value = "")]
         data_dir: Option<String>,
         /// Add a xpub to our wallet
         #[arg(long)]
         wallet_xpub: Option<Vec<String>>,
         /// Your rpc user, as set in Utreexod
         #[arg(long)]
-        #[arg(default_value = "")]
         rpc_user: Option<String>,
         /// Your rpc password, as set in Utreexod
         #[arg(long)]
-        #[arg(default_value = "")]
         rpc_password: Option<String>,
         /// The hostname:port of Utreexod
         #[arg(short, long)]
-        #[arg(default_value = "localhost")]
         rpc_host: Option<String>,
         #[arg(long)]
         rpc_port: Option<u32>,
