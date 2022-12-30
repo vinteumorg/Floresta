@@ -47,7 +47,6 @@ impl AddressCacheDatabase for KvDatabase {
         self.save(address);
     }
     fn get_cache_height(&self) -> Result<u32, crate::error::Error> {
-        self.0.bucket::<String, String>(Some("meta"))?;
         let height = self.1.get(&"height".to_string())?;
         if let Some(height) = height {
             return Ok(deserialize(&height)?);
@@ -55,14 +54,12 @@ impl AddressCacheDatabase for KvDatabase {
         Err(crate::error::Error::WalletNotInitialized)
     }
     fn set_cache_height(&self, height: u32) -> Result<(), crate::error::Error> {
-        self.0.bucket::<String, String>(Some("meta"))?;
         self.1.set(&"height".to_string(), &serialize(&height))?;
         self.1.flush()?;
         Ok(())
     }
 
     fn desc_save(&self, descriptor: &str) -> Result<(), crate::error::Error> {
-        self.0.bucket::<String, Vec<u8>>(Some("meta"))?;
         let mut descs = self.descs_get()?;
         descs.push(descriptor.to_string());
         self.1
@@ -73,7 +70,6 @@ impl AddressCacheDatabase for KvDatabase {
     }
 
     fn descs_get(&self) -> Result<Vec<String>, crate::error::Error> {
-        self.0.bucket::<String, Vec<u8>>(Some("meta"))?;
         let res = self.1.get(&"desc".to_string())?;
         if let Some(res) = res {
             return Ok(serde_json::de::from_slice(&res)?);
