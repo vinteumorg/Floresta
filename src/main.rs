@@ -199,7 +199,6 @@ fn setup_wallet<D: AddressCacheDatabase>(
     wallet: &mut AddressCache<D>,
     network: cli::Network,
 ) -> Result<(), crate::error::Error> {
-    println!("{:?}", xpubs);
     if xpubs.is_empty() {
         return Ok(());
     }
