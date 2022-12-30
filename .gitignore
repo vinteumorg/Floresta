@@ -4,3 +4,4 @@ Cargo.lock
 perf.*
 *.svg
 config.toml
+/builds
