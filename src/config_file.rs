@@ -24,3 +24,9 @@ pub struct ConfigFile {
     pub wallet: Wallet,
     pub misc: Misc,
 }
+impl ConfigFile {
+    pub fn from_file(filename: &str) -> Result<Self, crate::error::Error> {
+        let file = std::fs::read_to_string(filename)?;
+        Ok(toml::from_str(file.as_str())?)
+    }
+}

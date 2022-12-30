@@ -68,7 +68,7 @@ fn main() {
         .init();
 
     let params = Cli::parse();
-    let data = ConfigFile::default();
+    let data = ConfigFile::from_file(&params.config_file.unwrap()).expect("Invalid config file");
     match params.command {
         Commands::Run {
             data_dir,
@@ -82,16 +82,17 @@ fn main() {
         } => {
             let data_dir = get_one_or_another(
                 data_dir,
-                dirs::home_dir().map(|x: PathBuf| x.to_str().unwrap_or_default().to_owned()),
+                dirs::home_dir().map(|x: PathBuf| {
+                    x.to_str().unwrap_or_default().to_owned() + "/.utreexo_wallet/"
+                }),
                 "wallet".into(),
             );
             debug!("Loading wallet");
             let mut wallet = load_wallet(&data_dir);
             wallet.setup().expect("Could not initialize wallet");
             debug!("Done loading wallet");
-
             let result = setup_wallet(
-                get_one_or_another(wallet_xpub, data.wallet.xpubs, vec![]),
+                get_both_vec(wallet_xpub, data.wallet.xpubs),
                 &mut wallet,
                 params.network.clone(),
             );
@@ -198,6 +199,7 @@ fn setup_wallet<D: AddressCacheDatabase>(
     wallet: &mut AddressCache<D>,
     network: cli::Network,
 ) -> Result<(), crate::error::Error> {
+    println!("{:?}", xpubs);
     if xpubs.is_empty() {
         return Ok(());
     }
@@ -264,4 +266,15 @@ where
     }
 
     default
+}
+
+fn get_both_vec<T>(a: Option<Vec<T>>, b: Option<Vec<T>>) -> Vec<T> {
+    let mut result: Vec<T> = vec![];
+    if let Some(a) = a {
+        result.extend(a.into_iter());
+    }
+    if let Some(b) = b {
+        result.extend(b.into_iter());
+    }
+    result
 }

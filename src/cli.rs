@@ -1,6 +1,5 @@
-use std::path::PathBuf;
-
 use clap::{arg, command, Parser, Subcommand, ValueEnum};
+
 #[derive(Clone, Debug, ValueEnum)]
 pub enum Network {
     Bitcoin,
@@ -28,7 +27,7 @@ impl std::fmt::Display for Network {
 pub struct Cli {
     /// Sets a custom config file
     #[arg(short, long, value_name = "FILE")]
-    pub config_file: Option<PathBuf>,
+    pub config_file: Option<String>,
     /// Which network should we use
     #[arg(short, long, default_value_t=Network::Bitcoin)]
     pub network: Network,

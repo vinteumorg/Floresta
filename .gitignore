@@ -3,3 +3,4 @@ Cargo.lock
 # ignores perf data and generated performance graphs
 perf.*
 *.svg
+config.toml

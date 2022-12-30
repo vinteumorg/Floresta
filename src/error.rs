@@ -14,6 +14,7 @@ pub enum Error {
     ValidationError(bitcoin::blockdata::script::Error),
     ChainError(BlockchainError),
     SerdeJsonError(serde_json::Error),
+    TomlParsingError(toml::de::Error),
     WalletInputError(crate::wallet_input::ParsingError),
 }
 
@@ -32,6 +33,7 @@ impl std::fmt::Display for Error {
             Error::ChainError(err) => write!(f, "Error with our blockchain backend: {:?}", err),
             Error::SerdeJsonError(err) => write!(f, "Error serializing object {err}"),
             Error::WalletInputError(err) => write!(f, "Error while parsing user input {:?}", err),
+            Error::TomlParsingError(err) => write!(f, "Error deserializing toml file {err}"),
         }
     }
 }
@@ -47,6 +49,7 @@ impl_from_error!(ValidationError, bitcoin::blockdata::script::Error);
 impl_from_error!(ChainError, BlockchainError);
 impl_from_error!(SerdeJsonError, serde_json::Error);
 impl_from_error!(WalletInputError, crate::wallet_input::ParsingError);
+impl_from_error!(TomlParsingError, toml::de::Error);
 
 impl std::error::Error for Error {}
 #[macro_export]
