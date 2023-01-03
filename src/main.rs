@@ -52,7 +52,7 @@ use btcd_rpc::client::{BTCDClient, BTCDConfigs, BtcdRpc};
 use clap::Parser;
 use cli::{Cli, Commands};
 use config_file::ConfigFile;
-use log::{debug, info};
+use log::{debug, error, info};
 use miniscript::{Descriptor, DescriptorPublicKey};
 use pretty_env_logger::env_logger::TimestampPrecision;
 use std::str::FromStr;
@@ -68,7 +68,7 @@ fn main() {
         .init();
 
     let params = Cli::parse();
-    let data = ConfigFile::from_file(&params.config_file.unwrap()).expect("Invalid config file");
+    let data = get_config_file(&params);
     match params.command {
         Commands::Run {
             data_dir,
@@ -139,15 +139,37 @@ fn main() {
                 wallet,
                 blockchain_state,
             ))
-            .unwrap();
+            .expect("Could not create an Electrum Server");
 
             task::spawn(electrum::electrum_protocol::accept_loop(
-                electrum_server.listener.clone().unwrap(),
+                electrum_server.listener.clone().expect("Listener can't be none by this far"),
                 electrum_server.notify_tx.clone(),
             ));
             task::spawn(chain_provider.run());
             info!("Server running on: 0.0.0.0:50001");
             task::block_on(electrum_server.main_loop()).expect("Main loop failed");
+        }
+    }
+}
+/// Loads a config file from disk, returns default if some error happens
+fn get_config_file(params: &cli::Cli) -> ConfigFile {
+    let data = if let Some(file_name) = &params.config_file {
+        ConfigFile::from_file(file_name)
+    } else {
+        // File not passed in, use default
+        return ConfigFile::default();
+    };
+    if let Ok(data) = data {
+        data
+    } else {
+        match data.unwrap_err() {
+            error::Error::TomlParsingError(e) => {
+                error!("Error while parsing config file, ignoring it");
+                debug!("{e}");
+                ConfigFile::default()
+            }
+            // Shouldn't be any other error
+            _ => unreachable!(),
         }
     }
 }
@@ -182,8 +204,12 @@ fn create_rpc_connection(
         Some(hostname.to_owned()),
         Some(rpc_port as usize),
     );
-
-    Arc::new(BTCDClient::new(config).unwrap())
+    let connection = BTCDClient::new(config);
+    if connection.is_err() {
+        error!("Could not create RPC connection, check your configs");
+        exit(1);
+    }
+    Arc::new(connection.expect("We checked this above, it's impossible to be Err"))
 }
 
 fn get_net(net: &cli::Network) -> Network {
@@ -214,7 +240,7 @@ fn setup_wallet<D: AddressCacheDatabase>(
             log::error!("Invalid xpub provided: {key} \nReason: {:?}", error);
             exit(0);
         }
-        let xpub = xpub.unwrap();
+        let xpub = xpub.expect("We checked this above, should not be Err");
         let main_desc = format!("wpkh({xpub}/0/*)");
         let change_desc = format!("wpkh({xpub}/1/*)");
         // Saves our descriptors on disk for further derivations
