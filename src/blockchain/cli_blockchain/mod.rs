@@ -141,6 +141,8 @@ impl UtreexodBackend {
         for leaf in leaf_data {
             inputs.insert(leaf.prevout, leaf.utxo);
         }
+
+        self.chainstate.accept_header(block.header)?;
         self.chainstate
             .connect_block(&block, proof, inputs, del_hashes, block_height)?;
         Ok(())
@@ -199,6 +201,7 @@ impl UtreexodBackend {
             for leaf in leaf_data {
                 inputs.insert(leaf.prevout, leaf.utxo);
             }
+            self.chainstate.accept_header(block_data.block.header)?;
             self.chainstate.connect_block(
                 &block_data.block,
                 proof,
@@ -210,6 +213,7 @@ impl UtreexodBackend {
 
         Ok(())
     }
+
     pub async fn run(self) -> ! {
         if self.use_external_sync {
             try_and_log!(self.process_batch_block().await);

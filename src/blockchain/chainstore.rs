@@ -5,10 +5,74 @@
 //! Author: Davidson Souza
 type Result<T> = std::result::Result<T, kv::Error>;
 
+use std::ops::Deref;
+
 use bitcoin::{
-    consensus::{deserialize, serialize},
+    consensus::{deserialize, serialize, Decodable, Encodable},
     BlockHash, BlockHeader,
 };
+pub enum DiskBlockHeader {
+    FullyValid(BlockHeader),
+    Orphan(BlockHeader),
+    HeadersOnly(BlockHeader),
+}
+impl DiskBlockHeader {
+    pub fn block_hash(&self) -> BlockHash {
+        match self {
+            DiskBlockHeader::FullyValid(header) => header.block_hash(),
+            DiskBlockHeader::Orphan(header) => header.block_hash(),
+            DiskBlockHeader::HeadersOnly(header) => header.block_hash(),
+        }
+    }
+}
+impl Deref for DiskBlockHeader {
+    type Target = BlockHeader;
+    fn deref(&self) -> &Self::Target {
+        match self {
+            DiskBlockHeader::FullyValid(header) => header,
+            DiskBlockHeader::Orphan(header) => header,
+            DiskBlockHeader::HeadersOnly(header) => header,
+        }
+    }
+}
+impl Decodable for DiskBlockHeader {
+    fn consensus_decode<R: std::io::Read + ?Sized>(
+        reader: &mut R,
+    ) -> std::result::Result<Self, bitcoin::consensus::encode::Error> {
+        let tag = u8::consensus_decode(reader)?;
+        let header = BlockHeader::consensus_decode(reader)?;
+
+        match tag {
+            0x00 => Ok(Self::FullyValid(header)),
+            0x01 => Ok(Self::Orphan(header)),
+            0x02 => Ok(Self::HeadersOnly(header)),
+            _ => unreachable!(),
+        }
+    }
+}
+impl Encodable for DiskBlockHeader {
+    fn consensus_encode<W: std::io::Write + ?Sized>(
+        &self,
+        writer: &mut W,
+    ) -> std::result::Result<usize, std::io::Error> {
+        let len = 81;
+        match self {
+            DiskBlockHeader::FullyValid(header) => {
+                0x00_u8.consensus_encode(writer)?;
+                header.consensus_encode(writer)?;
+            }
+            DiskBlockHeader::Orphan(header) => {
+                0x01_u8.consensus_encode(writer)?;
+                header.consensus_encode(writer)?;
+            }
+            DiskBlockHeader::HeadersOnly(header) => {
+                0x02_u8.consensus_encode(writer)?;
+                header.consensus_encode(writer)?;
+            }
+        };
+        Ok(len)
+    }
+}
 use kv::{Config, Integer, Store};
 pub trait ChainStore {
     /// Saves the current state of our accumulator.
@@ -18,8 +82,8 @@ pub trait ChainStore {
     /// Loads the blockchain height
     fn load_height(&self) -> Result<Option<u32>>;
     fn save_height(&self, height: u32) -> Result<()>;
-    fn get_header(&self, block_hash: &BlockHash) -> Result<Option<BlockHeader>>;
-    fn save_header(&self, header: &BlockHeader, height: u32) -> Result<()>;
+    fn get_header(&self, block_hash: &BlockHash) -> Result<Option<DiskBlockHeader>>;
+    fn save_header(&self, header: &DiskBlockHeader, height: u32) -> Result<()>;
     fn get_block_hash(&self, height: u32) -> Result<Option<BlockHash>>;
     fn flush(&self) -> Result<()>;
 }
@@ -64,7 +128,7 @@ impl ChainStore for KvChainStore {
         bucket.set(&"height", &height)?;
         Ok(())
     }
-    fn get_header(&self, block_hash: &BlockHash) -> Result<Option<BlockHeader>> {
+    fn get_header(&self, block_hash: &BlockHash) -> Result<Option<DiskBlockHeader>> {
         let bucket = self.0.bucket::<&[u8], Vec<u8>>(Some("header"))?;
         let block_hash = serialize(&block_hash);
 
@@ -87,7 +151,7 @@ impl ChainStore for KvChainStore {
 
         Ok(())
     }
-    fn save_header(&self, header: &BlockHeader, height: u32) -> Result<()> {
+    fn save_header(&self, header: &DiskBlockHeader, height: u32) -> Result<()> {
         let ser_header = serialize(header);
         let block_hash = serialize(&header.block_hash());
         let bucket = self.0.bucket::<&[u8], Vec<u8>>(Some("header"))?;

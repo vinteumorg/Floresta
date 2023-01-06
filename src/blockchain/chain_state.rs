@@ -1,6 +1,6 @@
 use super::{
     chainparams::ChainParams,
-    chainstore::{ChainStore, KvChainStore},
+    chainstore::{ChainStore, DiskBlockHeader, KvChainStore},
     error::{BlockValidationErrors, BlockchainError},
     BlockchainInterface, BlockchainProviderInterface, Notification,
 };
@@ -201,7 +201,10 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
     pub fn new(chainstore: KvChainStore, network: Network) -> ChainState<KvChainStore> {
         let genesis = genesis_block(network);
         chainstore
-            .save_header(&genesis.header, 0)
+            .save_header(
+                &super::chainstore::DiskBlockHeader::FullyValid(genesis.header),
+                0,
+            )
             .expect("Error while saving genesis");
         ChainState {
             inner: RwLock::new(ChainStateInner {
@@ -215,6 +218,13 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
                 chain_params: network.into(),
             }),
         }
+    }
+    fn get_disk_block_header(&self, hash: &BlockHash) -> super::Result<DiskBlockHeader> {
+        let inner = read_lock!(self);
+        if let Some(header) = inner.chainstore.get_header(hash)? {
+            return Ok(header);
+        }
+        Err(BlockchainError::BlockNotPresent)
     }
     pub fn load_chain_state(
         chainstore: KvChainStore,
@@ -323,10 +333,11 @@ impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedSta
     fn get_block_header(&self, hash: &BlockHash) -> super::Result<bitcoin::BlockHeader> {
         let inner = read_lock!(self);
         if let Some(header) = inner.chainstore.get_header(hash)? {
-            return Ok(header);
+            return Ok(*header);
         }
         Err(BlockchainError::BlockNotPresent)
     }
+
     fn subscribe(&self, tx: Sender<Notification>) {
         let mut inner = self.inner.write().expect("get_block_hash: Poisoned lock");
         inner.subscribers.push(tx);
@@ -352,6 +363,14 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
         del_hashes: Vec<sha256::Hash>,
         height: u32,
     ) -> super::Result<()> {
+        let header = self.get_disk_block_header(&block.block_hash())?;
+        match header {
+            // If it's valid or orphan, we don't validate
+            DiskBlockHeader::FullyValid(_) => return Ok(()),
+            DiskBlockHeader::Orphan(_) => return Ok(()),
+            DiskBlockHeader::HeadersOnly(_) => {}
+        };
+
         let inner = self.inner.read().unwrap();
         let best_block = inner.best_block;
         let acc = Self::update_acc(&inner.acc, block, height, proof, del_hashes)?;
@@ -385,7 +404,10 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
 
         // Notify others we have a new block
         self.notify(Notification::NewBlock((block.to_owned(), height)));
-        inner.chainstore.save_header(&block.header, height)?;
+        inner.chainstore.save_header(
+            &super::chainstore::DiskBlockHeader::FullyValid(block.header),
+            height,
+        )?;
 
         // Drop this lock because we need a write lock to inner, if we hold this lock this will
         // cause a deadlock.
@@ -417,6 +439,31 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
     fn get_unbroadcasted(&self) -> Vec<Transaction> {
         let mut inner = write_lock!(self);
         inner.broadcast_queue.drain(..).collect()
+    }
+
+    fn accept_header(&self, header: BlockHeader) -> super::Result<()> {
+        // We already know this block
+        if self.get_block_header(&header.block_hash()).is_ok() {
+            return Ok(());
+        }
+        let inner = self.inner.read().unwrap();
+        let best_block = inner.best_block;
+        // Update our current tip
+        if header.prev_blockhash == best_block.1 {
+            let height = best_block.0 + 1;
+            let prev_block = self.get_block_header(&best_block.1)?;
+            // Check pow
+            let target = self.get_next_required_work(&prev_block, height);
+            let _ = header.validate_pow(&target).map_err(|_| {
+                BlockchainError::BlockValidationError(BlockValidationErrors::NotEnoughPow)
+            })?;
+            inner.chainstore.save_header(
+                &super::chainstore::DiskBlockHeader::HeadersOnly(header),
+                height,
+            )?;
+        }
+        // else reorg... TODO
+        Ok(())
     }
 }
 #[macro_export]

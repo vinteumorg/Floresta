@@ -54,6 +54,10 @@ pub trait BlockchainProviderInterface {
         del_hashes: Vec<sha256::Hash>,
         height: u32,
     ) -> Result<()>;
+    /// Accepts a new header to our chain. This method is called before connect_block, and
+    /// makes some basic checks on a header and saves it on disk. We only accept a block as
+    /// valid after calling connect_block.
+    fn accept_header(&self, header: BlockHeader) -> Result<()>;
     /// If we detect a reorganization of blocks, this function should reconciliate our view of
     /// the network.
     fn handle_reorg(&self) -> Result<()>;
