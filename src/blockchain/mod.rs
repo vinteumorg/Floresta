@@ -70,6 +70,8 @@ pub trait BlockchainProviderInterface {
     fn get_unbroadcasted(&self) -> Vec<Transaction>;
     /// Toggle ibd on/off
     fn toggle_ibd(&self, is_ibd: bool);
+    /// Returns a block locator
+    fn get_block_locator(&self) -> Result<Vec<BlockHash>>;
 }
 #[derive(Debug, Clone)]
 /// A notification is a hook that a type implementing [BlockchainInterface] sends each

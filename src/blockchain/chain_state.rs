@@ -226,6 +226,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         }
         Err(BlockchainError::BlockNotPresent)
     }
+
     pub fn load_chain_state(
         chainstore: KvChainStore,
         network: Network,
@@ -350,6 +351,25 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
         for client in subs {
             let _ = block_on(client.send(what.clone()));
         }
+    }
+    fn get_block_locator(&self) -> Result<Vec<BlockHash>, BlockchainError> {
+        let mut indexes = vec![];
+        let top_height = self.get_height()?;
+        let mut step = 1;
+        let mut index = top_height;
+        while index > 0 {
+            if indexes.len() >= 10 {
+                step *= 2;
+            }
+            indexes.push(index);
+            index -= step;
+        }
+        let hashes = indexes
+            .iter()
+            .map(|idx| self.get_block_hash(*idx).unwrap())
+            .collect();
+
+        Ok(hashes)
     }
     fn toggle_ibd(&self, is_ibd: bool) {
         let mut inner = write_lock!(self);
