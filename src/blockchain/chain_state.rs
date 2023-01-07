@@ -8,7 +8,7 @@ use crate::{read_lock, write_lock};
 use async_std::{channel::Sender, task::block_on};
 use bitcoin::{
     blockdata::constants::genesis_block,
-    consensus::{deserialize_partial, Encodable},
+    consensus::{deserialize_partial, Decodable, Encodable},
     hashes::{sha256, Hash},
     util::uint::Uint256,
     Block, BlockHash, BlockHeader, Network, OutPoint, Transaction, TxOut,
@@ -26,7 +26,7 @@ pub struct ChainStateInner<PersistedState: ChainStore> {
     /// All data is persisted here.
     chainstore: PersistedState,
     /// Best known block, cached in a specific field to faster access.
-    best_block: (u32, BlockHash),
+    best_block: BestChain,
     /// When one of our consumers tries to broadcast a transaction, this transaction gets
     /// writen to broadcast_queue, and the ChainStateBackend can use it's own logic to actually
     /// broadcast the tx.
@@ -198,11 +198,32 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             .expect("Chain store is not working");
         Ok(())
     }
+    /// If we already hold a write lock to inner, we can't call self.save_acc() because it'd
+    /// cause a deadlock. This method can be called from the already existing lock guard we acquired.
+    /// It's intended to be used internally only.
+    fn save_acc_inner(
+        inner: &ChainStateInner<PersistedState>,
+    ) -> Result<(), bitcoin::consensus::encode::Error> {
+        let mut ser_acc: Vec<u8> = vec![];
+        inner.acc.leafs.consensus_encode(&mut ser_acc)?;
+        #[allow(clippy::significant_drop_in_scrutinee)]
+        for root in inner.acc.roots.iter() {
+            ser_acc
+                .write_all(root)
+                .expect("String formatting should not err");
+        }
+
+        inner
+            .chainstore
+            .save_roots(ser_acc)
+            .expect("Chain store is not working");
+        Ok(())
+    }
     pub fn new(chainstore: KvChainStore, network: Network) -> ChainState<KvChainStore> {
         let genesis = genesis_block(network);
         chainstore
             .save_header(
-                &super::chainstore::DiskBlockHeader::FullyValid(genesis.header),
+                &super::chainstore::DiskBlockHeader::FullyValid(genesis.header, 0),
                 0,
             )
             .expect("Error while saving genesis");
@@ -210,7 +231,13 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             inner: RwLock::new(ChainStateInner {
                 chainstore,
                 acc: Stump::new(),
-                best_block: (0, genesis.block_hash()),
+                best_block: BestChain {
+                    best_block: genesis.block_hash(),
+                    depth: 0,
+                    validation_index: genesis.block_hash(),
+                    rescan_index: None,
+                    alternative_tips: vec![],
+                },
                 broadcast_queue: vec![],
                 subscribers: vec![],
                 fee_estimation: (1_f64, 1_f64, 1_f64),
@@ -233,18 +260,14 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
     ) -> Result<ChainState<KvChainStore>, BlockchainError> {
         let acc = Self::load_acc(&chainstore);
 
-        let height = chainstore.load_height()?;
-        if height.is_none() {
+        let best_chain = chainstore.load_height()?;
+        if best_chain.is_none() {
             return Err(BlockchainError::ChainNotInitialized);
         }
-        let height = height.unwrap();
-        let tip_hash = chainstore
-            .get_block_hash(height)?
-            .expect("If we are at block `height`, we must have its header");
 
         let inner = ChainStateInner {
             acc,
-            best_block: (height, tip_hash),
+            best_block: best_chain.unwrap(),
             broadcast_queue: Vec::new(),
             chainstore,
             fee_estimation: (1_f64, 1_f64, 1_f64),
@@ -302,7 +325,7 @@ impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedSta
 
     fn get_height(&self) -> super::Result<u32> {
         let inner = read_lock!(self);
-        Ok(inner.best_block.0)
+        Ok(inner.best_block.depth)
     }
 
     fn broadcast(&self, tx: &bitcoin::Transaction) -> super::Result<()> {
@@ -328,7 +351,7 @@ impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedSta
 
     fn get_best_block(&self) -> super::Result<(u32, BlockHash)> {
         let inner = read_lock!(self);
-        Ok(inner.best_block)
+        Ok((inner.best_block.depth, inner.best_block.best_block))
     }
 
     fn get_block_header(&self, hash: &BlockHash) -> super::Result<bitcoin::BlockHeader> {
@@ -353,17 +376,23 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
         }
     }
     fn get_block_locator(&self) -> Result<Vec<BlockHash>, BlockchainError> {
-        let mut indexes = vec![];
         let top_height = self.get_height()?;
+        let mut indexes = vec![];
         let mut step = 1;
         let mut index = top_height;
+
         while index > 0 {
             if indexes.len() >= 10 {
                 step *= 2;
             }
             indexes.push(index);
-            index -= step;
+            if index > step {
+                index -= step;
+            } else {
+                break;
+            }
         }
+        indexes.push(0);
         let hashes = indexes
             .iter()
             .map(|idx| self.get_block_hash(*idx).unwrap())
@@ -384,15 +413,14 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
         height: u32,
     ) -> super::Result<()> {
         let header = self.get_disk_block_header(&block.block_hash())?;
+
         match header {
             // If it's valid or orphan, we don't validate
-            DiskBlockHeader::FullyValid(_) => return Ok(()),
+            DiskBlockHeader::FullyValid(_, _) => return Ok(()),
             DiskBlockHeader::Orphan(_) => return Ok(()),
-            DiskBlockHeader::HeadersOnly(_) => {}
+            DiskBlockHeader::HeadersOnly(_, _) => {}
         };
-
         let inner = self.inner.read().unwrap();
-        let best_block = inner.best_block;
         let acc = Self::update_acc(&inner.acc, block, height, proof, del_hashes)?;
 
         if !block.check_merkle_root() {
@@ -405,12 +433,14 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
                 BlockValidationErrors::BadWitnessCommitment,
             ));
         }
-        if block.header.prev_blockhash != best_block.1 {
+        let prev_block = inner.best_block.validation_index;
+
+        if block.header.prev_blockhash != prev_block {
             return Err(BlockchainError::BlockValidationError(
                 BlockValidationErrors::PrevBlockNotFound(block.header.prev_blockhash),
             ));
         }
-        let prev_block = self.get_block_header(&best_block.1)?;
+        let prev_block = self.get_block_header(&prev_block)?;
         // Check pow
         let target = self.get_next_required_work(&prev_block, height);
         let hash = block.header.validate_pow(&target).map_err(|_| {
@@ -425,7 +455,7 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
         // Notify others we have a new block
         self.notify(Notification::NewBlock((block.to_owned(), height)));
         inner.chainstore.save_header(
-            &super::chainstore::DiskBlockHeader::FullyValid(block.header),
+            &super::chainstore::DiskBlockHeader::FullyValid(block.header, height),
             height,
         )?;
 
@@ -435,8 +465,8 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
         // Updates our local view of the network
         let mut inner = self.inner.write().unwrap();
         inner.acc = acc;
-        inner.best_block = (height, hash);
-
+        inner.best_block.valid_block(hash);
+        Self::save_acc_inner(&*inner)?;
         Ok(())
     }
 
@@ -445,15 +475,14 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
     }
 
     fn handle_transaction(&self) -> super::Result<()> {
-        unimplemented!("This chian_state has no mempool")
+        unimplemented!("This chain_state has no mempool")
     }
 
     fn flush(&self) -> super::Result<()> {
         self.save_acc()?;
         let inner = read_lock!(self);
         inner.chainstore.flush()?;
-        inner.chainstore.save_height(inner.best_block.0)?;
-
+        inner.chainstore.save_height(&inner.best_block)?;
         Ok(())
     }
     fn get_unbroadcasted(&self) -> Vec<Transaction> {
@@ -467,23 +496,39 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
             return Ok(());
         }
         let inner = self.inner.read().unwrap();
-        let best_block = inner.best_block;
+        let best_block = &inner.best_block;
         // Update our current tip
-        if header.prev_blockhash == best_block.1 {
-            let height = best_block.0 + 1;
-            let prev_block = self.get_block_header(&best_block.1)?;
+        if header.prev_blockhash == best_block.best_block {
+            let height = best_block.depth + 1;
+
+            let prev_block = self.get_block_header(&best_block.best_block)?;
             // Check pow
             let target = self.get_next_required_work(&prev_block, height);
             let _ = header.validate_pow(&target).map_err(|_| {
                 BlockchainError::BlockValidationError(BlockValidationErrors::NotEnoughPow)
             })?;
             inner.chainstore.save_header(
-                &super::chainstore::DiskBlockHeader::HeadersOnly(header),
+                &super::chainstore::DiskBlockHeader::HeadersOnly(header, height),
                 height,
             )?;
+            drop(inner);
+            let mut inner = self.inner.write().unwrap();
+            inner.best_block.new_block(header.block_hash(), height);
+        } else {
+            unimplemented!();
         }
-        // else reorg... TODO
         Ok(())
+    }
+
+    fn get_validation_index(&self) -> super::Result<u32> {
+        let inner = self.inner.read().unwrap();
+        let validation = inner.best_block.validation_index;
+        let header = self.get_disk_block_header(&validation)?;
+        match header {
+            DiskBlockHeader::HeadersOnly(_, height) => Ok(height),
+            DiskBlockHeader::FullyValid(_, height) => Ok(height),
+            DiskBlockHeader::Orphan(_) => unreachable!(),
+        }
     }
 }
 #[macro_export]
@@ -500,7 +545,73 @@ macro_rules! write_lock {
         $obj.inner.write().expect("get_block_hash: Poisoned lock")
     };
 }
+/// Internal representation of the chain we are in
+pub struct BestChain {
+    /// Hash of the last block in the chain we believe has more work on
+    best_block: BlockHash,
+    /// How many blocks are pilled on this chain?
+    depth: u32,
+    /// We actually validated blocks up to this point
+    validation_index: BlockHash,
+    /// We may rescan even after we validate all blocks, this index saves the position
+    /// we are while re-scanning
+    rescan_index: Option<BlockHash>,
+    /// Blockchains are not fast-forward only, they might have "forks", sometimes it's useful
+    /// to keep track of them, in case they become the best one. This keeps track of some
+    /// tips we know about, but are not the best one. We don't keep tips that are too deep
+    /// or has too little work if compared to our best one
+    alternative_tips: Vec<BlockHash>,
+}
+impl BestChain {
+    fn new_block(&mut self, block_hash: BlockHash, height: u32) {
+        self.best_block = block_hash;
+        self.depth = height;
+    }
+    fn valid_block(&mut self, block_hash: BlockHash) {
+        self.validation_index = block_hash;
+    }
+}
+impl Encodable for BestChain {
+    fn consensus_encode<W: std::io::Write + ?Sized>(
+        &self,
+        writer: &mut W,
+    ) -> Result<usize, std::io::Error> {
+        let mut len = 0;
+        len += self.best_block.consensus_encode(writer)?;
+        len += self.depth.consensus_encode(writer)?;
+        len += self.validation_index.consensus_encode(writer)?;
 
+        match self.rescan_index {
+            Some(hash) => len += hash.consensus_encode(writer)?,
+            None => len += BlockHash::all_zeros().consensus_encode(writer)?,
+        }
+        len += self.alternative_tips.consensus_encode(writer)?;
+        Ok(len)
+    }
+}
+impl Decodable for BestChain {
+    fn consensus_decode<R: std::io::Read + ?Sized>(
+        reader: &mut R,
+    ) -> Result<Self, bitcoin::consensus::encode::Error> {
+        let best_block = BlockHash::consensus_decode(reader)?;
+        let depth = u32::consensus_decode(reader)?;
+        let validation_index = BlockHash::consensus_decode(reader)?;
+        let rescan_index = BlockHash::consensus_decode(reader)?;
+        let rescan_index = if rescan_index == BlockHash::all_zeros() {
+            None
+        } else {
+            Some(rescan_index)
+        };
+        let alternative_tips = <Vec<BlockHash>>::consensus_decode(reader)?;
+        Ok(Self {
+            alternative_tips,
+            best_block,
+            depth,
+            rescan_index,
+            validation_index,
+        })
+    }
+}
 #[cfg(test)]
 mod test {
     use bitcoin::{consensus::deserialize, hashes::hex::FromHex, BlockHeader, Network};

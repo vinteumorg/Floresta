@@ -1,10 +1,10 @@
 use std::{collections::HashMap, net::TcpStream, sync::Arc, time::Duration};
 
 use bitcoin::{
-    consensus::{deserialize_partial, Encodable},
+    consensus::{deserialize, deserialize_partial, Encodable},
     hashes::{
         hex::{FromHex, ToHex},
-        sha256,
+        sha256, Hash,
     },
     Block, BlockHash, OutPoint,
 };
@@ -140,15 +140,16 @@ impl UtreexodBackend {
         for leaf in leaf_data {
             inputs.insert(leaf.prevout, leaf.utxo);
         }
-
-        self.chainstate.accept_header(block.header)?;
+        if !self.chainstate.is_in_idb() {
+            self.chainstate.accept_header(block.header)?;
+        }
         self.chainstate
             .connect_block(&block, proof, inputs, del_hashes, block_height)?;
         Ok(())
     }
     async fn start_ibd(&self) -> Result<()> {
         let height = self.get_height()?;
-        let current = self.chainstate.get_best_block()?.0;
+        let current = self.chainstate.get_validation_index()?;
         info!("Start Initial Block Download at height {current} of {height}");
         for block_height in (current + 1)..=height {
             if block_height % 2016 == 0 {
@@ -169,8 +170,8 @@ impl UtreexodBackend {
         let socket = TcpStream::connect(self.external_sync_hostname.to_owned().as_str())?;
 
         let height = self.get_height()?;
-        let current = self.chainstate.get_best_block()?.0;
-
+        let current = self.chainstate.get_validation_index()?;
+        println!("{}", self.chainstate.get_validation_index()?);
         for _ in (current + 1)..=height {
             let block_data = rmp_serde::decode::from_read::<_, BlockData>(&socket);
             if block_data.is_err() {
@@ -200,7 +201,6 @@ impl UtreexodBackend {
             for leaf in leaf_data {
                 inputs.insert(leaf.prevout, leaf.utxo);
             }
-            self.chainstate.accept_header(block_data.block.header)?;
             self.chainstate.connect_block(
                 &block_data.block,
                 proof,
@@ -212,14 +212,49 @@ impl UtreexodBackend {
 
         Ok(())
     }
+    fn get_headers(&self) -> Result<()> {
+        let tip = self.get_height()?;
+        let current = self.chainstate.get_best_block()?.0 + 1;
+        info!("Downloading headers");
+        for i in current..((tip / 2_000) + 1) {
+            let locator = self.chainstate.get_block_locator()?;
+            let locator = locator
+                .iter()
+                .map(|hash| hash.to_string())
+                .collect::<Vec<_>>();
+
+            let headers = self
+                .rpc
+                .getheaders(locator, BlockHash::all_zeros().to_string())?;
+
+            let headers = headers
+                .iter()
+                .map(|header| {
+                    let header = Vec::from_hex(header).unwrap();
+                    deserialize(&header).unwrap()
+                })
+                .collect::<Vec<_>>();
+
+            for header in headers {
+                self.chainstate.accept_header(header)?;
+            }
+            self.chainstate.flush()?;
+            info!(
+                "Downloading headers...{:02.0}%",
+                ((i * 2_000) as f64) / ((tip as f64) as f64) * 100.00
+            );
+        }
+        Ok(())
+    }
 
     pub async fn run(self) -> ! {
+        try_and_log!(self.get_headers());
         if self.use_external_sync {
             try_and_log!(self.process_batch_block().await);
         } else {
             try_and_log!(self.start_ibd().await);
         }
-
+        self.chainstate.toggle_ibd(false);
         loop {
             async_std::task::sleep(Duration::from_secs(1)).await;
 

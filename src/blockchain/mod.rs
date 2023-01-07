@@ -72,6 +72,8 @@ pub trait BlockchainProviderInterface {
     fn toggle_ibd(&self, is_ibd: bool);
     /// Returns a block locator
     fn get_block_locator(&self) -> Result<Vec<BlockHash>>;
+    /// Returns the last block we validated
+    fn get_validation_index(&self) -> Result<u32>;
 }
 #[derive(Debug, Clone)]
 /// A notification is a hook that a type implementing [BlockchainInterface] sends each

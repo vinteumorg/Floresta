@@ -11,17 +11,18 @@ use bitcoin::{
     consensus::{deserialize, serialize, Decodable, Encodable},
     BlockHash, BlockHeader,
 };
+#[derive(Debug)]
 pub enum DiskBlockHeader {
-    FullyValid(BlockHeader),
+    FullyValid(BlockHeader, u32),
     Orphan(BlockHeader),
-    HeadersOnly(BlockHeader),
+    HeadersOnly(BlockHeader, u32),
 }
 impl DiskBlockHeader {
     pub fn block_hash(&self) -> BlockHash {
         match self {
-            DiskBlockHeader::FullyValid(header) => header.block_hash(),
+            DiskBlockHeader::FullyValid(header, _) => header.block_hash(),
             DiskBlockHeader::Orphan(header) => header.block_hash(),
-            DiskBlockHeader::HeadersOnly(header) => header.block_hash(),
+            DiskBlockHeader::HeadersOnly(header, _) => header.block_hash(),
         }
     }
 }
@@ -29,9 +30,9 @@ impl Deref for DiskBlockHeader {
     type Target = BlockHeader;
     fn deref(&self) -> &Self::Target {
         match self {
-            DiskBlockHeader::FullyValid(header) => header,
+            DiskBlockHeader::FullyValid(header, _) => header,
             DiskBlockHeader::Orphan(header) => header,
-            DiskBlockHeader::HeadersOnly(header) => header,
+            DiskBlockHeader::HeadersOnly(header, _) => header,
         }
     }
 }
@@ -43,9 +44,15 @@ impl Decodable for DiskBlockHeader {
         let header = BlockHeader::consensus_decode(reader)?;
 
         match tag {
-            0x00 => Ok(Self::FullyValid(header)),
+            0x00 => {
+                let height = u32::consensus_decode(reader)?;
+                Ok(Self::FullyValid(header, height))
+            }
             0x01 => Ok(Self::Orphan(header)),
-            0x02 => Ok(Self::HeadersOnly(header)),
+            0x02 => {
+                let height = u32::consensus_decode(reader)?;
+                Ok(Self::HeadersOnly(header, height))
+            }
             _ => unreachable!(),
         }
     }
@@ -55,33 +62,37 @@ impl Encodable for DiskBlockHeader {
         &self,
         writer: &mut W,
     ) -> std::result::Result<usize, std::io::Error> {
-        let len = 81;
+        let len = 80 + 1 + 4; // Header + tag + hight
         match self {
-            DiskBlockHeader::FullyValid(header) => {
+            DiskBlockHeader::FullyValid(header, height) => {
                 0x00_u8.consensus_encode(writer)?;
                 header.consensus_encode(writer)?;
+                height.consensus_encode(writer)?;
             }
             DiskBlockHeader::Orphan(header) => {
                 0x01_u8.consensus_encode(writer)?;
                 header.consensus_encode(writer)?;
             }
-            DiskBlockHeader::HeadersOnly(header) => {
+            DiskBlockHeader::HeadersOnly(header, height) => {
                 0x02_u8.consensus_encode(writer)?;
                 header.consensus_encode(writer)?;
+                height.consensus_encode(writer)?;
             }
         };
         Ok(len)
     }
 }
 use kv::{Config, Integer, Store};
+
+use super::chain_state::BestChain;
 pub trait ChainStore {
     /// Saves the current state of our accumulator.
     fn save_roots(&self, roots: Vec<u8>) -> Result<()>;
     /// Loads the state of our accumulator.
     fn load_roots(&self) -> Result<Option<Vec<u8>>>;
     /// Loads the blockchain height
-    fn load_height(&self) -> Result<Option<u32>>;
-    fn save_height(&self, height: u32) -> Result<()>;
+    fn load_height(&self) -> Result<Option<BestChain>>;
+    fn save_height(&self, height: &BestChain) -> Result<()>;
     fn get_header(&self, block_hash: &BlockHash) -> Result<Option<DiskBlockHeader>>;
     fn save_header(&self, header: &DiskBlockHeader, height: u32) -> Result<()>;
     fn get_block_hash(&self, height: u32) -> Result<Option<BlockHash>>;
@@ -92,7 +103,7 @@ pub struct KvChainStore(Store);
 impl KvChainStore {
     pub fn new(datadir: String) -> Result<KvChainStore> {
         // Configure the database
-        let cfg = Config::new(datadir + "/chain_data");
+        let cfg = Config::new(datadir + "/chain_data").cache_capacity(100_000_000);
 
         // Open the key/value store
         let store = Store::new(cfg)?;
@@ -112,7 +123,7 @@ impl ChainStore for KvChainStore {
         Ok(())
     }
 
-    fn load_height(&self) -> Result<Option<u32>> {
+    fn load_height(&self) -> Result<Option<BestChain>> {
         let bucket = self.0.bucket::<&str, Vec<u8>>(None)?;
         let height = bucket.get(&"height")?;
 
@@ -122,9 +133,9 @@ impl ChainStore for KvChainStore {
         Ok(None)
     }
 
-    fn save_height(&self, height: u32) -> Result<()> {
+    fn save_height(&self, height: &BestChain) -> Result<()> {
         let bucket = self.0.bucket::<&str, Vec<u8>>(None)?;
-        let height = serialize(&height);
+        let height = serialize(height);
         bucket.set(&"height", &height)?;
         Ok(())
     }
@@ -155,7 +166,7 @@ impl ChainStore for KvChainStore {
         let ser_header = serialize(header);
         let block_hash = serialize(&header.block_hash());
         let bucket = self.0.bucket::<&[u8], Vec<u8>>(Some("header"))?;
-        bucket.set(&&*header.block_hash(), &ser_header)?;
+        bucket.set(&&*block_hash, &ser_header)?;
 
         let bucket = self.0.bucket::<Integer, Vec<u8>>(Some("index"))?;
         bucket.set(&Integer::from(height), &block_hash)?;
