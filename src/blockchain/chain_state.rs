@@ -198,7 +198,9 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             .expect("Chain store is not working");
         Ok(())
     }
+    #[allow(clippy::await_holding_lock)]
     async fn notify(&self, what: Notification) {
+        //TODO: Use async-std::RwLock not std::RwLock
         let inner = self.inner.read().unwrap();
         let subs = inner.subscribers.iter();
         for client in subs {

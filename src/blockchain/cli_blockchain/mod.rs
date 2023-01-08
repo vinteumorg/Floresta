@@ -166,7 +166,9 @@ impl UtreexodBackend {
             }
             if block_height % 10_000 == 0 {
                 info!("Sync at block {block_height}");
-                self.chainstate.flush()?;
+                if block_height % 100_000 == 0 {
+                    self.chainstate.flush()?;
+                }
             }
             self.process_block(block_height)?;
         }
