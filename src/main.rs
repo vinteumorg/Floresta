@@ -80,6 +80,11 @@ fn main() {
             rpc_port,
             wallet_xpub,
         } => {
+            // Catch user CTR + C for terminating our application
+            let shutdown = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            signal_hook::flag::register(signal_hook::consts::SIGINT, Arc::clone(&shutdown))
+                .expect("Could no register for SIGTERM");
+
             let data_dir = get_one_or_another(
                 data_dir,
                 dirs::home_dir().map(|x: PathBuf| {
@@ -130,6 +135,7 @@ fn main() {
                     "".into(),
                 ),
                 use_external_sync,
+                term: shutdown.clone(),
             };
             info!("Starting server");
             // Create a new electrum server, we need to block_on because `ElectrumServer::new` is `async`
@@ -142,12 +148,15 @@ fn main() {
             .expect("Could not create an Electrum Server");
 
             task::spawn(electrum::electrum_protocol::accept_loop(
-                electrum_server.listener.clone().expect("Listener can't be none by this far"),
+                electrum_server
+                    .listener
+                    .clone()
+                    .expect("Listener can't be none by this far"),
                 electrum_server.notify_tx.clone(),
             ));
-            task::spawn(chain_provider.run());
+            task::spawn(electrum_server.main_loop());
             info!("Server running on: 0.0.0.0:50001");
-            task::block_on(electrum_server.main_loop()).expect("Main loop failed");
+            task::block_on(chain_provider.run());
         }
     }
 }

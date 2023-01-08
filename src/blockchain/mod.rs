@@ -42,8 +42,6 @@ pub trait BlockchainInterface {
 /// A [BlockchainProviderInterface] is the trait that a implementation of blockchain uses to update
 /// the chainstate.
 pub trait BlockchainProviderInterface {
-    /// Sends the notification across all subscribers.
-    fn notify(&self, what: Notification);
     /// This is one of the most important methods for a ChainState, it gets a block and some utreexo data,
     /// validates this block and connects to our chain of blocks.
     fn connect_block(
@@ -52,7 +50,6 @@ pub trait BlockchainProviderInterface {
         proof: Proof,
         inputs: HashMap<OutPoint, TxOut>,
         del_hashes: Vec<sha256::Hash>,
-        height: u32,
     ) -> Result<()>;
     /// Accepts a new header to our chain. This method is called before connect_block, and
     /// makes some basic checks on a header and saves it on disk. We only accept a block as

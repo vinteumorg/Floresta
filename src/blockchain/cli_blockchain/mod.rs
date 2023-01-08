@@ -1,4 +1,9 @@
-use std::{collections::HashMap, net::TcpStream, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    net::TcpStream,
+    sync::{atomic::AtomicBool, Arc},
+    time::Duration,
+};
 
 use bitcoin::{
     consensus::{deserialize, deserialize_partial, Encodable},
@@ -27,6 +32,7 @@ pub struct UtreexodBackend {
     pub external_sync_hostname: String,
     pub rpc: Arc<BTCDClient>,
     pub chainstate: Arc<ChainState<KvChainStore>>,
+    pub term: Arc<AtomicBool>,
 }
 
 impl UtreexodBackend {
@@ -144,19 +150,23 @@ impl UtreexodBackend {
             self.chainstate.accept_header(block.header)?;
         }
         self.chainstate
-            .connect_block(&block, proof, inputs, del_hashes, block_height)?;
+            .connect_block(&block, proof, inputs, del_hashes)?;
         Ok(())
     }
     async fn start_ibd(&self) -> Result<()> {
         let height = self.get_height()?;
         let current = self.chainstate.get_validation_index()?;
         info!("Start Initial Block Download at height {current} of {height}");
-        for block_height in (current + 1)..=height {
-            if block_height % 2016 == 0 {
+        for block_height in current..=height {
+            if self.is_shutting_down() {
+                return Ok(());
+            }
+            if block_height == 0 {
+                continue;
+            }
+            if block_height % 10_000 == 0 {
                 info!("Sync at block {block_height}");
-                if block_height % 100_000 == 0 {
-                    self.chainstate.flush()?;
-                }
+                self.chainstate.flush()?;
             }
             self.process_block(block_height)?;
         }
@@ -171,8 +181,10 @@ impl UtreexodBackend {
 
         let height = self.get_height()?;
         let current = self.chainstate.get_validation_index()?;
-        println!("{}", self.chainstate.get_validation_index()?);
         for _ in (current + 1)..=height {
+            if self.is_shutting_down() {
+                return Ok(());
+            }
             let block_data = rmp_serde::decode::from_read::<_, BlockData>(&socket);
             if block_data.is_err() {
                 error!("{:?}", block_data);
@@ -192,31 +204,30 @@ impl UtreexodBackend {
                     );
                 }
             }
-            if block_data.height % 2016 == 0 || block_data.height % 10_000 == 0 {
+            if block_data.height % 10_000 == 0 {
                 info!("Sync at block {}", block_data.height);
-                if block_data.height % 10_000 == 0 {
-                    self.chainstate.flush()?;
-                }
+                self.chainstate.flush()?;
             }
             for leaf in leaf_data {
                 inputs.insert(leaf.prevout, leaf.utxo);
             }
-            self.chainstate.connect_block(
-                &block_data.block,
-                proof,
-                inputs,
-                del_hashes,
-                block_data.height,
-            )?;
+            self.chainstate
+                .connect_block(&block_data.block, proof, inputs, del_hashes)?;
         }
+        info!("Leaving ibd");
+        self.chainstate.toggle_ibd(false);
+        self.chainstate.flush()?;
 
         Ok(())
     }
     fn get_headers(&self) -> Result<()> {
         let tip = self.get_height()?;
-        let current = self.chainstate.get_best_block()?.0 + 1;
+        let current = self.chainstate.get_best_block()?.0;
         info!("Downloading headers");
-        for i in current..((tip / 2_000) + 1) {
+        for i in (current / 2_000)..((tip / 2_000) + 1) {
+            if self.is_shutting_down() {
+                return Ok(());
+            }
             let locator = self.chainstate.get_block_locator()?;
             let locator = locator
                 .iter()
@@ -247,8 +258,13 @@ impl UtreexodBackend {
         Ok(())
     }
 
-    pub async fn run(self) -> ! {
+    pub async fn run(self) {
         try_and_log!(self.get_headers());
+        if self.is_shutting_down() {
+            info!("Shuting blockchain down");
+            try_and_log!(self.chainstate.flush());
+            return;
+        }
         if self.use_external_sync {
             try_and_log!(self.process_batch_block().await);
         } else {
@@ -257,11 +273,19 @@ impl UtreexodBackend {
         self.chainstate.toggle_ibd(false);
         loop {
             async_std::task::sleep(Duration::from_secs(1)).await;
-
+            if self.is_shutting_down() {
+                info!("Shuting blockchain down");
+                try_and_log!(self.chainstate.flush());
+                return;
+            }
             try_and_log!(self.handle_broadcast());
             try_and_log!(self.handle_tip_update());
             try_and_log!(self.chainstate.flush());
         }
+    }
+    fn is_shutting_down(&self) -> bool {
+        self.term
+            .fetch_and(true, std::sync::atomic::Ordering::AcqRel)
     }
 }
 #[macro_export]
@@ -274,6 +298,7 @@ macro_rules! try_and_log {
         }
     };
 }
+
 #[derive(Debug, Deserialize)]
 struct BlockData {
     height: u32,
