@@ -135,7 +135,7 @@ fn main() {
                     "".into(),
                 ),
                 use_external_sync,
-                term: shutdown.clone(),
+                term: shutdown,
             };
             info!("Starting server");
             // Create a new electrum server, we need to block_on because `ElectrumServer::new` is `async`
@@ -244,8 +244,7 @@ fn setup_wallet<D: AddressCacheDatabase>(
         }
         // Parses the descriptor and get an external and change descriptors
         let xpub = wallet_input::extended_pub_key::from_wif(key.as_str());
-        if xpub.is_err() {
-            let error = xpub.unwrap_err();
+        if let Err(error) = xpub {
             log::error!("Invalid xpub provided: {key} \nReason: {:?}", error);
             exit(0);
         }
