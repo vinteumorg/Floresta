@@ -398,6 +398,8 @@ fn derive_addresses<D: AddressCacheDatabase>(
 #[cfg(not(feature = "experimental-p2p"))]
 /// Finds out whether our RPC works or not
 fn test_rpc(rpc: &BTCDClient) -> bool {
+    use btcd_rpc::client::BtcdRpc;
+
     if rpc.getbestblock().is_ok() {
         return true;
     }
