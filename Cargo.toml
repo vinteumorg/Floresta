@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-rustreexo = { git = "https://www.github.com/Davidson-Souza/rustreexo", branch = "drop_rust-bitcoin"}
+rustreexo = { git = "https://www.github.com/mit-dci/rustreexo" }
 btcd-rpc = { git = "https://github.com/Davidson-Souza/rust-btcd-rpc", features = ["utreexod"] }
 clap = {version = "4.0.29", features = ["derive"]}
 sha2 = "^0.10.6"
