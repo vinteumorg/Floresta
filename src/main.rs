@@ -79,6 +79,7 @@ fn main() {
             use_external_sync,
             rpc_port,
             wallet_xpub,
+            assume_valid,
         } => {
             // Catch user CTR + C for terminating our application
             let shutdown = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -123,7 +124,11 @@ fn main() {
             info!("Starting sync worker, this might take a while!");
 
             debug!("Loading database...");
-            let blockchain_state = Arc::new(load_chain_state(&data_dir, get_net(&params.network)));
+            let blockchain_state = Arc::new(load_chain_state(
+                &data_dir,
+                get_net(&params.network),
+                assume_valid,
+            ));
 
             debug!("Done loading wallet");
             let chain_provider = UtreexodBackend {
@@ -182,15 +187,19 @@ fn get_config_file(params: &cli::Cli) -> ConfigFile {
         }
     }
 }
-fn load_chain_state(data_dir: &String, network: Network) -> ChainState<KvChainStore> {
+fn load_chain_state(
+    data_dir: &String,
+    network: Network,
+    assume_valid: Option<bitcoin::BlockHash>,
+) -> ChainState<KvChainStore> {
     let db = KvChainStore::new(data_dir.to_string()).expect("Could not read db");
-    match ChainState::<KvChainStore>::load_chain_state(db, network) {
+    match ChainState::<KvChainStore>::load_chain_state(db, network, assume_valid) {
         Ok(chainstate) => chainstate,
         Err(err) => match err {
             blockchain::error::BlockchainError::ChainNotInitialized => {
                 let db = KvChainStore::new(data_dir.to_string()).expect("Could not read db");
 
-                ChainState::<KvChainStore>::new(db, network)
+                ChainState::<KvChainStore>::new(db, network, assume_valid)
             }
             _ => unreachable!(),
         },

@@ -9,7 +9,7 @@ use async_std::channel::Sender;
 use bitcoin::{
     blockdata::constants::genesis_block,
     consensus::{deserialize_partial, Decodable, Encodable},
-    hashes::{sha256, Hash},
+    hashes::{hex::FromHex, sha256, Hash},
     util::uint::Uint256,
     Block, BlockHash, BlockHeader, Network, OutPoint, Transaction, TxOut,
 };
@@ -41,6 +41,10 @@ pub struct ChainStateInner<PersistedState: ChainStore> {
     ibd: bool,
     /// Global parameter of the chain we are in
     chain_params: ChainParams,
+    /// Assume valid is a Core-specific config that tells the node to not validate signatures
+    /// in blocks before this one. Note that we only skip signature validation, everything else
+    /// is still validated.
+    assume_valid: (BlockHash, u32),
 }
 
 pub struct ChainState<PersistedState: ChainStore> {
@@ -228,7 +232,11 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             .expect("Chain store is not working");
         Ok(())
     }
-    pub fn new(chainstore: KvChainStore, network: Network) -> ChainState<KvChainStore> {
+    pub fn new(
+        chainstore: KvChainStore,
+        network: Network,
+        assume_valid: Option<BlockHash>,
+    ) -> ChainState<KvChainStore> {
         let genesis = genesis_block(network);
         chainstore
             .save_header(
@@ -236,6 +244,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
                 0,
             )
             .expect("Error while saving genesis");
+        let assume_valid_hash = Self::get_assume_valid_value(network, assume_valid);
         ChainState {
             inner: RwLock::new(ChainStateInner {
                 chainstore,
@@ -246,13 +255,38 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
                     validation_index: genesis.block_hash(),
                     rescan_index: None,
                     alternative_tips: vec![],
+                    assume_valid_index: 0,
                 },
                 broadcast_queue: vec![],
                 subscribers: vec![],
                 fee_estimation: (1_f64, 1_f64, 1_f64),
                 ibd: true,
                 chain_params: network.into(),
+                assume_valid: (assume_valid_hash, 0),
             }),
+        }
+    }
+    fn get_assume_valid_value(network: Network, arg: Option<BlockHash>) -> BlockHash {
+        fn get_hash(hash: &str) -> BlockHash {
+            BlockHash::from_hex(hash).expect("hardcoded hash should not fail")
+        }
+        if let Some(assume_valid_hash) = arg {
+            assume_valid_hash
+        } else {
+            match network {
+                Network::Bitcoin => {
+                    get_hash("00000000000000000009c97098b5295f7e5f183ac811fb5d1534040adb93cabd")
+                }
+                Network::Testnet => {
+                    get_hash("0000000000000004877fa2d36316398528de4f347df2f8a96f76613a298ce060")
+                }
+                Network::Signet => {
+                    get_hash("000000d1a0e224fa4679d2fb2187ba55431c284fa1b74cbc8cfda866fd4d2c09")
+                }
+                Network::Regtest => {
+                    get_hash("0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206")
+                }
+            }
         }
     }
     fn get_disk_block_header(&self, hash: &BlockHash) -> super::Result<DiskBlockHeader> {
@@ -266,6 +300,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
     pub fn load_chain_state(
         chainstore: KvChainStore,
         network: Network,
+        assume_valid_hash: Option<BlockHash>,
     ) -> Result<ChainState<KvChainStore>, BlockchainError> {
         let acc = Self::load_acc(&chainstore);
 
@@ -283,6 +318,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             subscribers: Vec::new(),
             ibd: true,
             chain_params: network.into(),
+            assume_valid: (Self::get_assume_valid_value(network, assume_valid_hash), 0),
         };
 
         Ok(ChainState {
@@ -454,14 +490,20 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
         let hash = block.header.validate_pow(&target).map_err(|_| {
             BlockchainError::BlockValidationError(BlockValidationErrors::NotEnoughPow)
         })?;
-
-        Self::verify_block_transactions(inputs, &block.txdata)
-            .map_err(|_| BlockchainError::BlockValidationError(BlockValidationErrors::InvalidTx))?;
-
+        // Check tx script, only if we didn't pass the assume_valid block
+        if height >= inner.assume_valid.1 {
+            Self::verify_block_transactions(inputs, &block.txdata).map_err(|_| {
+                BlockchainError::BlockValidationError(BlockValidationErrors::InvalidTx)
+            })?;
+        }
         // ... If we came this far, we consider this block valid ...
 
         // Notify others we have a new block
-        async_std::task::block_on(self.notify(Notification::NewBlock((block.to_owned(), height))));
+        if !inner.ibd {
+            async_std::task::block_on(
+                self.notify(Notification::NewBlock((block.to_owned(), height))),
+            );
+        }
         inner.chainstore.save_header(
             &super::chainstore::DiskBlockHeader::FullyValid(block.header, height),
             height,
@@ -505,7 +547,8 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
             return Ok(());
         }
         let inner = self.inner.read().unwrap();
-        let best_block = &inner.best_block;
+
+        let best_block = inner.best_block.clone();
         // Update our current tip
         if header.prev_blockhash == best_block.best_block {
             let height = best_block.depth + 1;
@@ -523,6 +566,9 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
             drop(inner);
             let mut inner = self.inner.write().unwrap();
             inner.best_block.new_block(header.block_hash(), height);
+            if header.block_hash() == inner.assume_valid.0 {
+                inner.assume_valid.1 = height;
+            }
         } else {
             unimplemented!();
         }
@@ -554,6 +600,7 @@ macro_rules! write_lock {
         $obj.inner.write().expect("get_block_hash: Poisoned lock")
     };
 }
+#[derive(Clone)]
 /// Internal representation of the chain we are in
 pub struct BestChain {
     /// Hash of the last block in the chain we believe has more work on
@@ -570,6 +617,8 @@ pub struct BestChain {
     /// tips we know about, but are not the best one. We don't keep tips that are too deep
     /// or has too little work if compared to our best one
     alternative_tips: Vec<BlockHash>,
+    /// Saves the height occupied by the assume valid block
+    assume_valid_index: u32,
 }
 impl BestChain {
     fn new_block(&mut self, block_hash: BlockHash, height: u32) {
@@ -589,6 +638,7 @@ impl Encodable for BestChain {
         len += self.best_block.consensus_encode(writer)?;
         len += self.depth.consensus_encode(writer)?;
         len += self.validation_index.consensus_encode(writer)?;
+        len += self.assume_valid_index.consensus_encode(writer)?;
 
         match self.rescan_index {
             Some(hash) => len += hash.consensus_encode(writer)?,
@@ -606,6 +656,8 @@ impl Decodable for BestChain {
         let depth = u32::consensus_decode(reader)?;
         let validation_index = BlockHash::consensus_decode(reader)?;
         let rescan_index = BlockHash::consensus_decode(reader)?;
+        let assume_valid_index = u32::consensus_decode(reader)?;
+
         let rescan_index = if rescan_index == BlockHash::all_zeros() {
             None
         } else {
@@ -618,6 +670,7 @@ impl Decodable for BestChain {
             depth,
             rescan_index,
             validation_index,
+            assume_valid_index,
         })
     }
 }

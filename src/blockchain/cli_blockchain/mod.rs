@@ -2,7 +2,7 @@ use std::{
     collections::HashMap,
     net::TcpStream,
     sync::{atomic::AtomicBool, Arc},
-    time::Duration,
+    time::Duration, io::BufReader,
 };
 
 use bitcoin::{
@@ -178,16 +178,18 @@ impl UtreexodBackend {
 
         Ok(())
     }
+    #[allow(unused)]
     async fn process_batch_block(&self) -> Result<()> {
         let socket = TcpStream::connect(self.external_sync_hostname.to_owned().as_str())?;
 
         let height = self.get_height()?;
         let current = self.chainstate.get_validation_index()?;
+        let mut reader = BufReader::new(socket);
         for _ in (current + 1)..=height {
             if self.is_shutting_down() {
                 return Ok(());
             }
-            let block_data = rmp_serde::decode::from_read::<_, BlockData>(&socket);
+            let block_data = rmp_serde::decode::from_read::<_, BlockData>(&mut reader);
             if block_data.is_err() {
                 error!("{:?}", block_data);
                 break;
@@ -300,7 +302,7 @@ macro_rules! try_and_log {
         }
     };
 }
-
+#[allow(unused)]
 #[derive(Debug, Deserialize)]
 struct BlockData {
     height: u32,

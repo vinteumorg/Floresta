@@ -1,3 +1,4 @@
+use bitcoin::BlockHash;
 use clap::{arg, command, Parser, Subcommand, ValueEnum};
 
 #[derive(Clone, Debug, ValueEnum)]
@@ -67,5 +68,8 @@ pub enum Commands {
         /// If use_external_sync is set, this option provides which server we use
         #[arg(long)]
         external_sync: Option<String>,
+        /// Assume blocks before this one as having valid signatures, same with bitcoin core
+        #[arg(long)]
+        assume_valid: Option<BlockHash>,
     },
 }
