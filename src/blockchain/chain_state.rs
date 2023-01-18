@@ -702,7 +702,17 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
         let mut inner = write_lock!(self);
         inner.broadcast_queue.drain(..).collect()
     }
+    fn get_next_block(&self) -> Result<Vec<BlockHash>, super::error::BlockchainError> {
+        let inner = self.inner.read().unwrap();
+        let best = inner.best_block.validation_index;
+        let block = inner.chainstore.get_header(&best)?.unwrap().block_height() + 1;
+        let mut blocks = vec![];
+        for height in block..block + 10_000 {
+            blocks.push(self.get_block_hash(height)?);
+        }
 
+        Ok(blocks)
+    }
     fn accept_header(&self, header: BlockHeader) -> super::Result<()> {
         // We already know this block
         if self.get_block_header(&header.block_hash()).is_ok() {

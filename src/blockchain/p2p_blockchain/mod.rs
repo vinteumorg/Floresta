@@ -1,6 +1,5 @@
 #![allow(unused)]
-
-use self::peer::Peer;
+use self::{block_download::BlockDownload, peer::Peer};
 use super::{
     chain_state::ChainState, chainstore::KvChainStore, error::BlockchainError, udata::LeafData,
     BlockchainInterface, BlockchainProviderInterface,
@@ -8,7 +7,7 @@ use super::{
 use async_std::{
     channel::{self, bounded, Receiver, Sender},
     sync::RwLock,
-    task::{sleep, spawn},
+    task::spawn,
 };
 use bitcoin::{
     consensus::deserialize_partial,
@@ -16,18 +15,14 @@ use bitcoin::{
     Block, BlockHash, BlockHeader, Network, OutPoint,
 };
 use btcd_rpc::{
-    client::{BTCDClient, BTCDConfigs, BtcdRpc},
+    client::{BTCDClient, BtcdRpc},
     json_types::blockchain::GetUtreexoProofResult,
 };
+use log::info;
 use rustreexo::accumulator::proof::Proof;
-use std::{
-    collections::HashMap,
-    net::{SocketAddr, SocketAddrV4},
-    process::exit,
-    sync::Arc,
-    time::Duration,
-};
+use std::{collections::HashMap, sync::Arc};
 
+mod block_download;
 mod peer;
 mod protocol;
 mod stream_reader;
@@ -53,12 +48,12 @@ pub enum NodeNotification {
     /// Peer notify its readiness
     Ready,
     /// Remote peer disconnected
-    Disconnected
+    Disconnected,
 }
 /// Sent from node to peers, usually to request something
 pub enum NodeRequest {
     /// Get this block's data
-    GetBlock(BlockHash),
+    GetBlock(Vec<BlockHash>),
     /// Asks peer for headers
     GetHeaders(Vec<BlockHash>),
 }
@@ -85,6 +80,7 @@ pub struct UtreexoNode {
     rpc: Arc<BTCDClient>,
     header_backlog: Vec<BlockHeader>,
     state: NodeState,
+    download_man: BlockDownload,
 }
 
 impl UtreexoNode {
@@ -95,18 +91,20 @@ impl UtreexoNode {
         rpc: Arc<BTCDClient>,
     ) -> Self {
         let (node_tx, node_rx) = channel::bounded(1024);
-        UtreexoNode {
+        let node = UtreexoNode {
+            download_man: BlockDownload::new(chain.clone(), rpc.clone(), &Self::handle_block),
+            header_backlog: vec![],
+            state: NodeState::DownloadHeaders,
+            peer_id_count: 0,
+            peers: HashMap::new(),
             chain,
             mempool,
             network,
             node_rx,
             node_tx,
-            peer_id_count: 0,
-            peers: HashMap::new(),
             rpc,
-            header_backlog: vec![],
-            state: NodeState::DownloadHeaders,
-        }
+        };
+        node
     }
     pub fn get_proof<T: BtcdRpc>(
         rpc: &T,
@@ -146,7 +144,7 @@ impl UtreexoNode {
     }
     pub async fn handle_headers(&mut self, headers: Vec<BlockHeader>) {
         if headers.is_empty() {
-            self.state = NodeState::DownloadBlocks;
+            self.ibd_request_blocks().await;
             return;
         }
         println!("Downloading headers at: {}", headers[0].block_hash());
@@ -157,51 +155,59 @@ impl UtreexoNode {
             .chain
             .get_block_locator()
             .expect("Could not create locator");
-        let peer = self.peers.get(&0).expect("No peers");
-        peer.send(NodeRequest::GetHeaders(locator)).await;
+        self.send_to_random_peer((NodeRequest::GetHeaders(locator)))
+            .await;
+    }
+    #[inline]
+    pub async fn send_to_random_peer(&self, req: NodeRequest) {
+        if self.peers.is_empty() {
+            return;
+        }
+        let idx = rand::random::<u32>() % self.peers.len() as u32;
+        let peer = self.peers.get(&idx).expect("Peer should be here");
+        peer.send(req).await;
     }
     pub async fn run(mut self) {
-        let seed_node = "127.0.0.1:38333";
-        self.create_connection(seed_node).await;
+        // self.create_connection("45.33.47.11:38333").await;
+        self.create_connection("178.128.221.177:38333").await;
         loop {
             while let Ok(notification) = self.node_rx.recv().await {
                 match notification {
                     NodeNotification::PingTimeout(_) => todo!(),
                     NodeNotification::TryPing(_) => todo!(),
                     NodeNotification::NewBlock(hash) => {
-                        let peer = self.peers.get(&0).unwrap();
-                        peer.send(NodeRequest::GetBlock(hash)).await;
+                        self.send_to_random_peer(NodeRequest::GetBlock(vec![hash]))
+                            .await;
                     }
                     NodeNotification::NewCompactBlock(hash) => {
-                        let peer = self.peers.get(&0).unwrap();
-                        peer.send(NodeRequest::GetBlock(hash)).await;
+                        self.send_to_random_peer(NodeRequest::GetBlock(vec![hash]))
+                            .await;
                     }
                     NodeNotification::Block(block) => {
-                        self.handle_block(&block);
+                        if self.download_man.downloaded(block) {
+                            self.ibd_request_blocks().await;
+                        }
                     }
                     NodeNotification::Headers(headers) => {
                         self.handle_headers(headers).await;
                     }
                     NodeNotification::Ready => {
-                        self.peers
-                            .get(&0)
-                            .unwrap()
-                            .send(NodeRequest::GetHeaders(
-                                self.chain.get_block_locator().unwrap(),
-                            ))
-                            .await;
+                        self.send_to_random_peer(NodeRequest::GetHeaders(
+                            self.chain.get_block_locator().unwrap(),
+                        ))
+                        .await;
                     }
                     NodeNotification::Disconnected => {
                         println!("Peer lost");
-                        return ;
+                        return;
                     }
                 }
             }
         }
     }
-    fn handle_block(&self, block: &Block) {
+    fn handle_block(chain: &ChainState<KvChainStore>, rpc: &Arc<BTCDClient>, block: Block) {
         let (proof, del_hashes, leaf_data) =
-            Self::get_proof(&*self.rpc, &block.block_hash().to_string())
+            Self::get_proof(&**rpc, &block.block_hash().to_string())
                 .expect("Could not fetch proof");
         let mut inputs = HashMap::new();
         for tx in block.txdata.iter() {
@@ -218,7 +224,25 @@ impl UtreexoNode {
         for leaf in leaf_data {
             inputs.insert(leaf.prevout, leaf.utxo);
         }
-        self.chain.connect_block(&block, proof, inputs, del_hashes);
+        chain
+            .connect_block(&block, proof, inputs, del_hashes)
+            .unwrap();
+    }
+    async fn ibd_request_blocks(&mut self) {
+        if self.chain.get_best_block().unwrap().0 == self.chain.get_validation_index().unwrap() {
+            self.chain.toggle_ibd(false);
+            info!("Leaving ibd");
+            return;
+        }
+        info!(
+            "Downloading blocks at {}",
+            self.chain.get_validation_index().unwrap()
+        );
+        if let Ok(next_blocks) = self.chain.get_next_block() {
+            self.download_man.push(next_blocks.clone());
+            self.send_to_random_peer(NodeRequest::GetBlock(next_blocks))
+                .await;
+        }
     }
     async fn create_connection(&mut self, peer: &str) {
         let (requests_tx, requests_rx) = bounded(1024);
@@ -236,8 +260,6 @@ impl UtreexoNode {
         if let Ok(peer) = peer {
             spawn(peer.read_loop());
             self.peers.insert(self.peer_id_count, requests_tx);
-        } else {
-            exit(0);
         }
         self.peer_id_count += 1;
     }

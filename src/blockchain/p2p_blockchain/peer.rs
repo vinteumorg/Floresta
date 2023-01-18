@@ -8,7 +8,7 @@ use crate::blockchain::{
 };
 use async_std::{
     channel::{Receiver, Sender},
-    io::{Read, ReadExt, WriteExt},
+    io::{BufReader, Read, ReadExt, WriteExt},
     net::{TcpStream, ToSocketAddrs},
     stream::{Stream, StreamExt},
     sync::RwLock,
@@ -32,7 +32,7 @@ use clap::builder::TypedValueParser;
 use futures::select;
 use futures::FutureExt;
 use rustreexo::accumulator::proof::Proof;
-use std::{collections::HashMap, io::BufReader};
+use std::collections::HashMap;
 use std::{sync::Arc, time::Instant};
 #[derive(PartialEq)]
 enum State {
@@ -60,7 +60,7 @@ pub struct Peer {
 }
 impl Peer {
     pub async fn read_loop(mut self) -> Result<(), BlockchainError> {
-        let read_stream = self.stream.clone();
+        let read_stream = BufReader::new(self.stream.clone());
         let mut stream: StreamReader<_, RawNetworkMessage> = StreamReader::new(read_stream);
         loop {
             select! {
@@ -80,9 +80,12 @@ impl Peer {
     }
     pub async fn handle_node_request(&mut self, request: NodeRequest) {
         match request {
-            NodeRequest::GetBlock(block_hash) => {
-                let inv = Inventory::Block(block_hash);
-                self.write(NetworkMessage::GetData(vec![inv])).await;
+            NodeRequest::GetBlock(block_hashes) => {
+                let mut inv = vec![];
+                for block in block_hashes {
+                    inv.push(Inventory::Block(block));
+                }
+                self.write(NetworkMessage::GetData(inv)).await;
             }
             NodeRequest::GetHeaders(locator) => {
                 self.write(NetworkMessage::GetHeaders(
@@ -176,8 +179,6 @@ impl Peer {
 }
 impl Peer {
     pub async fn write(&self, msg: NetworkMessage) -> Result<(), crate::error::Error> {
-        println!("Write: {}", msg.cmd());
-
         let mut data = &mut RawNetworkMessage {
             magic: self.network.magic(),
             payload: msg,

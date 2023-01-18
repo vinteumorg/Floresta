@@ -22,6 +22,13 @@ impl DiskBlockHeader {
     pub fn block_hash(&self) -> BlockHash {
         self.deref().block_hash()
     }
+    pub fn block_height(&self) -> u32 {
+        match self {
+            DiskBlockHeader::FullyValid(_, height) => *height,
+            DiskBlockHeader::Orphan(_) => 0,
+            DiskBlockHeader::HeadersOnly(_, height) => *height,
+        }
+    }
 }
 impl Deref for DiskBlockHeader {
     type Target = BlockHeader;
