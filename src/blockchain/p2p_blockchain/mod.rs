@@ -5,7 +5,7 @@ use super::{
     BlockchainInterface, BlockchainProviderInterface,
 };
 use async_std::{
-    channel::{self, bounded, Receiver, Sender},
+    channel::{self, bounded, unbounded, Receiver, Sender},
     sync::RwLock,
     task::spawn,
 };
@@ -90,7 +90,7 @@ impl UtreexoNode {
         network: Network,
         rpc: Arc<BTCDClient>,
     ) -> Self {
-        let (node_tx, node_rx) = channel::bounded(1024);
+        let (node_tx, node_rx) = channel::unbounded();
         let node = UtreexoNode {
             download_man: BlockDownload::new(chain.clone(), rpc.clone(), &Self::handle_block),
             header_backlog: vec![],
@@ -176,8 +176,10 @@ impl UtreexoNode {
                     NodeNotification::PingTimeout(_) => todo!(),
                     NodeNotification::TryPing(_) => todo!(),
                     NodeNotification::NewBlock(hash) => {
-                        self.send_to_random_peer(NodeRequest::GetBlock(vec![hash]))
-                            .await;
+                        if !self.chain.is_in_idb() {
+                            self.send_to_random_peer(NodeRequest::GetBlock(vec![hash]))
+                                .await;
+                        }
                     }
                     NodeNotification::NewCompactBlock(hash) => {
                         self.send_to_random_peer(NodeRequest::GetBlock(vec![hash]))
