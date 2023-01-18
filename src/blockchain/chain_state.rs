@@ -499,11 +499,8 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
         // ... If we came this far, we consider this block valid ...
 
         // Notify others we have a new block
-        if !inner.ibd {
-            async_std::task::block_on(
-                self.notify(Notification::NewBlock((block.to_owned(), height))),
-            );
-        }
+        async_std::task::block_on(self.notify(Notification::NewBlock((block.to_owned(), height))));
+
         inner.chainstore.save_header(
             &super::chainstore::DiskBlockHeader::FullyValid(block.header, height),
             height,
