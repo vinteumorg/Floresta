@@ -1,9 +1,13 @@
 use crate::blockchain::{
-    chain_state::ChainState, chainstore::KvChainStore, BlockchainProviderInterface,
+    chain_state::ChainState, chainstore::KvChainStore, error::BlockchainError, BlockchainInterface,
+    BlockchainProviderInterface,
 };
+use async_std::channel::Sender;
 use bitcoin::{Block, BlockHash};
 use btcd_rpc::client::BTCDClient;
 use std::{collections::HashMap, sync::Arc, time::Instant};
+
+use super::NodeNotification;
 
 #[derive(Debug, PartialEq)]
 enum RequestedBlockStatus {
@@ -50,18 +54,21 @@ pub struct BlockDownload {
     current_verified: u32,
     chain: Arc<ChainState<KvChainStore>>,
     rpc: Arc<BTCDClient>,
+    last_requested: u32,
+    node_tx: Sender<NodeNotification>,
     handle_block: &'static dyn Fn(&ChainState<KvChainStore>, &Arc<BTCDClient>, Block) -> (),
 }
 impl BlockDownload {
     pub fn push(&mut self, blocks: Vec<BlockHash>) {
+        self.last_requested = self.last_requested + blocks.len() as u32;
         for (i, header) in blocks.into_iter().enumerate() {
             self.inflight.insert(header, i as u32);
         }
-        self.current_verified = 0;
     }
     pub fn new(
         chain: Arc<ChainState<KvChainStore>>,
         rpc: Arc<BTCDClient>,
+        node_tx: Sender<NodeNotification>,
         handle_block: &'static dyn Fn(&ChainState<KvChainStore>, &Arc<BTCDClient>, Block) -> (),
     ) -> BlockDownload {
         BlockDownload {
@@ -71,24 +78,38 @@ impl BlockDownload {
             chain,
             handle_block,
             rpc,
+            last_requested: 0,
+            node_tx,
         }
     }
-    pub fn downloaded(&mut self, block: Block) -> bool {
-        let height = self
-            .inflight
-            .remove(&block.block_hash())
-            .expect("if we asked for a block, we should have it here");
+    pub async fn get_more_blocks(&mut self) -> Result<(), BlockchainError> {
+        let block = self.last_requested + 1;
+        let mut blocks = vec![];
 
-        if height == self.current_verified {
-            (self.handle_block)(&self.chain, &self.rpc, block);
-            self.current_verified += 1;
-            if let Some(next) = self.queued.remove(&(height + 1)) {
-                self.downloaded(next);
-            }
-        } else {
-            self.queued.insert(height, block);
-            return false;
+        for height in block..block + 1000 {
+            blocks.push(self.chain.get_block_hash(height)?);
         }
-        self.current_verified == 10_000
+        self.push(blocks.clone());
+        self.node_tx
+            .send(NodeNotification::AskForBlocks(blocks))
+            .await;
+        Ok(())
+    }
+    pub async fn downloaded(&mut self, block: Block) {
+        let height = self.inflight.remove(&block.block_hash());
+        if let Some(height) = height {
+            if height == self.current_verified {
+                (self.handle_block)(&self.chain, &self.rpc, block);
+                self.current_verified += 1;
+                if let Some(next) = self.queued.remove(&(height + 1)) {
+                    self.downloaded(next);
+                }
+            } else {
+                self.queued.insert(height, block);
+            }
+        }
+        if self.inflight.len() <= 1_000 {
+            self.get_more_blocks().await;
+        }
     }
 }

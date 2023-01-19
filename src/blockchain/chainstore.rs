@@ -22,6 +22,7 @@ impl DiskBlockHeader {
     pub fn block_hash(&self) -> BlockHash {
         self.deref().block_hash()
     }
+    #[allow(dead_code)]
     pub fn block_height(&self) -> u32 {
         match self {
             DiskBlockHeader::FullyValid(_, height) => *height,

@@ -54,7 +54,6 @@ pub trait BlockchainProviderInterface {
         inputs: HashMap<OutPoint, TxOut>,
         del_hashes: Vec<sha256::Hash>,
     ) -> Result<()>;
-    fn get_next_block(&self) -> Result<Vec<BlockHash>>;
     /// Accepts a new header to our chain. This method is called before connect_block, and
     /// makes some basic checks on a header and saves it on disk. We only accept a block as
     /// valid after calling connect_block.

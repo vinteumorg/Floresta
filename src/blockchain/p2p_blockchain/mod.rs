@@ -49,7 +49,10 @@ pub enum NodeNotification {
     Ready,
     /// Remote peer disconnected
     Disconnected,
+    /// Ask peers for more blocks
+    AskForBlocks(Vec<BlockHash>),
 }
+#[derive(Debug)]
 /// Sent from node to peers, usually to request something
 pub enum NodeRequest {
     /// Get this block's data
@@ -64,6 +67,7 @@ impl Mempool {
 #[derive(Default)]
 enum NodeState {
     #[default]
+    WaitingPeer,
     DownloadHeaders,
     DownloadBlocks,
     Running,
@@ -92,9 +96,14 @@ impl UtreexoNode {
     ) -> Self {
         let (node_tx, node_rx) = channel::unbounded();
         let node = UtreexoNode {
-            download_man: BlockDownload::new(chain.clone(), rpc.clone(), &Self::handle_block),
+            download_man: BlockDownload::new(
+                chain.clone(),
+                rpc.clone(),
+                node_tx.clone(),
+                &Self::handle_block,
+            ),
             header_backlog: vec![],
-            state: NodeState::DownloadHeaders,
+            state: NodeState::default(),
             peer_id_count: 0,
             peers: HashMap::new(),
             chain,
@@ -144,10 +153,10 @@ impl UtreexoNode {
     }
     pub async fn handle_headers(&mut self, headers: Vec<BlockHeader>) {
         if headers.is_empty() {
-            self.ibd_request_blocks().await;
+            self.download_man.get_more_blocks().await;
             return;
         }
-        println!("Downloading headers at: {}", headers[0].block_hash());
+        info!("Downloading headers at: {}", headers[0].block_hash());
         for header in headers {
             self.chain.accept_header(header);
         }
@@ -168,8 +177,9 @@ impl UtreexoNode {
         peer.send(req).await;
     }
     pub async fn run(mut self) {
-        // self.create_connection("45.33.47.11:38333").await;
-        self.create_connection("178.128.221.177:38333").await;
+        self.create_connection("153.126.143.201:38333").await;
+        self.create_connection("72.48.253.168:38333").await;
+
         loop {
             while let Ok(notification) = self.node_rx.recv().await {
                 match notification {
@@ -186,22 +196,28 @@ impl UtreexoNode {
                             .await;
                     }
                     NodeNotification::Block(block) => {
-                        if self.download_man.downloaded(block) {
-                            self.ibd_request_blocks().await;
-                        }
+                        self.download_man.downloaded(block).await;
                     }
                     NodeNotification::Headers(headers) => {
                         self.handle_headers(headers).await;
                     }
                     NodeNotification::Ready => {
-                        self.send_to_random_peer(NodeRequest::GetHeaders(
-                            self.chain.get_block_locator().unwrap(),
-                        ))
-                        .await;
+                        info!("New peer");
+                        if let NodeState::WaitingPeer = self.state {
+                            info!("Requesting headers");
+                            self.state = NodeState::DownloadHeaders;
+                            self.send_to_random_peer(NodeRequest::GetHeaders(
+                                self.chain.get_block_locator().unwrap(),
+                            ))
+                            .await;
+                        }
                     }
                     NodeNotification::Disconnected => {
                         println!("Peer lost");
                         return;
+                    }
+                    NodeNotification::AskForBlocks(headers) => {
+                        self.ibd_request_blocks(headers).await
                     }
                 }
             }
@@ -230,21 +246,15 @@ impl UtreexoNode {
             .connect_block(&block, proof, inputs, del_hashes)
             .unwrap();
     }
-    async fn ibd_request_blocks(&mut self) {
+    async fn ibd_request_blocks(&mut self, next_blocks: Vec<BlockHash>) {
         if self.chain.get_best_block().unwrap().0 == self.chain.get_validation_index().unwrap() {
             self.chain.toggle_ibd(false);
             info!("Leaving ibd");
             return;
         }
-        info!(
-            "Downloading blocks at {}",
-            self.chain.get_validation_index().unwrap()
-        );
-        if let Ok(next_blocks) = self.chain.get_next_block() {
-            self.download_man.push(next_blocks.clone());
-            self.send_to_random_peer(NodeRequest::GetBlock(next_blocks))
-                .await;
-        }
+        info!("Downloading blocks at {}", next_blocks.get(0).unwrap());
+        self.send_to_random_peer(NodeRequest::GetBlock(next_blocks))
+            .await;
     }
     async fn create_connection(&mut self, peer: &str) {
         let (requests_tx, requests_rx) = bounded(1024);
