@@ -1,5 +1,9 @@
 #![allow(unused)]
-use self::{block_download::BlockDownload, peer::Peer};
+use self::{
+    block_download::{BlockDownload, BlockDownloaderMessages},
+    peer::{Peer, PeerMessages},
+    peer_manager::{PeerManager, PeerManagerNotifications},
+};
 use super::{
     chain_state::ChainState, chainstore::KvChainStore, error::BlockchainError, udata::LeafData,
     BlockchainInterface, BlockchainProviderInterface,
@@ -18,47 +22,31 @@ use btcd_rpc::{
     client::{BTCDClient, BtcdRpc},
     json_types::blockchain::GetUtreexoProofResult,
 };
-use log::info;
+use log::{info, warn};
 use rustreexo::accumulator::proof::Proof;
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 mod block_download;
 mod peer;
+mod peer_manager;
 mod protocol;
 mod stream_reader;
 
-/// Messages passed from different modules to the main node to process. They should minimal
-/// and only if it requires global states, everything else should be handled by the module
-/// itself.
 pub enum NodeNotification {
-    /// This means our peer timed out, and we should disconnect it
-    PingTimeout(u64),
-    /// It's been a while since we last ping this peer, so send a ping to make sure they
-    /// are still there
-    TryPing(u64),
-    /// A new block just arrived, we should ask for it and update our chain
-    NewBlock(BlockHash),
-    /// Also a new block, but our connection is a compact blocks one, so we should handle
-    /// a compact blocs communication, not a explicit block request
-    NewCompactBlock(BlockHash),
-    /// We got a full block from our peer, presumptively we asked for it
-    Block(Block),
-    /// A response to a `getheaders` request
-    Headers(Vec<BlockHeader>),
-    /// Peer notify its readiness
-    Ready,
-    /// Remote peer disconnected
-    Disconnected,
-    /// Ask peers for more blocks
-    AskForBlocks(Vec<BlockHash>),
+    FromPeer(u32, PeerMessages),
+    FromPingManager,
+    FromPeerManager(PeerManagerNotifications),
+    FromBlockDownloader(BlockDownloaderMessages),
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 /// Sent from node to peers, usually to request something
 pub enum NodeRequest {
     /// Get this block's data
     GetBlock(Vec<BlockHash>),
     /// Asks peer for headers
     GetHeaders(Vec<BlockHash>),
+    /// Asks this peer to shutdown
+    Shutdown,
 }
 pub struct Mempool;
 impl Mempool {
@@ -76,7 +64,7 @@ enum NodeState {
 pub struct UtreexoNode {
     peer_id_count: u32,
     network: Network,
-    peers: HashMap<u32, Sender<NodeRequest>>,
+    peers: Vec<(PeerStatus, u32, Sender<NodeRequest>)>,
     chain: Arc<ChainState<KvChainStore>>,
     mempool: Arc<RwLock<Mempool>>,
     node_rx: Receiver<NodeNotification>,
@@ -86,7 +74,10 @@ pub struct UtreexoNode {
     state: NodeState,
     download_man: BlockDownload,
 }
-
+enum PeerStatus {
+    Awaiting,
+    Ready,
+}
 impl UtreexoNode {
     pub fn new(
         chain: Arc<ChainState<KvChainStore>>,
@@ -105,7 +96,7 @@ impl UtreexoNode {
             header_backlog: vec![],
             state: NodeState::default(),
             peer_id_count: 0,
-            peers: HashMap::new(),
+            peers: Vec::new(),
             chain,
             mempool,
             network,
@@ -172,54 +163,95 @@ impl UtreexoNode {
         if self.peers.is_empty() {
             return;
         }
-        let idx = rand::random::<u32>() % self.peers.len() as u32;
-        let peer = self.peers.get(&idx).expect("Peer should be here");
-        peer.send(req).await;
+        for _ in 0..10 {
+            let idx = rand::random::<usize>() % self.peers.len();
+            if let PeerStatus::Ready = self
+                .peers
+                .get(idx)
+                .expect("node is in the interval 0..peers.len(), but is not here?")
+                .0
+            {
+                let peer = self
+                    .peers
+                    .get(idx)
+                    .expect("node is in the interval 0..peers.len(), but is not here?");
+                peer.2.send(req).await;
+                break;
+            }
+        }
     }
-    pub async fn run(mut self) {
-        self.create_connection("153.126.143.201:38333").await;
-        self.create_connection("72.48.253.168:38333").await;
-
-        loop {
-            while let Ok(notification) = self.node_rx.recv().await {
-                match notification {
-                    NodeNotification::PingTimeout(_) => todo!(),
-                    NodeNotification::TryPing(_) => todo!(),
-                    NodeNotification::NewBlock(hash) => {
-                        if !self.chain.is_in_idb() {
-                            self.send_to_random_peer(NodeRequest::GetBlock(vec![hash]))
-                                .await;
-                        }
-                    }
-                    NodeNotification::NewCompactBlock(hash) => {
+    pub async fn handle_notification(&mut self, notification: NodeNotification) {
+        match notification {
+            NodeNotification::FromPeer(peer, message) => match message {
+                PeerMessages::NewBlock(hash) => {
+                    if !self.chain.is_in_idb() {
                         self.send_to_random_peer(NodeRequest::GetBlock(vec![hash]))
                             .await;
                     }
-                    NodeNotification::Block(block) => {
-                        self.download_man.downloaded(block).await;
+                }
+                PeerMessages::NewCompactBlock(hash) => {
+                    self.send_to_random_peer(NodeRequest::GetBlock(vec![hash]))
+                        .await;
+                }
+                PeerMessages::Block(block) => {
+                    self.download_man.downloaded(block).await;
+                }
+                PeerMessages::Headers(headers) => {
+                    self.handle_headers(headers).await;
+                }
+                PeerMessages::Ready => {
+                    info!("New peer");
+                    if let Some(peer) = self.peers.get_mut(peer as usize) {
+                        peer.0 = PeerStatus::Ready;
                     }
-                    NodeNotification::Headers(headers) => {
-                        self.handle_headers(headers).await;
-                    }
-                    NodeNotification::Ready => {
-                        info!("New peer");
-                        if let NodeState::WaitingPeer = self.state {
-                            info!("Requesting headers");
-                            self.state = NodeState::DownloadHeaders;
-                            self.send_to_random_peer(NodeRequest::GetHeaders(
-                                self.chain.get_block_locator().unwrap(),
-                            ))
-                            .await;
-                        }
-                    }
-                    NodeNotification::Disconnected => {
-                        println!("Peer lost");
-                        return;
-                    }
-                    NodeNotification::AskForBlocks(headers) => {
-                        self.ibd_request_blocks(headers).await
+                    if let NodeState::WaitingPeer = self.state {
+                        info!("Requesting headers");
+                        self.state = NodeState::DownloadHeaders;
+                        self.send_to_random_peer(NodeRequest::GetHeaders(
+                            self.chain.get_block_locator().unwrap(),
+                        ))
+                        .await;
                     }
                 }
+                PeerMessages::Disconnected => {
+                    warn!("Peer lost");
+                    self.peers.remove(peer as usize);
+                }
+                PeerMessages::RequestTimeout => {
+                    if let Some(((_, id, peer))) = self.peers.get(peer as usize) {
+                        warn!("Peer {id} timed out request. Disconnecting");
+                        peer.send(NodeRequest::Shutdown).await;
+                    }
+                }
+            },
+            NodeNotification::FromPingManager => todo!(),
+            NodeNotification::FromPeerManager(message) => match message {
+                PeerManagerNotifications::Timeout(peer) => {
+                    if let Some(((_, id, peer))) = self.peers.get(peer as usize) {
+                        warn!("Peer {id} timed out request. Disconnecting");
+                        peer.send(NodeRequest::Shutdown).await;
+                    }
+                }
+            },
+            NodeNotification::FromBlockDownloader(blocks) => match blocks {
+                BlockDownloaderMessages::AskForBlocks(headers) => {
+                    self.ibd_request_blocks(headers).await
+                }
+            },
+        }
+    }
+
+    pub async fn run(mut self) {
+        self.create_connection("localhost:38333").await;
+
+        loop {
+            while let Ok(notification) =
+                async_std::future::timeout(Duration::from_secs(1), self.node_rx.recv()).await
+            {
+                if let Ok(notification) = notification {
+                    self.handle_notification(notification).await
+                }
+                self.download_man.handle_timeout();
             }
         }
     }
@@ -271,7 +303,8 @@ impl UtreexoNode {
 
         if let Ok(peer) = peer {
             spawn(peer.read_loop());
-            self.peers.insert(self.peer_id_count, requests_tx);
+            self.peers
+                .push((PeerStatus::Awaiting, self.peer_id_count, requests_tx));
         }
         self.peer_id_count += 1;
     }

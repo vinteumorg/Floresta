@@ -12,14 +12,14 @@ pub enum PingState {
     Idle { since: Instant },
 }
 pub struct PingManager {
-    peers: Vec<(u64, PingState)>,
+    peers: Vec<(u32, PingState)>,
     ping_interval: Duration,
     ping_timeout: Duration,
     node_tx: Sender<NodeNotification>,
 }
 
 impl PingManager {
-    fn new_peer(&mut self, peer: u64) {
+    fn new_peer(&mut self, peer: u32) {
         self.peers.push((
             peer,
             PingState::Idle {
@@ -33,15 +33,13 @@ impl PingManager {
             match state {
                 PingState::Idle { since } => {
                     if *since + self.ping_interval > Instant::now() {
-                        self.node_tx.send(NodeNotification::TryPing(*peer)).await;
+                        self.node_tx.send(NodeNotification::FromPingManager).await;
                     }
                 }
                 PingState::Pending { since } => {
                     if *since + self.ping_timeout > Instant::now() {
                         // timeout
-                        self.node_tx
-                            .send(NodeNotification::PingTimeout(*peer))
-                            .await;
+                        self.node_tx.send(NodeNotification::FromPingManager).await;
                     }
                 }
             }

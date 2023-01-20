@@ -17,12 +17,13 @@ use bitcoin::{
     consensus::{deserialize, deserialize_partial, serialize, Decodable},
     hashes::{hex::FromHex, sha256, Hash},
     network::{
+        address::AddrV2,
         constants::ServiceFlags,
         message::{NetworkMessage, RawNetworkMessage, MAX_MSG_SIZE},
         message_blockdata::Inventory,
         message_network::VersionMessage,
     },
-    BlockHash, BlockHeader, Network, OutPoint,
+    Block, BlockHash, BlockHeader, Network, OutPoint, Txid,
 };
 use btcd_rpc::{
     client::{BTCDClient, BtcdRpc},
@@ -32,7 +33,7 @@ use clap::builder::TypedValueParser;
 use futures::select;
 use futures::FutureExt;
 use rustreexo::accumulator::proof::Proof;
-use std::collections::HashMap;
+use std::{collections::HashMap, time::Duration};
 use std::{sync::Arc, time::Instant};
 #[derive(PartialEq)]
 enum State {
@@ -41,6 +42,12 @@ enum State {
     RemoteVerack,
     VersionReceived,
     Connected,
+}
+enum InflightRequests {
+    Blocks((usize, usize)),
+    Transaction(Txid),
+    Address,
+    Headers,
 }
 pub struct Peer {
     stream: TcpStream,
@@ -53,6 +60,7 @@ pub struct Peer {
     current_best_block: i32,
     last_ping: Instant,
     id: u32,
+    inflight: Vec<(Instant, InflightRequests)>,
     node_tx: Sender<NodeNotification>,
     state: State,
     send_headers: bool,
@@ -60,6 +68,11 @@ pub struct Peer {
 }
 impl Peer {
     pub async fn read_loop(mut self) -> Result<(), BlockchainError> {
+        let err = self.peer_loop_inner().await;
+        self.send_to_node(PeerMessages::Disconnected).await;
+        Ok(())
+    }
+    async fn peer_loop_inner(&mut self) -> Result<(), BlockchainError> {
         let read_stream = BufReader::new(self.stream.clone());
         let mut stream: StreamReader<_, RawNetworkMessage> = StreamReader::new(read_stream);
         loop {
@@ -69,22 +82,34 @@ impl Peer {
                         self.handle_node_request(request).await;
                     }
                 }
-                peer_request = stream.next_message().fuse() => {
+                peer_request = async_std::future::timeout(Duration::from_secs(1),  stream.next_message()).fuse() => {
                     if let Ok(peer_request) = peer_request {
-                        self.handle_peer_message(peer_request).await;
+                        self.handle_peer_message(peer_request?).await;
                     }
                 }
             };
+            self.handle_request_timeout();
         }
-        Ok(())
+    }
+    pub fn handle_request_timeout(&self) {
+        for (time, _) in self.inflight.iter() {
+            if *time + Duration::from_secs(5) > Instant::now() {
+                self.send_to_node(PeerMessages::RequestTimeout);
+            }
+        }
     }
     pub async fn handle_node_request(&mut self, request: NodeRequest) {
         match request {
             NodeRequest::GetBlock(block_hashes) => {
-                let mut inv = vec![];
-                for block in block_hashes {
-                    inv.push(Inventory::Block(block));
-                }
+                self.inflight.push((
+                    Instant::now(),
+                    InflightRequests::Blocks((block_hashes.len(), 0)),
+                ));
+                let mut inv = block_hashes
+                    .iter()
+                    .map(|block| Inventory::Block(*block))
+                    .collect();
+
                 self.write(NetworkMessage::GetData(inv)).await;
             }
             NodeRequest::GetHeaders(locator) => {
@@ -97,6 +122,9 @@ impl Peer {
                 ))
                 .await;
             }
+            NodeRequest::Shutdown => {
+                self.stream.shutdown(std::net::Shutdown::Both);
+            }
         }
     }
     pub async fn handle_peer_message(&mut self, message: RawNetworkMessage) {
@@ -106,7 +134,7 @@ impl Peer {
                 self.state = State::VersionReceived;
             }
             bitcoin::network::message::NetworkMessage::Verack => {
-                self.node_tx.send(NodeNotification::Ready).await;
+                self.send_to_node(PeerMessages::Ready).await;
                 self.state = State::Connected;
             }
             bitcoin::network::message::NetworkMessage::Addr(_) => todo!(),
@@ -116,9 +144,7 @@ impl Peer {
                         bitcoin::network::message_blockdata::Inventory::Error => {}
                         bitcoin::network::message_blockdata::Inventory::Transaction(_) => {}
                         bitcoin::network::message_blockdata::Inventory::Block(block_hash) => {
-                            self.node_tx
-                                .send(NodeNotification::NewBlock(block_hash))
-                                .await;
+                            self.send_to_node(PeerMessages::NewBlock(block_hash)).await;
                         }
                         bitcoin::network::message_blockdata::Inventory::CompactBlock(_) => {}
                         bitcoin::network::message_blockdata::Inventory::WTx(_) => todo!(),
@@ -140,10 +166,18 @@ impl Peer {
                 // self.mempool.write().await.accept_to_mempool();
             }
             bitcoin::network::message::NetworkMessage::Block(block) => {
-                self.node_tx.send(NodeNotification::Block(block)).await;
+                for (idx, request) in self.inflight.iter_mut().enumerate() {
+                    if let (req_time, InflightRequests::Blocks((count, done))) = request {
+                        *request = (*req_time, InflightRequests::Blocks((*count, *done + 1)));
+                    }
+                }
+                self.send_to_node(PeerMessages::Block(block)).await;
             }
             bitcoin::network::message::NetworkMessage::Headers(headers) => {
-                self.node_tx.send(NodeNotification::Headers(headers)).await;
+                println!("Got headers");
+                self.inflight
+                    .push((Instant::now(), InflightRequests::Headers));
+                self.send_to_node(PeerMessages::Headers(headers)).await;
             }
             bitcoin::network::message::NetworkMessage::SendHeaders => {
                 self.send_headers = true;
@@ -214,6 +248,7 @@ impl Peer {
             state: State::None,
             send_headers: false,
             node_requests,
+            inflight: Vec::new(),
         };
         let version = peer_utils::build_version_message();
         // send a version
@@ -232,6 +267,10 @@ impl Peer {
         self.services = version.services;
         let verack = NetworkMessage::Verack;
         self.write(verack).await;
+    }
+    async fn send_to_node(&self, message: PeerMessages) {
+        let message = NodeNotification::FromPeer(self.id, message);
+        self.node_tx.send(message).await;
     }
 }
 
@@ -293,4 +332,25 @@ pub(super) mod peer_utils {
             version: 70016,
         })
     }
+}
+
+/// Messages passed from different modules to the main node to process. They should minimal
+/// and only if it requires global states, everything else should be handled by the module
+/// itself.
+pub enum PeerMessages {
+    /// A new block just arrived, we should ask for it and update our chain
+    NewBlock(BlockHash),
+    /// Also a new block, but our connection is a compact blocks one, so we should handle
+    /// a compact blocs communication, not a explicit block request
+    NewCompactBlock(BlockHash),
+    /// We got a full block from our peer, presumptively we asked for it
+    Block(Block),
+    /// A response to a `getheaders` request
+    Headers(Vec<BlockHeader>),
+    /// Peer notify its readiness
+    Ready,
+    /// Remote peer disconnected
+    Disconnected,
+    /// A request timed out
+    RequestTimeout,
 }

@@ -13,6 +13,8 @@ pub enum BlockchainError {
     ChainNotInitialized,
     InvalidTip(String),
     IoError(std::io::Error),
+    #[cfg(feature = "experimental-p2p")]
+    MessageTooBig,
 }
 #[derive(Debug)]
 pub enum BlockValidationErrors {

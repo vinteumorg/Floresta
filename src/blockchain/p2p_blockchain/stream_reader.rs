@@ -18,6 +18,8 @@ use std::ops::{Deref, DerefMut};
 use std::pin::Pin;
 use std::task::Poll;
 
+use crate::blockchain::error::BlockchainError;
+
 /// A simple type that wraps a stream and returns T, if T is [Decodable].
 pub struct StreamReader<Source: Sync + Send + ReadExt + Unpin, Item: Decodable> {
     /// Were we read bytes from, usually a TcpStream
@@ -40,7 +42,7 @@ where
     }
     /// Tries to read from a parsed [Item] from [Source]. Only returns on error or if we have
     /// a valid Item to return
-    pub async fn next_message(&mut self) -> Result<Item, crate::error::Error> {
+    pub async fn next_message(&mut self) -> Result<Item, BlockchainError> {
         let mut data: Vec<u8> = Vec::new();
         data.resize(24, 0);
 
@@ -49,16 +51,16 @@ where
         let mut header: P2PMessageHeader = deserialize_partial(&mut *data)?.0;
 
         // Network Message too big
-        if header.length + 24 > MAX_MSG_SIZE as u32 {
-            return Err(crate::error::Error::WalletNotInitialized);
+        if header.length > MAX_MSG_SIZE as u32 {
+            return Err(super::BlockchainError::MessageTooBig);
         }
         data.resize(24 + header.length as usize, 0);
 
         // Read everything else
         self.source.read_exact(&mut data[24..]).await?;
-        let message = deserialize(&*data);
+        let message = deserialize(&*data)?;
 
-        Ok(message?)
+        Ok(message)
     }
 }
 pub struct P2PMessageHeader {

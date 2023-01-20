@@ -5,53 +5,19 @@ use crate::blockchain::{
 use async_std::channel::Sender;
 use bitcoin::{Block, BlockHash};
 use btcd_rpc::client::BTCDClient;
-use std::{collections::HashMap, sync::Arc, time::Instant};
+use std::{
+    collections::HashMap,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use super::NodeNotification;
 
-#[derive(Debug, PartialEq)]
-enum RequestedBlockStatus {
-    Requested,
-    TimedOut,
-    Done,
-}
-#[derive(Debug, PartialEq)]
-pub struct RequestedBlock {
-    block_hash: BlockHash,
-    requested_time: Instant,
-    peer: u32,
-    status: RequestedBlockStatus,
-}
-
-impl PartialOrd for RequestedBlock {
-    fn ge(&self, other: &Self) -> bool {
-        self.requested_time >= other.requested_time
-    }
-    fn gt(&self, other: &Self) -> bool {
-        self.requested_time > other.requested_time
-    }
-    fn le(&self, other: &Self) -> bool {
-        self.requested_time <= other.requested_time
-    }
-    fn lt(&self, other: &Self) -> bool {
-        self.requested_time < other.requested_time
-    }
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        match self.requested_time.partial_cmp(&other.requested_time) {
-            Some(core::cmp::Ordering::Equal) => {}
-            ord => return ord,
-        }
-        match self.peer.partial_cmp(&other.peer) {
-            Some(core::cmp::Ordering::Equal) => {}
-            ord => return ord,
-        }
-        Some(std::cmp::Ordering::Equal)
-    }
-}
 pub struct BlockDownload {
     inflight: HashMap<BlockHash, u32>,
     queued: HashMap<u32, Block>,
     current_verified: u32,
+    last_request: Instant,
     chain: Arc<ChainState<KvChainStore>>,
     rpc: Arc<BTCDClient>,
     last_requested: u32,
@@ -60,9 +26,9 @@ pub struct BlockDownload {
 }
 impl BlockDownload {
     pub fn push(&mut self, blocks: Vec<BlockHash>) {
-        self.last_requested = self.last_requested + blocks.len() as u32;
-        for (i, header) in blocks.into_iter().enumerate() {
-            self.inflight.insert(header, i as u32);
+        for header in blocks.into_iter() {
+            self.inflight.insert(header, self.last_requested as u32);
+            self.last_requested += 1;
         }
     }
     pub fn new(
@@ -80,6 +46,7 @@ impl BlockDownload {
             rpc,
             last_requested: 0,
             node_tx,
+            last_request: Instant::now(),
         }
     }
     pub async fn get_more_blocks(&mut self) -> Result<(), BlockchainError> {
@@ -91,7 +58,9 @@ impl BlockDownload {
         }
         self.push(blocks.clone());
         self.node_tx
-            .send(NodeNotification::AskForBlocks(blocks))
+            .send(NodeNotification::FromBlockDownloader(
+                BlockDownloaderMessages::AskForBlocks(blocks),
+            ))
             .await;
         Ok(())
     }
@@ -112,4 +81,15 @@ impl BlockDownload {
             self.get_more_blocks().await;
         }
     }
+    pub async fn handle_timeout(&mut self) {
+        if self.last_request.elapsed() >= Duration::from_secs(1) {
+            self.last_requested = self.current_verified;
+            self.get_more_blocks().await;
+        }
+        async_std::task::sleep(Duration::from_secs(1)).await
+    }
+}
+
+pub enum BlockDownloaderMessages {
+    AskForBlocks(Vec<BlockHash>),
 }
