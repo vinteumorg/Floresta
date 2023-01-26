@@ -165,9 +165,9 @@ fn main() {
                 electrum_server.listener.clone().unwrap(),
                 electrum_server.notify_tx.clone(),
             ));
-            task::spawn(chain_provider.run());
+            task::spawn(electrum_server.main_loop());
             info!("Server running on: 0.0.0.0:50001");
-            task::block_on(electrum_server.main_loop()).expect("Main loop failed");
+            task::block_on(chain_provider.run());
         }
         #[cfg(feature = "experimental-p2p")]
         Commands::Run {

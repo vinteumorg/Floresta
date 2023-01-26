@@ -242,7 +242,7 @@ impl UtreexoNode {
     }
 
     pub async fn run(mut self) {
-        self.create_connection("localhost:38333").await;
+        self.create_connection("108.161.223.181:38333").await;
 
         loop {
             while let Ok(notification) =
@@ -256,6 +256,7 @@ impl UtreexoNode {
         }
     }
     fn handle_block(chain: &ChainState<KvChainStore>, rpc: &Arc<BTCDClient>, block: Block) {
+        info!("New valid block {}", block.block_hash());
         let (proof, del_hashes, leaf_data) =
             Self::get_proof(&**rpc, &block.block_hash().to_string())
                 .expect("Could not fetch proof");

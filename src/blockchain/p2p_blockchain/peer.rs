@@ -1,6 +1,5 @@
 #![allow(unused)]
 use self::peer_utils::make_pong;
-
 use super::{stream_reader::StreamReader, Mempool, NodeNotification, NodeRequest};
 use crate::blockchain::{
     chain_state::ChainState, chainstore::KvChainStore, error::BlockchainError, udata::LeafData,
@@ -32,6 +31,7 @@ use btcd_rpc::{
 use clap::builder::TypedValueParser;
 use futures::select;
 use futures::FutureExt;
+use log::warn;
 use rustreexo::accumulator::proof::Proof;
 use std::{collections::HashMap, time::Duration};
 use std::{sync::Arc, time::Instant};
@@ -123,6 +123,7 @@ impl Peer {
                 .await;
             }
             NodeRequest::Shutdown => {
+                warn!("Disconnecting peer {}", self.id);
                 self.stream.shutdown(std::net::Shutdown::Both);
             }
         }
@@ -131,13 +132,11 @@ impl Peer {
         match message.payload {
             bitcoin::network::message::NetworkMessage::Version(version) => {
                 self.handle_version(version).await;
-                self.state = State::VersionReceived;
-            }
-            bitcoin::network::message::NetworkMessage::Verack => {
-                self.send_to_node(PeerMessages::Ready).await;
                 self.state = State::Connected;
+                self.send_to_node(PeerMessages::Ready).await;
             }
-            bitcoin::network::message::NetworkMessage::Addr(_) => todo!(),
+            bitcoin::network::message::NetworkMessage::Verack => {}
+            bitcoin::network::message::NetworkMessage::Addr(_) => {}
             bitcoin::network::message::NetworkMessage::Inv(inv) => {
                 for inv_entry in inv {
                     match inv_entry {
@@ -160,7 +159,9 @@ impl Peer {
             bitcoin::network::message::NetworkMessage::GetData(_) => todo!(),
             bitcoin::network::message::NetworkMessage::NotFound(_) => todo!(),
             bitcoin::network::message::NetworkMessage::GetBlocks(_) => todo!(),
-            bitcoin::network::message::NetworkMessage::GetHeaders(_) => {}
+            bitcoin::network::message::NetworkMessage::GetHeaders(_) => {
+                self.write(NetworkMessage::Headers(vec![])).await;
+            }
             bitcoin::network::message::NetworkMessage::MemPool => todo!(),
             bitcoin::network::message::NetworkMessage::Tx(_) => {
                 // self.mempool.write().await.accept_to_mempool();
@@ -174,7 +175,6 @@ impl Peer {
                 self.send_to_node(PeerMessages::Block(block)).await;
             }
             bitcoin::network::message::NetworkMessage::Headers(headers) => {
-                println!("Got headers");
                 self.inflight
                     .push((Instant::now(), InflightRequests::Headers));
                 self.send_to_node(PeerMessages::Headers(headers)).await;
@@ -203,7 +203,9 @@ impl Peer {
             bitcoin::network::message::NetworkMessage::BlockTxn(_) => {}
             bitcoin::network::message::NetworkMessage::Alert(msg) => {}
             bitcoin::network::message::NetworkMessage::Reject(_) => {}
-            bitcoin::network::message::NetworkMessage::FeeFilter(_) => {}
+            bitcoin::network::message::NetworkMessage::FeeFilter(_) => {
+                self.write(NetworkMessage::FeeFilter(1000)).await;
+            }
             bitcoin::network::message::NetworkMessage::WtxidRelay => {}
             bitcoin::network::message::NetworkMessage::AddrV2(_) => {}
             bitcoin::network::message::NetworkMessage::SendAddrV2 => {}
@@ -293,7 +295,7 @@ pub(super) mod peer_utils {
     }
     pub(super) fn build_version_message() -> message::NetworkMessage {
         // Building version message, see https://en.bitcoin.it/wiki/Protocol_documentation#version
-        let my_address = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0);
+        let my_address = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 38332);
 
         // "bitfield of features to be enabled for this connection"
         let services = constants::ServiceFlags::NETWORK;
@@ -329,7 +331,7 @@ pub(super) mod peer_utils {
             user_agent,
             start_height,
             relay: false,
-            version: 70016,
+            version: 70014,
         })
     }
 }
