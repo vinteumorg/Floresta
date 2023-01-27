@@ -54,17 +54,16 @@ use cli::{Cli, Commands};
 use config_file::ConfigFile;
 use log::{debug, error, info};
 use miniscript::{Descriptor, DescriptorPublicKey};
-use pretty_env_logger::env_logger::TimestampPrecision;
+use pretty_env_logger::env_logger::{Env, TimestampPrecision};
 use std::str::FromStr;
 
 use crate::blockchain::cli_blockchain::UtreexodBackend;
 
 fn main() {
     // Setup global logger
-    pretty_env_logger::formatted_timed_builder()
-        .filter_level(log::LevelFilter::Info)
+    pretty_env_logger::env_logger::Builder::from_env(Env::default().default_filter_or("info"))
         .format_timestamp(Some(TimestampPrecision::Seconds))
-        .format_module_path(false)
+        .format_module_path(true)
         .init();
 
     let params = Cli::parse();
@@ -288,6 +287,7 @@ fn derive_addresses<D: AddressCacheDatabase>(
 }
 /// Finds out whether our RPC works or not
 fn test_rpc(rpc: &BTCDClient) -> bool {
+    println!("{:?}", rpc.getbestblock());
     if rpc.getbestblock().is_ok() {
         return true;
     }
