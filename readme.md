@@ -5,7 +5,8 @@ This is a WIP for a wallet/node powered by utreexo. This codebase can download a
 This code also has an out-of-the-box Electrum Server that you can use with any wallet that supports it.
 
 ### Building
-You'll need Rust and Cargo, refer to [this](https://www.rust-lang.org/) for more details.
+You'll need Rust and Cargo, refer to [this](https://www.rust-lang.org/) for more details. Minimum support version is rustc 1.64 and newer.
+
 Once you have Cargo, clone the repository with:
 ```bash
 $ git clone https://github.com/Davidson-Souza/utreexo-electrum-server
