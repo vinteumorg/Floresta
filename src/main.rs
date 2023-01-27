@@ -293,7 +293,7 @@ fn test_rpc(rpc: &BTCDClient) -> bool {
     }
     false
 }
-/// Returns the value that is defined, if a is defined, return b. If b is defined and and
+/// Returns the value that is defined, if a is not defined, return a. If b is defined and
 /// a not, returns b. If a and b is defined, returns a, etc.
 fn get_one_or_another<A, B, Return>(a: Option<A>, b: Option<B>, default: Return) -> Return
 where
