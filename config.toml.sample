@@ -2,10 +2,9 @@
 xpubs = []
 
 [rpc]
-rpc_user = ""
-rpc_password = ""
-rpc_host = ""
-rpc_port = ""
+rpc_user = "SomeUsername"
+rpc_password = "SomePassword"
+rpc_host = "https://127.0.0.1:38334"
 
 [misc]
 external_sync = ""

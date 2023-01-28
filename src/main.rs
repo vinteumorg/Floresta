@@ -218,7 +218,7 @@ fn create_rpc_connection(
         false,
         username,
         password,
-        Some(hostname.to_owned()),
+        hostname.to_owned(),
         Some(rpc_port as usize),
     );
     let connection = BTCDClient::new(config);
@@ -287,7 +287,6 @@ fn derive_addresses<D: AddressCacheDatabase>(
 }
 /// Finds out whether our RPC works or not
 fn test_rpc(rpc: &BTCDClient) -> bool {
-    println!("{:?}", rpc.getbestblock());
     if rpc.getbestblock().is_ok() {
         return true;
     }
