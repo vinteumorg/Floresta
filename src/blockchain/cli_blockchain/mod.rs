@@ -1,8 +1,9 @@
 use std::{
     collections::HashMap,
+    io::BufReader,
     net::TcpStream,
     sync::{atomic::AtomicBool, Arc},
-    time::Duration, io::BufReader,
+    time::Duration,
 };
 
 use bitcoin::{
