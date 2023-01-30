@@ -16,7 +16,7 @@ pub struct Rpc {
 }
 #[derive(Default, Debug, Deserialize)]
 pub struct Misc {
-    pub external_sync: Option<String>,
+    pub batch_sync: Option<String>,
 }
 #[derive(Default, Debug, Deserialize)]
 pub struct ConfigFile {
