@@ -64,10 +64,10 @@ pub enum Commands {
         /// Whether or not we want to sync with a external provider
         #[arg(long)]
         #[arg(default_value_t = false)]
-        use_external_sync: bool,
-        /// If use_external_sync is set, this option provides which server we use
+        use_batch_sync: bool,
+        /// If use_batch_sync is set, this option provides which server we use
         #[arg(long)]
-        external_sync: Option<String>,
+        batch_sync: Option<String>,
         /// Assume blocks before this one as having valid signatures, same with bitcoin core
         #[arg(long)]
         assume_valid: Option<BlockHash>,
