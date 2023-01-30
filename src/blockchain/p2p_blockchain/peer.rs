@@ -135,7 +135,9 @@ impl Peer {
                 self.state = State::Connected;
                 self.send_to_node(PeerMessages::Ready).await;
             }
-            bitcoin::network::message::NetworkMessage::Verack => {}
+            bitcoin::network::message::NetworkMessage::Verack => {
+                self.state = State::RemoteVerack;
+            }
             bitcoin::network::message::NetworkMessage::Addr(_) => {}
             bitcoin::network::message::NetworkMessage::Inv(inv) => {
                 for inv_entry in inv {
@@ -186,30 +188,10 @@ impl Peer {
             bitcoin::network::message::NetworkMessage::Ping(nonce) => {
                 self.handle_ping(nonce).await;
             }
-            bitcoin::network::message::NetworkMessage::Pong(_) => {}
-            bitcoin::network::message::NetworkMessage::MerkleBlock(_) => {}
-            bitcoin::network::message::NetworkMessage::FilterLoad(_) => {}
-            bitcoin::network::message::NetworkMessage::FilterAdd(_) => {}
-            bitcoin::network::message::NetworkMessage::FilterClear => {}
-            bitcoin::network::message::NetworkMessage::GetCFilters(_) => {}
-            bitcoin::network::message::NetworkMessage::CFilter(_) => {}
-            bitcoin::network::message::NetworkMessage::GetCFHeaders(_) => {}
-            bitcoin::network::message::NetworkMessage::CFHeaders(_) => {}
-            bitcoin::network::message::NetworkMessage::GetCFCheckpt(_) => {}
-            bitcoin::network::message::NetworkMessage::CFCheckpt(_) => {}
-            bitcoin::network::message::NetworkMessage::SendCmpct(_) => {}
-            bitcoin::network::message::NetworkMessage::CmpctBlock(_) => {}
-            bitcoin::network::message::NetworkMessage::GetBlockTxn(_) => {}
-            bitcoin::network::message::NetworkMessage::BlockTxn(_) => {}
-            bitcoin::network::message::NetworkMessage::Alert(msg) => {}
-            bitcoin::network::message::NetworkMessage::Reject(_) => {}
             bitcoin::network::message::NetworkMessage::FeeFilter(_) => {
                 self.write(NetworkMessage::FeeFilter(1000)).await;
             }
-            bitcoin::network::message::NetworkMessage::WtxidRelay => {}
-            bitcoin::network::message::NetworkMessage::AddrV2(_) => {}
-            bitcoin::network::message::NetworkMessage::SendAddrV2 => {}
-            bitcoin::network::message::NetworkMessage::Unknown { command, payload } => todo!(),
+            _ => {}
         }
     }
 }
@@ -349,6 +331,8 @@ pub enum PeerMessages {
     Block(Block),
     /// A response to a `getheaders` request
     Headers(Vec<BlockHeader>),
+    /// We got some p2p addresses, add this to our local database
+    Addr(Vec<AddrV2>),
     /// Peer notify its readiness
     Ready,
     /// Remote peer disconnected

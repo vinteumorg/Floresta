@@ -31,7 +31,7 @@ mod peer;
 mod peer_manager;
 mod protocol;
 mod stream_reader;
-
+mod address_man;
 pub enum NodeNotification {
     FromPeer(u32, PeerMessages),
     FromPingManager,
@@ -222,6 +222,9 @@ impl UtreexoNode {
                         warn!("Peer {id} timed out request. Disconnecting");
                         peer.send(NodeRequest::Shutdown).await;
                     }
+                }
+                PeerMessages::Addr(addresses) => {
+
                 }
             },
             NodeNotification::FromPingManager => todo!(),
