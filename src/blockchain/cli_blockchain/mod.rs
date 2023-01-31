@@ -12,7 +12,7 @@ use bitcoin::{
         hex::{FromHex, ToHex},
         sha256, Hash,
     },
-    Block, BlockHash, OutPoint,
+    Block, BlockHash, BlockHeader, OutPoint,
 };
 use btcd_rpc::{
     client::{BTCDClient, BtcdRpc},
@@ -118,13 +118,12 @@ impl UtreexodBackend {
         }
         Ok(())
     }
-    pub fn handle_tip_update(&self) -> Result<()> {
+    pub async fn handle_tip_update(&self) -> Result<()> {
         let height = self.get_height()?;
         let local_best = self.chainstate.get_best_block().unwrap().0;
         if height > local_best {
-            for block_height in (local_best + 1)..=height {
-                self.process_block(block_height)?;
-            }
+            self.get_headers()?;
+            self.download_blocks().await?;
         }
         Ok(())
     }
@@ -147,24 +146,24 @@ impl UtreexodBackend {
         for leaf in leaf_data {
             inputs.insert(leaf.prevout, leaf.utxo);
         }
-        if !self.chainstate.is_in_idb() {
-            self.chainstate.accept_header(block.header)?;
-        }
         self.chainstate
             .connect_block(&block, proof, inputs, del_hashes)?;
         Ok(())
     }
-    async fn start_ibd(&self) -> Result<()> {
+    async fn download_blocks(&self) -> Result<()> {
         let height = self.get_height()?;
         let current = self.chainstate.get_validation_index()?;
-        info!("Start Initial Block Download at height {current} of {height}");
+        // We don't download genesis, because utreexod will error out if we try to fetch
+        // proof for it.
+        let current = if current == 0 { 1 } else { current };
+        if self.chainstate.is_in_idb() {
+            info!("Start Initial Block Download at height {current} of {height}");
+        }
         for block_height in current..=height {
             if self.is_shutting_down() {
                 return Ok(());
             }
-            if block_height == 0 {
-                continue;
-            }
+
             if block_height % 10_000 == 0 {
                 info!("Sync at block {block_height}");
                 if block_height % 100_000 == 0 {
@@ -173,13 +172,16 @@ impl UtreexodBackend {
             }
             self.process_block(block_height)?;
         }
-        info!("Leaving Initial Block Download at height {height}");
+        if self.chainstate.is_in_idb() {
+            info!("Leaving Initial Block Download at height {height}");
+        } else {
+            info!("New tip: {height}");
+        }
         self.chainstate.toggle_ibd(false);
         self.chainstate.flush()?;
 
         Ok(())
     }
-    #[allow(unused)]
     async fn process_batch_block(&self) -> Result<()> {
         let socket = TcpStream::connect(self.batch_sync_hostname.to_owned().as_str())?;
 
@@ -247,7 +249,7 @@ impl UtreexodBackend {
                 .iter()
                 .map(|header| {
                     let header = Vec::from_hex(header).unwrap();
-                    deserialize(&header).unwrap()
+                    deserialize::<BlockHeader>(&header).unwrap()
                 })
                 .collect::<Vec<_>>();
 
@@ -273,7 +275,7 @@ impl UtreexodBackend {
         if self.use_batch_sync {
             try_and_log!(self.process_batch_block().await);
         } else {
-            try_and_log!(self.start_ibd().await);
+            try_and_log!(self.download_blocks().await);
         }
         self.chainstate.toggle_ibd(false);
         loop {
@@ -284,7 +286,7 @@ impl UtreexodBackend {
                 return;
             }
             try_and_log!(self.handle_broadcast());
-            try_and_log!(self.handle_tip_update());
+            try_and_log!(self.handle_tip_update().await);
             try_and_log!(self.chainstate.flush());
         }
     }
