@@ -55,9 +55,6 @@ pub trait BlockchainProviderInterface {
     /// makes some basic checks on a header and saves it on disk. We only accept a block as
     /// valid after calling connect_block.
     fn accept_header(&self, header: BlockHeader) -> Result<()>;
-    /// If we detect a reorganization of blocks, this function should reconciliate our view of
-    /// the network.
-    fn handle_reorg(&self) -> Result<()>;
     /// Not used for now, but in a future blockchain with mempool, we can process transactions
     /// that are not in a block yet.
     fn handle_transaction(&self) -> Result<()>;
