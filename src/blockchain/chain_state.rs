@@ -7,7 +7,7 @@ use super::{
 use crate::{read_lock, write_lock};
 use async_std::channel::Sender;
 use bitcoin::{
-    blockdata::constants::genesis_block,
+    blockdata::constants::{genesis_block, COIN_VALUE},
     consensus::{deserialize_partial, Decodable, Encodable},
     hashes::{hex::FromHex, sha256, Hash},
     util::uint::Uint256,
@@ -81,14 +81,68 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         sha256::Hash::from_slice(leaf_hash.as_slice())
             .expect("parent_hash: Engines shouldn't be Err")
     }
+    /// Returns the amount of block subsidy to be paid in a block, given it's height.
+    /// Bitcoin Core source: https://github.com/bitcoin/bitcoin/blob/2b211b41e36f914b8d0487e698b619039cc3c8e2/src/validation.cpp#L1501-L1512
+    fn get_subsidy(&self, height: u32) -> u64 {
+        let halvings = height / read_lock!(self).chain_params.subsidy_halving_interval as u32;
+        // Force block reward to zero when right shift is undefined.
+        if halvings >= 64 {
+            return 0;
+        }
+        let mut subsidy = 50 * COIN_VALUE;
+        // Subsidy is cut in half every 210,000 blocks which will occur approximately every 4 years.
+        subsidy >>= halvings;
+        subsidy
+    }
     pub fn verify_block_transactions(
         mut utxos: HashMap<OutPoint, TxOut>,
         transactions: &[Transaction],
+        subsidy: u64,
     ) -> Result<bool, crate::error::Error> {
-        for transaction in transactions {
-            if !transaction.is_coin_base() {
-                transaction.verify(|outpoint| utxos.remove(outpoint))?;
+        if transactions.is_empty() {
+            return Err(BlockValidationErrors::EmptyBlock.into());
+        }
+        let mut fee = 0;
+        // Skip the coinbase tx
+        for (n, transaction) in transactions.iter().enumerate() {
+            if transaction.is_coin_base() {
+                if n == 0 {
+                    continue;
+                }
+                // A block must contain only one tx, and it should be the fist thing inside it
+                return Err(BlockValidationErrors::FirstTxIsnNotCoinbase.into());
             }
+            // Amount of all outputs
+            let output_value = transaction.output.iter().fold(0, |acc, tx| acc + tx.value);
+            // Amount of all inputs
+            let in_value = transaction.input.iter().fold(0, |acc, input| {
+                acc + utxos
+                    .get(&input.previous_output)
+                    .expect("We have all prevouts here")
+                    .value
+            });
+            // Value in should be greater or equal to value out. Otherwise, inflation.
+            if output_value > in_value {
+                return Err(BlockValidationErrors::NotEnoughMoney.into());
+            }
+            // Fee is the difference between inputs and outputs
+            fee += in_value - output_value;
+            // Verify the tx script
+            transaction.verify(|outpoint| utxos.remove(outpoint))?;
+        }
+        // In each block, the first transaction, and only the first, should be coinbase
+        if !transactions[0].is_coin_base() {
+            crate::error::Error::BlockValidationError(
+                BlockValidationErrors::FirstTxIsnNotCoinbase.into(),
+            );
+        }
+        if fee + subsidy
+            < transactions[0]
+                .output
+                .iter()
+                .fold(0, |acc, out| acc + out.value)
+        {
+            return Err(BlockValidationErrors::BadCoinbaseOutValue.into());
         }
         Ok(true)
     }
@@ -653,11 +707,11 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
         let hash = block.header.validate_pow(&target).map_err(|_| {
             BlockchainError::BlockValidationError(BlockValidationErrors::NotEnoughPow)
         })?;
-        if height > inner.assume_valid.1 {
-            Self::verify_block_transactions(inputs, &block.txdata).map_err(|_| {
-                BlockchainError::BlockValidationError(BlockValidationErrors::InvalidTx)
-            })?;
-        }
+        // Validate block transactions
+        let subsidy = self.get_subsidy(height);
+        Self::verify_block_transactions(inputs, &block.txdata, subsidy)
+            .map_err(|_| BlockchainError::BlockValidationError(BlockValidationErrors::InvalidTx))?;
+
         // ... If we came this far, we consider this block valid ...
         if self.is_in_idb() && height % 10_000 == 0 {
             info!("Downloading blocks at: {height}");
@@ -837,6 +891,7 @@ impl Decodable for BestChain {
         })
     }
 }
+
 #[cfg(test)]
 mod test {
     use bitcoin::{consensus::deserialize, hashes::hex::FromHex, BlockHeader, Network};

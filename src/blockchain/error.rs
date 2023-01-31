@@ -39,6 +39,10 @@ pub enum BlockValidationErrors {
     NotEnoughPow,
     BadMerkleRoot,
     BadWitnessCommitment,
+    NotEnoughMoney,
+    FirstTxIsnNotCoinbase,
+    BadCoinbaseOutValue,
+    EmptyBlock,
 }
 impl From<bitcoin::consensus::encode::Error> for BlockchainError {
     fn from(err: bitcoin::consensus::encode::Error) -> Self {
