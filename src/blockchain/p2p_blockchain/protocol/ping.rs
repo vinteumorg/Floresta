@@ -1,11 +1,7 @@
-use std::{
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use async_std::channel::Sender;
+use std::time::{Duration, Instant};
 
-use async_std::{channel::Sender, sync::RwLock};
-
-use crate::blockchain::p2p_blockchain::{peer::Peer, NodeNotification};
+use crate::blockchain::p2p_blockchain::node::NodeNotification;
 
 pub enum PingState {
     Pending { since: Instant },

@@ -1,6 +1,6 @@
-use std::time::{Instant, UNIX_EPOCH};
-
 use bitcoin::network::{address::AddrV2, constants::ServiceFlags};
+use std::time::Instant;
+
 #[derive(Debug, Clone)]
 pub enum AddressState {
     NeverTried,

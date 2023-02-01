@@ -6,18 +6,9 @@
 //! this header. With payload size we can finally read the entire message and return a parsed
 //! structure.
 
-use async_std::net::TcpStream;
-use async_std::{io::ReadExt, stream::Stream};
+use async_std::io::ReadExt;
 use bitcoin::consensus::{deserialize, deserialize_partial, Decodable};
-use bitcoin::network::message::{RawNetworkMessage, MAX_MSG_SIZE};
-use bitcoin::{network, Network};
-use futures::future::ok;
-use futures::AsyncRead;
 use std::marker::PhantomData;
-use std::mem;
-use std::ops::{Deref, DerefMut};
-use std::pin::Pin;
-use std::task::Poll;
 
 use crate::blockchain::error::BlockchainError;
 
@@ -52,13 +43,13 @@ where
 
         // Read the reader first, so learn the payload size
         self.source.read_exact(&mut *data).await?;
-        let mut header: P2PMessageHeader = deserialize_partial(&mut *data)?.0;
+        let header: P2PMessageHeader = deserialize_partial(&mut *data)?.0;
         if header.magic != self.magic {
-            return Err(super::BlockchainError::PeerMessageInvalidMagic);
+            return Err(crate::blockchain::BlockchainError::PeerMessageInvalidMagic);
         }
         // Network Message too big
         if header.length > (1024 * 1024 * 32) as u32 {
-            return Err(super::BlockchainError::MessageTooBig);
+            return Err(crate::blockchain::BlockchainError::MessageTooBig);
         }
         data.resize(24 + header.length as usize, 0);
 
@@ -72,21 +63,21 @@ where
 #[derive(Debug)]
 pub struct P2PMessageHeader {
     magic: u32,
-    command: [u8; 12],
+    _command: [u8; 12],
     length: u32,
-    checksum: u32,
+    _checksum: u32,
 }
 impl Decodable for P2PMessageHeader {
     fn consensus_decode<R: std::io::Read + ?Sized>(
         reader: &mut R,
     ) -> Result<Self, bitcoin::consensus::encode::Error> {
         let magic = u32::consensus_decode(reader)?;
-        let command = <[u8; 12]>::consensus_decode(reader)?;
+        let _command = <[u8; 12]>::consensus_decode(reader)?;
         let length = u32::consensus_decode(reader)?;
-        let checksum = u32::consensus_decode(reader)?;
+        let _checksum = u32::consensus_decode(reader)?;
         Ok(Self {
-            checksum,
-            command,
+            _checksum,
+            _command,
             length,
             magic,
         })

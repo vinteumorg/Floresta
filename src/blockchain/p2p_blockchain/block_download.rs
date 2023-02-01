@@ -1,6 +1,5 @@
 use crate::blockchain::{
     chain_state::ChainState, chainstore::KvChainStore, error::BlockchainError, BlockchainInterface,
-    BlockchainProviderInterface,
 };
 use async_std::channel::Sender;
 use bitcoin::{Block, BlockHash};
@@ -11,7 +10,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use super::NodeNotification;
+use super::node::NodeNotification;
 
 pub struct BlockDownload {
     inflight: HashMap<BlockHash, u32>,

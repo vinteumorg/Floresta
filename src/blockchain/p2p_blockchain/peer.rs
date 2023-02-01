@@ -1,6 +1,10 @@
 #![allow(unused)]
 use self::peer_utils::make_pong;
-use super::{stream_reader::StreamReader, Mempool, NodeNotification, NodeRequest};
+use super::{
+    node::{NodeNotification, NodeRequest},
+    stream_reader::StreamReader,
+    mempool::Mempool,
+};
 use crate::blockchain::{
     chain_state::ChainState, chainstore::KvChainStore, error::BlockchainError, udata::LeafData,
     BlockchainInterface, BlockchainProviderInterface,

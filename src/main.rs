@@ -61,7 +61,7 @@ use std::str::FromStr;
 use crate::blockchain::cli_blockchain::UtreexodBackend;
 
 #[cfg(feature = "experimental-p2p")]
-use crate::blockchain::p2p_blockchain::{Mempool, UtreexoNode};
+use crate::blockchain::p2p_blockchain::{mempool::Mempool, node::UtreexoNode};
 
 fn main() {
     // Setup global logger
