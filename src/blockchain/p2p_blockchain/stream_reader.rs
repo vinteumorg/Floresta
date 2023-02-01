@@ -10,6 +10,7 @@ use async_std::net::TcpStream;
 use async_std::{io::ReadExt, stream::Stream};
 use bitcoin::consensus::{deserialize, deserialize_partial, Decodable};
 use bitcoin::network::message::{RawNetworkMessage, MAX_MSG_SIZE};
+use bitcoin::{network, Network};
 use futures::future::ok;
 use futures::AsyncRead;
 use std::marker::PhantomData;
@@ -27,6 +28,8 @@ pub struct StreamReader<Source: Sync + Send + ReadExt + Unpin, Item: Decodable> 
     /// Item is what we return, since we don't actually hold any concrete type, just use a
     /// phantom data to bind a type.
     phantom: PhantomData<Item>,
+    /// Magic bits, we expect this at the beginning of all messages
+    magic: u32,
 }
 impl<Source, Item> StreamReader<Source, Item>
 where
@@ -34,10 +37,11 @@ where
     Source: Sync + Send + ReadExt + Unpin,
 {
     /// Creates a new reader from a given stream
-    pub fn new(stream: Source) -> Self {
+    pub fn new(stream: Source, magic: u32) -> Self {
         StreamReader {
             source: stream,
             phantom: PhantomData,
+            magic,
         }
     }
     /// Tries to read from a parsed [Item] from [Source]. Only returns on error or if we have
@@ -49,20 +53,23 @@ where
         // Read the reader first, so learn the payload size
         self.source.read_exact(&mut *data).await?;
         let mut header: P2PMessageHeader = deserialize_partial(&mut *data)?.0;
-
+        if header.magic != self.magic {
+            return Err(super::BlockchainError::PeerMessageInvalidMagic);
+        }
         // Network Message too big
-        if header.length > MAX_MSG_SIZE as u32 {
+        if header.length > (1024 * 1024 * 32) as u32 {
             return Err(super::BlockchainError::MessageTooBig);
         }
         data.resize(24 + header.length as usize, 0);
 
         // Read everything else
         self.source.read_exact(&mut data[24..]).await?;
-        let message = deserialize(&*data)?;
+        let message = deserialize(&data)?;
 
         Ok(message)
     }
 }
+#[derive(Debug)]
 pub struct P2PMessageHeader {
     magic: u32,
     command: [u8; 12],

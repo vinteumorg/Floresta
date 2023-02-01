@@ -96,5 +96,8 @@ pub enum Commands {
         rpc_host: Option<String>,
         #[arg(long)]
         rpc_port: Option<u32>,
+        /// Assume blocks before this one as having valid signatures, same with bitcoin core
+        #[arg(long)]
+        assume_valid: Option<BlockHash>,
     },
 }

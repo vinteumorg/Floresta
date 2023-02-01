@@ -74,7 +74,8 @@ impl Peer {
     }
     async fn peer_loop_inner(&mut self) -> Result<(), BlockchainError> {
         let read_stream = BufReader::new(self.stream.clone());
-        let mut stream: StreamReader<_, RawNetworkMessage> = StreamReader::new(read_stream);
+        let mut stream: StreamReader<_, RawNetworkMessage> =
+            StreamReader::new(read_stream, self.network.magic());
         loop {
             select! {
                 request = self.node_requests.recv().fuse() => {
@@ -107,7 +108,7 @@ impl Peer {
                 ));
                 let mut inv = block_hashes
                     .iter()
-                    .map(|block| Inventory::Block(*block))
+                    .map(|block| Inventory::WitnessBlock(*block))
                     .collect();
 
                 self.write(NetworkMessage::GetData(inv)).await;

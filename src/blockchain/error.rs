@@ -15,6 +15,8 @@ pub enum BlockchainError {
     IoError(std::io::Error),
     #[cfg(feature = "experimental-p2p")]
     MessageTooBig,
+    #[cfg(feature = "experimental-p2p")]
+    PeerMessageInvalidMagic,
 }
 #[derive(Debug)]
 pub enum BlockValidationErrors {

@@ -26,12 +26,12 @@ use log::{info, warn};
 use rustreexo::accumulator::proof::Proof;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
+mod address_man;
 mod block_download;
 mod peer;
 mod peer_manager;
 mod protocol;
 mod stream_reader;
-mod address_man;
 pub enum NodeNotification {
     FromPeer(u32, PeerMessages),
     FromPingManager,
@@ -223,9 +223,7 @@ impl UtreexoNode {
                         peer.send(NodeRequest::Shutdown).await;
                     }
                 }
-                PeerMessages::Addr(addresses) => {
-
-                }
+                PeerMessages::Addr(addresses) => {}
             },
             NodeNotification::FromPingManager => todo!(),
             NodeNotification::FromPeerManager(message) => match message {
@@ -245,7 +243,7 @@ impl UtreexoNode {
     }
 
     pub async fn run(mut self) {
-        self.create_connection("108.161.223.181:38333").await;
+        self.create_connection("localhost:38333").await;
 
         loop {
             while let Ok(notification) =
@@ -259,7 +257,6 @@ impl UtreexoNode {
         }
     }
     fn handle_block(chain: &ChainState<KvChainStore>, rpc: &Arc<BTCDClient>, block: Block) {
-        info!("New valid block {}", block.block_hash());
         let (proof, del_hashes, leaf_data) =
             Self::get_proof(&**rpc, &block.block_hash().to_string())
                 .expect("Could not fetch proof");
@@ -288,7 +285,6 @@ impl UtreexoNode {
             info!("Leaving ibd");
             return;
         }
-        info!("Downloading blocks at {}", next_blocks.get(0).unwrap());
         self.send_to_random_peer(NodeRequest::GetBlock(next_blocks))
             .await;
     }

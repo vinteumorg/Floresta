@@ -176,6 +176,7 @@ fn main() {
             rpc_password,
             rpc_host,
             rpc_port,
+            assume_valid,
             wallet_xpub,
         } => {
             let data_dir = get_one_or_another(
@@ -218,8 +219,11 @@ fn main() {
             info!("Starting sync worker, this might take a while!");
 
             debug!("Loading database...");
-            let blockchain_state = Arc::new(load_chain_state(&data_dir, get_net(&params.network)));
-
+            let blockchain_state = Arc::new(load_chain_state(
+                &data_dir,
+                get_net(&params.network),
+                assume_valid,
+            ));
             debug!("Done loading wallet");
 
             let chain_provider = UtreexoNode::new(
