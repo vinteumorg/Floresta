@@ -391,7 +391,7 @@ pub async fn accept_loop(listener: Arc<TcpListener>, notify_channel: Sender<Mess
     let mut id_count = 0;
     loop {
         if let Ok((stream, _addr)) = listener.accept().await {
-            log!(Level::Info, "New peer");
+            info!("New client connection");
             let stream = Arc::new(stream);
             async_std::task::spawn(peer_loop(stream.clone(), id_count, notify_channel.clone()));
             let peer = Arc::new(Peer::new(stream));
