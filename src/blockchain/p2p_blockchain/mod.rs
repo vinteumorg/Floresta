@@ -6,5 +6,4 @@ pub mod block_download;
 pub mod mempool;
 pub mod node;
 pub mod peer;
-pub mod protocol;
 pub mod stream_reader;
