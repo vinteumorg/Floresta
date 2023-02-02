@@ -1,5 +1,6 @@
 use crate::blockchain::{
     chain_state::ChainState, chainstore::KvChainStore, error::BlockchainError, BlockchainInterface,
+    BlockchainProviderInterface,
 };
 use async_std::channel::Sender;
 use bitcoin::{Block, BlockHash};
@@ -51,9 +52,15 @@ impl BlockDownload {
     pub async fn get_more_blocks(&mut self) -> Result<(), BlockchainError> {
         let block = self.last_requested + 1;
         let mut blocks = vec![];
-
+        if self.chain.get_best_block().unwrap().0 == self.chain.get_validation_index().unwrap() {
+            return Ok(());
+        }
         for height in block..block + 1000 {
-            blocks.push(self.chain.get_block_hash(height)?);
+            if let Ok(block) = self.chain.get_block_hash(height) {
+                blocks.push(block);
+            } else {
+                break;
+            }
         }
         self.push(blocks.clone());
         self.node_tx

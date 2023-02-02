@@ -2,6 +2,7 @@
 //! events, such as new blocks, peer connection/disconnection, new addresses, etc.
 //! A node should not care about peer-specific messages, peers'll handle things like pings.
 use super::{
+    address_man::{AddressMan, LocalAddress},
     block_download::{BlockDownload, BlockDownloaderMessages},
     mempool::Mempool,
     peer::{Peer, PeerMessages},
@@ -18,15 +19,24 @@ use async_std::{
 use bitcoin::{
     consensus::deserialize_partial,
     hashes::{hex::FromHex, sha256},
+    network::{address::AddrV2, constants::ServiceFlags},
     Block, BlockHash, BlockHeader, Network, OutPoint,
 };
 use btcd_rpc::{
     client::{BTCDClient, BtcdRpc},
     json_types::blockchain::GetUtreexoProofResult,
 };
-use log::{info, warn};
+use log::{error, info, warn};
 use rustreexo::accumulator::proof::Proof;
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    net::{IpAddr, Ipv4Addr},
+    sync::Arc,
+    time::{Duration, Instant},
+};
+
+/// Max number of simultaneous connections we initiates we are willing to hold
+const MAX_OUTGOING_PEERS: usize = 10;
 
 pub enum NodeNotification {
     FromPeer(u32, PeerMessages),
@@ -65,6 +75,7 @@ pub struct UtreexoNode {
     header_backlog: Vec<BlockHeader>,
     state: NodeState,
     download_man: BlockDownload,
+    address_man: AddressMan,
 }
 enum PeerStatus {
     Awaiting,
@@ -95,6 +106,7 @@ impl UtreexoNode {
             node_rx,
             node_tx,
             rpc,
+            address_man: AddressMan::default(),
         };
         node
     }
@@ -104,6 +116,15 @@ impl UtreexoNode {
     ) -> Result<(Proof, Vec<sha256::Hash>, Vec<LeafData>), BlockchainError> {
         let proof = rpc.getutreexoproof(hash.to_string(), true)?.get_verbose();
         Self::process_proof(proof)
+    }
+    fn start_addr_man(&mut self) {
+        let addresses = include_str!("fixed_peers.json");
+        let addresses: Vec<&str> = serde_json::from_str(addresses).unwrap();
+        let addresses = addresses
+            .into_iter()
+            .map(|addr| addr.try_into().expect("Invalid fixed peer"))
+            .collect::<Vec<_>>();
+        self.address_man.push_addresses(&addresses);
     }
     fn process_proof(
         proof: GetUtreexoProofResult,
@@ -199,8 +220,11 @@ impl UtreexoNode {
                     Ok(())
                 }
                 PeerMessages::Headers(headers) => self.handle_headers(headers).await,
-                PeerMessages::Ready => {
-                    info!("New peer");
+                PeerMessages::Ready(version) => {
+                    info!(
+                        "New peer id={} version={} blocks={}",
+                        version.id, version.user_agent, version.blocks
+                    );
                     if let Some(peer) = self.peers.get_mut(peer as usize) {
                         peer.0 = PeerStatus::Ready;
                     }
@@ -215,8 +239,11 @@ impl UtreexoNode {
                     Ok(())
                 }
                 PeerMessages::Disconnected => {
-                    warn!("Peer lost");
-                    self.peers.remove(peer as usize);
+                    warn!("Peer lost id={peer}");
+                    let peer = self.peers.iter().position(|(_, id, _)| peer == *id);
+                    if let Some(peer) = peer {
+                        self.peers.remove(peer);
+                    }
                     Ok(())
                 }
                 PeerMessages::RequestTimeout => {
@@ -226,7 +253,12 @@ impl UtreexoNode {
                     }
                     Ok(())
                 }
-                PeerMessages::Addr(_) => Ok(()),
+                PeerMessages::Addr(addresses) => {
+                    let addresses: Vec<_> =
+                        addresses.iter().cloned().map(|addr| addr.into()).collect();
+                    self.address_man.push_addresses(&addresses);
+                    Ok(())
+                }
             },
             NodeNotification::FromPingManager => todo!(),
             NodeNotification::FromBlockDownloader(blocks) => match blocks {
@@ -239,7 +271,8 @@ impl UtreexoNode {
     }
 
     pub async fn run(mut self) {
-        self.create_connection("localhost:38333").await;
+        self.start_addr_man();
+        self.create_connection().await;
 
         loop {
             while let Ok(notification) =
@@ -248,8 +281,14 @@ impl UtreexoNode {
                 if let Ok(notification) = notification {
                     let _ = self.handle_notification(notification).await;
                 }
-                self.download_man.handle_timeout().await;
             }
+            self.maybe_open_connection().await;
+            self.download_man.handle_timeout().await;
+        }
+    }
+    async fn maybe_open_connection(&mut self) {
+        if self.peers.len() < MAX_OUTGOING_PEERS {
+            self.create_connection().await;
         }
     }
     fn handle_block(chain: &ChainState<KvChainStore>, rpc: &Arc<BTCDClient>, block: Block) {
@@ -287,24 +326,35 @@ impl UtreexoNode {
         self.send_to_random_peer(NodeRequest::GetBlock(next_blocks))
             .await
     }
-    async fn create_connection(&mut self, peer: &str) {
-        let (requests_tx, requests_rx) = bounded(1024);
-        let peer = Peer::create_outbound_connection(
-            self.chain.clone(),
-            self.peer_id_count,
-            peer,
-            self.mempool.clone(),
-            self.network,
-            self.node_tx.clone(),
-            requests_rx,
-        )
-        .await;
-
-        if let Ok(peer) = peer {
-            spawn(peer.read_loop());
-            self.peers
-                .push((PeerStatus::Awaiting, self.peer_id_count, requests_tx));
+    async fn create_connection(&mut self) {
+        if let Some(address) = self
+            .address_man
+            .get_address_to_connect(ServiceFlags::NETWORK | ServiceFlags::WITNESS)
+        {
+            let (requests_tx, requests_rx) = bounded(1024);
+            let peer = Peer::create_outbound_connection(
+                self.chain.clone(),
+                self.peer_id_count,
+                (address.get_net_address(), 38333),
+                self.mempool.clone(),
+                self.network,
+                self.node_tx.clone(),
+                requests_rx,
+            )
+            .await;
+            if let Ok(peer) = peer {
+                spawn(peer.read_loop());
+                self.peers
+                    .push((PeerStatus::Awaiting, self.peer_id_count, requests_tx));
+                self.peer_id_count += 1;
+                return;
+            } else {
+                error!(
+                    "Error connecting to peer {:?}: {:?}",
+                    address.get_net_address(),
+                    peer.unwrap_err()
+                );
+            }
         }
-        self.peer_id_count += 1;
     }
 }

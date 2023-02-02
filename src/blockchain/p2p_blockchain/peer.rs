@@ -1,9 +1,9 @@
 #![allow(unused)]
 use self::peer_utils::make_pong;
 use super::{
+    mempool::Mempool,
     node::{NodeNotification, NodeRequest},
     stream_reader::StreamReader,
-    mempool::Mempool,
 };
 use crate::blockchain::{
     chain_state::ChainState, chainstore::KvChainStore, error::BlockchainError, udata::LeafData,
@@ -37,7 +37,7 @@ use futures::select;
 use futures::FutureExt;
 use log::warn;
 use rustreexo::accumulator::proof::Proof;
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, fmt::Debug, time::Duration};
 use std::{sync::Arc, time::Instant};
 #[derive(PartialEq)]
 enum State {
@@ -53,6 +53,7 @@ enum InflightRequests {
     Address,
     Headers,
 }
+
 pub struct Peer {
     stream: TcpStream,
     network: Network,
@@ -69,6 +70,13 @@ pub struct Peer {
     state: State,
     send_headers: bool,
     node_requests: Receiver<NodeRequest>,
+}
+impl Debug for Peer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.id)?;
+        write!(f, "{:?}", self.stream.peer_addr())?;
+        Ok(())
+    }
 }
 impl Peer {
     pub async fn read_loop(mut self) -> Result<(), BlockchainError> {
@@ -138,7 +146,13 @@ impl Peer {
             bitcoin::network::message::NetworkMessage::Version(version) => {
                 self.handle_version(version).await;
                 self.state = State::Connected;
-                self.send_to_node(PeerMessages::Ready).await;
+                self.send_to_node(PeerMessages::Ready(Version {
+                    user_agent: self.user_agent.clone(),
+                    protocol_version: 0,
+                    id: self.id,
+                    blocks: self.current_best_block.unsigned_abs(),
+                }))
+                .await;
             }
             bitcoin::network::message::NetworkMessage::Verack => {
                 self.state = State::RemoteVerack;
@@ -322,7 +336,12 @@ pub(super) mod peer_utils {
         })
     }
 }
-
+pub struct Version {
+    pub user_agent: String,
+    pub protocol_version: u32,
+    pub blocks: u32,
+    pub id: u32,
+}
 /// Messages passed from different modules to the main node to process. They should minimal
 /// and only if it requires global states, everything else should be handled by the module
 /// itself.
@@ -339,7 +358,7 @@ pub enum PeerMessages {
     /// We got some p2p addresses, add this to our local database
     Addr(Vec<AddrV2>),
     /// Peer notify its readiness
-    Ready,
+    Ready(Version),
     /// Remote peer disconnected
     Disconnected,
     /// A request timed out

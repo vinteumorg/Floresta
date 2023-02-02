@@ -7,7 +7,10 @@
 //! structure.
 
 use async_std::io::ReadExt;
-use bitcoin::consensus::{deserialize, deserialize_partial, Decodable};
+use bitcoin::{
+    consensus::{deserialize, deserialize_partial, Decodable},
+    hashes::hex::ToHex,
+};
 use std::marker::PhantomData;
 
 use crate::blockchain::error::BlockchainError;
@@ -63,21 +66,21 @@ where
 #[derive(Debug)]
 pub struct P2PMessageHeader {
     magic: u32,
-    _command: [u8; 12],
+    command: [u8; 12],
     length: u32,
-    _checksum: u32,
+    checksum: u32,
 }
 impl Decodable for P2PMessageHeader {
     fn consensus_decode<R: std::io::Read + ?Sized>(
         reader: &mut R,
     ) -> Result<Self, bitcoin::consensus::encode::Error> {
         let magic = u32::consensus_decode(reader)?;
-        let _command = <[u8; 12]>::consensus_decode(reader)?;
+        let command = <[u8; 12]>::consensus_decode(reader)?;
         let length = u32::consensus_decode(reader)?;
-        let _checksum = u32::consensus_decode(reader)?;
+        let checksum = u32::consensus_decode(reader)?;
         Ok(Self {
-            _checksum,
-            _command,
+            checksum,
+            command,
             length,
             magic,
         })

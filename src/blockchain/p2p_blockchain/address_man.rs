@@ -1,7 +1,12 @@
+use async_std::net::ToSocketAddrs;
 use bitcoin::network::{address::AddrV2, constants::ServiceFlags};
-use std::time::Instant;
+use serde::Deserialize;
+use std::{
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+    time::Instant,
+};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 pub enum AddressState {
     NeverTried,
     Tried,
@@ -14,8 +19,29 @@ impl From<AddrV2> for LocalAddress {
             last_connected: Instant::now(),
             state: AddressState::NeverTried,
             services: None,
+            port: 8333,
         }
     }
+}
+impl TryFrom<&str> for LocalAddress {
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        let split = value.split(":").collect::<Vec<_>>();
+        let address = split[0].parse::<Ipv4Addr>().unwrap();
+        let port = if let Some(port) = split.get(1) {
+            port.parse().unwrap_or(38333)
+        } else {
+            38333
+        };
+        Ok(LocalAddress::new(
+            AddrV2::Ipv4(address),
+            Instant::now(),
+            super::address_man::AddressState::NeverTried,
+            None,
+            port,
+        ))
+    }
+
+    type Error = crate::error::Error;
 }
 #[derive(Debug, Clone, PartialEq)]
 pub struct LocalAddress {
@@ -23,6 +49,7 @@ pub struct LocalAddress {
     last_connected: Instant,
     state: AddressState,
     services: Option<ServiceFlags>,
+    port: u16,
 }
 impl LocalAddress {
     pub fn new(
@@ -30,12 +57,23 @@ impl LocalAddress {
         last_connected: Instant,
         state: AddressState,
         services: Option<ServiceFlags>,
+        port: u16,
     ) -> LocalAddress {
         LocalAddress {
             address,
             last_connected,
             state,
             services,
+            port,
+        }
+    }
+    pub fn get_net_address(&self) -> IpAddr {
+        match self.address {
+            /// IPV4
+            AddrV2::Ipv4(ipv4) => IpAddr::V4(ipv4),
+            /// IPV6
+            AddrV2::Ipv6(ipv6) => IpAddr::V6(ipv6),
+            _ => IpAddr::V4(Ipv4Addr::LOCALHOST),
         }
     }
 }
@@ -47,14 +85,18 @@ impl AddressMan {
     pub fn push_addresses(&mut self, addresses: &[LocalAddress]) {
         self.addresses.extend(addresses.iter().cloned());
     }
-    pub fn get_address_to_connect(&self, features: ServiceFlags) -> Option<LocalAddress> {
+    pub fn get_address_to_connect(&mut self, features: ServiceFlags) -> Option<LocalAddress> {
+        if self.addresses.is_empty() {
+            return None;
+        }
         // try at most 10 times
         for _ in 0..10 {
             let idx = rand::random::<usize>() % self.addresses.len();
-            let address = self.addresses.get(idx).unwrap();
-            if address.services.unwrap_or(ServiceFlags::NONE).has(features) {
+            let address = self.addresses.remove(idx);
+            if address.services.is_none() || address.services.unwrap().has(features) {
                 return Some(address.to_owned());
             }
+            self.addresses.push(address);
         }
         None
     }
