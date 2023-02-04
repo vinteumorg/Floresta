@@ -231,11 +231,11 @@ impl UtreexoNode {
                     if let NodeState::WaitingPeer = self.state {
                         info!("Requesting headers");
                         self.state = NodeState::DownloadHeaders;
-                        self.send_to_random_peer(NodeRequest::GetHeaders(
-                            self.chain.get_block_locator().unwrap(),
-                        ))
-                        .await?;
                     }
+                    self.send_to_random_peer(NodeRequest::GetHeaders(
+                        self.chain.get_block_locator().unwrap(),
+                    ))
+                    .await?;
                     Ok(())
                 }
                 PeerMessages::Disconnected => {
@@ -318,7 +318,9 @@ impl UtreexoNode {
         &mut self,
         next_blocks: Vec<BlockHash>,
     ) -> Result<(), BlockchainError> {
-        if self.chain.get_best_block().unwrap().0 == self.chain.get_validation_index().unwrap() {
+        if self.chain.get_best_block().unwrap().0 == self.chain.get_validation_index().unwrap()
+            && self.chain.is_in_idb()
+        {
             self.chain.toggle_ibd(false);
             info!("Leaving ibd");
             return Ok(());
@@ -335,7 +337,7 @@ impl UtreexoNode {
             let peer = Peer::create_outbound_connection(
                 self.chain.clone(),
                 self.peer_id_count,
-                (address.get_net_address(), 38333),
+                (address.get_net_address(), address.get_port()),
                 self.mempool.clone(),
                 self.network,
                 self.node_tx.clone(),

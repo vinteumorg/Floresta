@@ -71,6 +71,11 @@ impl BlockDownload {
         Ok(())
     }
     pub async fn downloaded(&mut self, block: Block) {
+        if !self.chain.is_in_idb() {
+            self.chain.accept_header(block.header);
+            (self.handle_block)(&self.chain, &self.rpc, block);
+            return;
+        }
         let height = self.inflight.remove(&block.block_hash());
         if let Some(height) = height {
             if height == self.current_verified {
@@ -83,7 +88,9 @@ impl BlockDownload {
                 self.queued.insert(height, block);
             }
         }
-        if self.inflight.len() <= 1_000 {
+        if self.inflight.len() <= 1_000
+            && self.last_requested < (self.chain.get_best_block().unwrap().0 - 1_000)
+        {
             self.get_more_blocks().await;
         }
     }

@@ -67,6 +67,9 @@ impl LocalAddress {
             port,
         }
     }
+    pub fn get_port(&self) -> u16 {
+        self.port
+    }
     pub fn get_net_address(&self) -> IpAddr {
         match self.address {
             /// IPV4

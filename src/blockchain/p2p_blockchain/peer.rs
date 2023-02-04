@@ -163,13 +163,17 @@ impl Peer {
                     match inv_entry {
                         bitcoin::network::message_blockdata::Inventory::Error => {}
                         bitcoin::network::message_blockdata::Inventory::Transaction(_) => {}
-                        bitcoin::network::message_blockdata::Inventory::Block(block_hash) => {
+                        bitcoin::network::message_blockdata::Inventory::Block(block_hash)
+                        | bitcoin::network::message_blockdata::Inventory::WitnessBlock(
+                            block_hash,
+                        )
+                        | bitcoin::network::message_blockdata::Inventory::CompactBlock(
+                            block_hash,
+                        ) => {
                             self.send_to_node(PeerMessages::NewBlock(block_hash)).await;
                         }
-                        bitcoin::network::message_blockdata::Inventory::CompactBlock(_) => {}
                         bitcoin::network::message_blockdata::Inventory::WTx(_) => todo!(),
                         bitcoin::network::message_blockdata::Inventory::WitnessTransaction(_) => {}
-                        bitcoin::network::message_blockdata::Inventory::WitnessBlock(_) => {}
                         bitcoin::network::message_blockdata::Inventory::Unknown {
                             inv_type,
                             hash,
