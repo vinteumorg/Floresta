@@ -11,6 +11,7 @@ pub enum BlockchainError {
     DatabaseError(kv::Error),
     ConsensusDecodeError(bitcoin::consensus::encode::Error),
     ChainNotInitialized,
+    InvalidTip(String),
     IoError(std::io::Error),
 }
 #[derive(Debug)]

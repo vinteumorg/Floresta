@@ -74,8 +74,8 @@ fn main() {
             rpc_user,
             rpc_password,
             rpc_host,
-            external_sync,
-            use_external_sync,
+            batch_sync,
+            use_batch_sync,
             rpc_port,
             wallet_xpub,
             assume_valid,
@@ -133,12 +133,12 @@ fn main() {
             let chain_provider = UtreexodBackend {
                 chainstate: blockchain_state.clone(),
                 rpc,
-                external_sync_hostname: get_one_or_another(
-                    external_sync,
-                    data.misc.external_sync,
+                batch_sync_hostname: get_one_or_another(
+                    batch_sync,
+                    data.misc.batch_sync,
                     "".into(),
                 ),
-                use_external_sync,
+                use_batch_sync,
                 term: shutdown,
             };
             info!("Starting server");

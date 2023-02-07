@@ -16,14 +16,11 @@ pub enum DiskBlockHeader {
     FullyValid(BlockHeader, u32),
     Orphan(BlockHeader),
     HeadersOnly(BlockHeader, u32),
+    InFork(BlockHeader),
 }
 impl DiskBlockHeader {
     pub fn block_hash(&self) -> BlockHash {
-        match self {
-            DiskBlockHeader::FullyValid(header, _) => header.block_hash(),
-            DiskBlockHeader::Orphan(header) => header.block_hash(),
-            DiskBlockHeader::HeadersOnly(header, _) => header.block_hash(),
-        }
+        self.deref().block_hash()
     }
 }
 impl Deref for DiskBlockHeader {
@@ -33,6 +30,7 @@ impl Deref for DiskBlockHeader {
             DiskBlockHeader::FullyValid(header, _) => header,
             DiskBlockHeader::Orphan(header) => header,
             DiskBlockHeader::HeadersOnly(header, _) => header,
+            DiskBlockHeader::InFork(header) => header,
         }
     }
 }
@@ -53,6 +51,7 @@ impl Decodable for DiskBlockHeader {
                 let height = u32::consensus_decode(reader)?;
                 Ok(Self::HeadersOnly(header, height))
             }
+            0x03 => Ok(Self::InFork(header)),
             _ => unreachable!(),
         }
     }
@@ -62,7 +61,7 @@ impl Encodable for DiskBlockHeader {
         &self,
         writer: &mut W,
     ) -> std::result::Result<usize, std::io::Error> {
-        let len = 80 + 1 + 4; // Header + tag + hight
+        let len = 80 + 1 + 4; // Header + tag + height
         match self {
             DiskBlockHeader::FullyValid(header, height) => {
                 0x00_u8.consensus_encode(writer)?;
@@ -77,6 +76,10 @@ impl Encodable for DiskBlockHeader {
                 0x02_u8.consensus_encode(writer)?;
                 header.consensus_encode(writer)?;
                 height.consensus_encode(writer)?;
+            }
+            DiskBlockHeader::InFork(header) => {
+                0x03_u8.consensus_encode(writer)?;
+                header.consensus_encode(writer)?;
             }
         };
         Ok(len)
@@ -94,9 +97,10 @@ pub trait ChainStore {
     fn load_height(&self) -> Result<Option<BestChain>>;
     fn save_height(&self, height: &BestChain) -> Result<()>;
     fn get_header(&self, block_hash: &BlockHash) -> Result<Option<DiskBlockHeader>>;
-    fn save_header(&self, header: &DiskBlockHeader, height: u32) -> Result<()>;
+    fn save_header(&self, header: &DiskBlockHeader) -> Result<()>;
     fn get_block_hash(&self, height: u32) -> Result<Option<BlockHash>>;
     fn flush(&self) -> Result<()>;
+    fn update_block_index(&self, height: u32, hash: BlockHash) -> Result<()>;
 }
 
 pub struct KvChainStore(Store);
@@ -162,14 +166,11 @@ impl ChainStore for KvChainStore {
 
         Ok(())
     }
-    fn save_header(&self, header: &DiskBlockHeader, height: u32) -> Result<()> {
+    fn save_header(&self, header: &DiskBlockHeader) -> Result<()> {
         let ser_header = serialize(header);
         let block_hash = serialize(&header.block_hash());
         let bucket = self.0.bucket::<&[u8], Vec<u8>>(Some("header"))?;
         bucket.set(&&*block_hash, &ser_header)?;
-
-        let bucket = self.0.bucket::<Integer, Vec<u8>>(Some("index"))?;
-        bucket.set(&Integer::from(height), &block_hash)?;
         Ok(())
     }
 
@@ -180,5 +181,13 @@ impl ChainStore for KvChainStore {
             return Ok(Some(deserialize(&block).unwrap()));
         }
         Ok(None)
+    }
+
+    fn update_block_index(&self, height: u32, hash: BlockHash) -> Result<()> {
+        let bucket = self.0.bucket::<Integer, Vec<u8>>(Some("index"))?;
+        let block_hash = serialize(&hash);
+
+        bucket.set(&Integer::from(height), &block_hash)?;
+        Ok(())
     }
 }

@@ -23,11 +23,30 @@ pub struct ChainParams {
     /// it's more, we decrease difficulty, if it's less we increase difficulty
     pub pow_target_timespan: u64,
 }
-impl ChainParams {}
+impl ChainParams {
+    fn max_target(net: Network) -> Uint256 {
+        match net {
+            Network::Bitcoin => max_target(net),
+            Network::Testnet => max_target(net),
+            Network::Signet => Uint256([
+                0x00000377ae000000,
+                0x0000000000000000,
+                0x0000000000000000,
+                0x0000000000000000,
+            ]),
+            Network::Regtest => Uint256([
+                0x7fffffffffffffff,
+                0xffffffffffffffff,
+                0xffffffffffffffff,
+                0xffffffffffffffff,
+            ]),
+        }
+    }
+}
 impl From<Network> for ChainParams {
     fn from(net: Network) -> Self {
         let genesis = genesis_block(net);
-        let max_target = max_target(net);
+        let max_target = ChainParams::max_target(net);
         match net {
             Network::Bitcoin => ChainParams {
                 genesis,
@@ -59,7 +78,7 @@ impl From<Network> for ChainParams {
             Network::Regtest => ChainParams {
                 genesis,
                 max_target,
-                pow_allow_min_diff: true,
+                pow_allow_min_diff: false,
                 pow_allow_no_retarget: true,
                 pow_target_spacing: 10 * 60, // One block every 600 seconds (10 minutes)
                 pow_target_timespan: 14 * 24 * 60 * 60, // two weeks
