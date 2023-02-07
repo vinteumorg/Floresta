@@ -1,7 +1,9 @@
+#[cfg(feature = "experimental-p2p")]
+use super::p2p_blockchain::node::NodeRequest;
+
 use bitcoin::{blockdata::script, BlockHash};
 use btcd_rpc::error::UtreexodError;
 
-use super::p2p_blockchain::node::NodeRequest;
 #[derive(Debug)]
 pub enum BlockchainError {
     BlockNotPresent,
@@ -45,6 +47,7 @@ impl From<kv::Error> for BlockchainError {
         BlockchainError::DatabaseError(err)
     }
 }
+#[cfg(feature = "experimental-p2p")]
 impl From<async_std::channel::SendError<NodeRequest>> for BlockchainError {
     fn from(err: async_std::channel::SendError<NodeRequest>) -> Self {
         BlockchainError::ChannelError(err)
