@@ -237,6 +237,7 @@ fn get_net(net: &cli::Network) -> Network {
         cli::Network::Regtest => Network::Regtest,
     }
 }
+#[allow(unused)]
 fn setup_wallet<D: AddressCacheDatabase>(
     xpubs: Vec<String>,
     wallet: &mut AddressCache<D>,
@@ -246,10 +247,6 @@ fn setup_wallet<D: AddressCacheDatabase>(
         return Ok(());
     }
     for key in xpubs {
-        // Don't cache a descriptor twice
-        if wallet.is_cached(&key)? {
-            continue;
-        }
         // Parses the descriptor and get an external and change descriptors
         let xpub = wallet_input::extended_pub_key::from_wif(key.as_str());
         if let Err(error) = xpub {
@@ -259,6 +256,10 @@ fn setup_wallet<D: AddressCacheDatabase>(
         let xpub = xpub.expect("We checked this above, should not be Err");
         let main_desc = format!("wpkh({xpub}/0/*)");
         let change_desc = format!("wpkh({xpub}/1/*)");
+        // Don't cache a descriptor twice
+        if wallet.is_cached(&main_desc)? {
+            continue;
+        }
         // Saves our descriptors on disk for further derivations
         wallet.push_descriptor(&main_desc)?;
         wallet.push_descriptor(&change_desc)?;
