@@ -5,3 +5,4 @@ perf.*
 *.svg
 config.toml
 /builds
+/data

@@ -23,7 +23,6 @@ class Server:
             if c == b'\n':
                 break
             buff += c.decode("utf-8")
-
         return str.encode(buff)
 
 
@@ -177,4 +176,4 @@ class ElectrumClient:
             Identify the client to the server and negotiate the protocol version.
             Only the first server.version() message is accepted.
         """
-        return self.con._request("server.version", [])
+        return self.con._request("server.version", ["test-client", "1.2"])

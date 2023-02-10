@@ -11,14 +11,19 @@ class MockUtreexod:
         self.server.register_function(self.getblock)
         self.server.register_function(self.stop)
         self.server.register_function(self.getutreexoproof)
-        self.server.register_function(self.get_best_block)
-        self.server.register_function(self.get_block_hash)
+        self.server.register_function(self.getbestblock)
+        self.server.register_function(self.getblockhash)
+        self.server.register_function(self.getheaders)
 
+    def run(self):
+        print("rpc running")
         self.server.serve_forever()
 
     def get(self, what: str, key: str | int, verbosity=bool | int) -> dict:
-        fp = open("tests/data/rpc/{}.json" % key)
+        fp = open(f"tests/data/rpc/{what}.json")
         data = json.load(fp)
+        if verbosity == None:
+            return data[key]
 
         if verbosity:
             return data[key]["1"]
@@ -30,13 +35,21 @@ class MockUtreexod:
     def stop(self):
         return self.server.shutdown()
 
-    def get_best_block(self):
-        fp = open("tests/data/rpc/blocks.json")
+    def getbestblock(self):
+        fp = open("tests/data/rpc/block_index.json")
         data = json.load(fp)
-        return {"height": len(data), "hash": data[-1]["1"]["hash"]}
+        return {"height": len(data) - 1, "hash": data[-1]}
 
-    def get_block_hash(self, height: str) -> dict:
-        return self.get("blocks", height)["hash"]
+    def getblockhash(self, height: str) -> dict:
+        return self.get("block_index", height, None)
 
-    def getutreexoproof(self, height: str):
-        return self.get("proofs", height)["hash"]
+    def getheaders(self, locator, verbosity) -> dict:
+        fBlocks = open("tests/data/rpc/blocks.json")
+        blocks_data = json.load(fBlocks)
+        headers = []
+        for i in blocks_data:
+            headers.append(blocks_data[i]["0"][0:160])
+        return headers
+
+    def getutreexoproof(self, height: str, verbosity=None):
+        return self.get("proofs", height)
