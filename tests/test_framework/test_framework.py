@@ -23,12 +23,14 @@ class TestFramework:
         self.rpc.daemon = True
         self.rpc.start()
 
-    def stop_rpc(self):
-        self.rpc._stop()
-
     def stop_node(self, idx: int):
         self.nodes[idx].send_signal(15)
+        self.nodes[idx].wait()
 
     # Should be overrided by individual tests
+
     def run_test(self):
         raise NotImplemented
+
+    def main(self):
+        self.run_test()

@@ -8,10 +8,10 @@ from test_framework.test_framework import TestFramework
 from test_framework.electrum_client import ElectrumClient
 from test_framework.mock_rpc import MockUtreexod
 
-# Tests should be a child class from TestFramework
-
 
 class ExampleTest(TestFramework):
+    """ Tests should be a child class from TestFramework """
+
     # All tests should override the run_test method
     def run_test(self):
         # This creates a dummy rpc listening on port 8080
@@ -28,8 +28,10 @@ class ExampleTest(TestFramework):
         print(electrum.get_version())
 
         # .... cleanup ....
-        os.rmdir("./data")
-        # Stop any rpc server that is running
-        self.stop_rpc()
+
         # Stop the node that is running
         self.stop_node(0)
+
+
+if __name__ == '__main__':
+    ExampleTest().main()

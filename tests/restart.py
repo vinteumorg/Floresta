@@ -11,13 +11,11 @@ class TestRestart(TestFramework):
             Tests if we don't corrupt our data dir between restarts. This would have caught,
             the error fixed in #9
         """
-        print("Running restart test")
         base_testdir = "data/TestRestart/"
         self.run_node(base_testdir + "1/")
-        time.sleep(10)
+        time.sleep(5)
         self.stop_node(0)
         self.run_node(base_testdir + "2/")
-        time.sleep(10)
+        time.sleep(5)
         self.stop_node(0)
         assert (filecmp.dircmp(base_testdir + "2/", base_testdir + "1/"))
-        print("restart test passed!")
