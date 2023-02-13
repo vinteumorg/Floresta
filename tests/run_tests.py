@@ -5,7 +5,7 @@ from tqdm import tqdm
 
 BASE_DIR = "/tmp/data"
 
-tests = ["example_test", "restart"]
+tests = ["example_test", "restart", "electrum_handshake"]
 
 
 def main():
