@@ -1,5 +1,6 @@
 [wallet]
 xpubs = []
+addresses = []
 
 [rpc]
 rpc_user = "SomeUsername"

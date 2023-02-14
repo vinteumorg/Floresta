@@ -46,7 +46,7 @@ use std::{path::PathBuf, process::exit, sync::Arc};
 use address_cache::{kv_database::KvDatabase, AddressCache, AddressCacheDatabase};
 use async_std::task::{self, block_on};
 
-use bitcoin::Network;
+use bitcoin::{Address, Network};
 use blockchain::{chain_state::ChainState, chainstore::KvChainStore};
 use btcd_rpc::client::{BTCDClient, BTCDConfigs, BtcdRpc};
 use clap::Parser;
@@ -75,6 +75,7 @@ fn main() {
             rpc_password,
             rpc_host,
             batch_sync,
+            wallet_addresses,
             use_batch_sync,
             rpc_port,
             wallet_xpub,
@@ -98,6 +99,7 @@ fn main() {
             debug!("Done loading wallet");
             let result = setup_wallet(
                 get_both_vec(wallet_xpub, data.wallet.xpubs),
+                get_both_vec(data.wallet.addresses, wallet_addresses),
                 &mut wallet,
                 params.network.clone(),
             );
@@ -237,8 +239,7 @@ fn get_net(net: &cli::Network) -> Network {
         cli::Network::Regtest => Network::Regtest,
     }
 }
-#[allow(unused)]
-fn setup_wallet<D: AddressCacheDatabase>(
+fn setup_xpubs<D: AddressCacheDatabase>(
     xpubs: Vec<String>,
     wallet: &mut AddressCache<D>,
     network: cli::Network,
@@ -246,6 +247,7 @@ fn setup_wallet<D: AddressCacheDatabase>(
     if xpubs.is_empty() {
         return Ok(());
     }
+
     for key in xpubs {
         // Parses the descriptor and get an external and change descriptors
         let xpub = wallet_input::extended_pub_key::from_wif(key.as_str());
@@ -269,6 +271,28 @@ fn setup_wallet<D: AddressCacheDatabase>(
     }
 
     info!("Wallet setup completed!");
+    Ok(())
+}
+
+fn setup_address<D: AddressCacheDatabase>(
+    addresses: Vec<String>,
+    wallet: &mut AddressCache<D>,
+) -> Result<(), crate::error::Error> {
+    for address in addresses {
+        let address = Address::from_str(&address)?;
+        wallet.cache_address(address.script_pubkey());
+    }
+
+    Ok(())
+}
+fn setup_wallet<D: AddressCacheDatabase>(
+    xpubs: Vec<String>,
+    addresses: Vec<String>,
+    wallet: &mut AddressCache<D>,
+    network: cli::Network,
+) -> Result<(), crate::error::Error> {
+    setup_address(addresses, wallet)?;
+    setup_xpubs(xpubs, wallet, network)?;
     Ok(())
 }
 fn derive_addresses<D: AddressCacheDatabase>(
