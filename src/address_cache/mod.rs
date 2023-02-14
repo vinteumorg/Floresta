@@ -250,6 +250,9 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
     /// to cache new addresses, as we use the first ones. Only requires a script to cache.
     pub fn cache_address(&mut self, script_pk: Script) {
         let hash = get_spk_hash(&script_pk);
+        if self.address_map.contains_key(&hash) {
+            return;
+        }
         let new_address = CachedAddress {
             balance: 0,
             script_hash: hash,

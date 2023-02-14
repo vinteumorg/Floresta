@@ -50,6 +50,9 @@ pub enum Commands {
         /// Add a xpub to our wallet
         #[arg(long)]
         wallet_xpub: Option<Vec<String>>,
+        /// Add individual addresses to your wallet
+        #[arg(long)]
+        wallet_addresses: Option<Vec<String>>,
         /// Your rpc user, as set in Utreexod
         #[arg(long)]
         rpc_user: Option<String>,
