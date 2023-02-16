@@ -19,7 +19,7 @@ use async_std::{
 use bitcoin::{
     consensus::deserialize_partial,
     hashes::{hex::FromHex, sha256},
-    network::{address::AddrV2, constants::ServiceFlags},
+    network::{address::AddrV2, constants::ServiceFlags, utreexo::UtreexoBlock},
     Block, BlockHash, BlockHeader, Network, OutPoint,
 };
 use btcd_rpc::{
@@ -291,12 +291,12 @@ impl UtreexoNode {
             self.create_connection().await;
         }
     }
-    fn handle_block(chain: &ChainState<KvChainStore>, rpc: &Arc<BTCDClient>, block: Block) {
+    fn handle_block(chain: &ChainState<KvChainStore>, rpc: &Arc<BTCDClient>, block: UtreexoBlock) {
         let (proof, del_hashes, leaf_data) =
-            Self::get_proof(&**rpc, &block.block_hash().to_string())
+            Self::get_proof(&**rpc, &block.block.block_hash().to_string())
                 .expect("Could not fetch proof");
         let mut inputs = HashMap::new();
-        for tx in block.txdata.iter() {
+        for tx in block.block.txdata.iter() {
             for (vout, out) in tx.output.iter().enumerate() {
                 inputs.insert(
                     OutPoint {
@@ -311,7 +311,7 @@ impl UtreexoNode {
             inputs.insert(leaf.prevout, leaf.utxo);
         }
         chain
-            .connect_block(&block, proof, inputs, del_hashes)
+            .connect_block(&block.block, proof, inputs, del_hashes)
             .unwrap();
     }
     async fn ibd_request_blocks(

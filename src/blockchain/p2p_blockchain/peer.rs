@@ -25,6 +25,7 @@ use bitcoin::{
         message::{NetworkMessage, RawNetworkMessage, MAX_MSG_SIZE},
         message_blockdata::Inventory,
         message_network::VersionMessage,
+        utreexo::UtreexoBlock,
     },
     Block, BlockHash, BlockHeader, Network, OutPoint, Txid,
 };
@@ -178,6 +179,16 @@ impl Peer {
                             inv_type,
                             hash,
                         } => {}
+                        Inventory::Error => todo!(),
+                        Inventory::Transaction(_) => todo!(),
+                        Inventory::Block(_) => todo!(),
+                        Inventory::CompactBlock(_) => todo!(),
+                        Inventory::WTx(_) => todo!(),
+                        Inventory::WitnessTransaction(_) => todo!(),
+                        Inventory::WitnessBlock(_) => todo!(),
+                        Inventory::UtreexoBlock(_) => todo!(),
+                        Inventory::UtreexoWitnessBlock(_) => todo!(),
+                        Inventory::Unknown { inv_type, hash } => todo!(),
                     }
                 }
             }
@@ -356,7 +367,7 @@ pub enum PeerMessages {
     /// a compact blocs communication, not a explicit block request
     NewCompactBlock(BlockHash),
     /// We got a full block from our peer, presumptively we asked for it
-    Block(Block),
+    Block(UtreexoBlock),
     /// A response to a `getheaders` request
     Headers(Vec<BlockHeader>),
     /// We got some p2p addresses, add this to our local database

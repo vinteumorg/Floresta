@@ -3,7 +3,7 @@ use crate::blockchain::{
     BlockchainProviderInterface,
 };
 use async_std::channel::Sender;
-use bitcoin::{Block, BlockHash};
+use bitcoin::{network::utreexo::UtreexoBlock, Block, BlockHash};
 use btcd_rpc::client::BTCDClient;
 use std::{
     collections::HashMap,
@@ -15,14 +15,14 @@ use super::node::NodeNotification;
 
 pub struct BlockDownload {
     inflight: HashMap<BlockHash, u32>,
-    queued: HashMap<u32, Block>,
+    queued: HashMap<u32, UtreexoBlock>,
     current_verified: u32,
     last_request: Instant,
     chain: Arc<ChainState<KvChainStore>>,
     rpc: Arc<BTCDClient>,
     last_requested: u32,
     node_tx: Sender<NodeNotification>,
-    handle_block: &'static dyn Fn(&ChainState<KvChainStore>, &Arc<BTCDClient>, Block) -> (),
+    handle_block: &'static dyn Fn(&ChainState<KvChainStore>, &Arc<BTCDClient>, UtreexoBlock) -> (),
 }
 impl BlockDownload {
     pub fn push(&mut self, blocks: Vec<BlockHash>) {
@@ -35,7 +35,11 @@ impl BlockDownload {
         chain: Arc<ChainState<KvChainStore>>,
         rpc: Arc<BTCDClient>,
         node_tx: Sender<NodeNotification>,
-        handle_block: &'static dyn Fn(&ChainState<KvChainStore>, &Arc<BTCDClient>, Block) -> (),
+        handle_block: &'static dyn Fn(
+            &ChainState<KvChainStore>,
+            &Arc<BTCDClient>,
+            UtreexoBlock,
+        ) -> (),
     ) -> BlockDownload {
         BlockDownload {
             inflight: HashMap::new(),
@@ -70,13 +74,15 @@ impl BlockDownload {
             .await;
         Ok(())
     }
-    pub async fn downloaded(&mut self, block: Block) {
+    pub async fn downloaded(&mut self, block: UtreexoBlock) {
         if !self.chain.is_in_idb() {
-            self.chain.accept_header(block.header);
+            self.chain.accept_header(block.block.header);
             (self.handle_block)(&self.chain, &self.rpc, block);
             return;
         }
-        let height = self.inflight.remove(&block.block_hash());
+        let height = self
+            .inflight
+            .remove(&block.block.block_hash());
         if let Some(height) = height {
             if height == self.current_verified {
                 (self.handle_block)(&self.chain, &self.rpc, block);

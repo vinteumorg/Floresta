@@ -193,6 +193,7 @@ fn main() {
             debug!("Done loading wallet");
             let result = setup_wallet(
                 get_both_vec(wallet_xpub, data.wallet.xpubs),
+                get_both_vec(data.wallet.addresses, None),
                 &mut wallet,
                 params.network.clone(),
             );
