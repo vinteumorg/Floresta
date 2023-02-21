@@ -65,6 +65,7 @@ enum NodeState {
 #[allow(unused)]
 pub struct UtreexoNode {
     peer_id_count: u32,
+    last_headers_request: Instant,
     network: Network,
     peers: Vec<(PeerStatus, u32, Sender<NodeRequest>)>,
     chain: Arc<ChainState<KvChainStore>>,
@@ -107,6 +108,7 @@ impl UtreexoNode {
             node_tx,
             rpc,
             address_man: AddressMan::default(),
+            last_headers_request: Instant::now(),
         };
         node
     }
@@ -163,6 +165,7 @@ impl UtreexoNode {
             self.download_man.get_more_blocks().await?;
             return Ok(());
         }
+        self.last_headers_request = Instant::now();
         info!("Downloading headers at: {}", headers[0].block_hash());
         for header in headers {
             self.chain.accept_header(header)?;
@@ -282,9 +285,22 @@ impl UtreexoNode {
                     let _ = self.handle_notification(notification).await;
                 }
             }
+
             self.maybe_open_connection().await;
             self.download_man.handle_timeout().await;
+            self.maybe_request_headers().await;
         }
+    }
+    async fn maybe_request_headers(&self) -> Result<(), BlockchainError> {
+        if self.last_headers_request + Duration::from_secs(10) > Instant::now() {
+            let locator = self
+                .chain
+                .get_block_locator()
+                .expect("Could not create locator");
+            self.send_to_random_peer(NodeRequest::GetHeaders(locator))
+                .await?;
+        }
+        Ok(())
     }
     async fn maybe_open_connection(&mut self) {
         if self.peers.len() < MAX_OUTGOING_PEERS {

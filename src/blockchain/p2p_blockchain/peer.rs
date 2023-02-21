@@ -10,11 +10,11 @@ use crate::blockchain::{
     BlockchainInterface, BlockchainProviderInterface,
 };
 use async_std::{
-    channel::{Receiver, Sender},
+    channel::{unbounded, Receiver, Sender},
     io::{BufReader, Read, ReadExt, WriteExt},
     net::{TcpStream, ToSocketAddrs},
-    stream::{Stream, StreamExt},
-    sync::RwLock,
+    stream::Stream,
+    sync::RwLock, task::spawn,
 };
 use bitcoin::{
     consensus::{deserialize, deserialize_partial, serialize, Decodable},
@@ -34,11 +34,11 @@ use btcd_rpc::{
     json_types::blockchain::GetUtreexoProofResult,
 };
 use clap::builder::TypedValueParser;
-use futures::select;
-use futures::FutureExt;
+use futures::{future::select_all, stream::select, StreamExt};
+use futures::{future::SelectAll, Future, FutureExt};
 use log::warn;
 use rustreexo::accumulator::proof::Proof;
-use std::{collections::HashMap, fmt::Debug, time::Duration};
+use std::{collections::HashMap, fmt::Debug, task::Poll, time::Duration};
 use std::{sync::Arc, time::Instant};
 #[derive(PartialEq)]
 enum State {
@@ -82,22 +82,26 @@ impl Debug for Peer {
 impl Peer {
     pub async fn read_loop(mut self) -> Result<(), BlockchainError> {
         let err = self.peer_loop_inner().await;
+        warn!("{err:?}");
         self.send_to_node(PeerMessages::Disconnected).await;
         Ok(())
     }
+    async fn write_loop() {}
     async fn peer_loop_inner(&mut self) -> Result<(), BlockchainError> {
         let read_stream = BufReader::new(self.stream.clone());
+        let (tx, rx) = unbounded();
         let mut stream: StreamReader<_, RawNetworkMessage> =
-            StreamReader::new(read_stream, self.network.magic());
+            StreamReader::new(read_stream, self.network.magic(), tx);
+        let feature = spawn(stream.read_loop());
         loop {
-            select! {
+            futures::select! {
                 request = self.node_requests.recv().fuse() => {
                     if let Ok(request) = request {
                         self.handle_node_request(request).await;
                     }
                 }
-                peer_request = async_std::future::timeout(Duration::from_secs(1),  stream.next_message()).fuse() => {
-                    if let Ok(peer_request) = peer_request {
+                peer_request = async_std::future::timeout(Duration::from_secs(1), rx.recv()).fuse() => {
+                    if let Ok(Ok(peer_request)) = peer_request {
                         self.handle_peer_message(peer_request?).await;
                     }
                 }
@@ -127,8 +131,8 @@ impl Peer {
                 self.write(NetworkMessage::GetData(inv)).await;
             }
             NodeRequest::GetHeaders(locator) => {
-                self.write(NetworkMessage::GetHeaders(
-                    bitcoin::network::message_blockdata::GetHeadersMessage {
+                self.write(NetworkMessage::GetBlocks(
+                    bitcoin::network::message_blockdata::GetBlocksMessage {
                         version: 0,
                         locator_hashes: locator,
                         stop_hash: BlockHash::all_zeros(),
@@ -291,6 +295,7 @@ impl Peer {
         self.node_tx.send(message).await;
     }
 }
+
 
 pub(super) mod peer_utils {
     use std::{
