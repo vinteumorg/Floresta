@@ -14,7 +14,8 @@ use async_std::{
     io::{BufReader, Read, ReadExt, WriteExt},
     net::{TcpStream, ToSocketAddrs},
     stream::Stream,
-    sync::RwLock, task::spawn,
+    sync::RwLock,
+    task::spawn,
 };
 use bitcoin::{
     consensus::{deserialize, deserialize_partial, serialize, Decodable},
@@ -125,14 +126,14 @@ impl Peer {
                 ));
                 let mut inv = block_hashes
                     .iter()
-                    .map(|block| Inventory::WitnessBlock(*block))
+                    .map(|block| Inventory::UtreexoWitnessBlock(*block))
                     .collect();
 
                 self.write(NetworkMessage::GetData(inv)).await;
             }
             NodeRequest::GetHeaders(locator) => {
-                self.write(NetworkMessage::GetBlocks(
-                    bitcoin::network::message_blockdata::GetBlocksMessage {
+                self.write(NetworkMessage::GetHeaders(
+                    bitcoin::network::message_blockdata::GetHeadersMessage {
                         version: 0,
                         locator_hashes: locator,
                         stop_hash: BlockHash::all_zeros(),
@@ -296,7 +297,6 @@ impl Peer {
     }
 }
 
-
 pub(super) mod peer_utils {
     use std::{
         net::{IpAddr, Ipv4Addr, SocketAddr},
@@ -315,11 +315,12 @@ pub(super) mod peer_utils {
         NetworkMessage::Pong(nonce)
     }
     pub(super) fn build_version_message() -> message::NetworkMessage {
+        use bitcoin::network::constants::ServiceFlags;
         // Building version message, see https://en.bitcoin.it/wiki/Protocol_documentation#version
         let my_address = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 38332);
 
         // "bitfield of features to be enabled for this connection"
-        let services = constants::ServiceFlags::NETWORK;
+        let services = ServiceFlags::NETWORK | ServiceFlags::NODE_UTREEXO | ServiceFlags::WITNESS;
 
         // "standard UNIX timestamp in seconds"
         let timestamp = SystemTime::now()
@@ -337,7 +338,7 @@ pub(super) mod peer_utils {
         let nonce: u64 = 1;
 
         // "User Agent (0x00 if string is 0 bytes long)"
-        let user_agent = String::from("rust-example");
+        let user_agent = String::from("/rust-bitcoin-0.29.3/Atlantic-0.2.1");
 
         // "The last block received by the emitting node"
         let start_height: i32 = 0;
@@ -356,6 +357,7 @@ pub(super) mod peer_utils {
         })
     }
 }
+#[derive(Debug)]
 pub struct Version {
     pub user_agent: String,
     pub protocol_version: u32,
@@ -365,6 +367,7 @@ pub struct Version {
 /// Messages passed from different modules to the main node to process. They should minimal
 /// and only if it requires global states, everything else should be handled by the module
 /// itself.
+#[derive(Debug)]
 pub enum PeerMessages {
     /// A new block just arrived, we should ask for it and update our chain
     NewBlock(BlockHash),

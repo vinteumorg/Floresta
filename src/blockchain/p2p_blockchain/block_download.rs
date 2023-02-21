@@ -140,6 +140,7 @@ impl BlockDownload {
 }
 
 /// Messages we send to the node
+#[derive(Debug)]
 pub enum BlockDownloaderMessages {
     AskForBlocks(Vec<BlockHash>),
 }

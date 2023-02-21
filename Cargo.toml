@@ -31,4 +31,4 @@ rustflags = ["-Clink-arg=-fuse-ld=lld", "-Clink-arg=-Wl,--no-rosegment"]
 experimental-p2p = []
 
 [patch."https://github.com/rust-lang/crates.io-index"]
-bitcoin = { git = "https://github.com/Davidson-Souza/rust-bitcoin", branch = "patch" }
+bitcoin = { git = "https://github.com/Davidson-Souza/rust-bitcoin", rev = "a320c6535567acd3771da37759a7644eea5c6eb2" }

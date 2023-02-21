@@ -8,7 +8,10 @@ use super::{
     peer::{Peer, PeerMessages},
 };
 use crate::blockchain::{
-    chain_state::ChainState, chainstore::KvChainStore, error::BlockchainError, udata::LeafData,
+    chain_state::ChainState,
+    chainstore::KvChainStore,
+    error::BlockchainError,
+    udata::{proof_util, LeafData},
     BlockchainInterface, BlockchainProviderInterface,
 };
 use async_std::{
@@ -18,9 +21,14 @@ use async_std::{
 };
 use bitcoin::{
     consensus::deserialize_partial,
-    hashes::{hex::FromHex, sha256},
-    network::{address::AddrV2, constants::ServiceFlags, utreexo::UtreexoBlock},
-    Block, BlockHash, BlockHeader, Network, OutPoint,
+    hashes::{hex::FromHex, sha256, Hash},
+    network::{
+        address::AddrV2,
+        constants::ServiceFlags,
+        utreexo::{CompactLeafData, UData, UtreexoBlock},
+    },
+    Block, BlockHash, BlockHeader, Network, OutPoint, PubkeyHash, PublicKey, Script, Transaction,
+    TxIn,
 };
 use btcd_rpc::{
     client::{BTCDClient, BtcdRpc},
@@ -38,6 +46,7 @@ use std::{
 /// Max number of simultaneous connections we initiates we are willing to hold
 const MAX_OUTGOING_PEERS: usize = 10;
 
+#[derive(Debug)]
 pub enum NodeNotification {
     FromPeer(u32, PeerMessages),
     FromPingManager,
@@ -112,13 +121,7 @@ impl UtreexoNode {
         };
         node
     }
-    pub fn get_proof<T: BtcdRpc>(
-        rpc: &T,
-        hash: &String,
-    ) -> Result<(Proof, Vec<sha256::Hash>, Vec<LeafData>), BlockchainError> {
-        let proof = rpc.getutreexoproof(hash.to_string(), true)?.get_verbose();
-        Self::process_proof(proof)
-    }
+
     fn start_addr_man(&mut self) {
         let addresses = include_str!("fixed_peers.json");
         let addresses: Vec<&str> = serde_json::from_str(addresses).unwrap();
@@ -128,34 +131,39 @@ impl UtreexoNode {
             .collect::<Vec<_>>();
         self.address_man.push_addresses(&addresses);
     }
+
     fn process_proof(
-        proof: GetUtreexoProofResult,
+        udata: &UData,
+        transactions: &[Transaction],
+        chain: &ChainState<KvChainStore>,
     ) -> Result<(Proof, Vec<sha256::Hash>, Vec<LeafData>), BlockchainError> {
-        let preimages: Vec<_> = proof
-            .target_preimages
+        let targets = udata.proof.targets.iter().map(|target| target.0).collect();
+        let hashes = udata
+            .proof
+            .hashes
             .iter()
-            .map(|preimage| {
-                deserialize_partial::<LeafData>(&Vec::from_hex(preimage).unwrap())
-                    .unwrap()
-                    .0
-            })
+            .map(|hash| sha256::Hash::from_inner(hash.into_inner()))
             .collect();
+        let proof = Proof::new(targets, hashes);
+        let mut leaf_data = vec![];
+        let mut hashes = vec![];
+        let mut leaves_iter = udata.leaves.iter().cloned();
+        let mut tx_iter = transactions.iter();
+        tx_iter.next(); // Skip coinbase
+        for tx in tx_iter {
+            for input in tx.input.iter() {
+                if let Some(leaf) = leaves_iter.next() {
+                    let height = leaf.header_code >> 1;
+                    let hash = chain.get_block_hash(height)?;
+                    let leaf = proof_util::reconstruct_leaf_data(&leaf, &input, hash)
+                        .expect("Invalid proof");
 
-        let proof_hashes: Vec<_> = proof
-            .proofhashes
-            .iter()
-            .map(|hash| sha256::Hash::from_hex(hash).unwrap())
-            .collect();
+                    leaf_data.push(leaf);
+                }
+            }
+        }
 
-        let targets = proof.prooftargets;
-        let targethashes: Vec<_> = proof
-            .targethashes
-            .iter()
-            .map(|hash| sha256::Hash::from_hex(hash).unwrap())
-            .collect();
-        let proof = Proof::new(targets, proof_hashes);
-
-        Ok((proof, targethashes, preimages))
+        Ok((proof, hashes, leaf_data))
     }
     pub async fn handle_headers(
         &mut self,
@@ -166,7 +174,11 @@ impl UtreexoNode {
             return Ok(());
         }
         self.last_headers_request = Instant::now();
-        info!("Downloading headers at: {}", headers[0].block_hash());
+        info!(
+            "Downloading headers at: {} hash: {}",
+            self.chain.get_best_block().unwrap().0,
+            headers[0].block_hash()
+        );
         for header in headers {
             self.chain.accept_header(header)?;
         }
@@ -233,12 +245,13 @@ impl UtreexoNode {
                     }
                     if let NodeState::WaitingPeer = self.state {
                         info!("Requesting headers");
+                        self.send_to_random_peer(NodeRequest::GetHeaders(
+                            self.chain.get_block_locator().unwrap(),
+                        ))
+                        .await?;
                         self.state = NodeState::DownloadHeaders;
                     }
-                    self.send_to_random_peer(NodeRequest::GetHeaders(
-                        self.chain.get_block_locator().unwrap(),
-                    ))
-                    .await?;
+
                     Ok(())
                 }
                 PeerMessages::Disconnected => {
@@ -273,7 +286,7 @@ impl UtreexoNode {
         }
     }
 
-    pub async fn run(mut self) {
+    pub async fn run(mut self) -> ! {
         self.start_addr_man();
         self.create_connection().await;
 
@@ -282,23 +295,27 @@ impl UtreexoNode {
                 async_std::future::timeout(Duration::from_secs(1), self.node_rx.recv()).await
             {
                 if let Ok(notification) = notification {
-                    let _ = self.handle_notification(notification).await;
+                    let err = self.handle_notification(notification).await;
+                    if let Err(e) = err {
+                        error!("{e:?}");
+                    }
                 }
             }
-
             self.maybe_open_connection().await;
             self.download_man.handle_timeout().await;
             self.maybe_request_headers().await;
         }
     }
-    async fn maybe_request_headers(&self) -> Result<(), BlockchainError> {
-        if self.last_headers_request + Duration::from_secs(10) > Instant::now() {
+    async fn maybe_request_headers(&mut self) -> Result<(), BlockchainError> {
+        if (self.last_headers_request + Duration::from_secs(60 * 20)) < Instant::now() {
+            println!("Asking for headers");
             let locator = self
                 .chain
                 .get_block_locator()
                 .expect("Could not create locator");
             self.send_to_random_peer(NodeRequest::GetHeaders(locator))
                 .await?;
+            self.last_headers_request = Instant::now();
         }
         Ok(())
     }
@@ -309,7 +326,7 @@ impl UtreexoNode {
     }
     fn handle_block(chain: &ChainState<KvChainStore>, rpc: &Arc<BTCDClient>, block: UtreexoBlock) {
         let (proof, del_hashes, leaf_data) =
-            Self::get_proof(&**rpc, &block.block.block_hash().to_string())
+            Self::process_proof(&block.udata.unwrap(), &block.block.txdata, chain)
                 .expect("Could not fetch proof");
         let mut inputs = HashMap::new();
         for tx in block.block.txdata.iter() {
@@ -342,7 +359,8 @@ impl UtreexoNode {
             return Ok(());
         }
         self.send_to_random_peer(NodeRequest::GetBlock(next_blocks))
-            .await
+            .await;
+        Ok(())
     }
     async fn create_connection(&mut self) {
         if let Some(address) = self

@@ -67,8 +67,6 @@ where
             // Read everything else
             self.source.read_exact(&mut data[24..]).await?;
             let message = deserialize(&data)?;
-            println!("{data:?}");
-
             self.sender.send(Ok(message)).await;
         }
     }
