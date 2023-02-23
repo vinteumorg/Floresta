@@ -13,6 +13,7 @@ use bitcoin::{
     util::uint::Uint256,
     Block, BlockHash, BlockHeader, Network, OutPoint, Transaction, TxOut,
 };
+use log::info;
 use rustreexo::accumulator::{proof::Proof, stump::Stump};
 use sha2::{Digest, Sha512_256};
 use std::{
@@ -80,13 +81,21 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         sha256::Hash::from_slice(leaf_hash.as_slice())
             .expect("parent_hash: Engines shouldn't be Err")
     }
-    pub fn verify_block_transactions(
+    pub fn _verify_block_transactions(
         mut utxos: HashMap<OutPoint, TxOut>,
         transactions: &[Transaction],
     ) -> Result<bool, crate::error::Error> {
         for transaction in transactions {
             if !transaction.is_coin_base() {
-                transaction.verify(|outpoint| utxos.remove(outpoint))?;
+                let res = transaction.verify(|outpoint| {
+                    let utxo = utxos.remove(outpoint);
+                    println!("{utxo:?}");
+                    utxo
+                });
+                if res.is_err() {
+                    println!("{res:?} {}", transaction.txid());
+                    res?;
+                }
             }
         }
         Ok(true)
@@ -471,7 +480,6 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         if best_chain.is_none() {
             return Err(BlockchainError::ChainNotInitialized);
         }
-
         let inner = ChainStateInner {
             acc,
             best_block: best_chain.unwrap(),
@@ -483,7 +491,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             chain_params: network.into(),
             assume_valid: (Self::get_assume_valid_value(network, assume_valid_hash), 0),
         };
-
+        info!("Chainstate loaded at height: {}", inner.best_block.best_block);
         Ok(ChainState {
             inner: RwLock::new(inner),
         })
@@ -609,7 +617,7 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
         &self,
         block: &Block,
         proof: Proof,
-        inputs: HashMap<OutPoint, TxOut>,
+        _inputs: HashMap<OutPoint, TxOut>,
         del_hashes: Vec<sha256::Hash>,
     ) -> super::Result<()> {
         let header = self.get_disk_block_header(&block.block_hash())?;
@@ -654,14 +662,12 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
         let hash = block.header.validate_pow(&target).map_err(|_| {
             BlockchainError::BlockValidationError(BlockValidationErrors::NotEnoughPow)
         })?;
-        // Check tx script, only if we didn't pass the assume_valid block
-        if height >= inner.assume_valid.1 {
-            Self::verify_block_transactions(inputs, &block.txdata).map_err(|_| {
-                BlockchainError::BlockValidationError(BlockValidationErrors::InvalidTx)
-            })?;
-        }
-        // ... If we came this far, we consider this block valid ...
 
+        // ... If we came this far, we consider this block valid ...
+        if self.is_in_idb() && height % 10_000 == 0 {
+            info!("Downloading blocks at: {height}");
+            self.flush()?;
+        }
         // Notify others we have a new block
         async_std::task::block_on(self.notify(Notification::NewBlock((block.to_owned(), height))));
 

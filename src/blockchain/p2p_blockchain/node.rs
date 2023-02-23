@@ -28,13 +28,14 @@ use bitcoin::{
         utreexo::{CompactLeafData, UData, UtreexoBlock},
     },
     Block, BlockHash, BlockHeader, Network, OutPoint, PubkeyHash, PublicKey, Script, Transaction,
-    TxIn,
+    TxIn, Txid,
 };
 use btcd_rpc::{
     client::{BTCDClient, BtcdRpc},
     json_types::blockchain::GetUtreexoProofResult,
 };
 use log::{error, info, warn};
+use rayon::prelude::*;
 use rustreexo::accumulator::proof::Proof;
 use std::{
     collections::HashMap,
@@ -99,12 +100,14 @@ impl UtreexoNode {
         rpc: Arc<BTCDClient>,
     ) -> Self {
         let (node_tx, node_rx) = channel::unbounded();
+        let height = chain.get_validation_index().unwrap();
         let node = UtreexoNode {
             download_man: BlockDownload::new(
                 chain.clone(),
                 rpc.clone(),
                 node_tx.clone(),
                 &Self::handle_block,
+                height,
             ),
             header_backlog: vec![],
             state: NodeState::default(),
@@ -137,11 +140,16 @@ impl UtreexoNode {
         transactions: &[Transaction],
         chain: &ChainState<KvChainStore>,
     ) -> Result<(Proof, Vec<sha256::Hash>, Vec<LeafData>), BlockchainError> {
-        let targets = udata.proof.targets.iter().map(|target| target.0).collect();
+        let targets = udata
+            .proof
+            .targets
+            .par_iter()
+            .map(|target| target.0)
+            .collect();
         let hashes = udata
             .proof
             .hashes
-            .iter()
+            .par_iter()
             .map(|hash| sha256::Hash::from_inner(hash.into_inner()))
             .collect();
         let proof = Proof::new(targets, hashes);
@@ -149,16 +157,23 @@ impl UtreexoNode {
         let mut hashes = vec![];
         let mut leaves_iter = udata.leaves.iter().cloned();
         let mut tx_iter = transactions.iter();
+
         tx_iter.next(); // Skip coinbase
+
         for tx in tx_iter {
             for input in tx.input.iter() {
-                if let Some(leaf) = leaves_iter.next() {
-                    let height = leaf.header_code >> 1;
-                    let hash = chain.get_block_hash(height)?;
-                    let leaf = proof_util::reconstruct_leaf_data(&leaf, &input, hash)
-                        .expect("Invalid proof");
+                if !transactions
+                    .par_iter()
+                    .any(|tx| tx.txid() == input.previous_output.txid)
+                {
+                    if let Some(leaf) = leaves_iter.next() {
+                        let height = leaf.header_code >> 1;
+                        let hash = chain.get_block_hash(height)?;
+                        let leaf = proof_util::reconstruct_leaf_data(&leaf, &input, hash)
+                            .expect("Invalid proof");
 
-                    leaf_data.push(leaf);
+                        leaf_data.push(leaf);
+                    }
                 }
             }
         }
@@ -170,6 +185,8 @@ impl UtreexoNode {
         headers: Vec<BlockHeader>,
     ) -> Result<(), BlockchainError> {
         if headers.is_empty() {
+            // Start downloading blocks
+            self.state = NodeState::DownloadBlocks;
             self.download_man.get_more_blocks().await?;
             return Ok(());
         }
@@ -289,6 +306,7 @@ impl UtreexoNode {
     pub async fn run(mut self) -> ! {
         self.start_addr_man();
         self.create_connection().await;
+        self.do_initial_block_download().await;
 
         loop {
             while let Ok(notification) =
@@ -302,12 +320,34 @@ impl UtreexoNode {
                 }
             }
             self.maybe_open_connection().await;
-            self.download_man.handle_timeout().await;
-            self.maybe_request_headers().await;
         }
     }
-    async fn maybe_request_headers(&mut self) -> Result<(), BlockchainError> {
-        if (self.last_headers_request + Duration::from_secs(60 * 20)) < Instant::now() {
+    pub async fn do_initial_block_download(&mut self) {
+        loop {
+            while let Ok(notification) =
+                async_std::future::timeout(Duration::from_secs(1), self.node_rx.recv()).await
+            {
+                if let Ok(notification) = notification {
+                    let err = self.handle_notification(notification).await;
+                    if let Err(e) = err {
+                        error!("{e:?}");
+                    }
+                }
+            }
+            if let NodeState::DownloadBlocks = self.state {
+                self.download_man.handle_timeout().await;
+            } else {
+                self.ibd_maybe_request_headers().await;
+            }
+            self.maybe_open_connection().await;
+
+            if !self.chain.is_in_idb() {
+                break;
+            }
+        }
+    }
+    async fn ibd_maybe_request_headers(&mut self) -> Result<(), BlockchainError> {
+        if (self.last_headers_request + Duration::from_secs(30)) < Instant::now() {
             println!("Asking for headers");
             let locator = self
                 .chain

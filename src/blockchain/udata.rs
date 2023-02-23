@@ -87,7 +87,11 @@ pub mod proof_util {
         input: &TxIn,
         block_hash: bitcoin::BlockHash,
     ) -> Result<LeafData, Error> {
-        let spk = reconstruct_script_pubkey(leaf, input)?;
+        let spk = reconstruct_script_pubkey(leaf, input);
+        if spk.is_err() {
+            println!("{input:?}\n {leaf:?}");
+        }
+        let spk = spk?;
         Ok(LeafData {
             block_hash,
             header_code: leaf.header_code,
@@ -125,9 +129,7 @@ pub mod proof_util {
         let script_sig = &input.script_sig;
         let inst = script_sig.instructions().last();
         if let Some(Ok(bitcoin::blockdata::script::Instruction::PushBytes(bytes))) = inst {
-            if *bytes.first().unwrap() == 0x03 {
-                return Ok(PubkeyHash::hash(bytes));
-            }
+            return Ok(PubkeyHash::hash(bytes));
         }
         Err(Error::EmptyStack)
     }
@@ -162,9 +164,12 @@ mod test {
     use std::str::FromStr;
 
     use bitcoin::{
-        consensus::{deserialize, Decodable},
+        consensus::{deserialize, deserialize_partial, Decodable},
         hashes::hex::FromHex,
-        network::utreexo::CompactLeafData,
+        network::{
+            message::{NetworkMessage, RawNetworkMessage},
+            utreexo::CompactLeafData,
+        },
         Amount, BlockHash, Script, Transaction,
     };
 
@@ -231,6 +236,15 @@ mod test {
             "0000000000000000004fce5d650f72e8f288e8c81b36377c3c7de3d2bc5b3118",
             WitnessV0ScriptHash,
             "0020701a8d401c84fb13e6baf169d59684e17abd9fa216c8cc5b9fc63d622ff8c58d"
+        );
+        test_recover_spk!(
+            "020000000001018f97e04dd76eec325c149ad417175f01f71b45523d8df79d2745cfee110eabf20000000000ffffffff015cddc71d000000002200204ae81572f06e1b88fd5ced7a1a000945432e83e1551e6f721ee9c00b8cc3326001015100000000",
+            0,
+            27366,
+            4.99637721,
+            "000000069585e4b2517a8862d527558ff18df7d4b8c2795b249c116aba9c6c98",
+            WitnessV0ScriptHash,
+            "00204ae81572f06e1b88fd5ced7a1a000945432e83e1551e6f721ee9c00b8cc33260"
         );
     }
     #[test]

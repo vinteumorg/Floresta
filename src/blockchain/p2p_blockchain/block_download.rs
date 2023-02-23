@@ -13,6 +13,7 @@ use crate::blockchain::{
 use async_std::channel::Sender;
 use bitcoin::{network::utreexo::UtreexoBlock, Block, BlockHash};
 use btcd_rpc::client::BTCDClient;
+use log::{info, warn};
 use std::{
     collections::HashMap,
     sync::Arc,
@@ -31,6 +32,8 @@ pub struct BlockDownload {
     current_verified: u32,
     /// The instant of our last request
     last_request: Instant,
+    /// The last time we received a block
+    last_received: Instant,
     /// Our chainstate, used to determine which blocks should we download
     chain: Arc<ChainState<KvChainStore>>,
     /// TODO: Remove
@@ -62,17 +65,19 @@ impl BlockDownload {
             &Arc<BTCDClient>,
             UtreexoBlock,
         ) -> (),
+        start_height: u32,
     ) -> BlockDownload {
         BlockDownload {
             inflight: HashMap::new(),
             queued: HashMap::new(),
-            current_verified: 0,
+            current_verified: start_height,
             chain,
             handle_block,
             rpc,
-            last_requested: 0,
+            last_requested: start_height,
             node_tx,
             last_request: Instant::now(),
+            last_received: Instant::now(),
         }
     }
     /// Determine which blocks we should download and asks the node for it
@@ -80,9 +85,11 @@ impl BlockDownload {
         let block = self.last_requested + 1;
         let mut blocks = vec![];
         if self.chain.get_best_block().unwrap().0 == self.chain.get_validation_index().unwrap() {
+            self.chain.toggle_ibd(false);
+            info!("Leaving initial block download");
             return Ok(());
         }
-        for height in block..block + 1000 {
+        for height in block..(block + 500) {
             if let Ok(block) = self.chain.get_block_hash(height) {
                 blocks.push(block);
             } else {
@@ -114,6 +121,7 @@ impl BlockDownload {
             if height == self.current_verified {
                 (self.handle_block)(&self.chain, &self.rpc, block);
                 self.current_verified += 1;
+                self.last_received = Instant::now();
                 if let Some(next) = self.queued.remove(&(height + 1)) {
                     self.downloaded(next);
                 }
@@ -122,20 +130,17 @@ impl BlockDownload {
                 self.queued.insert(height, block);
             }
         }
-        // If we got the majority of blocks we were waiting for, ask for more blocks
-        if self.inflight.len() <= 1_000
-            && self.last_requested < (self.chain.get_best_block().unwrap().0 - 1_000)
-        {
-            self.get_more_blocks().await;
-        }
     }
     /// Checks whether the blocks we asked timed our or not
     pub async fn handle_timeout(&mut self) {
-        if self.last_request.elapsed() >= Duration::from_secs(1) {
+        if self.last_received.elapsed() >= Duration::from_secs(5) {
+            warn!("Timeout downloading at block {}", self.current_verified);
             self.last_requested = self.current_verified;
             self.get_more_blocks().await;
         }
-        async_std::task::sleep(Duration::from_secs(1)).await
+        if self.inflight.len() <= 5_000 {
+            self.get_more_blocks().await;
+        }
     }
 }
 
