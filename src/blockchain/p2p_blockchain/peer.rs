@@ -21,7 +21,7 @@ use bitcoin::{
     consensus::{deserialize, deserialize_partial, serialize, Decodable},
     hashes::{hex::FromHex, sha256, Hash},
     network::{
-        address::AddrV2,
+        address::{AddrV2, AddrV2Message},
         constants::ServiceFlags,
         message::{NetworkMessage, RawNetworkMessage, MAX_MSG_SIZE},
         message_blockdata::Inventory,
@@ -163,7 +163,6 @@ impl Peer {
             bitcoin::network::message::NetworkMessage::Verack => {
                 self.state = State::RemoteVerack;
             }
-            bitcoin::network::message::NetworkMessage::Addr(_) => {}
             bitcoin::network::message::NetworkMessage::Inv(inv) => {
                 for inv_entry in inv {
                     match inv_entry {
@@ -197,13 +196,9 @@ impl Peer {
                     }
                 }
             }
-            bitcoin::network::message::NetworkMessage::GetData(_) => todo!(),
-            bitcoin::network::message::NetworkMessage::NotFound(_) => todo!(),
-            bitcoin::network::message::NetworkMessage::GetBlocks(_) => todo!(),
             bitcoin::network::message::NetworkMessage::GetHeaders(_) => {
                 self.write(NetworkMessage::Headers(vec![])).await;
             }
-            bitcoin::network::message::NetworkMessage::MemPool => todo!(),
             bitcoin::network::message::NetworkMessage::Tx(_) => {
                 // self.mempool.write().await.accept_to_mempool();
             }
@@ -223,12 +218,14 @@ impl Peer {
             bitcoin::network::message::NetworkMessage::SendHeaders => {
                 self.send_headers = true;
             }
-            bitcoin::network::message::NetworkMessage::GetAddr => {}
             bitcoin::network::message::NetworkMessage::Ping(nonce) => {
                 self.handle_ping(nonce).await;
             }
             bitcoin::network::message::NetworkMessage::FeeFilter(_) => {
                 self.write(NetworkMessage::FeeFilter(1000)).await;
+            }
+            bitcoin::network::message::NetworkMessage::AddrV2(addresses) => {
+                self.send_to_node(PeerMessages::Addr(addresses)).await;
             }
             _ => {}
         }
@@ -338,7 +335,7 @@ pub(super) mod peer_utils {
         let nonce: u64 = 1;
 
         // "User Agent (0x00 if string is 0 bytes long)"
-        let user_agent = String::from("/rust-bitcoin-0.29.3/Atlantic-0.2.1");
+        let user_agent = String::from("/rust-bitcoin:0.29.3/Atlantic:0.2.1");
 
         // "The last block received by the emitting node"
         let start_height: i32 = 0;
@@ -379,7 +376,7 @@ pub enum PeerMessages {
     /// A response to a `getheaders` request
     Headers(Vec<BlockHeader>),
     /// We got some p2p addresses, add this to our local database
-    Addr(Vec<AddrV2>),
+    Addr(Vec<AddrV2Message>),
     /// Peer notify its readiness
     Ready(Version),
     /// Remote peer disconnected

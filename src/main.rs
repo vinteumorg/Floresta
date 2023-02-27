@@ -48,6 +48,7 @@ use async_std::task::{self, block_on};
 
 use bitcoin::{Address, Network};
 use blockchain::{chain_state::ChainState, chainstore::KvChainStore};
+#[cfg(not(feature = "experimental-p2p"))]
 use btcd_rpc::client::{BTCDClient, BTCDConfigs};
 use clap::Parser;
 use cli::{Cli, Commands};
@@ -172,10 +173,6 @@ fn main() {
         #[cfg(feature = "experimental-p2p")]
         Commands::Run {
             data_dir,
-            rpc_user,
-            rpc_password,
-            rpc_host,
-            rpc_port,
             assume_valid,
             wallet_xpub,
         } => {
@@ -201,22 +198,6 @@ fn main() {
                 log::error!("Something went wrong while setting wallet up: {e}");
                 return;
             }
-            let rpc = create_rpc_connection(
-                &get_one_or_another(rpc_host, data.rpc.rpc_host, "localhost".into()),
-                get_one_or_another(rpc_port, data.rpc.rpc_port, 8332),
-                Some(get_one_or_another(rpc_user, data.rpc.rpc_user, "".into())),
-                Some(get_one_or_another(
-                    rpc_password,
-                    data.rpc.rpc_password,
-                    "".into(),
-                )),
-            );
-
-            #[cfg(not(feature = "experimental-p2p"))]
-            if !test_rpc(&rpc) {
-                info!("Unable to connect with rpc");
-                return;
-            }
             info!("Starting sync worker, this might take a while!");
 
             debug!("Loading database...");
@@ -231,7 +212,6 @@ fn main() {
                 blockchain_state.clone(),
                 Arc::new(async_std::sync::RwLock::new(Mempool)),
                 get_net(&params.network),
-                rpc,
             );
             info!("Starting server");
             // Create a new electrum server, we need to block_on because `ElectrumServer::new` is `async`
@@ -300,6 +280,7 @@ fn load_wallet(data_dir: &String) -> AddressCache<KvDatabase> {
     let database = KvDatabase::new(data_dir.to_owned()).expect("Could not create a database");
     AddressCache::new(database)
 }
+#[cfg(not(feature = "experimental-p2p"))]
 fn create_rpc_connection(
     hostname: &String,
     rpc_port: u32,

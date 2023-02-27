@@ -85,17 +85,6 @@ pub enum Commands {
         /// Add a xpub to our wallet
         #[arg(long)]
         wallet_xpub: Option<Vec<String>>,
-        /// Your rpc user, as set in Utreexod
-        #[arg(long)]
-        rpc_user: Option<String>,
-        /// Your rpc password, as set in Utreexod
-        #[arg(long)]
-        rpc_password: Option<String>,
-        /// The hostname:port of Utreexod
-        #[arg(short, long)]
-        rpc_host: Option<String>,
-        #[arg(long)]
-        rpc_port: Option<u32>,
         /// Assume blocks before this one as having valid signatures, same with bitcoin core
         #[arg(long)]
         assume_valid: Option<BlockHash>,

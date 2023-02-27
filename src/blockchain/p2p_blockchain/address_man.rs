@@ -1,9 +1,12 @@
 use async_std::net::ToSocketAddrs;
-use bitcoin::network::{address::AddrV2, constants::ServiceFlags};
+use bitcoin::network::{
+    address::{AddrV2, AddrV2Message},
+    constants::ServiceFlags,
+};
 use serde::Deserialize;
 use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
-    time::Instant,
+    time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -16,10 +19,24 @@ impl From<AddrV2> for LocalAddress {
     fn from(value: AddrV2) -> Self {
         LocalAddress {
             address: value,
-            last_connected: Instant::now(),
+            last_connected: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
             state: AddressState::NeverTried,
             services: None,
             port: 8333,
+        }
+    }
+}
+impl From<AddrV2Message> for LocalAddress {
+    fn from(value: AddrV2Message) -> Self {
+        LocalAddress {
+            address: value.addr,
+            last_connected: value.time.into(),
+            state: AddressState::NeverTried,
+            services: Some(value.services),
+            port: value.port,
         }
     }
 }
@@ -34,7 +51,10 @@ impl TryFrom<&str> for LocalAddress {
         };
         Ok(LocalAddress::new(
             AddrV2::Ipv4(address),
-            Instant::now(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
             super::address_man::AddressState::NeverTried,
             None,
             port,
@@ -46,7 +66,7 @@ impl TryFrom<&str> for LocalAddress {
 #[derive(Debug, Clone, PartialEq)]
 pub struct LocalAddress {
     address: AddrV2,
-    last_connected: Instant,
+    last_connected: u64,
     state: AddressState,
     services: Option<ServiceFlags>,
     port: u16,
@@ -54,7 +74,7 @@ pub struct LocalAddress {
 impl LocalAddress {
     pub fn new(
         address: AddrV2,
-        last_connected: Instant,
+        last_connected: u64,
         state: AddressState,
         services: Option<ServiceFlags>,
         port: u16,

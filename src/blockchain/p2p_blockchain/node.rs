@@ -76,13 +76,13 @@ enum NodeState {
 pub struct UtreexoNode {
     peer_id_count: u32,
     last_headers_request: Instant,
+    last_tip_update: Instant,
     network: Network,
     peers: Vec<(PeerStatus, u32, Sender<NodeRequest>)>,
     chain: Arc<ChainState<KvChainStore>>,
     mempool: Arc<RwLock<Mempool>>,
     node_rx: Receiver<NodeNotification>,
     node_tx: Sender<NodeNotification>,
-    rpc: Arc<BTCDClient>,
     header_backlog: Vec<BlockHeader>,
     state: NodeState,
     download_man: BlockDownload,
@@ -97,14 +97,12 @@ impl UtreexoNode {
         chain: Arc<ChainState<KvChainStore>>,
         mempool: Arc<RwLock<Mempool>>,
         network: Network,
-        rpc: Arc<BTCDClient>,
     ) -> Self {
         let (node_tx, node_rx) = channel::unbounded();
         let height = chain.get_validation_index().unwrap();
         let node = UtreexoNode {
             download_man: BlockDownload::new(
                 chain.clone(),
-                rpc.clone(),
                 node_tx.clone(),
                 &Self::handle_block,
                 height,
@@ -118,9 +116,9 @@ impl UtreexoNode {
             network,
             node_rx,
             node_tx,
-            rpc,
             address_man: AddressMan::default(),
             last_headers_request: Instant::now(),
+            last_tip_update: Instant::now(),
         };
         node
     }
@@ -248,7 +246,13 @@ impl UtreexoNode {
                         .await
                 }
                 PeerMessages::Block(block) => {
-                    self.download_man.downloaded(block).await;
+                    if self.chain.is_in_idb() {
+                        self.download_man.downloaded(block).await;
+                    } else {
+                        self.chain.accept_header(block.block.header);
+                        Self::handle_block(&self.chain, block);
+                    }
+                    self.last_tip_update = Instant::now();
                     Ok(())
                 }
                 PeerMessages::Headers(headers) => self.handle_headers(headers).await,
@@ -319,6 +323,7 @@ impl UtreexoNode {
                     }
                 }
             }
+            self.check_for_stale_tip().await;
             self.maybe_open_connection().await;
         }
     }
@@ -340,7 +345,6 @@ impl UtreexoNode {
                 self.ibd_maybe_request_headers().await;
             }
             self.maybe_open_connection().await;
-
             if !self.chain.is_in_idb() {
                 break;
             }
@@ -348,7 +352,7 @@ impl UtreexoNode {
     }
     async fn ibd_maybe_request_headers(&mut self) -> Result<(), BlockchainError> {
         if (self.last_headers_request + Duration::from_secs(30)) < Instant::now() {
-            println!("Asking for headers");
+            info!("Asking for headers");
             let locator = self
                 .chain
                 .get_block_locator()
@@ -359,12 +363,24 @@ impl UtreexoNode {
         }
         Ok(())
     }
+    /// This function checks how many time has passed since our last tip update, if it's
+    /// been more than 15 minutes, try to update it.
+    async fn check_for_stale_tip(&mut self) {
+        if (self.last_tip_update + Duration::from_secs(15 * 60)) < Instant::now() {
+            warn!("Potential stale tip detected, trying extra peers");
+            self.create_connection().await;
+            self.send_to_random_peer(NodeRequest::GetHeaders(
+                self.chain.get_block_locator().unwrap(),
+            ))
+            .await;
+        }
+    }
     async fn maybe_open_connection(&mut self) {
         if self.peers.len() < MAX_OUTGOING_PEERS {
             self.create_connection().await;
         }
     }
-    fn handle_block(chain: &ChainState<KvChainStore>, rpc: &Arc<BTCDClient>, block: UtreexoBlock) {
+    fn handle_block(chain: &ChainState<KvChainStore>, block: UtreexoBlock) {
         let (proof, del_hashes, leaf_data) =
             Self::process_proof(&block.udata.unwrap(), &block.block.txdata, chain)
                 .expect("Could not fetch proof");

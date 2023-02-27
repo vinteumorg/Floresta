@@ -36,15 +36,13 @@ pub struct BlockDownload {
     last_received: Instant,
     /// Our chainstate, used to determine which blocks should we download
     chain: Arc<ChainState<KvChainStore>>,
-    /// TODO: Remove
-    rpc: Arc<BTCDClient>,
     /// The id of the last block we requested
     last_requested: u32,
     /// We use this channel to ask things to the node
     node_tx: Sender<NodeNotification>,
     /// A callback function that should be called every time we have a new block.
     /// It's assured that this callback will be called with blocks ordered.
-    handle_block: &'static dyn Fn(&ChainState<KvChainStore>, &Arc<BTCDClient>, UtreexoBlock) -> (),
+    handle_block: &'static dyn Fn(&ChainState<KvChainStore>, UtreexoBlock) -> (),
 }
 
 impl BlockDownload {
@@ -58,13 +56,8 @@ impl BlockDownload {
     /// Creates a new downloader
     pub fn new(
         chain: Arc<ChainState<KvChainStore>>,
-        rpc: Arc<BTCDClient>,
         node_tx: Sender<NodeNotification>,
-        handle_block: &'static dyn Fn(
-            &ChainState<KvChainStore>,
-            &Arc<BTCDClient>,
-            UtreexoBlock,
-        ) -> (),
+        handle_block: &'static dyn Fn(&ChainState<KvChainStore>, UtreexoBlock) -> (),
         start_height: u32,
     ) -> BlockDownload {
         BlockDownload {
@@ -73,7 +66,6 @@ impl BlockDownload {
             current_verified: start_height,
             chain,
             handle_block,
-            rpc,
             last_requested: start_height,
             node_tx,
             last_request: Instant::now(),
@@ -89,7 +81,7 @@ impl BlockDownload {
             info!("Leaving initial block download");
             return Ok(());
         }
-        for height in block..(block + 500) {
+        for height in block..(block + 1_000) {
             if let Ok(block) = self.chain.get_block_hash(height) {
                 blocks.push(block);
             } else {
@@ -108,18 +100,12 @@ impl BlockDownload {
     /// the block we got is the next one in our current tip. If so, process it. Queue it
     /// otherwise.
     pub async fn downloaded(&mut self, block: UtreexoBlock) {
-        // If not in IBD, skip bellow logic, as we only have to download one block
-        if !self.chain.is_in_idb() {
-            self.chain.accept_header(block.block.header);
-            (self.handle_block)(&self.chain, &self.rpc, block);
-            return;
-        }
         // This block is no longer inflight
         let height = self.inflight.remove(&block.block.block_hash());
         if let Some(height) = height {
             // This block is the next one in our tip, process it
             if height == self.current_verified {
-                (self.handle_block)(&self.chain, &self.rpc, block);
+                (self.handle_block)(&self.chain, block);
                 self.current_verified += 1;
                 self.last_received = Instant::now();
                 if let Some(next) = self.queued.remove(&(height + 1)) {
