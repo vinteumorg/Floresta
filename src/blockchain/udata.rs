@@ -95,7 +95,7 @@ pub mod proof_util {
         Ok(LeafData {
             block_hash,
             header_code: leaf.header_code,
-            prevout: input.previous_output.clone(),
+            prevout: input.previous_output,
             utxo: TxOut {
                 script_pubkey: spk,
                 value: leaf.amount,
