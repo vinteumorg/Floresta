@@ -13,12 +13,19 @@ use crate::blockchain::{
 use async_std::channel::Sender;
 use bitcoin::{network::utreexo::UtreexoBlock, Block, BlockHash};
 use btcd_rpc::client::BTCDClient;
-use log::{info, warn};
+use log::{debug, info, warn};
 use std::{
     collections::HashMap,
     sync::Arc,
     time::{Duration, Instant},
 };
+
+/// Maximum number of blocks we ask at once, and wait for a response
+const MAX_INFLIGHT_BLOCKS: usize = 5_000;
+/// Number of blocks we ask at once in a single GetData msg
+const GET_DATA_COUNT: u32 = 500;
+
+
 /// Keeps track of blocks we have to download during Initial Block Download, so we can
 /// download blocks from multiple peers
 pub struct BlockDownload {
@@ -76,12 +83,7 @@ impl BlockDownload {
     pub async fn get_more_blocks(&mut self) -> Result<(), BlockchainError> {
         let block = self.last_requested + 1;
         let mut blocks = vec![];
-        if self.chain.get_best_block().unwrap().0 == self.chain.get_validation_index().unwrap() {
-            self.chain.toggle_ibd(false);
-            info!("Leaving initial block download");
-            return Ok(());
-        }
-        for height in block..(block + 1_000) {
+        for height in block..(block + GET_DATA_COUNT) {
             if let Ok(block) = self.chain.get_block_hash(height) {
                 blocks.push(block);
             } else {
@@ -116,15 +118,15 @@ impl BlockDownload {
                 self.queued.insert(height, block);
             }
         }
+        if self.inflight.len() <= MAX_INFLIGHT_BLOCKS {
+            self.get_more_blocks().await;
+        }
     }
     /// Checks whether the blocks we asked timed our or not
     pub async fn handle_timeout(&mut self) {
         if self.last_received.elapsed() >= Duration::from_secs(5) {
-            warn!("Timeout downloading at block {}", self.current_verified);
+            debug!("Timeout downloading at block {}", self.current_verified);
             self.last_requested = self.current_verified;
-            self.get_more_blocks().await;
-        }
-        if self.inflight.len() <= 5_000 {
             self.get_more_blocks().await;
         }
     }
