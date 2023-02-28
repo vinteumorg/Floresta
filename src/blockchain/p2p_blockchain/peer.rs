@@ -335,7 +335,7 @@ pub(super) mod peer_utils {
         let nonce: u64 = 1;
 
         // "User Agent (0x00 if string is 0 bytes long)"
-        let user_agent = String::from("/rust-bitcoin:0.29.3/Atlantic:0.2.1");
+        let user_agent = String::from("/rust-bitcoin:0.29.3/Floresta:0.2.1");
 
         // "The last block received by the emitting node"
         let start_height: i32 = 0;

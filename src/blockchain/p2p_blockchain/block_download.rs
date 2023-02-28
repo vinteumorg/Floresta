@@ -8,12 +8,10 @@
 use super::node::NodeNotification;
 use crate::blockchain::{
     chain_state::ChainState, chainstore::KvChainStore, error::BlockchainError, BlockchainInterface,
-    BlockchainProviderInterface,
 };
 use async_std::channel::Sender;
-use bitcoin::{network::utreexo::UtreexoBlock, Block, BlockHash};
-use btcd_rpc::client::BTCDClient;
-use log::{debug, info, warn};
+use bitcoin::{network::utreexo::UtreexoBlock, BlockHash};
+use log::{debug, error};
 use std::{
     collections::HashMap,
     sync::Arc,
@@ -24,7 +22,6 @@ use std::{
 const MAX_INFLIGHT_BLOCKS: usize = 5_000;
 /// Number of blocks we ask at once in a single GetData msg
 const GET_DATA_COUNT: u32 = 500;
-
 
 /// Keeps track of blocks we have to download during Initial Block Download, so we can
 /// download blocks from multiple peers
@@ -37,8 +34,6 @@ pub struct BlockDownload {
     queued: HashMap<u32, UtreexoBlock>,
     /// The id for the last block we downloaded and processed
     current_verified: u32,
-    /// The instant of our last request
-    last_request: Instant,
     /// The last time we received a block
     last_received: Instant,
     /// Our chainstate, used to determine which blocks should we download
@@ -75,7 +70,6 @@ impl BlockDownload {
             handle_block,
             last_requested: start_height,
             node_tx,
-            last_request: Instant::now(),
             last_received: Instant::now(),
         }
     }
@@ -95,7 +89,8 @@ impl BlockDownload {
             .send(NodeNotification::FromBlockDownloader(
                 BlockDownloaderMessages::AskForBlocks(blocks),
             ))
-            .await;
+            .await
+            .expect("Channel should work");
         Ok(())
     }
     /// A callback issued every time a new block arrives from our peers. It checks if
@@ -110,8 +105,8 @@ impl BlockDownload {
                 (self.handle_block)(&self.chain, block);
                 self.current_verified += 1;
                 self.last_received = Instant::now();
-                if let Some(next) = self.queued.remove(&(height + 1)) {
-                    self.downloaded(next);
+                while let Some(next) = self.queued.remove(&(height + 1)) {
+                    (self.handle_block)(&self.chain, next);
                 }
             } else {
                 // There are missing ancestors, hold it for now
@@ -119,7 +114,9 @@ impl BlockDownload {
             }
         }
         if self.inflight.len() <= MAX_INFLIGHT_BLOCKS {
-            self.get_more_blocks().await;
+            if let Err(e) = self.get_more_blocks().await {
+                error!("Error while requesting more blocks {e:?}");
+            }
         }
     }
     /// Checks whether the blocks we asked timed our or not
@@ -127,7 +124,9 @@ impl BlockDownload {
         if self.last_received.elapsed() >= Duration::from_secs(5) {
             debug!("Timeout downloading at block {}", self.current_verified);
             self.last_requested = self.current_verified;
-            self.get_more_blocks().await;
+            if let Err(e) = self.get_more_blocks().await {
+                error!("Error while requesting more blocks {e:?}");
+            }
         }
     }
 }

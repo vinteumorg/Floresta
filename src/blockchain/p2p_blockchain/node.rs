@@ -2,16 +2,13 @@
 //! events, such as new blocks, peer connection/disconnection, new addresses, etc.
 //! A node should not care about peer-specific messages, peers'll handle things like pings.
 use super::{
-    address_man::{AddressMan, LocalAddress},
+    address_man::AddressMan,
     block_download::{BlockDownload, BlockDownloaderMessages},
     mempool::Mempool,
     peer::{Peer, PeerMessages},
 };
 use crate::blockchain::{
-    chain_state::ChainState,
-    chainstore::KvChainStore,
-    error::BlockchainError,
-    udata::{proof_util, LeafData},
+    chain_state::ChainState, chainstore::KvChainStore, error::BlockchainError, udata::proof_util,
     BlockchainInterface, BlockchainProviderInterface,
 };
 use async_std::{
@@ -20,25 +17,18 @@ use async_std::{
     task::spawn,
 };
 use bitcoin::{
-    consensus::deserialize_partial,
-    hashes::{hex::FromHex, sha256, Hash},
+    hashes::{sha256, Hash},
     network::{
-        address::AddrV2,
         constants::ServiceFlags,
-        utreexo::{CompactLeafData, UData, UtreexoBlock},
+        utreexo::{UData, UtreexoBlock},
     },
-    Block, BlockHash, BlockHeader, Network, OutPoint, PubkeyHash, PublicKey, Script, Transaction,
-    TxIn, TxOut, Txid,
+    BlockHash, BlockHeader, Network, OutPoint, Transaction, TxOut,
 };
-use btcd_rpc::{
-    client::{BTCDClient, BtcdRpc},
-    json_types::blockchain::GetUtreexoProofResult,
-};
+
 use log::{error, info, warn};
 use rustreexo::accumulator::proof::Proof;
 use std::{
     collections::HashMap,
-    net::{IpAddr, Ipv4Addr},
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -49,7 +39,6 @@ const MAX_OUTGOING_PEERS: usize = 10;
 #[derive(Debug)]
 pub enum NodeNotification {
     FromPeer(u32, PeerMessages),
-    FromPingManager,
     FromBlockDownloader(BlockDownloaderMessages),
 }
 #[derive(Debug, Clone, PartialEq)]
@@ -71,7 +60,6 @@ enum NodeState {
     DownloadBlocks,
     Running,
 }
-#[allow(unused)]
 pub struct UtreexoNode {
     peer_id_count: u32,
     last_headers_request: Instant,
@@ -82,7 +70,6 @@ pub struct UtreexoNode {
     mempool: Arc<RwLock<Mempool>>,
     node_rx: Receiver<NodeNotification>,
     node_tx: Sender<NodeNotification>,
-    header_backlog: Vec<BlockHeader>,
     state: NodeState,
     download_man: BlockDownload,
     address_man: AddressMan,
@@ -106,7 +93,6 @@ impl UtreexoNode {
                 &Self::handle_block,
                 height,
             ),
-            header_backlog: vec![],
             state: NodeState::default(),
             peer_id_count: 0,
             peers: Vec::new(),
@@ -145,7 +131,7 @@ impl UtreexoNode {
             .map(|hash| sha256::Hash::from_inner(hash.into_inner()))
             .collect();
         let proof = Proof::new(targets, hashes);
-        let mut hashes = vec![];
+        let hashes = vec![];
         let mut leaves_iter = udata.leaves.iter().cloned();
         let mut tx_iter = transactions.iter();
 
@@ -253,7 +239,7 @@ impl UtreexoNode {
                     if self.chain.is_in_idb() {
                         self.download_man.downloaded(block).await;
                     } else {
-                        self.chain.accept_header(block.block.header);
+                        self.chain.accept_header(block.block.header)?;
                         Self::handle_block(&self.chain, block);
                     }
                     self.last_tip_update = Instant::now();
@@ -301,7 +287,6 @@ impl UtreexoNode {
                     Ok(())
                 }
             },
-            NodeNotification::FromPingManager => todo!(),
             NodeNotification::FromBlockDownloader(blocks) => match blocks {
                 BlockDownloaderMessages::AskForBlocks(headers) => {
                     self.ibd_request_blocks(headers).await?;
@@ -314,7 +299,7 @@ impl UtreexoNode {
     pub async fn run(mut self) -> ! {
         self.start_addr_man();
         self.create_connection().await;
-        self.do_initial_block_download().await;
+        let _ = self.do_initial_block_download().await;
 
         loop {
             while let Ok(notification) =
@@ -331,7 +316,7 @@ impl UtreexoNode {
             self.maybe_open_connection().await;
         }
     }
-    pub async fn do_initial_block_download(&mut self) {
+    pub async fn do_initial_block_download(&mut self) -> Result<(), BlockchainError> {
         loop {
             while let Ok(notification) =
                 async_std::future::timeout(Duration::from_secs(1), self.node_rx.recv()).await
@@ -346,13 +331,15 @@ impl UtreexoNode {
             if let NodeState::DownloadBlocks = self.state {
                 self.download_man.handle_timeout().await;
             } else {
-                self.ibd_maybe_request_headers().await;
+                self.ibd_maybe_request_headers().await?;
             }
             self.maybe_open_connection().await;
             if !self.chain.is_in_idb() {
+                self.state = NodeState::Running;
                 break;
             }
         }
+        Ok(())
     }
     async fn ibd_maybe_request_headers(&mut self) -> Result<(), BlockchainError> {
         if (self.last_headers_request + Duration::from_secs(30)) < Instant::now() {
@@ -373,10 +360,11 @@ impl UtreexoNode {
         if (self.last_tip_update + Duration::from_secs(15 * 60)) < Instant::now() {
             warn!("Potential stale tip detected, trying extra peers");
             self.create_connection().await;
-            self.send_to_random_peer(NodeRequest::GetHeaders(
-                self.chain.get_block_locator().unwrap(),
-            ))
-            .await;
+            let _ = self
+                .send_to_random_peer(NodeRequest::GetHeaders(
+                    self.chain.get_block_locator().unwrap(),
+                ))
+                .await;
         }
     }
     async fn maybe_open_connection(&mut self) {
@@ -408,7 +396,7 @@ impl UtreexoNode {
             return Ok(());
         }
         self.send_to_random_peer(NodeRequest::GetBlock(next_blocks))
-            .await;
+            .await?;
         Ok(())
     }
     async fn create_connection(&mut self) {

@@ -1,12 +1,11 @@
-use async_std::net::ToSocketAddrs;
 use bitcoin::network::{
     address::{AddrV2, AddrV2Message},
     constants::ServiceFlags,
 };
 use serde::Deserialize;
 use std::{
-    net::{IpAddr, Ipv4Addr, SocketAddr},
-    time::{Instant, SystemTime, UNIX_EPOCH},
+    net::{IpAddr, Ipv4Addr},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -92,9 +91,9 @@ impl LocalAddress {
     }
     pub fn get_net_address(&self) -> IpAddr {
         match self.address {
-            /// IPV4
+            // IPV4
             AddrV2::Ipv4(ipv4) => IpAddr::V4(ipv4),
-            /// IPV6
+            // IPV6
             AddrV2::Ipv6(ipv6) => IpAddr::V6(ipv6),
             _ => IpAddr::V4(Ipv4Addr::LOCALHOST),
         }
@@ -123,13 +122,13 @@ impl AddressMan {
         }
         None
     }
-    pub fn update_set_state(&mut self, address: LocalAddress, state: AddressState) {
+    pub fn _update_set_state(&mut self, address: LocalAddress, state: AddressState) {
         let address = self.addresses.iter().position(|addr| *addr == address);
         if let Some(address) = address {
             self.addresses.get_mut(address).unwrap().state = state;
         }
     }
-    pub fn update_add_service_flag(&mut self, address: LocalAddress, flags: ServiceFlags) {
+    pub fn _update_add_service_flag(&mut self, address: LocalAddress, flags: ServiceFlags) {
         let address = self.addresses.iter().position(|addr| *addr == address);
         if let Some(address) = address {
             self.addresses.get_mut(address).unwrap().services = Some(flags);
