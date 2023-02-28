@@ -227,6 +227,9 @@ impl Peer {
             bitcoin::network::message::NetworkMessage::AddrV2(addresses) => {
                 self.send_to_node(PeerMessages::Addr(addresses)).await;
             }
+            bitcoin::network::message::NetworkMessage::GetBlocks(_) => {
+                self.write(NetworkMessage::Inv(vec![])).await;
+            }
             _ => {}
         }
     }

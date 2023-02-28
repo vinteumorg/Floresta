@@ -81,21 +81,13 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         sha256::Hash::from_slice(leaf_hash.as_slice())
             .expect("parent_hash: Engines shouldn't be Err")
     }
-    pub fn _verify_block_transactions(
+    pub fn verify_block_transactions(
         mut utxos: HashMap<OutPoint, TxOut>,
         transactions: &[Transaction],
     ) -> Result<bool, crate::error::Error> {
         for transaction in transactions {
             if !transaction.is_coin_base() {
-                let res = transaction.verify(|outpoint| {
-                    let utxo = utxos.remove(outpoint);
-                    println!("{utxo:?}");
-                    utxo
-                });
-                if res.is_err() {
-                    println!("{res:?} {}", transaction.txid());
-                    res?;
-                }
+                transaction.verify(|outpoint| utxos.remove(outpoint))?;
             }
         }
         Ok(true)
@@ -617,7 +609,7 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
         &self,
         block: &Block,
         proof: Proof,
-        _inputs: HashMap<OutPoint, TxOut>,
+        inputs: HashMap<OutPoint, TxOut>,
         del_hashes: Vec<sha256::Hash>,
     ) -> super::Result<()> {
         let header = self.get_disk_block_header(&block.block_hash())?;
@@ -632,8 +624,7 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
                     .valid_block(block.block_hash());
                 return Ok(());
             }
-            DiskBlockHeader::Orphan(_) => return Ok(()),
-            DiskBlockHeader::InFork(_) => return Ok(()),
+            DiskBlockHeader::Orphan(_) | DiskBlockHeader::InFork(_) => return Ok(()),
             DiskBlockHeader::HeadersOnly(_, height) => height,
         };
         let inner = self.inner.read().unwrap();
@@ -662,7 +653,11 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
         let hash = block.header.validate_pow(&target).map_err(|_| {
             BlockchainError::BlockValidationError(BlockValidationErrors::NotEnoughPow)
         })?;
-
+        if height > inner.assume_valid.1 {
+            Self::verify_block_transactions(inputs, &block.txdata).map_err(|_| {
+                BlockchainError::BlockValidationError(BlockValidationErrors::InvalidTx)
+            })?;
+        }
         // ... If we came this far, we consider this block valid ...
         if self.is_in_idb() && height % 10_000 == 0 {
             info!("Downloading blocks at: {height}");

@@ -299,17 +299,20 @@ impl UtreexoNode {
     pub async fn run(mut self) -> ! {
         self.start_addr_man();
         self.create_connection().await;
-        let _ = self.do_initial_block_download().await;
+        try_and_log!(self.do_initial_block_download().await);
+        try_and_log!(
+            self.send_to_random_peer(NodeRequest::GetHeaders(
+                self.chain.get_block_locator().expect("Can get locators"),
+            ))
+            .await
+        );
 
         loop {
             while let Ok(notification) =
                 async_std::future::timeout(Duration::from_secs(1), self.node_rx.recv()).await
             {
                 if let Ok(notification) = notification {
-                    let err = self.handle_notification(notification).await;
-                    if let Err(e) = err {
-                        error!("{e:?}");
-                    }
+                    try_and_log!(self.handle_notification(notification).await);
                 }
             }
             self.check_for_stale_tip().await;
@@ -322,10 +325,7 @@ impl UtreexoNode {
                 async_std::future::timeout(Duration::from_secs(1), self.node_rx.recv()).await
             {
                 if let Ok(notification) = notification {
-                    let err = self.handle_notification(notification).await;
-                    if let Err(e) = err {
-                        error!("{e:?}");
-                    }
+                    try_and_log!(self.handle_notification(notification).await);
                 }
             }
             if let NodeState::DownloadBlocks = self.state {
@@ -342,7 +342,7 @@ impl UtreexoNode {
         Ok(())
     }
     async fn ibd_maybe_request_headers(&mut self) -> Result<(), BlockchainError> {
-        if (self.last_headers_request + Duration::from_secs(30)) < Instant::now() {
+        if (self.last_headers_request + Duration::from_secs(10)) < Instant::now() {
             info!("Asking for headers");
             let locator = self
                 .chain
@@ -360,11 +360,12 @@ impl UtreexoNode {
         if (self.last_tip_update + Duration::from_secs(15 * 60)) < Instant::now() {
             warn!("Potential stale tip detected, trying extra peers");
             self.create_connection().await;
-            let _ = self
-                .send_to_random_peer(NodeRequest::GetHeaders(
+            try_and_log!(
+                self.send_to_random_peer(NodeRequest::GetHeaders(
                     self.chain.get_block_locator().unwrap(),
                 ))
-                .await;
+                .await
+            );
         }
     }
     async fn maybe_open_connection(&mut self) {
@@ -431,3 +432,13 @@ impl UtreexoNode {
         }
     }
 }
+
+macro_rules! try_and_log {
+    ($what: expr) => {
+        let result = $what;
+        if let Err(error) = result {
+            log::error!("{:?}", error);
+        }
+    };
+}
+pub(crate) use try_and_log;
