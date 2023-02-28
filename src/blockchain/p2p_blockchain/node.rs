@@ -28,14 +28,13 @@ use bitcoin::{
         utreexo::{CompactLeafData, UData, UtreexoBlock},
     },
     Block, BlockHash, BlockHeader, Network, OutPoint, PubkeyHash, PublicKey, Script, Transaction,
-    TxIn, Txid,
+    TxIn, TxOut, Txid,
 };
 use btcd_rpc::{
     client::{BTCDClient, BtcdRpc},
     json_types::blockchain::GetUtreexoProofResult,
 };
 use log::{error, info, warn};
-use rayon::prelude::*;
 use rustreexo::accumulator::proof::Proof;
 use std::{
     collections::HashMap,
@@ -137,31 +136,36 @@ impl UtreexoNode {
         udata: &UData,
         transactions: &[Transaction],
         chain: &ChainState<KvChainStore>,
-    ) -> Result<(Proof, Vec<sha256::Hash>, Vec<LeafData>), BlockchainError> {
-        let targets = udata
-            .proof
-            .targets
-            .par_iter()
-            .map(|target| target.0)
-            .collect();
+    ) -> Result<(Proof, Vec<sha256::Hash>, HashMap<OutPoint, TxOut>), BlockchainError> {
+        let targets = udata.proof.targets.iter().map(|target| target.0).collect();
         let hashes = udata
             .proof
             .hashes
-            .par_iter()
+            .iter()
             .map(|hash| sha256::Hash::from_inner(hash.into_inner()))
             .collect();
         let proof = Proof::new(targets, hashes);
-        let mut leaf_data = vec![];
         let mut hashes = vec![];
         let mut leaves_iter = udata.leaves.iter().cloned();
         let mut tx_iter = transactions.iter();
 
+        let mut inputs = HashMap::new();
         tx_iter.next(); // Skip coinbase
 
         for tx in tx_iter {
+            let txid = tx.txid();
+            for (vout, out) in tx.output.iter().enumerate() {
+                inputs.insert(
+                    OutPoint {
+                        txid,
+                        vout: vout as u32,
+                    },
+                    out.clone(),
+                );
+            }
             for input in tx.input.iter() {
                 if !transactions
-                    .par_iter()
+                    .iter()
                     .any(|tx| tx.txid() == input.previous_output.txid)
                 {
                     if let Some(leaf) = leaves_iter.next() {
@@ -170,13 +174,13 @@ impl UtreexoNode {
                         let leaf = proof_util::reconstruct_leaf_data(&leaf, &input, hash)
                             .expect("Invalid proof");
 
-                        leaf_data.push(leaf);
+                        inputs.insert(leaf.prevout, leaf.utxo);
                     }
                 }
             }
         }
 
-        Ok((proof, hashes, leaf_data))
+        Ok((proof, hashes, inputs))
     }
     pub async fn handle_headers(
         &mut self,
@@ -381,27 +385,16 @@ impl UtreexoNode {
         }
     }
     fn handle_block(chain: &ChainState<KvChainStore>, block: UtreexoBlock) {
-        let (proof, del_hashes, leaf_data) =
+        let (proof, del_hashes, inputs) =
             Self::process_proof(&block.udata.unwrap(), &block.block.txdata, chain)
                 .expect("Could not fetch proof");
-        let mut inputs = HashMap::new();
-        for tx in block.block.txdata.iter() {
-            for (vout, out) in tx.output.iter().enumerate() {
-                inputs.insert(
-                    OutPoint {
-                        txid: tx.txid(),
-                        vout: vout as u32,
-                    },
-                    out.clone(),
-                );
-            }
+
+        if let Err(e) = chain.connect_block(&block.block, proof, inputs, del_hashes) {
+            error!(
+                "Error while connecting block {}: {e:?}",
+                block.block.block_hash()
+            );
         }
-        for leaf in leaf_data {
-            inputs.insert(leaf.prevout, leaf.utxo);
-        }
-        chain
-            .connect_block(&block.block, proof, inputs, del_hashes)
-            .unwrap();
     }
     async fn ibd_request_blocks(
         &mut self,
