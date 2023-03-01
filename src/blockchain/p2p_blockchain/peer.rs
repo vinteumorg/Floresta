@@ -1,66 +1,49 @@
-#![allow(unused)]
 use self::peer_utils::make_pong;
 use super::{
-    mempool::Mempool,
     node::{NodeNotification, NodeRequest},
     stream_reader::StreamReader,
 };
-use crate::blockchain::{
-    chain_state::ChainState, chainstore::KvChainStore, error::BlockchainError, udata::LeafData,
-    BlockchainInterface, BlockchainProviderInterface,
-};
+use crate::blockchain::error::BlockchainError;
 use async_std::{
     channel::{unbounded, Receiver, Sender},
-    io::{BufReader, Read, ReadExt, WriteExt},
+    io::{BufReader, WriteExt},
     net::{TcpStream, ToSocketAddrs},
-    stream::Stream,
-    sync::RwLock,
     task::spawn,
 };
 use bitcoin::{
-    consensus::{deserialize, deserialize_partial, serialize, Decodable},
-    hashes::{hex::FromHex, sha256, Hash},
+    consensus::serialize,
+    hashes::Hash,
     network::{
-        address::{AddrV2, AddrV2Message},
+        address::AddrV2Message,
         constants::ServiceFlags,
-        message::{NetworkMessage, RawNetworkMessage, MAX_MSG_SIZE},
+        message::{NetworkMessage, RawNetworkMessage},
         message_blockdata::Inventory,
         message_network::VersionMessage,
         utreexo::UtreexoBlock,
     },
-    Block, BlockHash, BlockHeader, Network, OutPoint, Txid,
+    BlockHash, BlockHeader, Network,
 };
-use btcd_rpc::{
-    client::{BTCDClient, BtcdRpc},
-    json_types::blockchain::GetUtreexoProofResult,
+use futures::FutureExt;
+use log::{debug, warn};
+use std::{
+    fmt::Debug,
+    time::{Duration, Instant},
 };
-use clap::builder::TypedValueParser;
-use futures::{future::select_all, stream::select, StreamExt};
-use futures::{future::SelectAll, Future, FutureExt};
-use log::{warn, debug};
-use rustreexo::accumulator::proof::Proof;
-use std::{collections::HashMap, fmt::Debug, task::Poll, time::Duration};
-use std::{sync::Arc, time::Instant};
+
 #[derive(PartialEq)]
 enum State {
     None,
-    VersionSent,
     RemoteVerack,
-    VersionReceived,
     Connected,
 }
 enum InflightRequests {
     Blocks((usize, usize)),
-    Transaction(Txid),
-    Address,
     Headers,
 }
 
 pub struct Peer {
     stream: TcpStream,
     network: Network,
-    chain: Arc<ChainState<KvChainStore>>,
-    mempool: Arc<RwLock<Mempool>>,
     blocks_only: bool,
     services: ServiceFlags,
     user_agent: String,
@@ -89,70 +72,77 @@ impl Peer {
             .await;
         Ok(())
     }
-    async fn write_loop() {}
     async fn peer_loop_inner(&mut self) -> Result<(), BlockchainError> {
         let read_stream = BufReader::new(self.stream.clone());
         let (tx, rx) = unbounded();
-        let mut stream: StreamReader<_, RawNetworkMessage> =
+        let stream: StreamReader<_, RawNetworkMessage> =
             StreamReader::new(read_stream, self.network.magic(), tx);
-        let feature = spawn(stream.read_loop());
+        let _ = spawn(stream.read_loop());
         loop {
             futures::select! {
                 request = self.node_requests.recv().fuse() => {
                     if let Ok(request) = request {
-                        self.handle_node_request(request).await;
+                        self.handle_node_request(request).await?;
                     }
                 }
                 peer_request = async_std::future::timeout(Duration::from_secs(1), rx.recv()).fuse() => {
                     if let Ok(Ok(peer_request)) = peer_request {
-                        self.handle_peer_message(peer_request?).await;
+                        self.handle_peer_message(peer_request?).await?;
                     }
                 }
             };
-            self.handle_request_timeout();
+            self.handle_request_timeout().await;
         }
     }
-    pub fn handle_request_timeout(&self) {
+    pub async fn handle_request_timeout(&self) {
         for (time, _) in self.inflight.iter() {
             if *time + Duration::from_secs(5) > Instant::now() {
-                self.send_to_node(PeerMessages::RequestTimeout);
+                self.send_to_node(PeerMessages::RequestTimeout).await;
             }
         }
     }
-    pub async fn handle_node_request(&mut self, request: NodeRequest) {
+    pub async fn handle_node_request(
+        &mut self,
+        request: NodeRequest,
+    ) -> Result<(), BlockchainError> {
         match request {
             NodeRequest::GetBlock(block_hashes) => {
                 self.inflight.push((
                     Instant::now(),
                     InflightRequests::Blocks((block_hashes.len(), 0)),
                 ));
-                let mut inv = block_hashes
+                let inv = block_hashes
                     .iter()
                     .map(|block| Inventory::UtreexoWitnessBlock(*block))
                     .collect();
 
-                self.write(NetworkMessage::GetData(inv)).await;
+                let _ = self.write(NetworkMessage::GetData(inv)).await;
             }
             NodeRequest::GetHeaders(locator) => {
-                self.write(NetworkMessage::GetHeaders(
-                    bitcoin::network::message_blockdata::GetHeadersMessage {
-                        version: 0,
-                        locator_hashes: locator,
-                        stop_hash: BlockHash::all_zeros(),
-                    },
-                ))
-                .await;
+                let _ = self
+                    .write(NetworkMessage::GetHeaders(
+                        bitcoin::network::message_blockdata::GetHeadersMessage {
+                            version: 0,
+                            locator_hashes: locator,
+                            stop_hash: BlockHash::all_zeros(),
+                        },
+                    ))
+                    .await;
             }
             NodeRequest::Shutdown => {
                 warn!("Disconnecting peer {}", self.id);
-                self.stream.shutdown(std::net::Shutdown::Both);
+                let _ = self.stream.shutdown(std::net::Shutdown::Both);
             }
         }
+        Ok(())
     }
-    pub async fn handle_peer_message(&mut self, message: RawNetworkMessage) {
+    pub async fn handle_peer_message(
+        &mut self,
+        message: RawNetworkMessage,
+    ) -> Result<(), BlockchainError> {
         match message.payload {
             bitcoin::network::message::NetworkMessage::Version(version) => {
-                self.handle_version(version).await;
+                self.handle_version(version).await?;
                 self.state = State::Connected;
                 self.send_to_node(PeerMessages::Ready(Version {
                     user_agent: self.user_agent.clone(),
@@ -182,31 +172,18 @@ impl Peer {
                         }
                         bitcoin::network::message_blockdata::Inventory::WTx(_) => todo!(),
                         bitcoin::network::message_blockdata::Inventory::WitnessTransaction(_) => {}
-                        bitcoin::network::message_blockdata::Inventory::Unknown {
-                            inv_type,
-                            hash,
-                        } => {}
-                        Inventory::Error => todo!(),
-                        Inventory::Transaction(_) => todo!(),
-                        Inventory::Block(_) => todo!(),
-                        Inventory::CompactBlock(_) => todo!(),
-                        Inventory::WTx(_) => todo!(),
-                        Inventory::WitnessTransaction(_) => todo!(),
-                        Inventory::WitnessBlock(_) => todo!(),
-                        Inventory::UtreexoBlock(_) => todo!(),
-                        Inventory::UtreexoWitnessBlock(_) => todo!(),
-                        Inventory::Unknown { inv_type, hash } => todo!(),
+                        _ => {}
                     }
                 }
             }
             bitcoin::network::message::NetworkMessage::GetHeaders(_) => {
-                self.write(NetworkMessage::Headers(vec![])).await;
+                self.write(NetworkMessage::Headers(vec![])).await?;
             }
             bitcoin::network::message::NetworkMessage::Tx(_) => {
                 // self.mempool.write().await.accept_to_mempool();
             }
             bitcoin::network::message::NetworkMessage::Block(block) => {
-                for (idx, request) in self.inflight.iter_mut().enumerate() {
+                for request in self.inflight.iter_mut() {
                     if let (req_time, InflightRequests::Blocks((count, done))) = request {
                         *request = (*req_time, InflightRequests::Blocks((*count, *done + 1)));
                     }
@@ -222,24 +199,25 @@ impl Peer {
                 self.send_headers = true;
             }
             bitcoin::network::message::NetworkMessage::Ping(nonce) => {
-                self.handle_ping(nonce).await;
+                self.handle_ping(nonce).await?;
             }
             bitcoin::network::message::NetworkMessage::FeeFilter(_) => {
-                self.write(NetworkMessage::FeeFilter(1000)).await;
+                self.write(NetworkMessage::FeeFilter(1000)).await?;
             }
             bitcoin::network::message::NetworkMessage::AddrV2(addresses) => {
                 self.send_to_node(PeerMessages::Addr(addresses)).await;
             }
             bitcoin::network::message::NetworkMessage::GetBlocks(_) => {
-                self.write(NetworkMessage::Inv(vec![])).await;
+                self.write(NetworkMessage::Inv(vec![])).await?;
             }
             _ => {}
         }
+        Ok(())
     }
 }
 impl Peer {
-    pub async fn write(&self, msg: NetworkMessage) -> Result<(), crate::error::Error> {
-        let mut data = &mut RawNetworkMessage {
+    pub async fn write(&self, msg: NetworkMessage) -> Result<(), BlockchainError> {
+        let data = &mut RawNetworkMessage {
             magic: self.network.magic(),
             payload: msg,
         };
@@ -249,25 +227,21 @@ impl Peer {
     }
 
     pub async fn create_outbound_connection<A: ToSocketAddrs>(
-        chain: Arc<ChainState<KvChainStore>>,
         id: u32,
         address: A,
-        mempool: Arc<RwLock<Mempool>>,
         network: Network,
         node_tx: Sender<NodeNotification>,
         node_requests: Receiver<NodeRequest>,
         address_id: usize,
-    ) -> Result<Peer, std::io::Error> {
+    ) -> Result<Peer, BlockchainError> {
         let stream = TcpStream::connect(address).await?;
 
-        let mut peer = Peer {
+        let peer = Peer {
             address_id,
             blocks_only: false,
-            chain,
             current_best_block: -1,
             id,
             last_ping: Instant::now(),
-            mempool,
             network,
             node_tx,
             services: ServiceFlags::NONE,
@@ -280,25 +254,25 @@ impl Peer {
         };
         let version = peer_utils::build_version_message();
         // send a version
-        peer.write(version).await;
+        peer.write(version).await?;
         Ok(peer)
     }
-    async fn handle_ping(&mut self, nonce: u64) {
+    async fn handle_ping(&mut self, nonce: u64) -> Result<(), BlockchainError> {
         self.last_ping = Instant::now();
         let pong = make_pong(nonce);
-        self.write(pong).await;
+        self.write(pong).await
     }
-    async fn handle_version(&mut self, version: VersionMessage) {
+    async fn handle_version(&mut self, version: VersionMessage) -> Result<(), BlockchainError> {
         self.user_agent = version.user_agent;
         self.blocks_only = !version.relay;
         self.current_best_block = version.start_height;
         self.services = version.services;
         let verack = NetworkMessage::Verack;
-        self.write(verack).await;
+        self.write(verack).await
     }
     async fn send_to_node(&self, message: PeerMessages) {
         let message = NodeNotification::FromPeer(self.id, message);
-        self.node_tx.send(message).await;
+        let _ = self.node_tx.send(message);
     }
 }
 
@@ -308,13 +282,10 @@ pub(super) mod peer_utils {
         time::{SystemTime, UNIX_EPOCH},
     };
 
-    use bitcoin::{
-        network::{
-            address, constants,
-            message::{self, NetworkMessage},
-            message_network,
-        },
-        secp256k1::Secp256k1,
+    use bitcoin::network::{
+        address, constants,
+        message::{self, NetworkMessage},
+        message_network,
     };
     pub(super) fn make_pong(nonce: u64) -> NetworkMessage {
         NetworkMessage::Pong(nonce)
@@ -377,9 +348,6 @@ pub struct Version {
 pub enum PeerMessages {
     /// A new block just arrived, we should ask for it and update our chain
     NewBlock(BlockHash),
-    /// Also a new block, but our connection is a compact blocks one, so we should handle
-    /// a compact blocs communication, not a explicit block request
-    NewCompactBlock(BlockHash),
     /// We got a full block from our peer, presumptively we asked for it
     Block(UtreexoBlock),
     /// A response to a `getheaders` request

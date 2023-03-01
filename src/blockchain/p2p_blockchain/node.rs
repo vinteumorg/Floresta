@@ -67,7 +67,7 @@ pub struct UtreexoNode {
     network: Network,
     peers: Vec<(PeerStatus, u32, Sender<NodeRequest>)>,
     chain: Arc<ChainState<KvChainStore>>,
-    mempool: Arc<RwLock<Mempool>>,
+    _mempool: Arc<RwLock<Mempool>>,
     node_rx: Receiver<NodeNotification>,
     node_tx: Sender<NodeNotification>,
     state: NodeState,
@@ -97,7 +97,7 @@ impl UtreexoNode {
             peer_id_count: 0,
             peers: Vec::new(),
             chain,
-            mempool,
+            _mempool: mempool,
             network,
             node_rx,
             node_tx,
@@ -230,10 +230,6 @@ impl UtreexoNode {
                             .await?;
                     }
                     Ok(())
-                }
-                PeerMessages::NewCompactBlock(hash) => {
-                    self.send_to_random_peer(NodeRequest::GetBlock(vec![hash]))
-                        .await
                 }
                 PeerMessages::Block(block) => {
                     if self.chain.is_in_idb() {
@@ -410,10 +406,8 @@ impl UtreexoNode {
         {
             let (requests_tx, requests_rx) = bounded(1024);
             let peer = Peer::create_outbound_connection(
-                self.chain.clone(),
                 self.peer_id_count,
                 (address.get_net_address(), address.get_port()),
-                self.mempool.clone(),
                 self.network,
                 self.node_tx.clone(),
                 requests_rx,

@@ -42,6 +42,7 @@ impl From<bitcoin::consensus::encode::Error> for BlockchainError {
         Self::ConsensusDecodeError(err)
     }
 }
+
 impl From<kv::Error> for BlockchainError {
     fn from(err: kv::Error) -> Self {
         BlockchainError::DatabaseError(err)
