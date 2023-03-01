@@ -1,6 +1,5 @@
 //! UData is the serialized data used for proof propagation in utreexo. It contains all
 //! data needed for validating some piece of information, like a transaction and a block.
-#![allow(unused)]
 use bitcoin::{
     consensus::{Decodable, Encodable},
     hashes::{sha256, Hash},
@@ -33,7 +32,7 @@ pub struct LeafData {
 }
 
 impl LeafData {
-    pub fn get_leaf_hashes(&self) -> sha256::Hash {
+    pub fn _get_leaf_hashes(&self) -> sha256::Hash {
         let mut ser_utxo = vec![];
         let _ = self.utxo.consensus_encode(&mut ser_utxo);
         let leaf_hash = Sha512_256::new()
@@ -71,15 +70,12 @@ impl Decodable for LeafData {
 
 pub mod proof_util {
     use bitcoin::{
-        blockdata::script::Instruction,
-        hashes::{hex::ToHex, Hash},
-        network::utreexo::CompactLeafData,
+        blockdata::script::Instruction, hashes::Hash, network::utreexo::CompactLeafData,
         PubkeyHash, Script, ScriptHash, TxIn, TxOut, WPubkeyHash, WScriptHash,
     };
     #[derive(Debug)]
     pub enum Error {
         EmptyStack,
-        InvalidScript,
     }
     use super::LeafData;
     pub fn reconstruct_leaf_data(
@@ -160,19 +156,14 @@ mod test {
     use std::str::FromStr;
 
     use bitcoin::{
-        consensus::{deserialize, deserialize_partial, Decodable},
-        hashes::hex::FromHex,
-        network::{
-            message::{NetworkMessage, RawNetworkMessage},
-            utreexo::CompactLeafData,
-        },
-        Amount, BlockHash, Script, Transaction,
+        consensus::deserialize, hashes::hex::FromHex, network::utreexo::CompactLeafData, Amount,
+        BlockHash, Script, Transaction,
     };
 
     use super::{proof_util::reconstruct_leaf_data, LeafData};
     macro_rules! test_recover_spk {
         ($tx_hex: literal, $height: literal, $index: literal, $amount: literal, $block_hash: literal, $spk_type: ident, $expected_spk: literal) => {
-            let mut hex = Vec::from_hex($tx_hex).unwrap();
+            let hex = Vec::from_hex($tx_hex).unwrap();
             let s: Transaction = deserialize(&hex).unwrap();
             let leaf = CompactLeafData {
                 amount: Amount::from_btc($amount).unwrap().to_sat(),
