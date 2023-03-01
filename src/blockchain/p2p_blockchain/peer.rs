@@ -37,7 +37,7 @@ use btcd_rpc::{
 use clap::builder::TypedValueParser;
 use futures::{future::select_all, stream::select, StreamExt};
 use futures::{future::SelectAll, Future, FutureExt};
-use log::warn;
+use log::{warn, debug};
 use rustreexo::accumulator::proof::Proof;
 use std::{collections::HashMap, fmt::Debug, task::Poll, time::Duration};
 use std::{sync::Arc, time::Instant};
@@ -84,7 +84,7 @@ impl Debug for Peer {
 impl Peer {
     pub async fn read_loop(mut self) -> Result<(), BlockchainError> {
         let err = self.peer_loop_inner().await;
-        warn!("{err:?}");
+        debug!("{err:?}");
         self.send_to_node(PeerMessages::Disconnected(self.address_id))
             .await;
         Ok(())
