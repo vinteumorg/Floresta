@@ -9,7 +9,7 @@ use super::{
 };
 use crate::blockchain::{
     chain_state::ChainState, chainstore::KvChainStore, error::BlockchainError, udata::proof_util,
-    BlockchainInterface, BlockchainProviderInterface,
+    BlockchainInterface, BlockchainProviderInterface, p2p_blockchain::address_man::AddressState,
 };
 use async_std::{
     channel::{self, bounded, Receiver, Sender},
@@ -24,7 +24,6 @@ use bitcoin::{
     },
     BlockHash, BlockHeader, Network, OutPoint, Transaction, TxOut,
 };
-
 use log::{error, info, warn};
 use rustreexo::accumulator::proof::Proof;
 use std::{
@@ -253,6 +252,7 @@ impl UtreexoNode {
                     );
                     if let Some(peer) = self.peers.get_mut(peer as usize) {
                         peer.0 = PeerStatus::Ready;
+                        self.address_man.update_set_state(version.address_id, AddressState::Connected);
                     }
                     if let NodeState::WaitingPeer = self.state {
                         info!("Requesting headers");
@@ -265,11 +265,12 @@ impl UtreexoNode {
 
                     Ok(())
                 }
-                PeerMessages::Disconnected => {
+                PeerMessages::Disconnected(idx) => {
                     warn!("Peer lost id={peer}");
                     let peer = self.peers.iter().position(|(_, id, _)| peer == *id);
                     if let Some(peer) = peer {
                         self.peers.remove(peer);
+                        self.address_man.update_set_state(idx, AddressState::Tried);
                     }
                     Ok(())
                 }
@@ -401,7 +402,7 @@ impl UtreexoNode {
         Ok(())
     }
     async fn create_connection(&mut self) {
-        if let Some(address) = self
+        if let Some((peer_id, address)) = self
             .address_man
             .get_address_to_connect(ServiceFlags::NETWORK | ServiceFlags::WITNESS)
         {
@@ -414,6 +415,7 @@ impl UtreexoNode {
                 self.network,
                 self.node_tx.clone(),
                 requests_rx,
+                peer_id,
             )
             .await;
             if let Ok(peer) = peer {

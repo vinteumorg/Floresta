@@ -72,6 +72,7 @@ pub struct Peer {
     state: State,
     send_headers: bool,
     node_requests: Receiver<NodeRequest>,
+    address_id: usize,
 }
 impl Debug for Peer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -84,7 +85,8 @@ impl Peer {
     pub async fn read_loop(mut self) -> Result<(), BlockchainError> {
         let err = self.peer_loop_inner().await;
         warn!("{err:?}");
-        self.send_to_node(PeerMessages::Disconnected).await;
+        self.send_to_node(PeerMessages::Disconnected(self.address_id))
+            .await;
         Ok(())
     }
     async fn write_loop() {}
@@ -157,6 +159,7 @@ impl Peer {
                     protocol_version: 0,
                     id: self.id,
                     blocks: self.current_best_block.unsigned_abs(),
+                    address_id: self.address_id,
                 }))
                 .await;
             }
@@ -253,10 +256,12 @@ impl Peer {
         network: Network,
         node_tx: Sender<NodeNotification>,
         node_requests: Receiver<NodeRequest>,
+        address_id: usize,
     ) -> Result<Peer, std::io::Error> {
         let stream = TcpStream::connect(address).await?;
 
         let mut peer = Peer {
+            address_id,
             blocks_only: false,
             chain,
             current_best_block: -1,
@@ -363,6 +368,7 @@ pub struct Version {
     pub protocol_version: u32,
     pub blocks: u32,
     pub id: u32,
+    pub address_id: usize,
 }
 /// Messages passed from different modules to the main node to process. They should minimal
 /// and only if it requires global states, everything else should be handled by the module
@@ -383,7 +389,7 @@ pub enum PeerMessages {
     /// Peer notify its readiness
     Ready(Version),
     /// Remote peer disconnected
-    Disconnected,
+    Disconnected(usize),
     /// A request timed out
     RequestTimeout,
 }
