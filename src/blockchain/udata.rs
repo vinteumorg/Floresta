@@ -87,11 +87,7 @@ pub mod proof_util {
         input: &TxIn,
         block_hash: bitcoin::BlockHash,
     ) -> Result<LeafData, Error> {
-        let spk = reconstruct_script_pubkey(leaf, input);
-        if spk.is_err() {
-            println!("{input:?}\n {leaf:?}");
-        }
-        let spk = spk?;
+        let spk = reconstruct_script_pubkey(leaf, input)?;
         Ok(LeafData {
             block_hash,
             header_code: leaf.header_code,
