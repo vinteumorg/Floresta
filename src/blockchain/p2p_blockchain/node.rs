@@ -8,8 +8,9 @@ use super::{
     peer::{Peer, PeerMessages},
 };
 use crate::blockchain::{
-    chain_state::ChainState, chainstore::KvChainStore, error::BlockchainError, udata::proof_util,
-    BlockchainInterface, BlockchainProviderInterface, p2p_blockchain::address_man::AddressState,
+    chain_state::ChainState, chainstore::KvChainStore, error::BlockchainError,
+    p2p_blockchain::address_man::AddressState, udata::proof_util, BlockchainInterface,
+    BlockchainProviderInterface,
 };
 use async_std::{
     channel::{self, bounded, Receiver, Sender},
@@ -252,7 +253,8 @@ impl UtreexoNode {
                     );
                     if let Some(peer) = self.peers.get_mut(peer as usize) {
                         peer.0 = PeerStatus::Ready;
-                        self.address_man.update_set_state(version.address_id, AddressState::Connected);
+                        self.address_man
+                            .update_set_state(version.address_id, AddressState::Connected);
                     }
                     if let NodeState::WaitingPeer = self.state {
                         info!("Requesting headers");
