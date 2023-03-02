@@ -1,5 +1,9 @@
+#[cfg(feature = "experimental-p2p")]
+use super::p2p_blockchain::node::NodeRequest;
+
 use bitcoin::{blockdata::script, BlockHash};
 use btcd_rpc::error::UtreexodError;
+
 #[derive(Debug)]
 pub enum BlockchainError {
     BlockNotPresent,
@@ -13,7 +17,18 @@ pub enum BlockchainError {
     ChainNotInitialized,
     InvalidTip(String),
     IoError(std::io::Error),
+    #[cfg(feature = "experimental-p2p")]
+    MessageTooBig,
+    #[cfg(feature = "experimental-p2p")]
+    PeerMessageInvalidMagic,
+    #[cfg(feature = "experimental-p2p")]
+    RequestTimeout,
+    #[cfg(feature = "experimental-p2p")]
+    NoPeersAvailable,
+    #[cfg(feature = "experimental-p2p")]
+    ChannelError(async_std::channel::SendError<NodeRequest>),
 }
+
 #[derive(Debug)]
 pub enum BlockValidationErrors {
     PrevBlockNotFound(BlockHash),
@@ -27,9 +42,16 @@ impl From<bitcoin::consensus::encode::Error> for BlockchainError {
         Self::ConsensusDecodeError(err)
     }
 }
+
 impl From<kv::Error> for BlockchainError {
     fn from(err: kv::Error) -> Self {
         BlockchainError::DatabaseError(err)
+    }
+}
+#[cfg(feature = "experimental-p2p")]
+impl From<async_std::channel::SendError<NodeRequest>> for BlockchainError {
+    fn from(err: async_std::channel::SendError<NodeRequest>) -> Self {
+        BlockchainError::ChannelError(err)
     }
 }
 impl From<UtreexodError> for BlockchainError {

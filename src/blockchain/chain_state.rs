@@ -13,6 +13,7 @@ use bitcoin::{
     util::uint::Uint256,
     Block, BlockHash, BlockHeader, Network, OutPoint, Transaction, TxOut,
 };
+use log::info;
 use rustreexo::accumulator::{proof::Proof, stump::Stump};
 use sha2::{Digest, Sha512_256};
 use std::{
@@ -103,7 +104,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
     }
     /// Returns the cumulative work in this branch
     fn get_branch_work(&self, header: &BlockHeader) -> Result<Uint256, BlockchainError> {
-        let mut header = header.clone();
+        let mut header = *header;
         let mut work = Uint256::from_u64(0).unwrap();
         while !self.is_genesis(&header) {
             work = work + header.work();
@@ -117,14 +118,11 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
 
         while !self.is_genesis(&header) {
             header = self.get_ancestor(&header)?;
-            match header {
-                DiskBlockHeader::Orphan(block) => {
-                    return Err(BlockchainError::InvalidTip(format!(
-                        "Block {} doesn't have a known ancestor (i.e an orphan block)",
-                        block.block_hash()
-                    )))
-                }
-                _ => { /* do nothing */ }
+            if let DiskBlockHeader::Orphan(block) = header {
+                return Err(BlockchainError::InvalidTip(format!(
+                    "Block {} doesn't have a known ancestor (i.e an orphan block)",
+                    block.block_hash()
+                )));
             }
         }
 
@@ -233,8 +231,8 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             Err(e) => return Err(e),
         };
         let mut inner = write_lock!(self);
-        if ancestor.is_some() {
-            let ancestor_hash = ancestor.unwrap().block_hash();
+        if let Some(ancestor) = ancestor {
+            let ancestor_hash = ancestor.block_hash();
             if let Some(idx) = inner
                 .best_block
                 .alternative_tips
@@ -471,7 +469,6 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         if best_chain.is_none() {
             return Err(BlockchainError::ChainNotInitialized);
         }
-
         let inner = ChainStateInner {
             acc,
             best_block: best_chain.unwrap(),
@@ -483,7 +480,10 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             chain_params: network.into(),
             assume_valid: (Self::get_assume_valid_value(network, assume_valid_hash), 0),
         };
-
+        info!(
+            "Chainstate loaded at height: {}",
+            inner.best_block.best_block
+        );
         Ok(ChainState {
             inner: RwLock::new(inner),
         })
@@ -624,8 +624,7 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
                     .valid_block(block.block_hash());
                 return Ok(());
             }
-            DiskBlockHeader::Orphan(_) => return Ok(()),
-            DiskBlockHeader::InFork(_) => return Ok(()),
+            DiskBlockHeader::Orphan(_) | DiskBlockHeader::InFork(_) => return Ok(()),
             DiskBlockHeader::HeadersOnly(_, height) => height,
         };
         let inner = self.inner.read().unwrap();
@@ -654,14 +653,16 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
         let hash = block.header.validate_pow(&target).map_err(|_| {
             BlockchainError::BlockValidationError(BlockValidationErrors::NotEnoughPow)
         })?;
-        // Check tx script, only if we didn't pass the assume_valid block
-        if height >= inner.assume_valid.1 {
+        if height > inner.assume_valid.1 {
             Self::verify_block_transactions(inputs, &block.txdata).map_err(|_| {
                 BlockchainError::BlockValidationError(BlockValidationErrors::InvalidTx)
             })?;
         }
         // ... If we came this far, we consider this block valid ...
-
+        if self.is_in_idb() && height % 10_000 == 0 {
+            info!("Downloading blocks at: {height}");
+            self.flush()?;
+        }
         // Notify others we have a new block
         async_std::task::block_on(self.notify(Notification::NewBlock((block.to_owned(), height))));
 
@@ -702,12 +703,7 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
         let mut inner = write_lock!(self);
         inner.broadcast_queue.drain(..).collect()
     }
-
     fn accept_header(&self, header: BlockHeader) -> super::Result<()> {
-        // We already know this block
-        if self.get_block_header(&header.block_hash()).is_ok() {
-            return Ok(());
-        }
         let inner = self.inner.read().unwrap();
 
         let best_block = inner.best_block.clone();

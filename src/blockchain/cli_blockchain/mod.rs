@@ -259,7 +259,7 @@ impl UtreexodBackend {
             self.chainstate.flush()?;
             info!(
                 "Downloading headers...{:02.0}%",
-                ((i * 2_000) as f64) / ((tip as f64) as f64) * 100.00
+                ((i * 2_000) as f64) / (tip as f64) * 100.00
             );
         }
         Ok(())
