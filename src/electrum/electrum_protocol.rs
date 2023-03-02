@@ -89,45 +89,8 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
         peer: Arc<Peer>,
         request: Request,
     ) -> Result<Value, super::error::Error> {
+        // Methods are in alphabetical order
         match request.method.as_str() {
-            "blockchain.estimatefee" => json_rpc_res!(request, 0.0001),
-            "blockchain.headers.subscribe" => {
-                let (height, hash) = self.chain.get_best_block()?;
-                let header = self.chain.get_block_header(&hash)?;
-                let result = json!({
-                    "height": height,
-                    "hex": serialize(&header).to_hex()
-                });
-                json_rpc_res!(request, result)
-            }
-            "server.version" => json_rpc_res!(request, ["ElectrumX 1.16.0", "1.4"]),
-            // TODO: Create an actual histogram
-            "mempool.get_fee_histogram" => json_rpc_res!(request, []),
-            "blockchain.scripthash.subscribe" => {
-                if let Some(hash) = request.params.get(0) {
-                    let hash = serde_json::from_value::<sha256::Hash>(hash.clone())?;
-                    self.peer_addresses.insert(hash, peer);
-
-                    let history = self.address_cache.read().await.get_address_history(&hash);
-
-                    if history.is_empty() {
-                        return json_rpc_res!(request, null);
-                    }
-                    let status_hash = get_status(history);
-                    return json_rpc_res!(request, status_hash);
-                }
-
-                Err(super::error::Error::InvalidParams)
-            }
-            "server.banner" => json_rpc_res!(request, "Welcome to Electrum"),
-            "server.donation_address" => {
-                json_rpc_res!(request, "bcrt1q9d4zjf92nvd3zhg6cvyckzaqumk4zre2c0k8hv")
-            }
-            "server.ping" => json_rpc_res!(request, null),
-            // TODO: Return peers?
-            "server.peers.subscribe" => json_rpc_res!(request, []),
-            // TODO: Ask Backend for fees
-            "blockchain.relayfee" => json_rpc_res!(request, 0.00001),
             "blockchain.block.header" => {
                 if let Some(height) = request.params.get(0) {
                     let height = height.as_u64().unwrap();
@@ -163,6 +126,35 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                     "max": 2016
                 })
             }
+            "blockchain.estimatefee" => json_rpc_res!(request, 0.0001),
+            "blockchain.headers.subscribe" => {
+                let (height, hash) = self.chain.get_best_block()?;
+                let header = self.chain.get_block_header(&hash)?;
+                let result = json!({
+                    "height": height,
+                    "hex": serialize(&header).to_hex()
+                });
+                json_rpc_res!(request, result)
+            }
+            // TODO: Ask Backend for fees
+            "blockchain.relayfee" => json_rpc_res!(request, 0.00001),
+            "blockchain.scripthash.get_balance" => {
+                if let Some(script_hash) = request.params.get(0) {
+                    let script_hash =
+                        serde_json::from_value::<sha256::Hash>(script_hash.to_owned())?;
+                    let balance = self
+                        .address_cache
+                        .read()
+                        .await
+                        .get_address_balance(&script_hash);
+                    let result = json!({
+                        "confirmed": balance,
+                        "unconfirmed": 0
+                    });
+                    return json_rpc_res!(request, result);
+                }
+                Err(super::error::Error::InvalidParams)
+            }
             "blockchain.scripthash.get_history" => {
                 if let Some(script_hash) = request.params.get(0) {
                     let script_hash =
@@ -185,6 +177,29 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                 }
 
                 Err(super::error::Error::InvalidParams)
+            }
+            "blockchain.scripthash.get_mempool" => json_rpc_res!(request, []),
+            "blockchain.scripthash.listunspent" => todo!(),
+            "blockchain.scripthash.subscribe" => {
+                if let Some(hash) = request.params.get(0) {
+                    let hash = serde_json::from_value::<sha256::Hash>(hash.clone())?;
+                    self.peer_addresses.insert(hash, peer);
+
+                    let history = self.address_cache.read().await.get_address_history(&hash);
+
+                    if history.is_empty() {
+                        return json_rpc_res!(request, null);
+                    }
+                    let status_hash = get_status(history);
+                    return json_rpc_res!(request, status_hash);
+                }
+
+                Err(super::error::Error::InvalidParams)
+            }
+            "blockchain.scripthash.unsubscribe" => {
+                let address = get_arg!(request, sha256::Hash, 0);
+                self.peer_addresses.remove(&address);
+                json_rpc_res!(request, true)
             }
             "blockchain.transaction.broadcast" => {
                 let tx = get_arg!(request, String, 0);
@@ -227,27 +242,21 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                 }
                 Err(super::error::Error::InvalidParams)
             }
-            "blockchain.scripthash.get_balance" => {
-                if let Some(script_hash) = request.params.get(0) {
-                    let script_hash =
-                        serde_json::from_value::<sha256::Hash>(script_hash.to_owned())?;
-                    let balance = self
-                        .address_cache
-                        .read()
-                        .await
-                        .get_address_balance(&script_hash);
-                    let result = json!({
-                        "confirmed": balance,
-                        "unconfirmed": 0
-                    });
-                    return json_rpc_res!(request, result);
-                }
-                Err(super::error::Error::InvalidParams)
+            //blockchain.transaction.id_from_pos
+            // TODO: Create an actual histogram
+            "mempool.get_fee_histogram" => json_rpc_res!(request, []),
+            "server.add_peer" => json_rpc_res!(request, true),
+            "server.banner" => json_rpc_res!(request, "Welcome to Floresta's Electrum Server."),
+            "server.donation_address" => {
+                json_rpc_res!(request, "bcrt1q9d4zjf92nvd3zhg6cvyckzaqumk4zre2c0k8hv")
             }
-            method => {
-                // TODO: Remove this when all methods are implemented
-                unimplemented!("Unsupported method: {method}");
-            }
+            //server.features
+            // TODO: Return peers?
+            "server.peers.subscribe" => json_rpc_res!(request, []),
+            "server.ping" => json_rpc_res!(request, null),
+            "server.version" => json_rpc_res!(request, ["Floresta 0.1.2", "1.4"]),
+
+            _ => Err(super::error::Error::InvalidParams),
         }
     }
 
