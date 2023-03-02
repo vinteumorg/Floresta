@@ -91,14 +91,6 @@ impl Peer {
                     }
                 }
             };
-            self.handle_request_timeout().await;
-        }
-    }
-    pub async fn handle_request_timeout(&self) {
-        for (time, _) in self.inflight.iter() {
-            if *time + Duration::from_secs(5) > Instant::now() {
-                self.send_to_node(PeerMessages::RequestTimeout).await;
-            }
         }
     }
     pub async fn handle_node_request(
@@ -272,7 +264,7 @@ impl Peer {
     }
     async fn send_to_node(&self, message: PeerMessages) {
         let message = NodeNotification::FromPeer(self.id, message);
-        let _ = self.node_tx.send(message);
+        let _ = self.node_tx.send(message).await;
     }
 }
 
@@ -358,6 +350,4 @@ pub enum PeerMessages {
     Ready(Version),
     /// Remote peer disconnected
     Disconnected(usize),
-    /// A request timed out
-    RequestTimeout,
 }

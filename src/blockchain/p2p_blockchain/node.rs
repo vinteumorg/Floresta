@@ -42,6 +42,7 @@ pub enum NodeNotification {
     FromBlockDownloader(BlockDownloaderMessages),
 }
 #[derive(Debug, Clone, PartialEq)]
+#[allow(unused)]
 /// Sent from node to peers, usually to request something
 pub enum NodeRequest {
     /// Get this block's data
@@ -64,6 +65,7 @@ pub struct UtreexoNode {
     peer_id_count: u32,
     last_headers_request: Instant,
     last_tip_update: Instant,
+    last_connection: Instant,
     network: Network,
     peers: Vec<(PeerStatus, u32, Sender<NodeRequest>)>,
     chain: Arc<ChainState<KvChainStore>>,
@@ -104,6 +106,7 @@ impl UtreexoNode {
             address_man: AddressMan::default(),
             last_headers_request: Instant::now(),
             last_tip_update: Instant::now(),
+            last_connection: Instant::now(),
         };
         node
     }
@@ -272,13 +275,6 @@ impl UtreexoNode {
                     }
                     Ok(())
                 }
-                PeerMessages::RequestTimeout => {
-                    if let Some((_, id, peer)) = self.peers.get(peer as usize) {
-                        warn!("Peer {id} timed out request. Disconnecting");
-                        peer.send(NodeRequest::Shutdown).await?;
-                    }
-                    Ok(())
-                }
                 PeerMessages::Addr(addresses) => {
                     let addresses: Vec<_> =
                         addresses.iter().cloned().map(|addr| addr.into()).collect();
@@ -368,7 +364,9 @@ impl UtreexoNode {
         }
     }
     async fn maybe_open_connection(&mut self) {
-        if self.peers.len() < MAX_OUTGOING_PEERS {
+        if self.last_connection.elapsed() > Duration::from_secs(10)
+            && self.peers.len() < MAX_OUTGOING_PEERS
+        {
             self.create_connection().await;
         }
     }
