@@ -67,7 +67,7 @@ impl Decodable for LeafData {
         })
     }
 }
-
+#[cfg(feature = "experimental-p2p")]
 pub mod proof_util {
     use bitcoin::{
         blockdata::script::Instruction, hashes::Hash, network::utreexo::CompactLeafData,
@@ -150,8 +150,7 @@ pub mod proof_util {
         Err(Error::EmptyStack)
     }
 }
-
-#[cfg(test)]
+#[cfg(all(test, feature = "experimental-p2p"))]
 mod test {
     use std::str::FromStr;
 
