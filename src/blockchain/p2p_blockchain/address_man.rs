@@ -1,3 +1,7 @@
+//! Address manager is a module that keeps track of known peer addresses and associated
+//! metadata. This module is very important in keeping our node protected against targeted
+//! attacks, like eclipse attacks.
+
 use bitcoin::network::{
     address::{AddrV2, AddrV2Message},
     constants::ServiceFlags,
