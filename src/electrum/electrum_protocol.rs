@@ -89,21 +89,18 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
         peer: Arc<Peer>,
         request: Request,
     ) -> Result<Value, super::error::Error> {
+        println!("{}", request.method);
         // Methods are in alphabetical order
         match request.method.as_str() {
             "blockchain.block.header" => {
-                if let Some(height) = request.params.get(0) {
-                    let height = height.as_u64().unwrap();
-                    let hash = self
-                        .chain
-                        .get_block_hash(height as u32)
-                        .map_err(|_| super::error::Error::InvalidParams)?;
-                    let header = self.chain.get_block_header(&hash)?;
-                    let header = serialize(&header).to_hex();
-                    json_rpc_res!(request, header)
-                } else {
-                    Err(super::error::Error::InvalidParams)
-                }
+                let height = get_arg!(request, u64, 0);
+                let hash = self
+                    .chain
+                    .get_block_hash(height as u32)
+                    .map_err(|_| super::error::Error::InvalidParams)?;
+                let header = self.chain.get_block_header(&hash)?;
+                let header = serialize(&header).to_hex();
+                json_rpc_res!(request, header)
             }
             "blockchain.block.headers" => {
                 let start_height = get_arg!(request, u64, 0);
@@ -139,62 +136,49 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
             // TODO: Ask Backend for fees
             "blockchain.relayfee" => json_rpc_res!(request, 0.00001),
             "blockchain.scripthash.get_balance" => {
-                if let Some(script_hash) = request.params.get(0) {
-                    let script_hash =
-                        serde_json::from_value::<sha256::Hash>(script_hash.to_owned())?;
-                    let balance = self
-                        .address_cache
-                        .read()
-                        .await
-                        .get_address_balance(&script_hash);
-                    let result = json!({
-                        "confirmed": balance,
-                        "unconfirmed": 0
-                    });
-                    return json_rpc_res!(request, result);
-                }
-                Err(super::error::Error::InvalidParams)
+                let script_hash = get_arg!(request, sha256::Hash, 0);
+                let balance = self
+                    .address_cache
+                    .read()
+                    .await
+                    .get_address_balance(&script_hash);
+                let result = json!({
+                    "confirmed": balance,
+                    "unconfirmed": 0
+                });
+                json_rpc_res!(request, result)
             }
             "blockchain.scripthash.get_history" => {
-                if let Some(script_hash) = request.params.get(0) {
-                    let script_hash =
-                        serde_json::from_value::<sha256::Hash>(script_hash.to_owned())?;
-                    let transactions = self
-                        .address_cache
-                        .read()
-                        .await
-                        .get_address_history(&script_hash);
-                    let mut res = vec![];
-                    for transaction in transactions {
-                        let entry = TransactionHistoryEntry {
-                            tx_hash: transaction.hash,
-                            height: transaction.height,
-                        };
-                        res.push(entry);
-                    }
-
-                    return json_rpc_res!(request, res);
+                let script_hash = get_arg!(request, sha256::Hash, 0);
+                let transactions = self
+                    .address_cache
+                    .read()
+                    .await
+                    .get_address_history(&script_hash);
+                let mut res = vec![];
+                for transaction in transactions {
+                    let entry = TransactionHistoryEntry {
+                        tx_hash: transaction.hash,
+                        height: transaction.height,
+                    };
+                    res.push(entry);
                 }
 
-                Err(super::error::Error::InvalidParams)
+                json_rpc_res!(request, res)
             }
             "blockchain.scripthash.get_mempool" => json_rpc_res!(request, []),
             "blockchain.scripthash.listunspent" => todo!(),
             "blockchain.scripthash.subscribe" => {
-                if let Some(hash) = request.params.get(0) {
-                    let hash = serde_json::from_value::<sha256::Hash>(hash.clone())?;
-                    self.peer_addresses.insert(hash, peer);
+                let hash = get_arg!(request, sha256::Hash, 0);
+                self.peer_addresses.insert(hash, peer);
 
-                    let history = self.address_cache.read().await.get_address_history(&hash);
+                let history = self.address_cache.read().await.get_address_history(&hash);
 
-                    if history.is_empty() {
-                        return json_rpc_res!(request, null);
-                    }
-                    let status_hash = get_status(history);
-                    return json_rpc_res!(request, status_hash);
+                if history.is_empty() {
+                    return json_rpc_res!(request, null);
                 }
-
-                Err(super::error::Error::InvalidParams)
+                let status_hash = get_status(history);
+                return json_rpc_res!(request, status_hash);
             }
             "blockchain.scripthash.unsubscribe" => {
                 let address = get_arg!(request, sha256::Hash, 0);
@@ -212,34 +196,31 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                 json_rpc_res!(request, id)
             }
             "blockchain.transaction.get" => {
-                if let Some(script_hash) = request.params.get(0) {
-                    let tx_id = serde_json::from_value::<Txid>(script_hash.to_owned())?;
-                    let tx = self
-                        .address_cache
-                        .read()
-                        .await
-                        .get_cached_transaction(&tx_id);
-                    if let Some(tx) = tx {
-                        return json_rpc_res!(request, tx);
-                    }
+                let tx_id = get_arg!(request, Txid, 0);
+                let tx = self
+                    .address_cache
+                    .read()
+                    .await
+                    .get_cached_transaction(&tx_id);
+                if let Some(tx) = tx {
+                    return json_rpc_res!(request, tx);
                 }
+
                 Err(super::error::Error::InvalidParams)
             }
             "blockchain.transaction.get_merkle" => {
-                if let Some(script_hash) = request.params.get(0) {
-                    let tx_id = serde_json::from_value::<Txid>(script_hash.to_owned());
-                    let tx_id = tx_id?;
-                    let proof = self.address_cache.read().await.get_merkle_proof(&tx_id);
-                    let height = self.address_cache.read().await.get_height(&tx_id);
-                    if let Some((proof, position)) = proof {
-                        let result = json!({
-                            "merkle": proof,
-                            "block_height": height.unwrap_or(0),
-                            "pos": position
-                        });
-                        return json_rpc_res!(request, result);
-                    }
+                let tx_id = get_arg!(request, Txid, 0);
+                let proof = self.address_cache.read().await.get_merkle_proof(&tx_id);
+                let height = self.address_cache.read().await.get_height(&tx_id);
+                if let Some((proof, position)) = proof {
+                    let result = json!({
+                        "merkle": proof,
+                        "block_height": height.unwrap_or(0),
+                        "pos": position
+                    });
+                    return json_rpc_res!(request, result);
                 }
+
                 Err(super::error::Error::InvalidParams)
             }
             //blockchain.transaction.id_from_pos
@@ -248,7 +229,7 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
             "server.add_peer" => json_rpc_res!(request, true),
             "server.banner" => json_rpc_res!(request, "Welcome to Floresta's Electrum Server."),
             "server.donation_address" => {
-                json_rpc_res!(request, "bcrt1q9d4zjf92nvd3zhg6cvyckzaqumk4zre2c0k8hv")
+                json_rpc_res!(request, "")
             }
             //server.features
             // TODO: Return peers?
