@@ -730,6 +730,8 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
                 inner.assume_valid.1 = height;
             }
         } else {
+            // Dropping it prevents deadlock if we try acquiring it for writing
+            drop(inner);
             self.maybe_reorg(header)?;
         }
         Ok(())
