@@ -178,7 +178,7 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                     return json_rpc_res!(request, null);
                 }
                 let status_hash = get_status(history);
-                return json_rpc_res!(request, status_hash);
+                json_rpc_res!(request, status_hash)
             }
             "blockchain.scripthash.unsubscribe" => {
                 let address = get_arg!(request, sha256::Hash, 0);
