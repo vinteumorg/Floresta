@@ -238,7 +238,9 @@ impl UtreexoNode {
                     if self.chain.is_in_idb() {
                         self.download_man.downloaded(block).await;
                     } else {
-                        self.chain.accept_header(block.block.header)?;
+                        if self.chain.get_block(&block.block.block_hash()).is_err() {
+                            self.chain.accept_header(block.block.header)?;
+                        }
                         Self::handle_block(&self.chain, block);
                     }
                     self.last_tip_update = Instant::now();
