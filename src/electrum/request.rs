@@ -1,9 +1,9 @@
 use serde::Deserialize;
 use serde_json::Value;
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct Request {
-    pub id: i32,
+    pub id: Value,
     pub method: String,
     pub jsonrpc: String,
 

@@ -308,7 +308,7 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                         return Ok(());
                     }
                     let peer = peer.unwrap().to_owned();
-                    let id = req.id;
+                    let id = req.id.to_owned();
                     let res = self.handle_blockchain_request(peer.clone(), req).await;
 
                     if let Ok(res) = res {
