@@ -273,7 +273,6 @@ impl UtreexoNode {
                     Ok(())
                 }
                 PeerMessages::Disconnected(idx) => {
-                    warn!("Peer lost id={peer}");
                     let peer = self.peers.iter().position(|(_, id, _)| peer == *id);
                     if let Some(peer) = peer {
                         self.peers.remove(peer);

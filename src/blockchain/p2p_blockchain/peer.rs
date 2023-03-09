@@ -24,7 +24,7 @@ use bitcoin::{
     BlockHash, BlockHeader, Network,
 };
 use futures::FutureExt;
-use log::{debug, warn};
+use log::debug;
 use std::{
     fmt::Debug,
     time::{Duration, Instant},
@@ -122,7 +122,7 @@ impl Peer {
                     .await;
             }
             NodeRequest::Shutdown => {
-                warn!("Disconnecting peer {}", self.id);
+                debug!("Disconnecting peer {}", self.id);
                 let _ = self.stream.shutdown(std::net::Shutdown::Both);
             }
         }
