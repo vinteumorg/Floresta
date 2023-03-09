@@ -89,7 +89,6 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
         peer: Arc<Peer>,
         request: Request,
     ) -> Result<Value, super::error::Error> {
-        println!("{}", request.method);
         // Methods are in alphabetical order
         match request.method.as_str() {
             "blockchain.block.header" => {
