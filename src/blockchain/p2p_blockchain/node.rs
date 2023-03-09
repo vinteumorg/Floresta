@@ -238,7 +238,11 @@ impl UtreexoNode {
                     if self.chain.is_in_idb() {
                         self.download_man.downloaded(block).await;
                     } else {
-                        if self.chain.get_block(&block.block.block_hash()).is_err() {
+                        if self
+                            .chain
+                            .get_block_header(&block.block.block_hash())
+                            .is_err()
+                        {
                             self.chain.accept_header(block.block.header)?;
                         }
                         Self::handle_block(&self.chain, block);
