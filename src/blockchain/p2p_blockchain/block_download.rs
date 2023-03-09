@@ -75,7 +75,7 @@ impl BlockDownload {
     }
     /// Determine which blocks we should download and asks the node for it
     pub async fn get_more_blocks(&mut self) -> Result<(), BlockchainError> {
-        let block = self.last_requested + 1;
+        let block = self.last_requested;
         let mut blocks = vec![];
         for height in block..(block + GET_DATA_COUNT) {
             if let Ok(block) = self.chain.get_block_hash(height) {
@@ -124,6 +124,7 @@ impl BlockDownload {
         if self.last_received.elapsed() >= Duration::from_secs(5) {
             debug!("Timeout downloading at block {}", self.current_verified);
             self.last_requested = self.current_verified;
+
             if let Err(e) = self.get_more_blocks().await {
                 error!("Error while requesting more blocks {e:?}");
             }
