@@ -253,6 +253,11 @@ fn get_config_file(params: &cli::Cli) -> ConfigFile {
                 debug!("{e}");
                 ConfigFile::default()
             }
+            error::Error::IoError(e) => {
+                error!("Error reading config file, ignoring it");
+                debug!("{e}");
+                ConfigFile::default()
+            }
             // Shouldn't be any other error
             _ => unreachable!(),
         }
