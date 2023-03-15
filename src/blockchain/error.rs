@@ -22,8 +22,6 @@ pub enum BlockchainError {
     #[cfg(feature = "experimental-p2p")]
     PeerMessageInvalidMagic,
     #[cfg(feature = "experimental-p2p")]
-    RequestTimeout,
-    #[cfg(feature = "experimental-p2p")]
     NoPeersAvailable,
     #[cfg(feature = "experimental-p2p")]
     ChannelError(async_std::channel::SendError<NodeRequest>),
