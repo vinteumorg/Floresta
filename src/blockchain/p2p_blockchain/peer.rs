@@ -126,7 +126,6 @@ impl Peer {
                     .await;
             }
             NodeRequest::Shutdown => {
-                debug!("Disconnecting peer {}", self.id);
                 let _ = self.stream.shutdown(std::net::Shutdown::Both);
             }
             NodeRequest::GetAddresses => {
