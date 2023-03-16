@@ -6,13 +6,13 @@ use bitcoin::network::{
     address::{AddrV2, AddrV2Message},
     constants::ServiceFlags,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::{
-    net::{IpAddr, Ipv4Addr},
+    net::{IpAddr, Ipv4Addr, Ipv6Addr},
     time::{SystemTime, UNIX_EPOCH},
 };
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub enum AddressState {
     /// We never tried this peer before, so we don't know what to expect
     NeverTried,
@@ -33,10 +33,11 @@ pub struct LocalAddress {
     /// Our local state for this peer, as defined in AddressState
     state: AddressState,
     /// Network services announced by this peer
-    services: Option<ServiceFlags>,
+    services: ServiceFlags,
     /// Network port this peers listens to
     port: u16,
 }
+
 impl From<AddrV2> for LocalAddress {
     fn from(value: AddrV2) -> Self {
         LocalAddress {
@@ -46,7 +47,7 @@ impl From<AddrV2> for LocalAddress {
                 .unwrap()
                 .as_secs(),
             state: AddressState::NeverTried,
-            services: None,
+            services: ServiceFlags::NONE,
             port: 8333,
         }
     }
@@ -57,7 +58,7 @@ impl From<AddrV2Message> for LocalAddress {
             address: value.addr,
             last_connected: value.time.into(),
             state: AddressState::NeverTried,
-            services: Some(value.services),
+            services: value.services,
             port: value.port,
         }
     }
@@ -78,7 +79,7 @@ impl TryFrom<&str> for LocalAddress {
                 .unwrap()
                 .as_secs(),
             super::address_man::AddressState::NeverTried,
-            None,
+            ServiceFlags::NONE,
             port,
         ))
     }
@@ -91,7 +92,7 @@ impl LocalAddress {
         address: AddrV2,
         last_connected: u64,
         state: AddressState,
-        services: Option<ServiceFlags>,
+        services: ServiceFlags,
         port: u16,
     ) -> LocalAddress {
         LocalAddress {
@@ -146,18 +147,90 @@ impl AddressMan {
             if address.state == AddressState::Connected || address.state == AddressState::Banned {
                 continue;
             }
-            if address.services.is_none() || address.services.unwrap().has(features) {
+
+            if address.services == ServiceFlags::NONE || address.services.has(features) {
                 return Some((idx, address.to_owned()));
             }
         }
         None
+    }
+    pub fn dump_peers(&self, datadir: &str) -> std::io::Result<()> {
+        let peers: Vec<_> = self
+            .addresses
+            .iter()
+            .cloned()
+            .map(|item| Into::<DiskLocalAddress>::into(item))
+            .collect::<Vec<_>>();
+        let peers = serde_json::to_string(&peers);
+        if let Ok(peers) = peers {
+            std::fs::write(datadir.to_owned() + "/peers.json", peers)?;
+        }
+        Ok(())
     }
     /// Updates the state of an address
     pub fn update_set_state(&mut self, idx: usize, state: AddressState) {
         self.addresses.get_mut(idx).unwrap().state = state;
     }
     /// Updates the service flags after we receive a version message
-    pub fn _update_add_service_flag(&mut self, idx: usize, flags: ServiceFlags) {
-        self.addresses.get_mut(idx).unwrap().services = Some(flags);
+    pub fn update_set_service_flag(&mut self, idx: usize, flags: ServiceFlags) {
+        self.addresses.get_mut(idx).unwrap().services = flags;
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiskLocalAddress {
+    /// An actual address
+    address: Address,
+    /// Last time we successfully connected to this peer, only relevant is state == State::Tried
+    last_connected: u64,
+    /// Our local state for this peer, as defined in AddressState
+    state: AddressState,
+    /// Network services announced by this peer
+    services: u64,
+    /// Network port this peers listens to
+    port: u16,
+}
+impl From<LocalAddress> for DiskLocalAddress {
+    fn from(value: LocalAddress) -> Self {
+        let address = match value.address {
+            AddrV2::Ipv4(ip) => Address::V4(ip),
+            AddrV2::Ipv6(ip) => Address::V6(ip),
+            _ => {
+                unreachable!()
+            }
+        };
+
+        DiskLocalAddress {
+            address,
+            last_connected: value.last_connected,
+            state: if value.state == AddressState::Connected {
+                AddressState::Tried
+            } else {
+                value.state
+            },
+            services: value.services.to_u64(),
+            port: value.port,
+        }
+    }
+}
+impl From<DiskLocalAddress> for LocalAddress {
+    fn from(value: DiskLocalAddress) -> Self {
+        let address = match value.address {
+            Address::V4(ip) => AddrV2::Ipv4(ip),
+            Address::V6(ip) => AddrV2::Ipv6(ip),
+        };
+        let services = ServiceFlags::from(value.services);
+        LocalAddress {
+            address,
+            last_connected: value.last_connected,
+            state: value.state,
+            services,
+            port: value.port,
+        }
+    }
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum Address {
+    V4(Ipv4Addr),
+    V6(Ipv6Addr),
 }
