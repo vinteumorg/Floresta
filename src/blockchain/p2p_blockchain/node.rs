@@ -14,6 +14,7 @@ use crate::blockchain::{
 };
 use async_std::{
     channel::{self, bounded, Receiver, Sender},
+    future::timeout,
     sync::RwLock,
     task::spawn,
 };
@@ -35,6 +36,8 @@ use std::{
 
 /// Max number of simultaneous connections we initiates we are willing to hold
 const MAX_OUTGOING_PEERS: usize = 10;
+/// We ask for peers every ASK_FOR_PEERS_INTERVAL seconds
+const ASK_FOR_PEERS_INTERVAL: u64 = 60 * 1; // One minute
 
 #[derive(Debug)]
 pub enum NodeNotification {
@@ -49,11 +52,13 @@ pub enum NodeRequest {
     GetBlock(Vec<BlockHash>),
     /// Asks peer for headers
     GetHeaders(Vec<BlockHash>),
+    /// Ask for other peers addresses
+    GetAddresses,
     /// Asks this peer to shutdown
     Shutdown,
 }
 
-#[derive(Default)]
+#[derive(Default, PartialEq)]
 enum NodeState {
     #[default]
     WaitingPeer,
@@ -66,7 +71,9 @@ pub struct UtreexoNode {
     last_headers_request: Instant,
     last_tip_update: Instant,
     last_connection: Instant,
+    last_get_address_request: Instant,
     network: Network,
+    utreexo_peers: Vec<u32>,
     peers: Vec<(PeerStatus, u32, Sender<NodeRequest>)>,
     chain: Arc<ChainState<KvChainStore>>,
     _mempool: Arc<RwLock<Mempool>>,
@@ -99,6 +106,7 @@ impl UtreexoNode {
             peer_id_count: 0,
             peers: Vec::new(),
             chain,
+            utreexo_peers: Vec::new(),
             _mempool: mempool,
             network,
             node_rx,
@@ -107,6 +115,7 @@ impl UtreexoNode {
             last_headers_request: Instant::now(),
             last_tip_update: Instant::now(),
             last_connection: Instant::now(),
+            last_get_address_request: Instant::now(),
         };
         node
     }
@@ -194,32 +203,39 @@ impl UtreexoNode {
             .chain
             .get_block_locator()
             .expect("Could not create locator");
-        self.send_to_random_peer(NodeRequest::GetHeaders(locator))
+        self.send_to_random_peer(NodeRequest::GetHeaders(locator), ServiceFlags::NONE)
             .await?;
         Ok(())
     }
     #[inline]
-    pub async fn send_to_random_peer(&self, req: NodeRequest) -> Result<(), BlockchainError> {
+    pub async fn send_to_random_peer(
+        &self,
+        req: NodeRequest,
+        required_services: ServiceFlags,
+    ) -> Result<(), BlockchainError> {
         if self.peers.is_empty() {
             return Err(BlockchainError::NoPeersAvailable);
         }
-        for _ in 0..10 {
-            let idx = rand::random::<usize>() % self.peers.len();
-            if let PeerStatus::Ready = self
-                .peers
+        let idx = if required_services.has(ServiceFlags::NODE_UTREEXO) {
+            if self.utreexo_peers.is_empty() {
+                return Err(BlockchainError::NoPeersAvailable);
+            }
+            let idx = rand::random::<usize>() % self.utreexo_peers.len();
+            *self
+                .utreexo_peers
                 .get(idx)
                 .expect("node is in the interval 0..peers.len(), but is not here?")
-                .0
-            {
-                let peer = self
-                    .peers
-                    .get(idx)
-                    .expect("node is in the interval 0..peers.len(), but is not here?");
-                peer.2.send(req).await?;
-                return Ok(());
-            }
-        }
-        return Err(BlockchainError::RequestTimeout);
+                as usize
+        } else {
+            rand::random::<usize>() % self.peers.len()
+        };
+
+        let peer = self
+            .peers
+            .get(idx)
+            .expect("node is in the interval 0..peers.len(), but is not here?");
+        peer.2.send(req).await?;
+        Ok(())
     }
     pub async fn handle_notification(
         &mut self,
@@ -229,8 +245,11 @@ impl UtreexoNode {
             NodeNotification::FromPeer(peer, message) => match message {
                 PeerMessages::NewBlock(hash) => {
                     if !self.chain.is_in_idb() {
-                        self.send_to_random_peer(NodeRequest::GetBlock(vec![hash]))
-                            .await?;
+                        self.send_to_random_peer(
+                            NodeRequest::GetBlock(vec![hash]),
+                            ServiceFlags::NODE_UTREEXO,
+                        )
+                        .await?;
                     }
                     Ok(())
                 }
@@ -260,20 +279,25 @@ impl UtreexoNode {
                         peer.0 = PeerStatus::Ready;
                         self.address_man
                             .update_set_state(version.address_id, AddressState::Connected);
+                        if version.services.has(ServiceFlags::NODE_UTREEXO) {
+                            self.utreexo_peers.push(peer.1);
+                        }
                     }
                     if let NodeState::WaitingPeer = self.state {
-                        info!("Requesting headers");
-                        self.send_to_random_peer(NodeRequest::GetHeaders(
-                            self.chain.get_block_locator().unwrap(),
-                        ))
-                        .await?;
-                        self.state = NodeState::DownloadHeaders;
+                        if version.services.has(ServiceFlags::NODE_UTREEXO) {
+                            info!("Requesting headers");
+                            self.send_to_random_peer(
+                                NodeRequest::GetHeaders(self.chain.get_block_locator().unwrap()),
+                                ServiceFlags::NONE,
+                            )
+                            .await?;
+                            self.state = NodeState::DownloadHeaders;
+                        }
                     }
 
                     Ok(())
                 }
                 PeerMessages::Disconnected(idx) => {
-                    warn!("Peer lost id={peer}");
                     let peer = self.peers.iter().position(|(_, id, _)| peer == *id);
                     if let Some(peer) = peer {
                         self.peers.remove(peer);
@@ -302,9 +326,10 @@ impl UtreexoNode {
         self.create_connection().await;
         try_and_log!(self.do_initial_block_download().await);
         try_and_log!(
-            self.send_to_random_peer(NodeRequest::GetHeaders(
-                self.chain.get_block_locator().expect("Can get locators"),
-            ))
+            self.send_to_random_peer(
+                NodeRequest::GetHeaders(self.chain.get_block_locator().expect("Can get locators"),),
+                ServiceFlags::NONE
+            )
             .await
         );
 
@@ -318,7 +343,15 @@ impl UtreexoNode {
             }
             self.check_for_stale_tip().await;
             self.maybe_open_connection().await;
+            try_and_log!(self.ask_for_addresses().await);
         }
+    }
+    pub async fn ask_for_addresses(&self) -> Result<(), BlockchainError> {
+        if self.last_get_address_request.elapsed() > Duration::from_secs(ASK_FOR_PEERS_INTERVAL) {
+            self.send_to_random_peer(NodeRequest::GetAddresses, ServiceFlags::NONE)
+                .await?;
+        }
+        Ok(())
     }
     pub async fn do_initial_block_download(&mut self) -> Result<(), BlockchainError> {
         loop {
@@ -343,13 +376,16 @@ impl UtreexoNode {
         Ok(())
     }
     async fn ibd_maybe_request_headers(&mut self) -> Result<(), BlockchainError> {
+        if self.state != NodeState::Running {
+            return Ok(());
+        }
         if (self.last_headers_request + Duration::from_secs(10)) < Instant::now() {
             info!("Asking for headers");
             let locator = self
                 .chain
                 .get_block_locator()
                 .expect("Could not create locator");
-            self.send_to_random_peer(NodeRequest::GetHeaders(locator))
+            self.send_to_random_peer(NodeRequest::GetHeaders(locator), ServiceFlags::NONE)
                 .await?;
             self.last_headers_request = Instant::now();
         }
@@ -361,10 +397,12 @@ impl UtreexoNode {
         if (self.last_tip_update + Duration::from_secs(15 * 60)) < Instant::now() {
             warn!("Potential stale tip detected, trying extra peers");
             self.create_connection().await;
+            self.last_tip_update = Instant::now();
             try_and_log!(
-                self.send_to_random_peer(NodeRequest::GetHeaders(
-                    self.chain.get_block_locator().unwrap(),
-                ))
+                self.send_to_random_peer(
+                    NodeRequest::GetHeaders(self.chain.get_block_locator().unwrap(),),
+                    ServiceFlags::NONE
+                )
                 .await
             );
         }
@@ -373,7 +411,7 @@ impl UtreexoNode {
         if self.last_connection.elapsed() > Duration::from_secs(10)
             && self.peers.len() < MAX_OUTGOING_PEERS
         {
-            self.create_connection().await;
+            let _ = timeout(Duration::from_secs(2), self.create_connection()).await;
         }
     }
     fn handle_block(chain: &ChainState<KvChainStore>, block: UtreexoBlock) {
@@ -399,8 +437,11 @@ impl UtreexoNode {
             info!("Leaving ibd");
             return Ok(());
         }
-        self.send_to_random_peer(NodeRequest::GetBlock(next_blocks))
-            .await?;
+        self.send_to_random_peer(
+            NodeRequest::GetBlock(next_blocks),
+            ServiceFlags::NODE_UTREEXO,
+        )
+        .await?;
         Ok(())
     }
     async fn create_connection(&mut self) {
@@ -409,28 +450,17 @@ impl UtreexoNode {
             .get_address_to_connect(ServiceFlags::NETWORK | ServiceFlags::WITNESS)
         {
             let (requests_tx, requests_rx) = bounded(1024);
-            let peer = Peer::create_outbound_connection(
+            spawn(Peer::create_outbound_connection(
                 self.peer_id_count,
                 (address.get_net_address(), address.get_port()),
                 self.network,
                 self.node_tx.clone(),
                 requests_rx,
                 peer_id,
-            )
-            .await;
-            if let Ok(peer) = peer {
-                spawn(peer.read_loop());
-                self.peers
-                    .push((PeerStatus::Awaiting, self.peer_id_count, requests_tx));
-                self.peer_id_count += 1;
-                return;
-            } else {
-                error!(
-                    "Error connecting to peer {:?}: {:?}",
-                    address.get_net_address(),
-                    peer.unwrap_err()
-                );
-            }
+            ));
+            self.peers
+                .push((PeerStatus::Awaiting, self.peer_id_count, requests_tx));
+            self.peer_id_count += 1;
         }
     }
 }

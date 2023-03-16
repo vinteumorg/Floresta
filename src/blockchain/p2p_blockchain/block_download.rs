@@ -124,6 +124,8 @@ impl BlockDownload {
         if self.last_received.elapsed() >= Duration::from_secs(5) {
             debug!("Timeout downloading at block {}", self.current_verified);
             self.last_requested = self.current_verified;
+            self.inflight.clear();
+
             if let Err(e) = self.get_more_blocks().await {
                 error!("Error while requesting more blocks {e:?}");
             }

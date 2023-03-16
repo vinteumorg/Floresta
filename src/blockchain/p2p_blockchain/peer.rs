@@ -24,7 +24,7 @@ use bitcoin::{
     BlockHash, BlockHeader, Network,
 };
 use futures::FutureExt;
-use log::{debug, warn};
+use log::debug;
 use std::{
     fmt::Debug,
     time::{Duration, Instant},
@@ -73,6 +73,10 @@ impl Peer {
         Ok(())
     }
     async fn peer_loop_inner(&mut self) -> Result<(), BlockchainError> {
+        // send a version
+        let version = peer_utils::build_version_message();
+        self.write(version).await?;
+
         let read_stream = BufReader::new(self.stream.clone());
         let (tx, rx) = unbounded();
         let stream: StreamReader<_, RawNetworkMessage> =
@@ -122,8 +126,10 @@ impl Peer {
                     .await;
             }
             NodeRequest::Shutdown => {
-                warn!("Disconnecting peer {}", self.id);
                 let _ = self.stream.shutdown(std::net::Shutdown::Both);
+            }
+            NodeRequest::GetAddresses => {
+                self.write(NetworkMessage::GetAddr).await?;
             }
         }
         Ok(())
@@ -142,6 +148,7 @@ impl Peer {
                     id: self.id,
                     blocks: self.current_best_block.unsigned_abs(),
                     address_id: self.address_id,
+                    services: self.services,
                 }))
                 .await;
             }
@@ -171,15 +178,7 @@ impl Peer {
             bitcoin::network::message::NetworkMessage::GetHeaders(_) => {
                 self.write(NetworkMessage::Headers(vec![])).await?;
             }
-            bitcoin::network::message::NetworkMessage::Tx(_) => {
-                // self.mempool.write().await.accept_to_mempool();
-            }
             bitcoin::network::message::NetworkMessage::Block(block) => {
-                for request in self.inflight.iter_mut() {
-                    if let (req_time, InflightRequests::Blocks((count, done))) = request {
-                        *request = (*req_time, InflightRequests::Blocks((*count, *done + 1)));
-                    }
-                }
                 self.send_to_node(PeerMessages::Block(block)).await;
             }
             bitcoin::network::message::NetworkMessage::Headers(headers) => {
@@ -225,9 +224,17 @@ impl Peer {
         node_tx: Sender<NodeNotification>,
         node_requests: Receiver<NodeRequest>,
         address_id: usize,
-    ) -> Result<Peer, BlockchainError> {
-        let stream = TcpStream::connect(address).await?;
-
+    ) {
+        let stream = TcpStream::connect(address).await;
+        if stream.is_err() {
+            let _ = node_tx
+                .send(NodeNotification::FromPeer(
+                    id,
+                    PeerMessages::Disconnected(id as usize),
+                ))
+                .await;
+            return;
+        }
         let peer = Peer {
             address_id,
             blocks_only: false,
@@ -237,17 +244,14 @@ impl Peer {
             network,
             node_tx,
             services: ServiceFlags::NONE,
-            stream,
+            stream: stream.unwrap(),
             user_agent: "".into(),
             state: State::None,
             send_headers: false,
             node_requests,
             inflight: Vec::new(),
         };
-        let version = peer_utils::build_version_message();
-        // send a version
-        peer.write(version).await?;
-        Ok(peer)
+        spawn(peer.read_loop());
     }
     async fn handle_ping(&mut self, nonce: u64) -> Result<(), BlockchainError> {
         self.last_ping = Instant::now();
@@ -332,6 +336,7 @@ pub struct Version {
     pub blocks: u32,
     pub id: u32,
     pub address_id: usize,
+    pub services: ServiceFlags,
 }
 /// Messages passed from different modules to the main node to process. They should minimal
 /// and only if it requires global states, everything else should be handled by the module
