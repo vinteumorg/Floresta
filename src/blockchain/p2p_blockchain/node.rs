@@ -139,14 +139,16 @@ impl UtreexoNode {
     fn start_addr_man(&mut self) {
         let local_db = std::fs::read_to_string(self.datadir.to_owned() + "/peers.json");
         let peers = if let Ok(peers) = local_db {
+            info!("Peers database found, using it");
+
             serde_json::from_str::<Vec<DiskLocalAddress>>(&peers)
         } else {
+            info!("No peers available, using fixed peers");
+
             let addresses = include_str!("fixed_peers.json");
             serde_json::from_str(addresses)
         };
-        info!("No peers available, using fixed peers");
         if let Ok(peers) = peers {
-            info!("Peers database found, using it");
             let peers = peers
                 .iter()
                 .cloned()
