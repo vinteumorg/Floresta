@@ -466,9 +466,13 @@ impl UtreexoNode {
         Ok(())
     }
     async fn create_connection(&mut self) {
-        if let Some((peer_id, address)) = self
-            .address_man
-            .get_address_to_connect(ServiceFlags::NETWORK | ServiceFlags::WITNESS)
+        // We should try to keep at least two utreexo connections
+        let required_services = if self.utreexo_peers.len() < 2 {
+            ServiceFlags::NETWORK | ServiceFlags::WITNESS | ServiceFlags::NODE_UTREEXO
+        } else {
+            ServiceFlags::NETWORK | ServiceFlags::WITNESS
+        };
+        if let Some((peer_id, address)) = self.address_man.get_address_to_connect(required_services)
         {
             let (requests_tx, requests_rx) = bounded(1024);
             spawn(Peer::create_outbound_connection(

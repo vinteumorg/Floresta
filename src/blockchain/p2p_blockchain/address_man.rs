@@ -147,11 +147,11 @@ impl AddressMan {
             if address.state == AddressState::Connected || address.state == AddressState::Banned {
                 continue;
             }
-
-            if address.services == ServiceFlags::NONE || address.services.has(features) {
+            if address.services.has(features) {
                 return Some((idx, address.to_owned()));
             }
         }
+
         None
     }
     pub fn dump_peers(&self, datadir: &str) -> std::io::Result<()> {
