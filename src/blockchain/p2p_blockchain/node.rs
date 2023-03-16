@@ -17,6 +17,7 @@ use crate::blockchain::{
 };
 use async_std::{
     channel::{self, bounded, Receiver, Sender},
+    future::timeout,
     sync::RwLock,
     task::spawn,
 };
@@ -42,6 +43,12 @@ const MAX_OUTGOING_PEERS: usize = 10;
 const ASK_FOR_PEERS_INTERVAL: u64 = 60 * 1; // One minute
 /// Save our database of peers every PEER_DB_DUMP_INTERVAL seconds
 const PEER_DB_DUMP_INTERVAL: u64 = 60 * 20; // 20 minutes
+/// Attempt to open a new connection (if needed) every TRY_NEW_CONNECTION seconds
+const TRY_NEW_CONNECTION: u64 = 30; // 10 seconds
+/// If ASSUME_STALE seconds passed since our last tip update, treat it as stale
+const ASSUME_STALE: u64 = 15 * 60; // 15 minutes
+/// While on IBD, if we've been without blocks for this long, ask for headers again
+const IBD_REQUEST_BLOCKS_AGAIN: u64 = 10; // 10 seconds
 
 #[derive(Debug)]
 pub enum NodeNotification {
@@ -258,8 +265,9 @@ impl UtreexoNode {
     }
     pub async fn handle_notification(
         &mut self,
-        notification: NodeNotification,
+        notification: Result<NodeNotification, async_std::channel::RecvError>,
     ) -> Result<(), BlockchainError> {
+        let notification = notification?;
         match notification {
             NodeNotification::FromPeer(peer, message) => match message {
                 PeerMessages::NewBlock(hash) => {
@@ -352,43 +360,63 @@ impl UtreexoNode {
             while let Ok(notification) =
                 async_std::future::timeout(Duration::from_secs(1), self.node_rx.recv()).await
             {
-                if let Ok(notification) = notification {
-                    try_and_log!(self.handle_notification(notification).await);
-                }
+                try_and_log!(self.handle_notification(notification).await);
             }
-            self.maybe_save_peers();
-            self.check_for_stale_tip().await;
-            self.maybe_open_connection().await;
-            try_and_log!(self.ask_for_addresses().await);
+            // Save our peers db
+            periodic_job!(
+                self.save_peers(),
+                self.last_peer_db_dump,
+                PEER_DB_DUMP_INTERVAL
+            );
+            // Aks our peers for new addresses
+            periodic_job!(
+                self.ask_for_addresses().await,
+                self.last_get_address_request,
+                ASK_FOR_PEERS_INTERVAL
+            );
+            // Check whether we are in a stale tip
+            periodic_job!(
+                self.check_for_stale_tip().await,
+                self.last_tip_update,
+                ASSUME_STALE
+            );
+            // Perhaps we need more connections
+            periodic_job!(
+                self.maybe_open_connection().await,
+                self.last_connection,
+                TRY_NEW_CONNECTION
+            );
         }
     }
     pub async fn ask_for_addresses(&self) -> Result<(), BlockchainError> {
-        if self.last_get_address_request.elapsed() > Duration::from_secs(ASK_FOR_PEERS_INTERVAL) {
-            self.send_to_random_peer(NodeRequest::GetAddresses, ServiceFlags::NONE)
-                .await?;
-        }
-        Ok(())
+        Ok(self
+            .send_to_random_peer(NodeRequest::GetAddresses, ServiceFlags::NONE)
+            .await?)
     }
-    fn maybe_save_peers(&self) {
-        if self.last_peer_db_dump.elapsed() > Duration::from_secs(PEER_DB_DUMP_INTERVAL) {
-            try_and_log!(self.address_man.dump_peers(&self.datadir));
-        }
+    fn save_peers(&self) -> Result<(), BlockchainError> {
+        Ok(self.address_man.dump_peers(&self.datadir)?)
     }
     pub async fn do_initial_block_download(&mut self) -> Result<(), BlockchainError> {
         loop {
-            while let Ok(notification) =
-                async_std::future::timeout(Duration::from_secs(1), self.node_rx.recv()).await
+            while let Ok(notification) = timeout(Duration::from_secs(1), self.node_rx.recv()).await
             {
-                if let Ok(notification) = notification {
-                    try_and_log!(self.handle_notification(notification).await);
-                }
+                try_and_log!(self.handle_notification(notification).await);
             }
             if let NodeState::DownloadBlocks = self.state {
                 self.download_man.handle_timeout().await;
             } else {
-                self.ibd_maybe_request_headers().await?;
+                periodic_job!(
+                    self.ibd_maybe_request_headers().await,
+                    self.last_headers_request,
+                    IBD_REQUEST_BLOCKS_AGAIN
+                );
             }
-            self.maybe_open_connection().await;
+
+            periodic_job!(
+                self.maybe_open_connection().await,
+                self.last_connection,
+                TRY_NEW_CONNECTION
+            );
             if !self.chain.is_in_idb() {
                 self.state = NodeState::Running;
                 break;
@@ -397,43 +425,36 @@ impl UtreexoNode {
         Ok(())
     }
     async fn ibd_maybe_request_headers(&mut self) -> Result<(), BlockchainError> {
-        if self.state != NodeState::Running {
+        if self.state != NodeState::DownloadHeaders {
             return Ok(());
         }
-        if (self.last_headers_request + Duration::from_secs(10)) < Instant::now() {
-            info!("Asking for headers");
-            let locator = self
-                .chain
-                .get_block_locator()
-                .expect("Could not create locator");
-            self.send_to_random_peer(NodeRequest::GetHeaders(locator), ServiceFlags::NONE)
-                .await?;
-            self.last_headers_request = Instant::now();
-        }
+        info!("Asking for headers");
+        let locator = self
+            .chain
+            .get_block_locator()
+            .expect("Could not create locator");
+        self.send_to_random_peer(NodeRequest::GetHeaders(locator), ServiceFlags::NONE)
+            .await?;
+        self.last_headers_request = Instant::now();
         Ok(())
     }
     /// This function checks how many time has passed since our last tip update, if it's
     /// been more than 15 minutes, try to update it.
-    async fn check_for_stale_tip(&mut self) {
-        if (self.last_tip_update + Duration::from_secs(15 * 60)) < Instant::now() {
-            warn!("Potential stale tip detected, trying extra peers");
-            self.create_connection().await;
-            self.last_tip_update = Instant::now();
-            try_and_log!(
-                self.send_to_random_peer(
-                    NodeRequest::GetHeaders(self.chain.get_block_locator().unwrap(),),
-                    ServiceFlags::NONE
-                )
-                .await
-            );
-        }
+    async fn check_for_stale_tip(&mut self) -> Result<(), BlockchainError> {
+        warn!("Potential stale tip detected, trying extra peers");
+        self.create_connection().await;
+        self.last_tip_update = Instant::now();
+        self.send_to_random_peer(
+            NodeRequest::GetHeaders(self.chain.get_block_locator().unwrap()),
+            ServiceFlags::NONE,
+        )
+        .await
     }
-    async fn maybe_open_connection(&mut self) {
-        if self.last_connection.elapsed() > Duration::from_secs(10)
-            && self.peers.len() < MAX_OUTGOING_PEERS
-        {
+    async fn maybe_open_connection(&mut self) -> Result<(), BlockchainError> {
+        if self.peers.len() < MAX_OUTGOING_PEERS {
             self.create_connection().await;
         }
+        Ok(())
     }
     fn handle_block(chain: &ChainState<KvChainStore>, block: UtreexoBlock) {
         let (proof, del_hashes, inputs) =
@@ -493,9 +514,18 @@ impl UtreexoNode {
 macro_rules! try_and_log {
     ($what: expr) => {
         let result = $what;
+
         if let Err(error) = result {
             log::error!("{:?}", error);
         }
     };
 }
+macro_rules! periodic_job {
+    ($what: expr, $timer: expr, $interval: ident) => {
+        if $timer.elapsed() > Duration::from_secs($interval) {
+            try_and_log!($what);
+        }
+    };
+}
+pub(crate) use periodic_job;
 pub(crate) use try_and_log;

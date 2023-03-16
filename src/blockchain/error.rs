@@ -25,6 +25,8 @@ pub enum BlockchainError {
     NoPeersAvailable,
     #[cfg(feature = "experimental-p2p")]
     ChannelError(async_std::channel::SendError<NodeRequest>),
+    #[cfg(feature = "experimental-p2p")]
+    RecvError(async_std::channel::RecvError),
 }
 
 #[derive(Debug)]
@@ -75,5 +77,10 @@ impl From<String> for BlockchainError {
 impl From<std::io::Error> for BlockchainError {
     fn from(e: std::io::Error) -> Self {
         BlockchainError::IoError(e)
+    }
+}
+impl From<async_std::channel::RecvError> for BlockchainError {
+    fn from(e: async_std::channel::RecvError) -> Self {
+        BlockchainError::RecvError(e)
     }
 }
