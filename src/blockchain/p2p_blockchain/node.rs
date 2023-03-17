@@ -189,11 +189,9 @@ impl UtreexoNode {
                     out.clone(),
                 );
             }
+
             for input in tx.input.iter() {
-                if !transactions
-                    .iter()
-                    .any(|tx| tx.txid() == input.previous_output.txid)
-                {
+                if !inputs.contains_key(&input.previous_output) {
                     if let Some(leaf) = leaves_iter.next() {
                         let height = leaf.header_code >> 1;
                         let hash = chain.get_block_hash(height)?;
