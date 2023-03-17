@@ -169,11 +169,15 @@ impl AddressMan {
     }
     /// Updates the state of an address
     pub fn update_set_state(&mut self, idx: usize, state: AddressState) {
-        self.addresses.get_mut(idx).unwrap().state = state;
+        if let Some(address) = self.addresses.get_mut(idx) {
+            address.state = state;
+        };
     }
     /// Updates the service flags after we receive a version message
     pub fn update_set_service_flag(&mut self, idx: usize, flags: ServiceFlags) {
-        self.addresses.get_mut(idx).unwrap().services = flags;
+        if let Some(address) = self.addresses.get_mut(idx) {
+            address.services = flags;
+        }
     }
 }
 

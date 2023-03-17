@@ -86,7 +86,7 @@ pub struct UtreexoNode {
     last_peer_db_dump: Instant,
     network: Network,
     utreexo_peers: Vec<u32>,
-    peers: Vec<(PeerStatus, u32, Sender<NodeRequest>)>,
+    peers: HashMap<u32, (PeerStatus, u32, Sender<NodeRequest>)>,
     chain: Arc<ChainState<KvChainStore>>,
     _mempool: Arc<RwLock<Mempool>>,
     node_rx: Receiver<NodeNotification>,
@@ -118,7 +118,7 @@ impl UtreexoNode {
             ),
             state: NodeState::default(),
             peer_id_count: 0,
-            peers: Vec::new(),
+            peers: HashMap::new(),
             chain,
             utreexo_peers: Vec::new(),
             _mempool: mempool,
@@ -252,15 +252,14 @@ impl UtreexoNode {
             *self
                 .utreexo_peers
                 .get(idx)
-                .expect("node is in the interval 0..peers.len(), but is not here?")
-                as usize
+                .expect("node is in the interval 0..utreexo_peers.len(), but is not here?")
         } else {
-            rand::random::<usize>() % self.peers.len()
+            rand::random::<u32>() % self.peers.len() as u32
         };
 
         let peer = self
             .peers
-            .get(idx)
+            .get(&idx)
             .expect("node is in the interval 0..peers.len(), but is not here?");
         peer.2.send(req).await?;
         Ok(())
@@ -302,7 +301,7 @@ impl UtreexoNode {
                         "New peer id={} version={} blocks={}",
                         version.id, version.user_agent, version.blocks
                     );
-                    if let Some(peer) = self.peers.get_mut(peer as usize) {
+                    if let Some(peer) = self.peers.get_mut(&peer) {
                         peer.0 = PeerStatus::Ready;
                         self.address_man
                             .update_set_state(version.address_id, AddressState::Connected);
@@ -325,11 +324,8 @@ impl UtreexoNode {
                     }
                 }
                 PeerMessages::Disconnected(idx) => {
-                    let peer = self.peers.iter().position(|(_, id, _)| peer == *id);
-                    if let Some(peer) = peer {
-                        self.peers.remove(peer);
-                        self.address_man.update_set_state(idx, AddressState::Tried);
-                    }
+                    self.peers.remove(&peer);
+                    self.address_man.update_set_state(idx, AddressState::Tried);
                 }
                 PeerMessages::Addr(addresses) => {
                     let addresses: Vec<_> =
@@ -360,7 +356,7 @@ impl UtreexoNode {
 
         loop {
             while let Ok(notification) =
-                async_std::future::timeout(Duration::from_secs(1), self.node_rx.recv()).await
+                async_std::future::timeout(Duration::from_millis(100), self.node_rx.recv()).await
             {
                 try_and_log!(self.handle_notification(notification).await);
             }
@@ -445,7 +441,6 @@ impl UtreexoNode {
     async fn check_for_stale_tip(&mut self) -> Result<(), BlockchainError> {
         warn!("Potential stale tip detected, trying extra peers");
         self.create_connection().await;
-        self.last_tip_update = Instant::now();
         self.send_to_random_peer(
             NodeRequest::GetHeaders(self.chain.get_block_locator().unwrap()),
             ServiceFlags::NONE,
@@ -506,8 +501,10 @@ impl UtreexoNode {
                 requests_rx,
                 peer_id,
             ));
-            self.peers
-                .push((PeerStatus::Awaiting, self.peer_id_count, requests_tx));
+            self.peers.insert(
+                self.peer_id_count,
+                (PeerStatus::Awaiting, self.peer_id_count, requests_tx),
+            );
             self.peer_id_count += 1;
         }
     }
@@ -526,6 +523,7 @@ macro_rules! periodic_job {
     ($what: expr, $timer: expr, $interval: ident) => {
         if $timer.elapsed() > Duration::from_secs($interval) {
             try_and_log!($what);
+            $timer = Instant::now();
         }
     };
 }

@@ -79,6 +79,7 @@ impl From<std::io::Error> for BlockchainError {
         BlockchainError::IoError(e)
     }
 }
+#[cfg(feature = "experimental-p2p")]
 impl From<async_std::channel::RecvError> for BlockchainError {
     fn from(e: async_std::channel::RecvError) -> Self {
         BlockchainError::RecvError(e)
