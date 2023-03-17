@@ -188,6 +188,7 @@ impl Peer {
             }
             bitcoin::network::message::NetworkMessage::SendHeaders => {
                 self.send_headers = true;
+                self.write(NetworkMessage::SendHeaders).await?;
             }
             bitcoin::network::message::NetworkMessage::Ping(nonce) => {
                 self.handle_ping(nonce).await?;
@@ -200,6 +201,12 @@ impl Peer {
             }
             bitcoin::network::message::NetworkMessage::GetBlocks(_) => {
                 self.write(NetworkMessage::Inv(vec![])).await?;
+            }
+            bitcoin::network::message::NetworkMessage::SendAddrV2 => {
+                self.write(NetworkMessage::SendAddrV2).await?;
+            }
+            bitcoin::network::message::NetworkMessage::GetAddr => {
+                self.write(NetworkMessage::AddrV2(vec![])).await?;
             }
             _ => {}
         }
@@ -325,7 +332,7 @@ pub(super) mod peer_utils {
             user_agent,
             start_height,
             relay: false,
-            version: 70014,
+            version: 70015,
         })
     }
 }

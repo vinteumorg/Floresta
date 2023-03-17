@@ -212,6 +212,7 @@ fn main() {
                 blockchain_state.clone(),
                 Arc::new(async_std::sync::RwLock::new(Mempool)),
                 get_net(&params.network),
+                data_dir,
             );
             info!("Starting server");
             // Create a new electrum server, we need to block_on because `ElectrumServer::new` is `async`
