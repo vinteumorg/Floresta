@@ -15,13 +15,42 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+    # try to build
     - uses: actions/checkout@v3
     - name: Build
       run: cargo build --verbose
+    # run all tests
+    - uses: actions/checkout@v3
     - name: Run tests
       run: cargo test --verbose
-    - name: Run cargofmt
+
+  linting:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    # cargo fmt
+    - uses: actions/checkout@v3
+    - name: fmt
       run: cargo fmt --all --check
-    - name: Run Clippy
+
+    # run cargo clippy
+    - uses: actions/checkout@v3
+    - name: Clippy
       run: cargo clippy --all
-    
+
+  cross-testing:
+    strategy:
+      matrix:
+        rust: [stable, nightly, 1.64]
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        features: ["experimental-p2p", "cli-blockchain"]
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          toolchain: ${{ matrix.rust }}
+
+      - name: Cross compile
+        run: cargo test --verbose --features ${{ matrix.features }}
