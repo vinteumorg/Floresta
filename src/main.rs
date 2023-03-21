@@ -210,7 +210,7 @@ fn main() {
 
             let chain_provider = UtreexoNode::new(
                 blockchain_state.clone(),
-                Arc::new(async_std::sync::RwLock::new(Mempool)),
+                Arc::new(async_std::sync::RwLock::new(Mempool::new())),
                 get_net(&params.network),
                 data_dir,
             );

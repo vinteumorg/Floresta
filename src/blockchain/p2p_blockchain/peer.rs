@@ -1,5 +1,6 @@
 use self::peer_utils::make_pong;
 use super::{
+    mempool::Mempool,
     node::{NodeNotification, NodeRequest},
     stream_reader::StreamReader,
 };
@@ -8,6 +9,7 @@ use async_std::{
     channel::{unbounded, Receiver, Sender},
     io::{BufReader, WriteExt},
     net::{TcpStream, ToSocketAddrs},
+    sync::RwLock,
     task::spawn,
 };
 use bitcoin::{
@@ -27,6 +29,7 @@ use futures::FutureExt;
 use log::debug;
 use std::{
     fmt::Debug,
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -43,6 +46,7 @@ enum InflightRequests {
 
 pub struct Peer {
     stream: TcpStream,
+    mempool: Arc<RwLock<Mempool>>,
     network: Network,
     blocks_only: bool,
     services: ServiceFlags,
@@ -67,7 +71,7 @@ impl Debug for Peer {
 impl Peer {
     pub async fn read_loop(mut self) -> Result<(), BlockchainError> {
         let err = self.peer_loop_inner().await;
-        debug!("{err:?}");
+        debug!("Peer connection loop closed: {err:?}");
         self.send_to_node(PeerMessages::Disconnected(self.address_id))
             .await;
         Ok(())
@@ -130,6 +134,10 @@ impl Peer {
             }
             NodeRequest::GetAddresses => {
                 self.write(NetworkMessage::GetAddr).await?;
+            }
+            NodeRequest::BroadcastTransaction(tx) => {
+                self.write(NetworkMessage::Inv(vec![Inventory::Transaction(tx)]))
+                    .await?;
             }
         }
         Ok(())
@@ -208,6 +216,12 @@ impl Peer {
             bitcoin::network::message::NetworkMessage::GetAddr => {
                 self.write(NetworkMessage::AddrV2(vec![])).await?;
             }
+
+            bitcoin::network::message::NetworkMessage::GetData(inv) => {
+                for inv_el in inv {
+                    self.handle_get_data(inv_el).await?;
+                }
+            }
             _ => {}
         }
         Ok(())
@@ -223,10 +237,26 @@ impl Peer {
         (&self.stream).write_all(&data).await?;
         Ok(())
     }
-
+    pub async fn handle_get_data(&self, inv: Inventory) -> Result<(), BlockchainError> {
+        match inv {
+            Inventory::WitnessTransaction(txid) => {
+                if let Some(tx) = self.mempool.read().await.get_from_mempool(&txid) {
+                    self.write(NetworkMessage::Tx(tx.to_owned().into())).await?;
+                }
+            }
+            Inventory::Transaction(txid) => {
+                if let Some(tx) = self.mempool.read().await.get_from_mempool(&txid) {
+                    self.write(NetworkMessage::Tx(tx.to_owned().into())).await?;
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
     pub async fn create_outbound_connection<A: ToSocketAddrs>(
         id: u32,
         address: A,
+        mempool: Arc<RwLock<Mempool>>,
         network: Network,
         node_tx: Sender<NodeNotification>,
         node_requests: Receiver<NodeRequest>,
@@ -247,6 +277,7 @@ impl Peer {
             blocks_only: false,
             current_best_block: -1,
             id,
+            mempool,
             last_ping: Instant::now(),
             network,
             node_tx,
