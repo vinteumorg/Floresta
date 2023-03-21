@@ -27,7 +27,7 @@ use bitcoin::{
         constants::ServiceFlags,
         utreexo::{UData, UtreexoBlock},
     },
-    BlockHash, BlockHeader, Network, OutPoint, Transaction, TxOut,
+    BlockHash, BlockHeader, Network, OutPoint, Transaction, TxOut, Txid,
 };
 use log::{error, info, warn};
 use rustreexo::accumulator::proof::Proof;
@@ -49,6 +49,8 @@ const TRY_NEW_CONNECTION: u64 = 30; // 10 seconds
 const ASSUME_STALE: u64 = 15 * 60; // 15 minutes
 /// While on IBD, if we've been without blocks for this long, ask for headers again
 const IBD_REQUEST_BLOCKS_AGAIN: u64 = 10; // 10 seconds
+/// How often we broadcast transactions
+const BROADCAST_DELAY: u64 = 30; // 30 seconds
 
 #[derive(Debug)]
 pub enum NodeNotification {
@@ -67,6 +69,8 @@ pub enum NodeRequest {
     GetAddresses,
     /// Asks this peer to shutdown
     Shutdown,
+    /// Sends a transaction to peers
+    BroadcastTransaction(Txid),
 }
 
 #[derive(Default, PartialEq)]
@@ -84,9 +88,11 @@ pub struct UtreexoNode {
     last_connection: Instant,
     last_get_address_request: Instant,
     last_peer_db_dump: Instant,
+    last_broadcast: Instant,
     network: Network,
     utreexo_peers: Vec<u32>,
-    peers: HashMap<u32, (PeerStatus, u32, Sender<NodeRequest>)>,
+    peer_ids: Vec<u32>,
+    peers: HashMap<u32, (PeerStatus, u32, Sender<NodeRequest>, ServiceFlags)>,
     chain: Arc<ChainState<KvChainStore>>,
     _mempool: Arc<RwLock<Mempool>>,
     node_rx: Receiver<NodeNotification>,
@@ -120,6 +126,7 @@ impl UtreexoNode {
             peer_id_count: 0,
             peers: HashMap::new(),
             chain,
+            peer_ids: Vec::new(),
             utreexo_peers: Vec::new(),
             _mempool: mempool,
             network,
@@ -130,6 +137,7 @@ impl UtreexoNode {
             last_tip_update: Instant::now(),
             last_connection: Instant::now(),
             last_peer_db_dump: Instant::now(),
+            last_broadcast: Instant::now(),
             datadir,
             last_get_address_request: Instant::now(),
         };
@@ -252,14 +260,19 @@ impl UtreexoNode {
                 .get(idx)
                 .expect("node is in the interval 0..utreexo_peers.len(), but is not here?")
         } else {
-            rand::random::<u32>() % self.peers.len() as u32
+            let idx = rand::random::<usize>() % self.peer_ids.len();
+            *self
+                .peer_ids
+                .get(idx)
+                .expect("node is in the interval 0..utreexo_peers.len(), but is not here?")
         };
 
         let peer = self
             .peers
             .get(&idx)
             .expect("node is in the interval 0..peers.len(), but is not here?");
-        peer.2.send(req).await?;
+        peer.2.send(req.clone()).await?;
+
         Ok(())
     }
     pub async fn handle_notification(
@@ -282,6 +295,7 @@ impl UtreexoNode {
                     if self.chain.is_in_idb() {
                         self.download_man.downloaded(block).await;
                     } else {
+                        self._mempool.write().await.consume_block(&block.block);
                         if self
                             .chain
                             .get_block_header(&block.block.block_hash())
@@ -299,15 +313,17 @@ impl UtreexoNode {
                         "New peer id={} version={} blocks={}",
                         version.id, version.user_agent, version.blocks
                     );
-                    if let Some(peer) = self.peers.get_mut(&peer) {
-                        peer.0 = PeerStatus::Ready;
+                    if let Some(peer_data) = self.peers.get_mut(&peer) {
+                        peer_data.0 = PeerStatus::Ready;
+                        peer_data.3 = version.services;
                         self.address_man
                             .update_set_state(version.address_id, AddressState::Connected);
                         self.address_man
                             .update_set_service_flag(version.address_id, version.services);
                         if version.services.has(ServiceFlags::NODE_UTREEXO) {
-                            self.utreexo_peers.push(peer.1);
+                            self.utreexo_peers.push(peer_data.1);
                         }
+                        self.peer_ids.push(peer);
                     }
                     if let NodeState::WaitingPeer = self.state {
                         if version.services.has(ServiceFlags::NODE_UTREEXO) {
@@ -323,6 +339,20 @@ impl UtreexoNode {
                 }
                 PeerMessages::Disconnected(idx) => {
                     self.peers.remove(&peer);
+
+                    self.peer_ids = self
+                        .peer_ids
+                        .iter()
+                        .copied()
+                        .filter(|id| *id != peer)
+                        .collect();
+                    self.peer_ids = self
+                        .utreexo_peers
+                        .iter()
+                        .copied()
+                        .filter(|id| *id != peer)
+                        .collect();
+
                     self.address_man.update_set_state(idx, AddressState::Tried);
                 }
                 PeerMessages::Addr(addresses) => {
@@ -354,7 +384,7 @@ impl UtreexoNode {
 
         loop {
             while let Ok(notification) =
-                async_std::future::timeout(Duration::from_millis(100), self.node_rx.recv()).await
+                timeout(Duration::from_millis(100), self.node_rx.recv()).await
             {
                 try_and_log!(self.handle_notification(notification).await);
             }
@@ -376,6 +406,12 @@ impl UtreexoNode {
                 self.last_tip_update,
                 ASSUME_STALE
             );
+            // Try broadcast transactions
+            periodic_job!(
+                self.handle_broadcast().await,
+                self.last_broadcast,
+                BROADCAST_DELAY
+            );
             // Perhaps we need more connections
             periodic_job!(
                 self.maybe_open_connection().await,
@@ -383,6 +419,25 @@ impl UtreexoNode {
                 TRY_NEW_CONNECTION
             );
         }
+    }
+    pub async fn handle_broadcast(&self) -> Result<(), BlockchainError> {
+        for (_, peer) in self.peers.iter() {
+            if peer.3.has(ServiceFlags::NODE_UTREEXO) {
+                return Ok(());
+            }
+            let transactions = self.chain.get_unbroadcasted();
+            for transaction in transactions {
+                let txid = transaction.txid();
+                self._mempool.write().await.accept_to_mempool(transaction);
+                peer.2.send(NodeRequest::BroadcastTransaction(txid)).await?;
+            }
+
+            let stale = self._mempool.write().await.get_stale();
+            for tx in stale {
+                peer.2.send(NodeRequest::BroadcastTransaction(tx)).await?;
+            }
+        }
+        Ok(())
     }
     pub async fn ask_for_addresses(&self) -> Result<(), BlockchainError> {
         Ok(self
@@ -494,6 +549,7 @@ impl UtreexoNode {
             spawn(Peer::create_outbound_connection(
                 self.peer_id_count,
                 (address.get_net_address(), address.get_port()),
+                self._mempool.clone(),
                 self.network,
                 self.node_tx.clone(),
                 requests_rx,
@@ -501,7 +557,12 @@ impl UtreexoNode {
             ));
             self.peers.insert(
                 self.peer_id_count,
-                (PeerStatus::Awaiting, self.peer_id_count, requests_tx),
+                (
+                    PeerStatus::Awaiting,
+                    self.peer_id_count,
+                    requests_tx,
+                    ServiceFlags::NONE,
+                ),
             );
             self.peer_id_count += 1;
         }
