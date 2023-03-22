@@ -480,6 +480,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "floresta"
+version = "0.1.0"
+dependencies = [
+ "argfile",
+ "async-std",
+ "bitcoin",
+ "btcd-rpc",
+ "clap",
+ "dirs",
+ "futures",
+ "kv",
+ "log",
+ "miniscript",
+ "pretty_env_logger",
+ "rand",
+ "rmp-serde",
+ "rustreexo",
+ "serde",
+ "serde_json",
+ "sha2",
+ "signal-hook",
+ "toml",
+]
+
+[[package]]
 name = "fnv"
 version = "1.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1788,31 +1813,6 @@ dependencies = [
  "form_urlencoded",
  "idna",
  "percent-encoding",
-]
-
-[[package]]
-name = "utreexo-wallet"
-version = "0.1.0"
-dependencies = [
- "argfile",
- "async-std",
- "bitcoin",
- "btcd-rpc",
- "clap",
- "dirs",
- "futures",
- "kv",
- "log",
- "miniscript",
- "pretty_env_logger",
- "rand",
- "rmp-serde",
- "rustreexo",
- "serde",
- "serde_json",
- "sha2",
- "signal-hook",
- "toml",
 ]
 
 [[package]]
