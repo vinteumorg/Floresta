@@ -7,9 +7,9 @@ Este programa é uma pequena implementação de node com um Electrum Server acop
 - Diferentemente do EPS, esse Electrum Server suporta múltiplas conexões simultâneas.
 
 ### Utilizando
-Existem duas maneiras de se obter o executável. Você pode compilar do código-fonte ou baixar o binário pré compilado do Github. Para intruções de como compilar o código-fonte, [veja abaixo](#compiling). As informações de como rodar estão [aqui](#running)
+Existem duas maneiras de se obter o executável. Você pode compilar do código-fonte ou baixar o binário pré compilado do Github. Para intruções de como compilar o código-fonte, [veja abaixo](#compilando). As informações de como rodar estão [aqui](#rodando)
 
-### Compilando {#compiling}
+### Compilando
 
 Para compilar, você precisa da toochain do Rust e o Cargo, mais informações [aqui](https://www.rust-lang.org/).
 Você pode obter o código-fonte baixando do Github ou clonando com
@@ -27,7 +27,7 @@ cargo bild --release
 ```
 se tudo estiver ok, irá compilar o programa e salvar o executável em ./target/release/
 
-### Rodando {#running}
+### Rodando
 Antes de rodar ele pela primeira vez, você precisa extrair a xpub da sua carteira. Na Electrum, basta ir no menu "Carteira" e clicar em "Informações", a xpub vai aparecer em uma caixa de texto grande.
 
 Uma vez que você tenha a Chave Pública Extendida em mãos, copie o arquivo de configuração `config.toml.sample` para `config.toml` edite-o inserindo a xput no campo apropriado. Você pode inserir infinitas xpubs. Também é permitido endereços soltos. No momento, esse software não suporta multisig, você precisa passar os endereços do multisig manualmente. Veja [abaixo](#config_example) um exemplo de arquivo válido
