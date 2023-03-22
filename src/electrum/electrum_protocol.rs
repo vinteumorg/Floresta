@@ -261,6 +261,24 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
             "server.donation_address" => {
                 json_rpc_res!(request, "")
             }
+            "server.features" => {
+                let genesis_hash = self
+                    .chain
+                    .get_block_hash(0)
+                    .expect("Genesis block should be present");
+                let res = json!(
+                    {
+                        "genesis_hash": genesis_hash,
+                        "hosts": {"127.0.0.1": {"tcp_port": 50001}},
+                        "protocol_max": "1.4",
+                        "protocol_min": "1.0",
+                        "pruning": null,
+                        "server_version": "Floresta 0.1.2",
+                        "hash_function": "sha256"
+                    }
+                );
+                json_rpc_res!(request, res)
+            }
             // TODO: Return peers?
             "server.peers.subscribe" => json_rpc_res!(request, []),
             "server.ping" => json_rpc_res!(request, null),
