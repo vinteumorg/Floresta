@@ -166,7 +166,38 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                 json_rpc_res!(request, res)
             }
             "blockchain.scripthash.get_mempool" => json_rpc_res!(request, []),
-            "blockchain.scripthash.listunspent" => todo!(),
+            "blockchain.scripthash.listunspent" => {
+                let hash = get_arg!(request, sha256::Hash, 0);
+                let utxos = self.address_cache.read().await.get_address_utxos(&hash);
+                if utxos.is_none() {
+                    return Err(crate::electrum::error::Error::InvalidParams);
+                }
+                let mut final_utxos = vec![];
+                for (utxo, prevout) in utxos.unwrap().into_iter() {
+                    let height = self
+                        .address_cache
+                        .read()
+                        .await
+                        .get_height(&prevout.txid)
+                        .unwrap();
+
+                    let position = self
+                        .address_cache
+                        .read()
+                        .await
+                        .get_position(&prevout.txid)
+                        .unwrap();
+
+                    final_utxos.push(json!({
+                        "height": height,
+                        "tx_pos": position,
+                        "tx_hash": prevout.txid,
+                        "value": utxo.value
+                    }));
+                }
+
+                json_rpc_res!(request, final_utxos)
+            }
             "blockchain.scripthash.subscribe" => {
                 let hash = get_arg!(request, sha256::Hash, 0);
                 self.peer_addresses.insert(hash, peer);
@@ -230,7 +261,24 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
             "server.donation_address" => {
                 json_rpc_res!(request, "")
             }
-            //server.features
+            "server.features" => {
+                let genesis_hash = self
+                    .chain
+                    .get_block_hash(0)
+                    .expect("Genesis block should be present");
+                let res = json!(
+                    {
+                        "genesis_hash": genesis_hash,
+                        "hosts": {"127.0.0.1": {"tcp_port": 50001}},
+                        "protocol_max": "1.4",
+                        "protocol_min": "1.0",
+                        "pruning": null,
+                        "server_version": "Floresta 0.1.2",
+                        "hash_function": "sha256"
+                    }
+                );
+                json_rpc_res!(request, res)
+            }
             // TODO: Return peers?
             "server.peers.subscribe" => json_rpc_res!(request, []),
             "server.ping" => json_rpc_res!(request, null),
