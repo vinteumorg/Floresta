@@ -1,11 +1,3 @@
 [wallet]
 xpubs = []
 addresses = []
-
-[rpc]
-rpc_user = "SomeUsername"
-rpc_password = "SomePassword"
-rpc_host = "https://127.0.0.1:38334"
-
-[misc]
-batch_sync = ""

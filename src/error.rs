@@ -1,8 +1,10 @@
 use crate::{blockchain::error::BlockchainError, impl_from_error};
 use bitcoin::consensus::encode;
+#[cfg(feature = "cli-blockchain")]
 use btcd_rpc::error::UtreexodError;
 #[derive(Debug)]
 pub enum Error {
+    #[cfg(feature = "cli-blockchain")]
     UtreexodError(UtreexodError),
     ParsingError(bitcoin::hashes::hex::Error),
     EncodeError(encode::Error),
@@ -24,6 +26,7 @@ impl std::fmt::Display for Error {
         match self {
             Error::EncodeError(err) => write!(f, "Encode error: {err}"),
             Error::ParsingError(err) => write!(f, "Parsing Error {err}"),
+            #[cfg(feature = "cli-blockchain")]
             Error::UtreexodError(_) => write!(f, "UtreexodError"),
             Error::WalletNotInitialized => write!(f, "WalletNotInitialized"),
             Error::DbError(err) => write!(f, "Database error {err}"),
@@ -41,6 +44,7 @@ impl std::fmt::Display for Error {
 }
 
 impl_from_error!(ParsingError, bitcoin::hashes::hex::Error);
+#[cfg(feature = "cli-blockchain")]
 impl_from_error!(UtreexodError, UtreexodError);
 impl_from_error!(EncodeError, encode::Error);
 impl_from_error!(DbError, kv::Error);
