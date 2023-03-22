@@ -1,8 +1,8 @@
-### Utreexo Electrum Server
+### Floresta
 **This is a WIP project, and should not be used with real money!**
 
-This is a WIP for a wallet/node powered by utreexo. This codebase can download and parse blocks (from a Utreexod cli), find transactions we need to our wallet and do some basic consensus validation.
-This code also has an out-of-the-box Electrum Server that you can use with any wallet that supports it.
+This is a WIP for a wallet/node powered by utreexo. This codebase can download and parse blocks ~~(from a Utreexod cli)~~, find transactions we need to our wallet and do some basic consensus validation. The consensus part is incomplete, and should not be trusted yet.
+This code also have an out-of-the-box Electrum Server that you can use with any wallet that supports it.
 
 ### Building
 You'll need Rust and Cargo, refer to [this](https://www.rust-lang.org/) for more details. Minimum support version is rustc 1.64 and newer.
@@ -18,9 +18,8 @@ $ cargo build --release
 ```
 
 ### Running
-Before running, you have to get an Extended Public Key from your wallet. You'll also need a running [Utreexod](https://github.com/utreexo/utreexod) (If you want to test on signet, you can ask me to use mine, but signet is really easy to sync up).
-
-Copy `config.toml.sample` to `config.toml`, and fill all related fields, like xpubs and rpc credentials. Then just run
+Right now, this project is working on signet only. Mainnet support is still a todo thing. You can get some signet coins [here] and just play around with it.
+Copy `config.toml.sample` to `config.toml`, and fill up your xpubs and addresses that you intend to track, and then run with
 ```bash
-$ Floresta -c config.toml --network signet run
+$ floresta -c config.toml --network signet run
 ```

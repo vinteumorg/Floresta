@@ -7,9 +7,9 @@ Este programa é uma pequena implementação de node com um Electrum Server acop
 - Diferentemente do EPS, esse Electrum Server suporta múltiplas conexões simultâneas.
 
 ### Utilizando
-Existem duas maneiras de se obter o executável. Você pode compilar do código-fonte ou baixar o binário pré compilado do Github. Para intruções de como compilar o código-fonte, veja abaixo.
+Existem duas maneiras de se obter o executável. Você pode compilar do código-fonte ou baixar o binário pré compilado do Github. Para intruções de como compilar o código-fonte, [veja abaixo](#compiling). As informações de como rodar estão [aqui](#running)
 
-### Compilando
+### Compilando {#compiling}
 
 Para compilar, você precisa da toochain do Rust e o Cargo, mais informações [aqui](https://www.rust-lang.org/).
 Você pode obter o código-fonte baixando do Github ou clonando com
@@ -25,14 +25,34 @@ compile com:
 ```bash
 cargo bild --release
 ```
-se tudo estiver ok, ele irá mostrar uma tela de ajuda com os comandos e opções do programa.
+se tudo estiver ok, irá compilar o programa e salvar o executável em ./target/release/
 
-### Preparação
+### Rodando {#running}
 Antes de rodar ele pela primeira vez, você precisa extrair a xpub da sua carteira. Na Electrum, basta ir no menu "Carteira" e clicar em "Informações", a xpub vai aparecer em uma caixa de texto grande.
 
-Uma vez que você tenha a Chave Pública Extendida em mãos, basta inicializar o servidor com ela, utilizando o comando abaixo.
+Uma vez que você tenha a Chave Pública Extendida em mãos, copie o arquivo de configuração `config.toml.sample` para `config.toml` edite-o inserindo a xput no campo apropriado. Você pode inserir infinitas xpubs. Também é permitido endereços soltos. No momento, esse software não suporta multisig, você precisa passar os endereços do multisig manualmente. Veja [abaixo](#config_example) um exemplo de arquivo válido
+
 ```bash
 floresta -c config.toml --network  signet run
 ```
 Onde:
 - `network` é a rede que você está utilizando, bitcoin significa mainnet, outros valores válidos são signet, regtest e testnet. Todas são redes de teste que são funcionalmente idênticas a rede principal (mainnet), porém utilizada apenas para teste, e suas moedas não tem valor algum.
+
+Se tudo der certo, ele irá iniciar a sincronização e mostrar o progreço na tela. A partir do momento em que aparecer
+> Server running on: 0.0.0.0:50001
+
+você já poderá conectar a sua carteira ao servidor, porém, o saldo poderá demorar um pouco para aparecer.
+
+#### Exemplo de arquivo de configuração {#config_example}
+```toml
+[wallet]
+xpubs = [
+    "vpub5ZkWR4krsAzwFsmW8Yp3eHuANVLr7ZSWii6KmRnLRiN6ZXLbqs1f217jJM37oteQoyng82yw44XQU8PYJJBGgVzvJ96dQZEyZZcDiDmoJXw",
+    "vpub5V5XF4ipcQ9tLp7NCFswnwZ23tm5Key81E9CCfqFXaGjzTpQ8jjiirf2hG7aXtqXbRDFxMvEhdGdeFcqQ3jUGUkq4mqo2VoGCDWCZvPQvUy",
+]
+addresses = [
+    "tb1qjfplwf7a2dpjj04cx96rysqeastvycc0j50cch"
+]
+```
+#### Print do programa em execução
+![Um print dos logs de uma instância do Floresta rodando em uma terminal em uma distribuição GNU/Linux](./assets/Screenshot_ibd.jpg)
