@@ -197,6 +197,22 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
             tx_index,
         }
     }
+    pub fn get_address_utxos(&self, script_hash: &sha256::Hash) -> Option<Vec<(TxOut, OutPoint)>> {
+        let address = self.address_map.get(script_hash)?;
+        let utxos = &address.utxos;
+        let mut address_utxos = vec![];
+        for utxo in utxos {
+            let tx = address
+                .transactions
+                .iter()
+                .find(|transaction| Txid::from_hex(&*transaction.hash).unwrap() == utxo.txid)?;
+            let tx = Vec::from_hex(&tx.tx_hex).unwrap();
+            let tx = deserialize::<Transaction>(&tx).unwrap();
+            address_utxos.push((tx.output[utxo.vout as usize].to_owned(), utxo.to_owned()));
+        }
+
+        Some(address_utxos)
+    }
     fn get_transaction(&self, txid: &Txid) -> Option<CachedTransaction> {
         if let Some((address, idx)) = self.tx_index.get(txid) {
             if let Some(address) = self.address_map.get(address) {
@@ -237,6 +253,9 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
         // Tx not found
         // TODO: Ain't that an error?
         None
+    }
+    pub fn get_position(&self, txid: &Txid) -> Option<u32> {
+        Some(self.get_transaction(txid)?.position)
     }
     pub fn get_height(&self, txid: &Txid) -> Option<u32> {
         if let Some(tx) = self.get_transaction(txid) {
