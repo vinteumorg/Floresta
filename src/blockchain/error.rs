@@ -2,11 +2,14 @@
 use super::p2p_blockchain::node::NodeRequest;
 
 use bitcoin::{blockdata::script, BlockHash};
+
+#[cfg(feature = "cli-blockchain")]
 use btcd_rpc::error::UtreexodError;
 
 #[derive(Debug)]
 pub enum BlockchainError {
     BlockNotPresent,
+    #[cfg(feature = "cli-blockchain")]
     JsonRpcError(UtreexodError),
     ParsingError(bitcoin::hashes::hex::Error),
     BlockValidationError(BlockValidationErrors),
@@ -54,6 +57,7 @@ impl From<async_std::channel::SendError<NodeRequest>> for BlockchainError {
         BlockchainError::ChannelError(err)
     }
 }
+#[cfg(feature = "cli-blockchain")]
 impl From<UtreexodError> for BlockchainError {
     fn from(err: UtreexodError) -> Self {
         BlockchainError::JsonRpcError(err)

@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 rustreexo = { git = "https://www.github.com/mit-dci/rustreexo" }
-btcd-rpc = { git = "https://github.com/Davidson-Souza/rust-btcd-rpc", features = ["utreexod"], branch = "use-reqwest"}
+btcd-rpc = { git = "https://github.com/Davidson-Souza/rust-btcd-rpc", features = ["utreexod"], branch = "use-reqwest", optional = true }
 clap = { version = "4.0.29", features = ["derive"] }
 sha2 = "^0.10.6"
 async-std = { version = "1.12.0", features = ["attributes"] }
@@ -16,7 +16,7 @@ kv = "0.24.0"
 miniscript = "9.0.0"
 pretty_env_logger = "0.4.0"
 futures = "0.3.4"
-rmp-serde = "1.1.1"
+rmp-serde = { optional = true, version = "1.1.1" }
 toml = "0.5.10"
 argfile = "0.1.5"
 dirs = "4.0.0"
@@ -26,6 +26,7 @@ bitcoin = { version = "0.29", features = ["serde", "std", "bitcoinconsensus"] }
 
 [features]
 default = ["experimental-p2p"]
+cli-blockchain = ["rmp-serde", "btcd-rpc"]
 experimental-p2p = []
 
 [patch."https://github.com/rust-lang/crates.io-index"]
