@@ -282,7 +282,7 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
             // TODO: Return peers?
             "server.peers.subscribe" => json_rpc_res!(request, []),
             "server.ping" => json_rpc_res!(request, null),
-            "server.version" => json_rpc_res!(request, ["Floresta 0.1.2", "1.4"]),
+            "server.version" => json_rpc_res!(request, ["Floresta 0.3.0", "1.4"]),
 
             _ => Err(super::error::Error::InvalidParams),
         }
