@@ -10,9 +10,9 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 
 FROM debian:11.6-slim@sha256:171530d298096f0697da36b3324182e872db77c66452b85783ea893680cc1b62
 
-COPY --from=builder /opt/app/target/release/utreexo-wallet /usr/local/bin/utreexo-wallet
-RUN chmod +x /usr/local/bin/utreexo-wallet
+COPY --from=builder /opt/app/target/release/Floresta /usr/local/bin/Floresta
+RUN chmod +x /usr/local/bin/Floresta
 
 EXPOSE 50001
 
-CMD [ "utreexo-wallet" ]
+CMD [ "Floresta" ]

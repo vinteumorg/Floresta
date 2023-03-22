@@ -22,5 +22,5 @@ Before running, you have to get an Extended Public Key from your wallet. You'll 
 
 Copy `config.toml.sample` to `config.toml`, and fill all related fields, like xpubs and rpc credentials. Then just run
 ```bash
-$ utreexo-wallet -c config.toml --network signet run
+$ Floresta -c config.toml --network signet run
 ```
