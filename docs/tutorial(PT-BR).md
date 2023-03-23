@@ -1,5 +1,7 @@
 ## Tutorial
-### Introdução:
+
+### Introdução
+
 Este programa é uma pequena implementação de node com um Electrum Server acoplado. Ela se comporta semelhante a um setup com Bitcoin Core + Electrum Personal Server, porém com algumas diferenças chave.  
 
 - Node e Electrum Server estão no mesmo binário, tornando o processo mais simples e com menos erros.
@@ -7,43 +9,65 @@ Este programa é uma pequena implementação de node com um Electrum Server acop
 - Diferentemente do EPS, esse Electrum Server suporta múltiplas conexões simultâneas.
 
 ### Utilizando
-Existem duas maneiras de se obter o executável. Você pode compilar do código-fonte ou baixar o binário pré compilado do Github. Para intruções de como compilar o código-fonte, [veja abaixo](#compilando). As informações de como rodar estão [aqui](#rodando)
+
+Existem duas maneiras de se obter o executável. Você pode compilar do código-fonte ou baixar o binário pré-compilado do Github. Para intruções de como compilar o código-fonte, [veja abaixo](#compilando). As informações de como rodar estão [aqui](#rodando)
 
 ### Compilando
 
 Para compilar, você precisa da toochain do Rust e o Cargo, mais informações [aqui](https://www.rust-lang.org/).
 Você pode obter o código-fonte baixando do Github ou clonando com
+
 ```bash
-git clone https://www.github.com/Davidson-Souza/floresta
+git clone https://github.com/Davidson-Souza/Floresta.git
 ```
+
 Navegue para dentro da pasta com
+
 ```bash
-cd floresta
+cd Floresta/
 ```
 
 compile com:
+
 ```bash
-cargo bild --release
+cargo build --release
 ```
-se tudo estiver ok, irá compilar o programa e salvar o executável em ./target/release/
+
+se tudo estiver ok, irá compilar o programa e salvar o executável em `./target/release/`.
 
 ### Rodando
+
 Antes de rodar ele pela primeira vez, você precisa extrair a xpub da sua carteira. Na Electrum, basta ir no menu "Carteira" e clicar em "Informações", a xpub vai aparecer em uma caixa de texto grande.
 
-Uma vez que você tenha a Chave Pública Extendida em mãos, copie o arquivo de configuração `config.toml.sample` para `config.toml` edite-o inserindo a xput no campo apropriado. Você pode inserir infinitas xpubs. Também é permitido endereços soltos. No momento, esse software não suporta multisig, você precisa passar os endereços do multisig manualmente. Veja [abaixo](#config_example) um exemplo de arquivo válido
+Uma vez que você tenha a Chave Pública Extendida em mãos, copie o arquivo de configuração `config.toml.sample` para `config.toml` edite-o inserindo a xpub no campo apropriado. Você pode inserir infinitas xpubs. Também é permitido endereços soltos. No momento, esse software não suporta multisig, você precisa passar os endereços do multisig manualmente. Veja [abaixo](#config_example) um exemplo de arquivo válido.
 
 ```bash
-floresta -c config.toml --network  signet run
+floresta -c config.toml --network signet run
 ```
+
+ou
+
+```bash
+./target/release/floresta -c config.toml --network signet run
+```
+
+ou
+
+```bash
+cargo run --release -- -c config.toml --network signet run
+```
+
 Onde:
+
 - `network` é a rede que você está utilizando, bitcoin significa mainnet, outros valores válidos são signet, regtest e testnet. Todas são redes de teste que são funcionalmente idênticas a rede principal (mainnet), porém utilizada apenas para teste, e suas moedas não tem valor algum.
 
-Se tudo der certo, ele irá iniciar a sincronização e mostrar o progreço na tela. A partir do momento em que aparecer
+Se tudo der certo, ele irá iniciar a sincronização e mostrar o progresso na tela. A partir do momento em que aparecer
 > Server running on: 0.0.0.0:50001
 
-você já poderá conectar a sua carteira ao servidor, porém, o saldo poderá demorar um pouco para aparecer.
+você já poderá conectar a sua carteira ao servidor, porém o saldo poderá demorar um pouco para aparecer.
 
 #### Exemplo de arquivo de configuração {#config_example}
+
 ```toml
 [wallet]
 xpubs = [
@@ -54,5 +78,7 @@ addresses = [
     "tb1qjfplwf7a2dpjj04cx96rysqeastvycc0j50cch"
 ]
 ```
+
 #### Print do programa em execução
+
 ![Um print dos logs de uma instância do Floresta rodando em uma terminal em uma distribuição GNU/Linux](./assets/Screenshot_ibd.jpg)
