@@ -66,8 +66,7 @@ pub enum Commands {
         #[arg(long)]
         rpc_port: Option<u32>,
         /// Whether or not we want to sync with a external provider
-        #[arg(long)]
-        #[arg(default_value_t = false)]
+        #[arg(long, default_value_t = false)]
         use_batch_sync: bool,
         /// If use_batch_sync is set, this option provides which server we use
         #[arg(long)]

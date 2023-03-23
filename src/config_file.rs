@@ -20,9 +20,9 @@ pub struct Misc {
 }
 #[derive(Default, Debug, Deserialize)]
 pub struct ConfigFile {
-    pub rpc: Rpc,
+    pub rpc: Option<Rpc>,
     pub wallet: Wallet,
-    pub misc: Misc,
+    pub misc: Option<Misc>,
 }
 impl ConfigFile {
     pub fn from_file(filename: &str) -> Result<Self, crate::error::Error> {
