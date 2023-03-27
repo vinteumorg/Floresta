@@ -16,11 +16,19 @@ pub enum DiskBlockHeader {
     FullyValid(BlockHeader, u32),
     Orphan(BlockHeader),
     HeadersOnly(BlockHeader, u32),
-    InFork(BlockHeader),
+    InFork(BlockHeader, u32),
 }
 impl DiskBlockHeader {
     pub fn block_hash(&self) -> BlockHash {
         self.deref().block_hash()
+    }
+    pub fn height(&self) -> Option<u32> {
+        match self {
+            DiskBlockHeader::FullyValid(_, height) => Some(*height),
+            DiskBlockHeader::Orphan(_) => None,
+            DiskBlockHeader::HeadersOnly(_, height) => Some(*height),
+            DiskBlockHeader::InFork(_, height) => Some(*height),
+        }
     }
 }
 impl Deref for DiskBlockHeader {
@@ -30,7 +38,7 @@ impl Deref for DiskBlockHeader {
             DiskBlockHeader::FullyValid(header, _) => header,
             DiskBlockHeader::Orphan(header) => header,
             DiskBlockHeader::HeadersOnly(header, _) => header,
-            DiskBlockHeader::InFork(header) => header,
+            DiskBlockHeader::InFork(header, _) => header,
         }
     }
 }
@@ -51,7 +59,11 @@ impl Decodable for DiskBlockHeader {
                 let height = u32::consensus_decode(reader)?;
                 Ok(Self::HeadersOnly(header, height))
             }
-            0x03 => Ok(Self::InFork(header)),
+            0x03 => {
+                let height = u32::consensus_decode(reader)?;
+
+                Ok(Self::InFork(header, height))
+            }
             _ => unreachable!(),
         }
     }
@@ -61,12 +73,13 @@ impl Encodable for DiskBlockHeader {
         &self,
         writer: &mut W,
     ) -> std::result::Result<usize, std::io::Error> {
-        let len = 80 + 1 + 4; // Header + tag + height
+        let mut len = 80 + 1; // Header + tag + height
         match self {
             DiskBlockHeader::FullyValid(header, height) => {
                 0x00_u8.consensus_encode(writer)?;
                 header.consensus_encode(writer)?;
                 height.consensus_encode(writer)?;
+                len += 4;
             }
             DiskBlockHeader::Orphan(header) => {
                 0x01_u8.consensus_encode(writer)?;
@@ -76,10 +89,13 @@ impl Encodable for DiskBlockHeader {
                 0x02_u8.consensus_encode(writer)?;
                 header.consensus_encode(writer)?;
                 height.consensus_encode(writer)?;
+                len += 4;
             }
-            DiskBlockHeader::InFork(header) => {
+            DiskBlockHeader::InFork(header, height) => {
                 0x03_u8.consensus_encode(writer)?;
                 header.consensus_encode(writer)?;
+                height.consensus_encode(writer)?;
+                len += 4;
             }
         };
         Ok(len)

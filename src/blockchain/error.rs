@@ -43,6 +43,7 @@ pub enum BlockValidationErrors {
     FirstTxIsnNotCoinbase,
     BadCoinbaseOutValue,
     EmptyBlock,
+    BlockExtendsAnOrphanChain,
 }
 impl From<bitcoin::consensus::encode::Error> for BlockchainError {
     fn from(err: bitcoin::consensus::encode::Error) -> Self {
@@ -91,5 +92,10 @@ impl From<std::io::Error> for BlockchainError {
 impl From<async_std::channel::RecvError> for BlockchainError {
     fn from(e: async_std::channel::RecvError) -> Self {
         BlockchainError::RecvError(e)
+    }
+}
+impl From<BlockValidationErrors> for BlockchainError {
+    fn from(e: BlockValidationErrors) -> Self {
+        BlockchainError::BlockValidationError(e)
     }
 }
