@@ -113,6 +113,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         mut utxos: HashMap<OutPoint, TxOut>,
         transactions: &[Transaction],
         subsidy: u64,
+        verify_script: bool,
     ) -> Result<bool, crate::error::Error> {
         if transactions.is_empty() {
             return Err(BlockValidationErrors::EmptyBlock.into());
@@ -143,7 +144,9 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             // Fee is the difference between inputs and outputs
             fee += in_value - output_value;
             // Verify the tx script
-            transaction.verify(|outpoint| utxos.remove(outpoint))?;
+            if verify_script {
+                transaction.verify(|outpoint| utxos.remove(outpoint))?;
+            }
         }
         // In each block, the first transaction, and only the first, should be coinbase
         if !transactions[0].is_coin_base() {
@@ -458,27 +461,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             let _ = client.send(what.clone()).await;
         }
     }
-    /// If we already hold a write lock to inner, we can't call self.save_acc() because it'd
-    /// cause a deadlock. This method can be called from the already existing lock guard we acquired.
-    /// It's intended to be used internally only.
-    fn save_acc_inner(
-        inner: &ChainStateInner<PersistedState>,
-    ) -> Result<(), bitcoin::consensus::encode::Error> {
-        let mut ser_acc: Vec<u8> = vec![];
-        inner.acc.leafs.consensus_encode(&mut ser_acc)?;
-        #[allow(clippy::significant_drop_in_scrutinee)]
-        for root in inner.acc.roots.iter() {
-            ser_acc
-                .write_all(root)
-                .expect("String formatting should not err");
-        }
 
-        inner
-            .chainstore
-            .save_roots(ser_acc)
-            .expect("Chain store is not working");
-        Ok(())
-    }
     pub fn new(
         chainstore: KvChainStore,
         network: Network,
@@ -603,6 +586,36 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             roots,
         }
     }
+    fn update_view(&self, height: u32, block: &Block, acc: Stump) -> Result<(), BlockchainError> {
+        let mut inner = write_lock!(self);
+        inner
+            .chainstore
+            .save_header(&super::chainstore::DiskBlockHeader::FullyValid(
+                block.header,
+                height,
+            ))?;
+        inner
+            .chainstore
+            .update_block_index(height, block.block_hash())?;
+        inner.chainstore.save_height(&inner.best_block)?;
+        // Updates our local view of the network
+        inner.acc = acc;
+        inner.best_block.valid_block(block.block_hash());
+        if block.block_hash() == inner.assume_valid.0 {
+            inner.assume_valid.1 = height;
+        }
+        Ok(())
+    }
+    fn validation_index_hash(&self) -> BlockHash {
+        read_lock!(self).best_block.validation_index
+    }
+    fn verify_script(&self, height: u32) -> bool {
+        let inner = self.inner.read().unwrap();
+        inner.assume_valid.1 < height
+    }
+    fn acc(&self) -> Stump {
+        read_lock!(self).acc.to_owned()
+    }
 }
 
 impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedState> {
@@ -703,7 +716,6 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
         del_hashes: Vec<sha256::Hash>,
     ) -> super::Result<()> {
         let header = self.get_disk_block_header(&block.block_hash())?;
-
         let height = match header {
             // If it's valid or orphan, we don't validate
             DiskBlockHeader::FullyValid(_, _) => {
@@ -717,8 +729,7 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
             DiskBlockHeader::Orphan(_) | DiskBlockHeader::InFork(_, _) => return Ok(()),
             DiskBlockHeader::HeadersOnly(_, height) => height,
         };
-        let inner = self.inner.read().unwrap();
-        let acc = Self::update_acc(&inner.acc, block, height, proof, del_hashes)?;
+        let acc = Self::update_acc(&self.acc(), block, height, proof, del_hashes)?;
 
         if !block.check_merkle_root() {
             return Err(BlockchainError::BlockValidationError(
@@ -730,7 +741,7 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
                 BlockValidationErrors::BadWitnessCommitment,
             ));
         }
-        let prev_block = inner.best_block.validation_index;
+        let prev_block = self.validation_index_hash();
         if block.header.prev_blockhash != prev_block {
             return Err(BlockchainError::BlockValidationError(
                 BlockValidationErrors::PrevBlockNotFound(block.header.prev_blockhash),
@@ -740,12 +751,13 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
 
         // Check pow
         let target = self.get_next_required_work(&prev_block, height);
-        let hash = block.header.validate_pow(&target).map_err(|_| {
+        block.header.validate_pow(&target).map_err(|_| {
             BlockchainError::BlockValidationError(BlockValidationErrors::NotEnoughPow)
         })?;
         // Validate block transactions
         let subsidy = self.get_subsidy(height);
-        Self::verify_block_transactions(inputs, &block.txdata, subsidy)
+        let verify_script = self.verify_script(height);
+        Self::verify_block_transactions(inputs, &block.txdata, subsidy, verify_script)
             .map_err(|_| BlockchainError::BlockValidationError(BlockValidationErrors::InvalidTx))?;
 
         // ... If we came this far, we consider this block valid ...
@@ -755,26 +767,8 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
         }
         // Notify others we have a new block
         async_std::task::block_on(self.notify(Notification::NewBlock((block.to_owned(), height))));
-
-        inner
-            .chainstore
-            .save_header(&super::chainstore::DiskBlockHeader::FullyValid(
-                block.header,
-                height,
-            ))?;
-        inner
-            .chainstore
-            .update_block_index(height, block.block_hash())?;
-        inner.chainstore.save_height(&inner.best_block)?;
-        // Drop this lock because we need a write lock to inner, if we hold this lock this will
-        // cause a deadlock.
-        drop(inner);
-        // Updates our local view of the network
-        let mut inner = self.inner.write().unwrap();
-        inner.acc = acc;
-        inner.best_block.valid_block(hash);
-
-        Self::save_acc_inner(&*inner)?;
+        self.update_view(height, block, acc)?;
+        self.save_acc()?;
         Ok(())
     }
 
