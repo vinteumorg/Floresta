@@ -46,7 +46,8 @@ pub trait BlockchainInterface {
 /// the chainstate.
 pub trait BlockchainProviderInterface {
     /// This is one of the most important methods for a ChainState, it gets a block and some utreexo data,
-    /// validates this block and connects to our chain of blocks.
+    /// validates this block and connects to our chain of blocks. This function is meant to
+    /// be atomic and prone of running in parallel.
     fn connect_block(
         &self,
         block: &Block,
@@ -71,6 +72,8 @@ pub trait BlockchainProviderInterface {
     fn get_block_locator(&self) -> Result<Vec<BlockHash>>;
     /// Returns the last block we validated
     fn get_validation_index(&self) -> Result<u32>;
+    /// Tells this blockchain to consider this block invalid, and not build on top of it
+    fn invalidate_block(&self, block: BlockHash) -> Result<()>;
 }
 #[derive(Debug, Clone)]
 /// A notification is a hook that a type implementing [BlockchainInterface] sends each

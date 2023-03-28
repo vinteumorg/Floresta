@@ -512,6 +512,9 @@ impl UtreexoNode {
                 .expect("Could not fetch proof");
 
         if let Err(e) = chain.connect_block(&block.block, proof, inputs, del_hashes) {
+            if let BlockchainError::BlockValidationError(_) = &e {
+                try_and_log!(chain.invalidate_block(block.block.block_hash()));
+            }
             error!(
                 "Error while connecting block {}: {e:?}",
                 block.block.block_hash()

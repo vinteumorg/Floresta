@@ -1,7 +1,7 @@
 #[cfg(feature = "experimental-p2p")]
 use super::p2p_blockchain::node::NodeRequest;
 
-use bitcoin::{blockdata::script, BlockHash};
+use bitcoin::blockdata::script;
 
 #[cfg(feature = "cli-blockchain")]
 use btcd_rpc::error::UtreexodError;
@@ -34,7 +34,6 @@ pub enum BlockchainError {
 
 #[derive(Debug)]
 pub enum BlockValidationErrors {
-    PrevBlockNotFound(BlockHash),
     InvalidTx,
     NotEnoughPow,
     BadMerkleRoot,
@@ -44,6 +43,7 @@ pub enum BlockValidationErrors {
     BadCoinbaseOutValue,
     EmptyBlock,
     BlockExtendsAnOrphanChain,
+    BadBip34,
 }
 impl From<bitcoin::consensus::encode::Error> for BlockchainError {
     fn from(err: bitcoin::consensus::encode::Error) -> Self {

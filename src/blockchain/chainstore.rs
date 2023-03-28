@@ -17,6 +17,7 @@ pub enum DiskBlockHeader {
     Orphan(BlockHeader),
     HeadersOnly(BlockHeader, u32),
     InFork(BlockHeader, u32),
+    InvalidChain(BlockHeader),
 }
 impl DiskBlockHeader {
     pub fn block_hash(&self) -> BlockHash {
@@ -28,6 +29,7 @@ impl DiskBlockHeader {
             DiskBlockHeader::Orphan(_) => None,
             DiskBlockHeader::HeadersOnly(_, height) => Some(*height),
             DiskBlockHeader::InFork(_, height) => Some(*height),
+            DiskBlockHeader::InvalidChain(_) => None,
         }
     }
 }
@@ -39,6 +41,7 @@ impl Deref for DiskBlockHeader {
             DiskBlockHeader::Orphan(header) => header,
             DiskBlockHeader::HeadersOnly(header, _) => header,
             DiskBlockHeader::InFork(header, _) => header,
+            DiskBlockHeader::InvalidChain(header) => header,
         }
     }
 }
@@ -64,6 +67,7 @@ impl Decodable for DiskBlockHeader {
 
                 Ok(Self::InFork(header, height))
             }
+            0x04 => Ok(Self::InvalidChain(header)),
             _ => unreachable!(),
         }
     }
@@ -96,6 +100,10 @@ impl Encodable for DiskBlockHeader {
                 header.consensus_encode(writer)?;
                 height.consensus_encode(writer)?;
                 len += 4;
+            }
+            DiskBlockHeader::InvalidChain(header) => {
+                0x04_u8.consensus_encode(writer)?;
+                header.consensus_encode(writer)?;
             }
         };
         Ok(len)

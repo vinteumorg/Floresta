@@ -94,6 +94,9 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         subsidy >>= halvings;
         subsidy
     }
+    fn update_header(&self, header: &DiskBlockHeader) -> Result<(), BlockchainError> {
+        Ok(read_lock!(self).chainstore.save_header(header)?)
+    }
     fn validate_header(&self, block_header: &BlockHeader) -> Result<BlockHash, BlockchainError> {
         let prev_block = self.get_disk_block_header(&block_header.prev_blockhash)?;
         let prev_block_height = prev_block.height();
@@ -281,6 +284,12 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
                     )))
                 }
                 DiskBlockHeader::HeadersOnly(_, _) | DiskBlockHeader::InFork(_, _) => {}
+                DiskBlockHeader::InvalidChain(_) => {
+                    return Err(BlockchainError::InvalidTip(format!(
+                        "Block {} is in an invalid chain",
+                        header.block_hash()
+                    )))
+                }
             }
 
             header = *_header;
@@ -586,13 +595,17 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             roots,
         }
     }
-    fn update_view(&self, height: u32, block: &Block, acc: Stump) -> Result<(), BlockchainError> {
+    fn update_view(
+        &self,
+        height: u32,
+        block: &BlockHeader,
+        acc: Stump,
+    ) -> Result<(), BlockchainError> {
         let mut inner = write_lock!(self);
         inner
             .chainstore
             .save_header(&super::chainstore::DiskBlockHeader::FullyValid(
-                block.header,
-                height,
+                *block, height,
             ))?;
         inner
             .chainstore
@@ -606,8 +619,10 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         }
         Ok(())
     }
-    fn validation_index_hash(&self) -> BlockHash {
-        read_lock!(self).best_block.validation_index
+    fn update_tip(&self, best_block: BlockHash, height: u32) {
+        let mut inner = write_lock!(self);
+        inner.best_block.best_block = best_block;
+        inner.best_block.depth = height;
     }
     fn verify_script(&self, height: u32) -> bool {
         let inner = self.inner.read().unwrap();
@@ -622,6 +637,7 @@ impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedSta
     fn is_in_idb(&self) -> bool {
         self.inner.read().unwrap().ibd
     }
+
     fn get_block_hash(&self, height: u32) -> super::Result<bitcoin::BlockHash> {
         let inner = self.inner.read().expect("get_block_hash: Poisoned lock");
         if let Some(hash) = inner.chainstore.get_block_hash(height)? {
@@ -704,6 +720,25 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
 
         Ok(hashes)
     }
+    fn invalidate_block(&self, block: BlockHash) -> super::Result<()> {
+        let height = self.get_disk_block_header(&block)?.height().unwrap();
+        let current_height = self.get_height()?;
+        // Mark all blocks after this one as invalid
+        for h in height..=current_height {
+            let hash = self.get_block_hash(h)?;
+            let header = self.get_block_header(&hash)?;
+            let new_header = DiskBlockHeader::InvalidChain(header);
+            self.update_header(&new_header)?;
+        }
+        // Row back to our previous state. Note that acc doesn't actually change in this case
+        // only the currently best known block.
+        self.update_tip(
+            self.get_ancestor(&self.get_block_header(&block)?)?
+                .block_hash(),
+            height,
+        );
+        Ok(())
+    }
     fn toggle_ibd(&self, is_ibd: bool) {
         let mut inner = write_lock!(self);
         inner.ibd = is_ibd;
@@ -728,6 +763,7 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
             }
             DiskBlockHeader::Orphan(_) | DiskBlockHeader::InFork(_, _) => return Ok(()),
             DiskBlockHeader::HeadersOnly(_, height) => height,
+            DiskBlockHeader::InvalidChain(_) => return Ok(()),
         };
         let acc = Self::update_acc(&self.acc(), block, height, proof, del_hashes)?;
 
@@ -736,18 +772,17 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
                 BlockValidationErrors::BadMerkleRoot,
             ));
         }
+        if block.bip34_block_height() != Ok(height as u64) {
+            return Err(BlockchainError::BlockValidationError(
+                BlockValidationErrors::BadBip34,
+            ));
+        }
         if !block.check_witness_commitment() {
             return Err(BlockchainError::BlockValidationError(
                 BlockValidationErrors::BadWitnessCommitment,
             ));
         }
-        let prev_block = self.validation_index_hash();
-        if block.header.prev_blockhash != prev_block {
-            return Err(BlockchainError::BlockValidationError(
-                BlockValidationErrors::PrevBlockNotFound(block.header.prev_blockhash),
-            ));
-        }
-        let prev_block = self.get_block_header(&prev_block)?;
+        let prev_block = self.get_ancestor(&block.header)?;
 
         // Check pow
         let target = self.get_next_required_work(&prev_block, height);
@@ -767,7 +802,7 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
         }
         // Notify others we have a new block
         async_std::task::block_on(self.notify(Notification::NewBlock((block.to_owned(), height))));
-        self.update_view(height, block, acc)?;
+        self.update_view(height, &block.header, acc)?;
         self.save_acc()?;
         Ok(())
     }
