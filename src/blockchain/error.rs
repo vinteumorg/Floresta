@@ -30,6 +30,8 @@ pub enum BlockchainError {
     ChannelError(async_std::channel::SendError<NodeRequest>),
     #[cfg(feature = "experimental-p2p")]
     RecvError(async_std::channel::RecvError),
+    #[cfg(feature = "experimental-p2p")]
+    CoinbaseNotMatured,
 }
 
 #[derive(Debug)]

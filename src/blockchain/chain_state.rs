@@ -862,6 +862,13 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
             _ => unreachable!(),
         }
     }
+
+    fn is_coinbase_mature(&self, height: u32) -> super::Result<bool> {
+        let inner = self.inner.read().unwrap();
+        let validation = inner.best_block.depth;
+
+        Ok(height + inner.chain_params.coinbase_maturity < validation)
+    }
 }
 #[macro_export]
 /// Grabs a RwLock for reading

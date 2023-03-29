@@ -205,7 +205,10 @@ impl UtreexoNode {
                         let hash = chain.get_block_hash(height)?;
                         let leaf = proof_util::reconstruct_leaf_data(&leaf, &input, hash)
                             .expect("Invalid proof");
-
+                        // Coinbase can only be spent after a certain amount of confirmations
+                        if leaf.header_code & 1 == 1 && chain.is_coinbase_mature(height)? {
+                            return Err(BlockchainError::CoinbaseNotMatured);
+                        }
                         inputs.insert(leaf.prevout, leaf.utxo);
                     }
                 }
@@ -507,19 +510,22 @@ impl UtreexoNode {
         Ok(())
     }
     fn handle_block(chain: &ChainState<KvChainStore>, block: UtreexoBlock) {
-        let (proof, del_hashes, inputs) =
+        if let Ok((proof, del_hashes, inputs)) =
             Self::process_proof(&block.udata.unwrap(), &block.block.txdata, chain)
-                .expect("Could not fetch proof");
-
-        if let Err(e) = chain.connect_block(&block.block, proof, inputs, del_hashes) {
-            if let BlockchainError::BlockValidationError(_) = &e {
-                try_and_log!(chain.invalidate_block(block.block.block_hash()));
+        {
+            if let Err(e) = chain.connect_block(&block.block, proof, inputs, del_hashes) {
+                if let BlockchainError::BlockValidationError(_) = &e {
+                    try_and_log!(chain.invalidate_block(block.block.block_hash()));
+                }
+                error!(
+                    "Error while connecting block {}: {e:?}",
+                    block.block.block_hash()
+                );
             }
-            error!(
-                "Error while connecting block {}: {e:?}",
-                block.block.block_hash()
-            );
+            return;
         }
+        // If we find a problem with the proof, invalidate the block.
+        try_and_log!(chain.invalidate_block(block.block.block_hash()));
     }
     async fn ibd_request_blocks(
         &mut self,
