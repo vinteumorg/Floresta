@@ -19,6 +19,7 @@ pub enum BlockchainError {
     ConsensusDecodeError(bitcoin::consensus::encode::Error),
     ChainNotInitialized,
     InvalidTip(String),
+    Timeout,
     IoError(std::io::Error),
     #[cfg(feature = "experimental-p2p")]
     MessageTooBig,

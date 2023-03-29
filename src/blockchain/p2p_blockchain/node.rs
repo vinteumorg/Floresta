@@ -51,6 +51,8 @@ const ASSUME_STALE: u64 = 15 * 60; // 15 minutes
 const IBD_REQUEST_BLOCKS_AGAIN: u64 = 10; // 10 seconds
 /// How often we broadcast transactions
 const BROADCAST_DELAY: u64 = 30; // 30 seconds
+/// Wait up to this many seconds for a peer to respond to a request
+const PEER_REQUEST_TIMEOUT: u64 = 10; // 10 seconds
 
 #[derive(Debug)]
 pub enum NodeNotification {
@@ -81,6 +83,18 @@ enum NodeState {
     DownloadBlocks,
     Running,
 }
+#[allow(unused)]
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+enum InflightRequests {
+    Headers,
+    Blocks(BlockHash),
+    Addresses,
+}
+/// The main node struct. It holds all the important information about the node, such as the
+/// blockchain, the peers, the mempool, etc.
+/// It also holds the channels to communicate with peers and the block downloader.
+/// The node is the central task that runs and handles important events, such as new blocks,
+/// peer connection/disconnection, new addresses, etc.
 pub struct UtreexoNode {
     peer_id_count: u32,
     last_headers_request: Instant,
@@ -94,6 +108,7 @@ pub struct UtreexoNode {
     peer_ids: Vec<u32>,
     peers: HashMap<u32, (PeerStatus, u32, Sender<NodeRequest>, ServiceFlags)>,
     chain: Arc<ChainState<KvChainStore>>,
+    inflight: HashMap<InflightRequests, (u32, Instant)>,
     _mempool: Arc<RwLock<Mempool>>,
     node_rx: Receiver<NodeNotification>,
     node_tx: Sender<NodeNotification>,
@@ -122,6 +137,7 @@ impl UtreexoNode {
                 &Self::handle_block,
                 height,
             ),
+            inflight: HashMap::new(),
             state: NodeState::default(),
             peer_id_count: 0,
             peers: HashMap::new(),
@@ -247,12 +263,21 @@ impl UtreexoNode {
             .await?;
         Ok(())
     }
+
+    fn check_for_timeout(&self) -> Result<(), BlockchainError> {
+        for request in self.inflight.values() {
+            if request.1.elapsed() > Duration::from_secs(PEER_REQUEST_TIMEOUT) {
+                return Err(BlockchainError::Timeout);
+            }
+        }
+        Ok(())
+    }
     #[inline]
     pub async fn send_to_random_peer(
         &self,
         req: NodeRequest,
         required_services: ServiceFlags,
-    ) -> Result<(), BlockchainError> {
+    ) -> Result<u32, BlockchainError> {
         if self.peers.is_empty() {
             return Err(BlockchainError::NoPeersAvailable);
         }
@@ -279,7 +304,7 @@ impl UtreexoNode {
             .expect("node is in the interval 0..peers.len(), but is not here?");
         peer.2.send(req.clone()).await?;
 
-        Ok(())
+        Ok(idx)
     }
     pub async fn handle_notification(
         &mut self,
@@ -424,6 +449,7 @@ impl UtreexoNode {
                 self.last_connection,
                 TRY_NEW_CONNECTION
             );
+            try_and_log!(self.check_for_timeout());
         }
     }
     pub async fn handle_broadcast(&self) -> Result<(), BlockchainError> {
@@ -446,9 +472,9 @@ impl UtreexoNode {
         Ok(())
     }
     pub async fn ask_for_addresses(&self) -> Result<(), BlockchainError> {
-        Ok(self
-            .send_to_random_peer(NodeRequest::GetAddresses, ServiceFlags::NONE)
-            .await?)
+        self.send_to_random_peer(NodeRequest::GetAddresses, ServiceFlags::NONE)
+            .await?;
+        Ok(())
     }
     fn save_peers(&self) -> Result<(), BlockchainError> {
         Ok(self.address_man.dump_peers(&self.datadir)?)
@@ -504,7 +530,8 @@ impl UtreexoNode {
             NodeRequest::GetHeaders(self.chain.get_block_locator().unwrap()),
             ServiceFlags::NONE,
         )
-        .await
+        .await?;
+        Ok(())
     }
     async fn maybe_open_connection(&mut self) -> Result<(), BlockchainError> {
         if self.peers.len() < MAX_OUTGOING_PEERS {
@@ -546,11 +573,17 @@ impl UtreexoNode {
             info!("Leaving ibd");
             return Ok(());
         }
-        self.send_to_random_peer(
-            NodeRequest::GetBlock(next_blocks),
-            ServiceFlags::NODE_UTREEXO,
-        )
-        .await?;
+
+        let peer = self
+            .send_to_random_peer(
+                NodeRequest::GetBlock(next_blocks.clone()),
+                ServiceFlags::NODE_UTREEXO,
+            )
+            .await?;
+        for block in next_blocks.iter() {
+            self.inflight
+                .insert(InflightRequests::Blocks(*block), (peer, Instant::now()));
+        }
         Ok(())
     }
     async fn create_connection(&mut self) {
