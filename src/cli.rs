@@ -84,6 +84,8 @@ pub enum Commands {
         /// Add a xpub to our wallet
         #[arg(long)]
         wallet_xpub: Option<Vec<String>>,
+        #[arg(long)]
+        wallet_descriptor: Option<Vec<String>>,
         /// Assume blocks before this one as having valid signatures, same with bitcoin core
         #[arg(long)]
         assume_valid: Option<BlockHash>,
