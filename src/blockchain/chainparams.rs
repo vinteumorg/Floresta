@@ -24,6 +24,8 @@ pub struct ChainParams {
     pub pow_target_timespan: u64,
     /// We wait this many blocks before a coinbase output can be spent
     pub coinbase_maturity: u32,
+    /// The height at which bip32 is activated
+    pub bip32_activation_height: u32,
 }
 impl ChainParams {
     fn max_target(net: Network) -> Uint256 {
@@ -59,6 +61,7 @@ impl From<Network> for ChainParams {
                 pow_target_timespan: 14 * 24 * 60 * 60, // two weeks
                 subsidy_halving_interval: 210_000,
                 coinbase_maturity: 100,
+                bip32_activation_height: 227931,
             },
             Network::Testnet => ChainParams {
                 genesis,
@@ -69,6 +72,7 @@ impl From<Network> for ChainParams {
                 pow_target_timespan: 14 * 24 * 60 * 60, // two weeks
                 subsidy_halving_interval: 210_000,
                 coinbase_maturity: 100,
+                bip32_activation_height: 581885,
             },
             Network::Signet => ChainParams {
                 genesis,
@@ -79,6 +83,7 @@ impl From<Network> for ChainParams {
                 pow_target_timespan: 14 * 24 * 60 * 60, // two weeks
                 subsidy_halving_interval: 210_000,
                 coinbase_maturity: 100,
+                bip32_activation_height: 0,
             },
             Network::Regtest => ChainParams {
                 genesis,
@@ -89,6 +94,7 @@ impl From<Network> for ChainParams {
                 pow_target_timespan: 14 * 24 * 60 * 60, // two weeks
                 subsidy_halving_interval: 150,
                 coinbase_maturity: 100,
+                bip32_activation_height: 500,
             },
         }
     }

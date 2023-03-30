@@ -215,13 +215,17 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
 
         Ok(counter)
     }
-    fn mark_chain_as_active(&self, new_tip: &BlockHeader) -> Result<(), BlockchainError> {
+    fn mark_chain_as_active(
+        &self,
+        new_tip: &BlockHeader,
+        fork_point: BlockHash,
+    ) -> Result<(), BlockchainError> {
         let mut height = self.get_chain_depth(new_tip)?;
         let mut header = DiskBlockHeader::HeadersOnly(*new_tip, height);
 
         let inner = read_lock!(self);
 
-        while !self.is_genesis(&header) {
+        while !self.is_genesis(&header) || header.block_hash() == fork_point {
             inner
                 .chainstore
                 .update_block_index(height, header.block_hash())?;
@@ -234,12 +238,16 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
     }
     /// Mark the current index as inactive, either because we found an invalid ancestor,
     /// or we are in the middle of reorg
-    fn mark_chain_as_inactive(&self, old_tip: &BlockHeader) -> Result<(), BlockchainError> {
+    fn mark_chain_as_inactive(
+        &self,
+        old_tip: &BlockHeader,
+        fork_point: BlockHash,
+    ) -> Result<(), BlockchainError> {
         let mut header = *old_tip;
         let mut height = self.get_chain_depth(old_tip)?;
 
         let inner = read_lock!(self);
-        while !self.is_genesis(&header) {
+        while !self.is_genesis(&header) || header.block_hash() == fork_point {
             let new_header = DiskBlockHeader::InFork(header, height);
             inner.chainstore.save_header(&new_header)?;
             header = *self.get_ancestor(&header)?;
@@ -248,12 +256,53 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
 
         Ok(())
     }
+    fn find_fork_point(&self, header: &BlockHeader) -> Result<BlockHeader, BlockchainError> {
+        let mut header = *self.get_ancestor(&header)?;
+        let inner = read_lock!(self);
+        while !self.is_genesis(&header) {
+            match inner.chainstore.get_header(&header.block_hash())? {
+                Some(DiskBlockHeader::HeadersOnly(block, _)) => {
+                    return Ok(block);
+                }
+                Some(DiskBlockHeader::FullyValid(block, _)) => {
+                    return Ok(block);
+                }
+                Some(DiskBlockHeader::InFork(block, _)) => {
+                    header = *self.get_ancestor(&block)?;
+                    continue;
+                }
+                Some(DiskBlockHeader::Orphan(header)) => {
+                    return Err(BlockchainError::InvalidTip(format!(
+                        "Block {} doesn't have a known ancestor (i.e an orphan block)",
+                        header.block_hash()
+                    )));
+                }
+                Some(DiskBlockHeader::InvalidChain(header)) => {
+                    return Err(BlockchainError::InvalidTip(format!(
+                        "Block {} is invalid",
+                        header.block_hash()
+                    )));
+                }
+                None => {
+                    return Err(BlockchainError::InvalidTip(format!(
+                        "Block {} isn't in our storage",
+                        header.block_hash()
+                    )));
+                }
+            }
+        }
+        Err(BlockchainError::InvalidTip(
+            "Couldn't find a fork point".to_string(),
+        ))
+    }
     // This method should only be called after we validate the new branch
     fn reorg(&self, new_tip: BlockHeader) -> Result<(), BlockchainError> {
         let current_best_block = self.get_best_block().unwrap().1;
         let current_best_block = self.get_block_header(&current_best_block)?;
-        self.mark_chain_as_active(&new_tip)?;
-        self.mark_chain_as_inactive(&current_best_block)?;
+        let fork_point = self.find_fork_point(&new_tip)?;
+
+        self.mark_chain_as_inactive(&current_best_block, fork_point.block_hash())?;
+        self.mark_chain_as_active(&new_tip, fork_point.block_hash())?;
 
         let validation_index = self.get_last_valid_block(&new_tip)?;
         let depth = self.get_chain_depth(&new_tip)?;
@@ -266,6 +315,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         inner.best_block.best_block = new_tip.block_hash();
         inner.best_block.validation_index = last_valid;
         inner.best_block.depth = depth;
+        inner.acc = Stump::new();
     }
     /// Grabs the last block we validated in this branch. We don't validate a fork, unless it
     /// becomes the best chain. This function technically finds out what is the last common block
@@ -772,7 +822,9 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
                 BlockValidationErrors::BadMerkleRoot,
             ));
         }
-        if block.bip34_block_height() != Ok(height as u64) {
+        if height >= self.chain_params().bip32_activation_height
+            && block.bip34_block_height() != Ok(height as u64)
+        {
             return Err(BlockchainError::BlockValidationError(
                 BlockValidationErrors::BadBip34,
             ));
@@ -962,13 +1014,17 @@ impl Decodable for BestChain {
 
 #[cfg(test)]
 mod test {
+    use std::collections::HashMap;
+
     use bitcoin::{
         consensus::deserialize, hashes::hex::FromHex, Block, BlockHash, BlockHeader, Network,
     };
+    use rustreexo::accumulator::proof::Proof;
 
     use crate::blockchain::{
-        chainparams::ChainParams, chainstore::KvChainStore, BlockchainInterface,
-        BlockchainProviderInterface,
+        chainparams::ChainParams,
+        chainstore::{DiskBlockHeader, KvChainStore},
+        BlockchainInterface, BlockchainProviderInterface,
     };
 
     use super::ChainState;
@@ -1001,6 +1057,9 @@ mod test {
             let block = Vec::from_hex(block).unwrap();
             let block: Block = deserialize(&block).unwrap();
             chain.accept_header(block.header).unwrap();
+            chain
+                .connect_block(&block, Proof::default(), HashMap::new(), vec![])
+                .unwrap();
         }
         assert_eq!(
             chain.get_best_block().unwrap(),
@@ -1029,5 +1088,13 @@ mod test {
                 .unwrap()
             )
         );
+        for i in 1..=chain.get_height().unwrap() {
+            if let Ok(DiskBlockHeader::HeadersOnly(_, _)) =
+                chain.get_disk_block_header(&chain.get_block_hash(i).unwrap())
+            {
+                continue;
+            }
+            panic!("Block {} is not in the store", i);
+        }
     }
 }
