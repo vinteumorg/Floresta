@@ -1,3 +1,4 @@
 [wallet]
 xpubs = []
+descriptors = []
 addresses = []

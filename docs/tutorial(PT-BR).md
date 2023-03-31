@@ -39,7 +39,11 @@ se tudo estiver ok, irá compilar o programa e salvar o executável em `./target
 
 Antes de rodar ele pela primeira vez, você precisa extrair a xpub da sua carteira. Na Electrum, basta ir no menu "Carteira" e clicar em "Informações", a xpub vai aparecer em uma caixa de texto grande.
 
-Uma vez que você tenha a Chave Pública Extendida em mãos, copie o arquivo de configuração `config.toml.sample` para `config.toml` edite-o inserindo a xpub no campo apropriado. Você pode inserir infinitas xpubs. Também é permitido endereços soltos. No momento, esse software não suporta multisig, você precisa passar os endereços do multisig manualmente. Veja [abaixo](#config_example) um exemplo de arquivo válido.
+Uma vez que você tenha a Chave Pública Extendida em mãos, copie o arquivo de configuração `config.toml.sample` para `config.toml` edite-o inserindo a xpub no campo apropriado. Você pode inserir infinitas xpubs. Também é permitido endereços soltos.
+
+Para endereços multisig, uma carteira como Sparrow é recomendada. Basta copiar o "output descriptor" gerado pela mesma.
+
+Veja [abaixo](#config_example) um exemplo de arquivo válido.
 
 ```bash
 floresta -c config.toml --network signet run
@@ -76,6 +80,9 @@ xpubs = [
 ]
 addresses = [
     "tb1qjfplwf7a2dpjj04cx96rysqeastvycc0j50cch"
+]
+descriptors = [
+    "wsh(sortedmulti(1,[54ff5a12/48h/1h/0h/2h]tpubDDw6pwZA3hYxcSN32q7a5ynsKmWr4BbkBNHydHPKkM4BZwUfiK7tQ26h7USm8kA1E2FvCy7f7Er7QXKF8RNptATywydARtzgrxuPDwyYv4x/<0;1>/*,[bcf969c0/48h/1h/0h/2h]tpubDEFdgZdCPgQBTNtGj4h6AehK79Jm4LH54JrYBJjAtHMLEAth7LuY87awx9ZMiCURFzFWhxToRJK6xp39aqeJWrG5nuW3eBnXeMJcvDeDxfp/<0;1>/*))#fuw35j0q"
 ]
 ```
 

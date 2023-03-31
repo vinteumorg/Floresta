@@ -41,12 +41,12 @@ mod electrum;
 mod error;
 mod wallet_input;
 
-use std::{path::PathBuf, process::exit, sync::Arc};
+use std::{path::PathBuf, sync::Arc};
 
 use address_cache::{kv_database::KvDatabase, AddressCache, AddressCacheDatabase};
 use async_std::task::{self, block_on};
 
-use bitcoin::{Address, Network};
+use bitcoin::Network;
 use blockchain::{chain_state::ChainState, chainstore::KvChainStore};
 #[cfg(not(feature = "experimental-p2p"))]
 use btcd_rpc::client::{BTCDClient, BTCDConfigs};
@@ -54,15 +54,14 @@ use clap::Parser;
 use cli::{Cli, Commands};
 use config_file::ConfigFile;
 use log::{debug, error, info};
-use miniscript::{Descriptor, DescriptorPublicKey};
 use pretty_env_logger::env_logger::{Env, TimestampPrecision};
-use std::str::FromStr;
 
 #[cfg(not(feature = "experimental-p2p"))]
 use crate::blockchain::cli_blockchain::UtreexodBackend;
 
 #[cfg(feature = "experimental-p2p")]
 use crate::blockchain::p2p_blockchain::{mempool::Mempool, node::UtreexoNode};
+use crate::wallet_input::InitialWalletSetup;
 
 fn main() {
     // Setup global logger
@@ -106,6 +105,7 @@ fn main() {
             debug!("Done loading wallet");
             let result = setup_wallet(
                 get_both_vec(wallet_xpub, data.wallet.xpubs),
+                get_both_vec(None, data.wallet.descriptors),
                 get_both_vec(data.wallet.addresses, wallet_addresses),
                 &mut wallet,
                 params.network.clone(),
@@ -175,6 +175,7 @@ fn main() {
             data_dir,
             assume_valid,
             wallet_xpub,
+            wallet_descriptor,
         } => {
             let data_dir = get_one_or_another(
                 data_dir,
@@ -190,6 +191,7 @@ fn main() {
             debug!("Done loading wallet");
             let result = setup_wallet(
                 get_both_vec(wallet_xpub, data.wallet.xpubs),
+                get_both_vec(wallet_descriptor, data.wallet.descriptors),
                 get_both_vec(data.wallet.addresses, None),
                 &mut wallet,
                 params.network.clone(),
@@ -303,7 +305,7 @@ fn create_rpc_connection(
     let connection = BTCDClient::new(config);
     if connection.is_err() {
         error!("Could not create RPC connection, check your configs");
-        exit(1);
+        std::process::exit(1);
     }
     Arc::new(connection.expect("We checked this above, it's impossible to be Err"))
 }
@@ -316,77 +318,29 @@ fn get_net(net: &cli::Network) -> Network {
         cli::Network::Regtest => Network::Regtest,
     }
 }
-fn setup_xpubs<D: AddressCacheDatabase>(
+
+fn setup_wallet<D: AddressCacheDatabase>(
     xpubs: Vec<String>,
+    descriptors: Vec<String>,
+    addresses: Vec<String>,
     wallet: &mut AddressCache<D>,
     network: cli::Network,
 ) -> Result<(), crate::error::Error> {
-    if xpubs.is_empty() {
-        return Ok(());
-    }
-
-    for key in xpubs {
-        // Parses the descriptor and get an external and change descriptors
-        let xpub = wallet_input::extended_pub_key::from_wif(key.as_str());
-        if let Err(error) = xpub {
-            log::error!("Invalid xpub provided: {key} \nReason: {:?}", error);
-            exit(0);
+    let setup =
+        InitialWalletSetup::build(&xpubs, &descriptors, &addresses, get_net(&network), 100)?;
+    for descriptor in setup.descriptors {
+        let descriptor = descriptor.to_string();
+        if !wallet.is_cached(&descriptor)? {
+            wallet.push_descriptor(&descriptor)?;
         }
-        let xpub = xpub.expect("We checked this above, should not be Err");
-        let main_desc = format!("wpkh({xpub}/0/*)");
-        let change_desc = format!("wpkh({xpub}/1/*)");
-        // Don't cache a descriptor twice
-        if wallet.is_cached(&main_desc)? {
-            continue;
-        }
-        // Saves our descriptors on disk for further derivations
-        wallet.push_descriptor(&main_desc)?;
-        wallet.push_descriptor(&change_desc)?;
-        // Derives a bunch of addresses to keep track of
-        derive_addresses(main_desc, wallet, &network);
-        derive_addresses(change_desc, wallet, &network);
     }
-
+    for addresses in setup.addresses {
+        wallet.cache_address(addresses.script_pubkey());
+    }
     info!("Wallet setup completed!");
     Ok(())
 }
 
-fn setup_address<D: AddressCacheDatabase>(
-    addresses: Vec<String>,
-    wallet: &mut AddressCache<D>,
-) -> Result<(), crate::error::Error> {
-    for address in addresses {
-        let address = Address::from_str(&address)?;
-        wallet.cache_address(address.script_pubkey());
-    }
-
-    Ok(())
-}
-fn setup_wallet<D: AddressCacheDatabase>(
-    xpubs: Vec<String>,
-    addresses: Vec<String>,
-    wallet: &mut AddressCache<D>,
-    network: cli::Network,
-) -> Result<(), crate::error::Error> {
-    setup_address(addresses, wallet)?;
-    setup_xpubs(xpubs, wallet, network)?;
-    Ok(())
-}
-fn derive_addresses<D: AddressCacheDatabase>(
-    descriptor: String,
-    wallet: &mut AddressCache<D>,
-    network: &cli::Network,
-) {
-    let desc = Descriptor::<DescriptorPublicKey>::from_str(descriptor.as_str())
-        .expect("Error while parsing descriptor");
-    for index in 0..100 {
-        let address = desc
-            .at_derivation_index(index)
-            .address(get_net(network))
-            .expect("Error while deriving address. Is this an active descriptor?");
-        wallet.cache_address(address.script_pubkey());
-    }
-}
 #[cfg(not(feature = "experimental-p2p"))]
 /// Finds out whether our RPC works or not
 fn test_rpc(rpc: &BTCDClient) -> bool {

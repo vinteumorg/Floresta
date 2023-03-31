@@ -17,8 +17,9 @@ pub enum Error {
     ChainError(BlockchainError),
     SerdeJsonError(serde_json::Error),
     TomlParsingError(toml::de::Error),
-    WalletInputError(crate::wallet_input::ParsingError),
+    WalletInputError(slip132::Error),
     AddressParsingError(bitcoin::util::address::Error),
+    MiniscriptError(miniscript::Error),
 }
 
 impl std::fmt::Display for Error {
@@ -39,6 +40,7 @@ impl std::fmt::Display for Error {
             Error::WalletInputError(err) => write!(f, "Error while parsing user input {:?}", err),
             Error::TomlParsingError(err) => write!(f, "Error deserializing toml file {err}"),
             Error::AddressParsingError(err) => write!(f, "Invalid address {err}"),
+            Error::MiniscriptError(err) => write!(f, "Miniscript error: {err}"),
         }
     }
 }
@@ -54,9 +56,10 @@ impl_from_error!(IoError, std::io::Error);
 impl_from_error!(ValidationError, bitcoin::blockdata::script::Error);
 impl_from_error!(ChainError, BlockchainError);
 impl_from_error!(SerdeJsonError, serde_json::Error);
-impl_from_error!(WalletInputError, crate::wallet_input::ParsingError);
+impl_from_error!(WalletInputError, slip132::Error);
 impl_from_error!(TomlParsingError, toml::de::Error);
 impl_from_error!(AddressParsingError, bitcoin::util::address::Error);
+impl_from_error!(MiniscriptError, miniscript::Error);
 
 impl std::error::Error for Error {}
 #[macro_export]
