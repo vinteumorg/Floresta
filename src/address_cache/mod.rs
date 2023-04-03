@@ -108,6 +108,8 @@ pub struct AddressCache<D: AddressCacheDatabase> {
     script_set: HashSet<Script>,
     /// Maps transaction ids to a script hash and the position of this transaction in a block
     tx_index: HashMap<Txid, (Hash, usize)>,
+    /// Keeps track of all utxos we own, and the script hash they belong to
+    utxo_index: HashMap<OutPoint, Hash>,
 }
 impl<D: AddressCacheDatabase> AddressCache<D> {
     /// Iterates through a block, finds transactions destined to ourselves.
@@ -117,34 +119,52 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
 
         for (position, transaction) in block.txdata.iter().enumerate() {
             for (vin, txin) in transaction.input.iter().enumerate() {
-                // TODO: Simplify this whole thing
-                if let Some((script, _)) = self.tx_index.get(&txin.previous_output.txid) {
-                    // If a transaction is spending some utxo we own
-                    let script = self.address_map.get(script).unwrap();
+                //     // TODO: Simplify this whole thing
+                //     if let Some((script, _)) = self.tx_index.get(&txin.previous_output.txid) {
+                //         // If a transaction is spending some utxo we own
+                //         let script = self.address_map.get(script).unwrap();
+                //         let tx = self.get_transaction(&txin.previous_output.txid).unwrap();
+                //         let tx: Transaction = deserialize(&Vec::from_hex(&tx.tx_hex).unwrap()).unwrap();
+
+                //         let output = tx.output.get(txin.previous_output.vout as usize).unwrap();
+                //         // A transaction can get in our cache, even if none of the outputs are ours,
+                //         // if it's a wallet spend. In this case, we might have a false-positive when those
+                //         // outputs are spent. This if prevents from caching tx we don't actually care about.
+                //         if output.script_pubkey != script.script {
+                //             continue;
+                //         }
+                //         my_transactions.push((transaction.clone(), output.clone()));
+
+                //         let merkle_block = MerkleProof::from_block(block, position as u64);
+
+                //         self.cache_transaction(
+                //             transaction,
+                //             height,
+                //             output.value,
+                //             merkle_block,
+                //             position as u32,
+                //             vin,
+                //             true,
+                //             &output.script_pubkey,
+                //         );
+                //     }
+                if let Some(script) = self.utxo_index.get(&txin.previous_output) {
+                    let script = self.address_map.get(script).unwrap().to_owned();
                     let tx = self.get_transaction(&txin.previous_output.txid).unwrap();
                     let tx: Transaction = deserialize(&Vec::from_hex(&tx.tx_hex).unwrap()).unwrap();
-
-                    let output = tx.output.get(txin.previous_output.vout as usize).unwrap();
-                    // A transaction can get in our cache, even if none of the outputs are ours,
-                    // if it's a wallet spend. In this case, we might have a false-positive when those
-                    // outputs are spent. This if prevents from caching tx we don't actually care about.
-                    if output.script_pubkey != script.script {
-                        continue;
-                    }
-                    my_transactions.push((transaction.clone(), output.clone()));
-
+                    let utxo = tx.output.get(txin.previous_output.vout as usize).unwrap();
                     let merkle_block = MerkleProof::from_block(block, position as u64);
 
                     self.cache_transaction(
                         transaction,
                         height,
-                        output.value,
+                        utxo.value,
                         merkle_block,
                         position as u32,
                         vin,
                         true,
-                        &output.script_pubkey,
-                    );
+                        &script.script,
+                    )
                 }
             }
 
@@ -182,10 +202,14 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
         let mut address_map = HashMap::new();
         let mut script_set = HashSet::new();
         let mut tx_index = HashMap::new();
+        let mut utxo_index = HashMap::new();
         for address in scripts {
             for (pos, tx) in address.transactions.iter().enumerate() {
                 let txid = Txid::from_hex(&tx.hash).expect("Cached an invalid txid");
                 tx_index.insert(txid, (address.script_hash, pos));
+            }
+            for utxo in address.utxos.iter() {
+                utxo_index.insert(*utxo, address.script_hash);
             }
             script_set.insert(address.script.clone());
             address_map.insert(address.script_hash, address);
@@ -195,6 +219,7 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
             address_map,
             script_set,
             tx_index,
+            utxo_index,
         }
     }
     pub fn get_address_utxos(&self, script_hash: &sha256::Hash) -> Option<Vec<(TxOut, OutPoint)>> {
@@ -336,17 +361,20 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
                     .input
                     .get(index as usize)
                     .expect("Malformed call, index is bigger than the output vector");
-                address.utxos = address
+                let idx = address
                     .utxos
                     .iter()
-                    .cloned()
-                    .filter(|utxo| *utxo != input.previous_output)
-                    .collect();
+                    .position(|utxo| *utxo == input.previous_output);
+                let utxo = address.utxos.remove(idx.unwrap());
+                self.utxo_index.remove(&utxo);
             } else {
-                address.utxos.push(OutPoint {
+                let utxo = OutPoint {
                     txid: transaction.txid(),
                     vout: index as u32,
-                });
+                };
+                address.utxos.push(utxo);
+                self.utxo_index.insert(utxo, hash);
+
                 address.balance += value;
             }
             if address
