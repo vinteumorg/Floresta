@@ -157,7 +157,7 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                 let mut res = vec![];
                 for transaction in transactions {
                     let entry = TransactionHistoryEntry {
-                        tx_hash: transaction.hash,
+                        tx_hash: transaction.hash.to_hex(),
                         height: transaction.height,
                     };
                     res.push(entry);

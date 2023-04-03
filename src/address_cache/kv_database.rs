@@ -76,4 +76,25 @@ impl AddressCacheDatabase for KvDatabase {
         }
         Ok(vec![])
     }
+
+    fn get_transaction(
+        &self,
+        txid: &bitcoin::Txid,
+    ) -> Result<super::CachedTransaction, crate::error::Error> {
+        let store = self.0.bucket::<&[u8], Vec<u8>>(Some("transactions"))?;
+        let res = store.get(&txid.to_vec().as_slice())?;
+        if let Some(res) = res {
+            return Ok(serde_json::de::from_slice(&res)?);
+        }
+        Err(crate::error::Error::TransactionNotFound)
+    }
+
+    fn save_transaction(&self, tx: &super::CachedTransaction) -> Result<(), crate::error::Error> {
+        let store = self.0.bucket::<&[u8], Vec<u8>>(Some("transactions"))?;
+        let ser_tx = serde_json::to_vec(&tx)?;
+        store.set(&tx.tx.txid().to_vec().as_slice(), &ser_tx)?;
+        self.1.flush()?;
+
+        Ok(())
+    }
 }
