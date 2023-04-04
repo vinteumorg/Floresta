@@ -120,14 +120,20 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
         for (position, transaction) in block.txdata.iter().enumerate() {
             for (vin, txin) in transaction.input.iter().enumerate() {
                 if let Some(script) = self.utxo_index.get(&txin.previous_output) {
-                    let script = self.address_map.get(script).unwrap().to_owned();
-                    let tx = self.get_transaction(&txin.previous_output.txid).unwrap();
+                    let script = self
+                        .address_map
+                        .get(script)
+                        .expect("Can't cache a utxo for a address we don't have")
+                        .to_owned();
+                    let tx = self
+                        .get_transaction(&txin.previous_output.txid)
+                        .expect("We cached a utxo for a transaction we don't have");
 
                     let utxo = tx
                         .tx
                         .output
                         .get(txin.previous_output.vout as usize)
-                        .unwrap();
+                        .expect("Did we cache an invalid utxo?");
                     let merkle_block = MerkleProof::from_block(block, position as u64);
 
                     self.cache_transaction(
@@ -233,7 +239,7 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
             // If a given transaction is cached, but the merkle tree doesn't exist, that means
             // an unconfirmed transaction.
             tx.merkle_block.as_ref()?;
-            for hash in tx.merkle_block.unwrap().hashes() {
+            for hash in tx.merkle_block?.hashes() {
                 hashes.push(hash.to_hex());
             }
             return Some((hashes, tx.position));
@@ -246,18 +252,12 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
         Some(self.get_transaction(txid)?.position)
     }
     pub fn get_height(&self, txid: &Txid) -> Option<u32> {
-        if let Some(tx) = self.get_transaction(txid) {
-            return Some(tx.height);
-        }
-
-        None
+        Some(self.get_transaction(txid)?.height)
     }
 
     pub fn get_cached_transaction(&self, txid: &Txid) -> Option<String> {
-        if let Some(tx) = self.get_transaction(txid) {
-            return Some(serialize_hex(&tx.tx));
-        }
-        None
+        let tx = self.get_transaction(txid);
+        Some(serialize_hex(&tx?.tx))
     }
     /// Adds a new address to track, should be called at wallet setup and every once in a while
     /// to cache new addresses, as we use the first ones. Only requires a script to cache.
@@ -333,8 +333,10 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
                     .utxos
                     .iter()
                     .position(|utxo| *utxo == input.previous_output);
-                let utxo = address.utxos.remove(idx.unwrap());
-                self.utxo_index.remove(&utxo);
+                if let Some(idx) = idx {
+                    let utxo = address.utxos.remove(idx);
+                    self.utxo_index.remove(&utxo);
+                }
             } else {
                 // This transaction is creating a new utxo for this address
                 let utxo = OutPoint {
