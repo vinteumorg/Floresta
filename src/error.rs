@@ -6,6 +6,7 @@ use btcd_rpc::error::UtreexodError;
 pub enum Error {
     #[cfg(feature = "cli-blockchain")]
     UtreexodError(UtreexodError),
+    TransactionNotFound,
     ParsingError(bitcoin::hashes::hex::Error),
     EncodeError(encode::Error),
     WalletNotInitialized,
@@ -41,6 +42,7 @@ impl std::fmt::Display for Error {
             Error::TomlParsingError(err) => write!(f, "Error deserializing toml file {err}"),
             Error::AddressParsingError(err) => write!(f, "Invalid address {err}"),
             Error::MiniscriptError(err) => write!(f, "Miniscript error: {err}"),
+            Error::TransactionNotFound => write!(f, "Transaction not found"),
         }
     }
 }
