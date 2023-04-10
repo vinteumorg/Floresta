@@ -7,6 +7,7 @@ use super::{
 use crate::{read_lock, write_lock};
 use async_std::channel::Sender;
 use bitcoin::{
+    bitcoinconsensus,
     blockdata::constants::{genesis_block, COIN_VALUE},
     consensus::{deserialize_partial, Decodable, Encodable},
     hashes::{hex::FromHex, sha256, Hash},
@@ -18,6 +19,7 @@ use rustreexo::accumulator::{proof::Proof, stump::Stump};
 use sha2::{Digest, Sha512_256};
 use std::{
     collections::{HashMap, HashSet},
+    ffi::c_uint,
     io::Write,
 };
 use std::{sync::RwLock, time::UNIX_EPOCH};
@@ -81,6 +83,42 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         sha256::Hash::from_slice(leaf_hash.as_slice())
             .expect("parent_hash: Engines shouldn't be Err")
     }
+    /// Returns the validation flags, given the current block height
+    fn get_validation_flags(&self, height: u32) -> c_uint {
+        let chains_params = read_lock!(self).chain_params.clone();
+        let hash = read_lock!(self)
+            .chainstore
+            .get_block_hash(height)
+            .unwrap()
+            .unwrap();
+        if let Some(flag) = chains_params.exceptions.get(&hash) {
+            return *flag;
+        }
+        // From Bitcoin Core:
+        // BIP16 didn't become active until Apr 1 2012 (on mainnet, and
+        // retroactively applied to testnet)
+        // However, only one historical block violated the P2SH rules (on both
+        // mainnet and testnet).
+        // Similarly, only one historical block violated the TAPROOT rules on
+        // mainnet.
+        // For simplicity, always leave P2SH+WITNESS+TAPROOT on except for the two
+        // violating blocks.
+        let mut flags = bitcoinconsensus::VERIFY_P2SH | bitcoinconsensus::VERIFY_WITNESS;
+
+        if height >= chains_params.bip65_activation_height {
+            flags |= bitcoinconsensus::VERIFY_CHECKLOCKTIMEVERIFY;
+        }
+        if height >= chains_params.bip66_activation_height {
+            flags |= bitcoinconsensus::VERIFY_DERSIG;
+        }
+        if height >= chains_params.csv_activation_height {
+            flags |= bitcoinconsensus::VERIFY_CHECKSEQUENCEVERIFY;
+        }
+        if height >= chains_params.segwit_activation_height {
+            flags |= bitcoinconsensus::VERIFY_NULLDUMMY;
+        }
+        flags
+    }
     /// Returns the amount of block subsidy to be paid in a block, given it's height.
     /// Bitcoin Core source: https://github.com/bitcoin/bitcoin/blob/2b211b41e36f914b8d0487e698b619039cc3c8e2/src/validation.cpp#L1501-L1512
     fn get_subsidy(&self, height: u32) -> u64 {
@@ -117,13 +155,16 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         transactions: &[Transaction],
         subsidy: u64,
         verify_script: bool,
+        flags: c_uint,
     ) -> Result<bool, crate::error::Error> {
+        // Blocks must contain at least one transaction
         if transactions.is_empty() {
             return Err(BlockValidationErrors::EmptyBlock.into());
         }
         let mut fee = 0;
         // Skip the coinbase tx
         for (n, transaction) in transactions.iter().enumerate() {
+            // We don't need to verify the coinbase inputs, as it spends newly generated coins
             if transaction.is_coin_base() {
                 if n == 0 {
                     continue;
@@ -148,7 +189,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             fee += in_value - output_value;
             // Verify the tx script
             if verify_script {
-                transaction.verify(|outpoint| utxos.remove(outpoint))?;
+                transaction.verify_with_flags(|outpoint| utxos.remove(outpoint), flags)?;
             }
         }
         // In each block, the first transaction, and only the first, should be coinbase
@@ -157,6 +198,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
                 BlockValidationErrors::FirstTxIsnNotCoinbase.into(),
             );
         }
+        // Checks if the miner isn't trying to create inflation
         if fee + subsidy
             < transactions[0]
                 .output
@@ -188,6 +230,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
 
         Ok(work)
     }
+    /// Checks if a branch is valid (i.e. all ancestors are known)
     fn check_branch(&self, branch_tip: &BlockHeader) -> Result<(), BlockchainError> {
         let mut header = *branch_tip;
 
@@ -204,6 +247,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
 
         Ok(())
     }
+    /// Returns the depth of a branch (i.e. how many blocks are in the branch)
     fn get_chain_depth(&self, branch_tip: &BlockHeader) -> Result<u32, BlockchainError> {
         let mut header = *branch_tip;
 
@@ -215,6 +259,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
 
         Ok(counter)
     }
+    /// Mark the current index as active, because we are in the middle of a reorg
     fn mark_chain_as_active(
         &self,
         new_tip: &BlockHeader,
@@ -256,6 +301,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
 
         Ok(())
     }
+    /// Finds where in the current index, a given branch forks out.
     fn find_fork_point(&self, header: &BlockHeader) -> Result<BlockHeader, BlockchainError> {
         let mut header = *self.get_ancestor(&header)?;
         let inner = read_lock!(self);
@@ -310,6 +356,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
 
         Ok(())
     }
+    /// Changes the active chain to the new branch during a reorg
     fn change_active_chain(&self, new_tip: &BlockHeader, last_valid: BlockHash, depth: u32) {
         let mut inner = self.inner.write().unwrap();
         inner.best_block.best_block = new_tip.block_hash();
@@ -354,11 +401,13 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
 
         let current_work = self.get_branch_work(&current_tip)?;
         let new_work = self.get_branch_work(&branch_tip)?;
-
+        // If the new branch has more work, it becomes the new best chain
         if new_work > current_work {
             self.reorg(branch_tip)?;
             return Ok(());
         }
+        // If the new branch has less work, we just store it as an alternative branch
+        // that might become the best chain in the future.
         self.push_alt_tip(&branch_tip)?;
         let ancestor = self.get_ancestor(&branch_tip)?.height().unwrap();
         read_lock!(self)
@@ -394,6 +443,8 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             .push(branch_tip.block_hash());
         Ok(())
     }
+    /// Calculates the next target for the proof of work algorithm, given the
+    /// current target and the time it took to mine the last 2016 blocks.
     fn calc_next_work_required(
         last_block: &BlockHeader,
         first_block: &BlockHeader,
@@ -403,6 +454,8 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
 
         let expected_timespan = Uint256::from_u64(params.pow_target_timespan).unwrap();
         let mut actual_timespan = last_block.time - first_block.time;
+        // Difficulty adjustments are limited, to prevent large swings in difficulty
+        // caused by malicious miners.
         if actual_timespan < params.pow_target_timespan as u32 / 4 {
             actual_timespan = params.pow_target_timespan as u32 / 4;
         }
@@ -415,6 +468,8 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
 
         BlockHeader::compact_target_from_u256(&new_target)
     }
+    /// Returns the next required work for the next block, usually it's just the last block's target
+    /// but if we are in a retarget period, it's calculated from the last 2016 blocks.
     fn get_next_required_work(&self, last_block: &BlockHeader, next_height: u32) -> Uint256 {
         let params = self.chain_params();
         let last_block_time = UNIX_EPOCH + std::time::Duration::from_secs(last_block.time as u64);
@@ -426,7 +481,6 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         {
             return params.max_target;
         }
-        // Retarget
         // Regtest don't have retarget
         if !params.pow_allow_no_retarget && (next_height) % 2016 == 0 {
             // First block in this epoch
@@ -771,7 +825,11 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
         Ok(hashes)
     }
     fn invalidate_block(&self, block: BlockHash) -> super::Result<()> {
-        let height = self.get_disk_block_header(&block)?.height().unwrap();
+        let height = self.get_disk_block_header(&block)?.height();
+        if height.is_none() {
+            return Err(BlockchainError::BlockNotPresent);
+        }
+        let height = height.unwrap();
         let current_height = self.get_height()?;
         // Mark all blocks after this one as invalid
         for h in height..=current_height {
@@ -785,7 +843,7 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
         self.update_tip(
             self.get_ancestor(&self.get_block_header(&block)?)?
                 .block_hash(),
-            height,
+            height - 1,
         );
         Ok(())
     }
@@ -822,7 +880,7 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
                 BlockValidationErrors::BadMerkleRoot,
             ));
         }
-        if height >= self.chain_params().bip32_activation_height
+        if height >= self.chain_params().bip34_activation_height
             && block.bip34_block_height() != Ok(height as u64)
         {
             return Err(BlockchainError::BlockValidationError(
@@ -844,7 +902,8 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
         // Validate block transactions
         let subsidy = self.get_subsidy(height);
         let verify_script = self.verify_script(height);
-        Self::verify_block_transactions(inputs, &block.txdata, subsidy, verify_script)
+        let flags = self.get_validation_flags(height);
+        Self::verify_block_transactions(inputs, &block.txdata, subsidy, verify_script, flags)
             .map_err(|_| BlockchainError::BlockValidationError(BlockValidationErrors::InvalidTx))?;
 
         // ... If we came this far, we consider this block valid ...
@@ -915,11 +974,11 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
         }
     }
 
-    fn is_coinbase_mature(&self, height: u32) -> super::Result<bool> {
-        let inner = self.inner.read().unwrap();
-        let validation = inner.best_block.depth;
+    fn is_coinbase_mature(&self, height: u32, block: BlockHash) -> super::Result<bool> {
+        let chain_params = self.chain_params();
+        let current_height = self.get_disk_block_header(&block)?.height().unwrap_or(0);
 
-        Ok(height + inner.chain_params.coinbase_maturity < validation)
+        Ok(height + chain_params.coinbase_maturity <= current_height)
     }
 }
 #[macro_export]

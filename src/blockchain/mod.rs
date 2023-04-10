@@ -75,7 +75,7 @@ pub trait BlockchainProviderInterface {
     /// Tells this blockchain to consider this block invalid, and not build on top of it
     fn invalidate_block(&self, block: BlockHash) -> Result<()>;
     /// Checks if a coinbase is mature
-    fn is_coinbase_mature(&self, height: u32) -> Result<bool>;
+    fn is_coinbase_mature(&self, height: u32, block: BlockHash) -> Result<bool>;
 }
 #[derive(Debug, Clone)]
 /// A notification is a hook that a type implementing [BlockchainInterface] sends each

@@ -170,6 +170,7 @@ impl UtreexoNode {
         udata: &UData,
         transactions: &[Transaction],
         chain: &ChainState<KvChainStore>,
+        block_hash: &BlockHash,
     ) -> Result<(Proof, Vec<sha256::Hash>, HashMap<OutPoint, TxOut>), BlockchainError> {
         let targets = udata.proof.targets.iter().map(|target| target.0).collect();
         let hashes = udata
@@ -206,7 +207,9 @@ impl UtreexoNode {
                         let leaf = proof_util::reconstruct_leaf_data(&leaf, &input, hash)
                             .expect("Invalid proof");
                         // Coinbase can only be spent after a certain amount of confirmations
-                        if leaf.header_code & 1 == 1 && chain.is_coinbase_mature(height)? {
+                        if leaf.header_code & 1 == 1
+                            && !chain.is_coinbase_mature(height, *block_hash)?
+                        {
                             return Err(BlockchainError::CoinbaseNotMatured);
                         }
                         inputs.insert(leaf.prevout, leaf.utxo);
@@ -510,20 +513,25 @@ impl UtreexoNode {
         Ok(())
     }
     fn handle_block(chain: &ChainState<KvChainStore>, block: UtreexoBlock) {
-        if let Ok((proof, del_hashes, inputs)) =
-            Self::process_proof(&block.udata.unwrap(), &block.block.txdata, chain)
-        {
+        let result = Self::process_proof(
+            &block.udata.unwrap(),
+            &block.block.txdata,
+            chain,
+            &block.block.block_hash(),
+        );
+        if let Ok((proof, del_hashes, inputs)) = result {
             if let Err(e) = chain.connect_block(&block.block, proof, inputs, del_hashes) {
-                if let BlockchainError::BlockValidationError(_) = &e {
-                    try_and_log!(chain.invalidate_block(block.block.block_hash()));
-                }
                 error!(
                     "Error while connecting block {}: {e:?}",
                     block.block.block_hash()
                 );
+                if let BlockchainError::BlockValidationError(_) = &e {
+                    try_and_log!(chain.invalidate_block(block.block.block_hash()));
+                }
             }
             return;
         }
+        error!("Error while processing proof: {:#?}", result);
         // If we find a problem with the proof, invalidate the block.
         try_and_log!(chain.invalidate_block(block.block.block_hash()));
     }
