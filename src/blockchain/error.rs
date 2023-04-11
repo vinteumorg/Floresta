@@ -19,7 +19,6 @@ pub enum BlockchainError {
     ConsensusDecodeError(bitcoin::consensus::encode::Error),
     ChainNotInitialized,
     InvalidTip(String),
-    Timeout,
     IoError(std::io::Error),
     #[cfg(feature = "experimental-p2p")]
     MessageTooBig,
@@ -33,6 +32,8 @@ pub enum BlockchainError {
     RecvError(async_std::channel::RecvError),
     #[cfg(feature = "experimental-p2p")]
     CoinbaseNotMatured,
+    #[cfg(feature = "experimental-p2p")]
+    PeerNotFound,
 }
 
 #[derive(Debug)]

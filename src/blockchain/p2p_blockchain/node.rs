@@ -3,7 +3,6 @@
 //! A node should not care about peer-specific messages, peers'll handle things like pings.
 use super::{
     address_man::{AddressMan, LocalAddress},
-    block_download::{BlockDownload, BlockDownloaderMessages},
     mempool::Mempool,
     peer::{Peer, PeerMessages},
 };
@@ -32,7 +31,7 @@ use bitcoin::{
 use log::{error, info, warn};
 use rustreexo::accumulator::proof::Proof;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -42,25 +41,24 @@ const MAX_OUTGOING_PEERS: usize = 10;
 /// We ask for peers every ASK_FOR_PEERS_INTERVAL seconds
 const ASK_FOR_PEERS_INTERVAL: u64 = 60 * 1; // One minute
 /// Save our database of peers every PEER_DB_DUMP_INTERVAL seconds
-const PEER_DB_DUMP_INTERVAL: u64 = 60 * 20; // 20 minutes
+const PEER_DB_DUMP_INTERVAL: u64 = 60 * 5; // 5 minutes
 /// Attempt to open a new connection (if needed) every TRY_NEW_CONNECTION seconds
 const TRY_NEW_CONNECTION: u64 = 30; // 10 seconds
 /// If ASSUME_STALE seconds passed since our last tip update, treat it as stale
-const ASSUME_STALE: u64 = 15 * 60; // 15 minutes
+const ASSUME_STALE: u64 = 30 * 60; // 30 minutes
 /// While on IBD, if we've been without blocks for this long, ask for headers again
 const IBD_REQUEST_BLOCKS_AGAIN: u64 = 10; // 10 seconds
 /// How often we broadcast transactions
 const BROADCAST_DELAY: u64 = 30; // 30 seconds
 /// Wait up to this many seconds for a peer to respond to a request
-const PEER_REQUEST_TIMEOUT: u64 = 10; // 10 seconds
-
+const PEER_REQUEST_TIMEOUT: u64 = 10 * 60; // 1 minute
+/// Max number of simultaneous inflight requests we allow
+const MAX_INFLIGHT_REQUESTS: usize = 10_000;
 #[derive(Debug)]
 pub enum NodeNotification {
     FromPeer(u32, PeerMessages),
-    FromBlockDownloader(BlockDownloaderMessages),
 }
 #[derive(Debug, Clone, PartialEq)]
-#[allow(unused)]
 /// Sent from node to peers, usually to request something
 pub enum NodeRequest {
     /// Get this block's data
@@ -83,7 +81,6 @@ enum NodeState {
     DownloadBlocks,
     Running,
 }
-#[allow(unused)]
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 enum InflightRequests {
     Headers,
@@ -103,9 +100,11 @@ pub struct UtreexoNode {
     last_get_address_request: Instant,
     last_peer_db_dump: Instant,
     last_broadcast: Instant,
+    last_block_request: u32,
     network: Network,
     utreexo_peers: Vec<u32>,
     peer_ids: Vec<u32>,
+    blocks: HashMap<BlockHash, UtreexoBlock>,
     peers: HashMap<u32, (PeerStatus, u32, Sender<NodeRequest>, ServiceFlags)>,
     chain: Arc<ChainState<KvChainStore>>,
     inflight: HashMap<InflightRequests, (u32, Instant)>,
@@ -114,7 +113,6 @@ pub struct UtreexoNode {
     node_tx: Sender<NodeNotification>,
     state: NodeState,
     datadir: String,
-    download_man: BlockDownload,
     address_man: AddressMan,
 }
 enum PeerStatus {
@@ -129,24 +127,19 @@ impl UtreexoNode {
         datadir: String,
     ) -> Self {
         let (node_tx, node_rx) = channel::unbounded();
-        let height = chain.get_validation_index().unwrap();
         let node = UtreexoNode {
-            download_man: BlockDownload::new(
-                chain.clone(),
-                node_tx.clone(),
-                &Self::handle_block,
-                height,
-            ),
             inflight: HashMap::new(),
-            state: NodeState::default(),
+            state: NodeState::WaitingPeer,
             peer_id_count: 0,
             peers: HashMap::new(),
+            last_block_request: chain.get_validation_index().expect("Invalid chain"),
             chain,
             peer_ids: Vec::new(),
             utreexo_peers: Vec::new(),
             _mempool: mempool,
             network,
             node_rx,
+            blocks: HashMap::new(),
             node_tx,
             address_man: AddressMan::default(),
             last_headers_request: Instant::now(),
@@ -236,40 +229,74 @@ impl UtreexoNode {
 
         Ok((proof, hashes, inputs))
     }
-    pub async fn handle_headers(
+    pub async fn ibd_handle_headers(
         &mut self,
         headers: Vec<BlockHeader>,
     ) -> Result<(), BlockchainError> {
         if headers.is_empty() {
             // Start downloading blocks
+            self.chain.flush()?;
             self.state = NodeState::DownloadBlocks;
-            self.download_man.get_more_blocks().await?;
             return Ok(());
         }
         self.last_headers_request = Instant::now();
         info!(
             "Downloading headers at: {} hash: {}",
-            self.chain.get_best_block().unwrap().0,
+            self.chain.get_best_block()?.0,
             headers[0].block_hash()
         );
         for header in headers {
             self.chain.accept_header(header)?;
         }
-        let locator = self
-            .chain
-            .get_block_locator()
-            .expect("Could not create locator");
-        self.send_to_random_peer(NodeRequest::GetHeaders(locator), ServiceFlags::NONE)
+        let locator = self.chain.get_block_locator()?;
+        let peer = self
+            .send_to_random_peer(NodeRequest::GetHeaders(locator), ServiceFlags::NONE)
             .await?;
+        self.inflight
+            .insert(InflightRequests::Headers, (peer, Instant::now()));
         Ok(())
     }
-
-    fn check_for_timeout(&self) -> Result<(), BlockchainError> {
-        for request in self.inflight.values() {
-            if request.1.elapsed() > Duration::from_secs(PEER_REQUEST_TIMEOUT) {
-                return Err(BlockchainError::Timeout);
+    async fn send_to_peer(&self, peer_id: u32, req: NodeRequest) -> Result<(), BlockchainError> {
+        if let Some((_, _, tx, _)) = &self.peers.get(&peer_id) {
+            tx.send(req).await?;
+            Ok(())
+        } else {
+            Err(BlockchainError::PeerNotFound)
+        }
+    }
+    async fn check_for_timeout(&mut self) -> Result<(), BlockchainError> {
+        let mut timed_out = vec![];
+        for request in self.inflight.keys() {
+            let (_, time) = self.inflight.get(request).unwrap();
+            if time.elapsed() > Duration::from_secs(PEER_REQUEST_TIMEOUT) {
+                timed_out.push(*request);
             }
         }
+        let mut removed_peers = HashSet::new();
+        let mut to_request = vec![];
+        for request in timed_out {
+            match request {
+                InflightRequests::Blocks(block) => to_request.push(block),
+                InflightRequests::Addresses => {
+                    let locator = self.chain.get_block_locator()?;
+                    self.send_to_random_peer(NodeRequest::GetHeaders(locator), ServiceFlags::NONE)
+                        .await?;
+                    self.last_get_address_request = Instant::now();
+                }
+                InflightRequests::Headers => {
+                    self.send_to_random_peer(NodeRequest::GetAddresses, ServiceFlags::NONE)
+                        .await?;
+                    self.last_headers_request = Instant::now();
+                }
+            }
+
+            let (peer, _) = self.inflight.remove(&request).unwrap();
+            if !removed_peers.contains(&peer) {
+                self.send_to_peer(peer, NodeRequest::Shutdown).await?;
+                removed_peers.insert(peer);
+            }
+        }
+        self.request_blocks(to_request).await?;
         Ok(())
     }
     #[inline]
@@ -313,32 +340,59 @@ impl UtreexoNode {
         let notification = notification?;
         match notification {
             NodeNotification::FromPeer(peer, message) => match message {
-                PeerMessages::NewBlock(hash) => {
+                PeerMessages::NewBlock(_) => {
                     if !self.chain.is_in_idb() {
-                        self.send_to_random_peer(
-                            NodeRequest::GetBlock(vec![hash]),
-                            ServiceFlags::NODE_UTREEXO,
-                        )
-                        .await?;
+                        if !self.inflight.contains_key(&InflightRequests::Headers) {
+                            let locator = self.chain.get_block_locator()?;
+
+                            let peer = self
+                                .send_to_random_peer(
+                                    NodeRequest::GetHeaders(locator),
+                                    ServiceFlags::NODE_UTREEXO,
+                                )
+                                .await?;
+                            self.inflight
+                                .insert(InflightRequests::Headers, (peer, Instant::now()));
+                        }
                     }
                 }
                 PeerMessages::Block(block) => {
-                    if self.chain.is_in_idb() {
-                        self.download_man.downloaded(block).await;
-                    } else {
+                    // Remove from inflight, since we just got it.
+                    self.inflight
+                        .remove(&InflightRequests::Blocks(block.block.block_hash()));
+                    // If we are on idb, we don't have anything in our mempool yet.
+                    if !self.chain.is_in_idb() {
                         self._mempool.write().await.consume_block(&block.block);
-                        if self
-                            .chain
-                            .get_block_header(&block.block.block_hash())
-                            .is_err()
-                        {
-                            self.chain.accept_header(block.block.header)?;
+                    }
+
+                    match self.handle_block(block) {
+                        Ok(_) => {}
+                        Err(e) => {
+                            error!("Invalid block received by peer {} reason: {:?}", peer, e);
+                            self.send_to_peer(peer, NodeRequest::Shutdown).await?;
                         }
-                        Self::handle_block(&self.chain, block);
                     }
                     self.last_tip_update = Instant::now();
+                    if self.state == NodeState::DownloadBlocks {
+                        if self.inflight.len() < MAX_INFLIGHT_REQUESTS {
+                            let blocks = self.get_blocks_to_download()?;
+                            self.request_blocks(blocks).await?;
+                        }
+                    }
                 }
-                PeerMessages::Headers(headers) => self.handle_headers(headers).await?,
+                PeerMessages::Headers(headers) => {
+                    self.inflight.remove(&InflightRequests::Headers);
+                    if self.chain.is_in_idb() {
+                        return self.ibd_handle_headers(headers).await;
+                    }
+                    if headers.is_empty() {
+                        return Ok(());
+                    }
+                    info!("New block header: {}", headers.last().unwrap().block_hash());
+                    for header in headers {
+                        self.chain.accept_header(header)?;
+                    }
+                }
                 PeerMessages::Ready(version) => {
                     info!(
                         "New peer id={} version={} blocks={}",
@@ -356,28 +410,32 @@ impl UtreexoNode {
                         }
                         self.peer_ids.push(peer);
                     }
-                    if let NodeState::WaitingPeer = self.state {
-                        if version.services.has(ServiceFlags::NODE_UTREEXO) {
-                            info!("Requesting headers");
-                            self.send_to_random_peer(
-                                NodeRequest::GetHeaders(self.chain.get_block_locator().unwrap()),
-                                ServiceFlags::NONE,
-                            )
-                            .await?;
+
+                    if version.services.has(ServiceFlags::NODE_UTREEXO) {
+                        if let NodeState::WaitingPeer = self.state {
+                            try_and_log!(
+                                self.send_to_random_peer(
+                                    NodeRequest::GetHeaders(
+                                        self.chain.get_block_locator().expect("Can get locators"),
+                                    ),
+                                    ServiceFlags::NONE
+                                )
+                                .await
+                            );
                             self.state = NodeState::DownloadHeaders;
                         }
                     }
                 }
                 PeerMessages::Disconnected(idx) => {
                     self.peers.remove(&peer);
-
+                    info!("Peer disconnected: {}", idx);
                     self.peer_ids = self
                         .peer_ids
                         .iter()
                         .copied()
                         .filter(|id| *id != peer)
                         .collect();
-                    self.peer_ids = self
+                    self.utreexo_peers = self
                         .utreexo_peers
                         .iter()
                         .copied()
@@ -392,18 +450,12 @@ impl UtreexoNode {
                     self.address_man.push_addresses(&addresses);
                 }
             },
-            NodeNotification::FromBlockDownloader(blocks) => match blocks {
-                BlockDownloaderMessages::AskForBlocks(headers) => {
-                    self.ibd_request_blocks(headers).await?;
-                }
-            },
         }
         Ok(())
     }
 
     pub async fn run(mut self) -> ! {
         self.start_addr_man();
-        self.create_connection().await;
         try_and_log!(self.do_initial_block_download().await);
         try_and_log!(
             self.send_to_random_peer(
@@ -449,21 +501,27 @@ impl UtreexoNode {
                 self.last_connection,
                 TRY_NEW_CONNECTION
             );
-            try_and_log!(self.check_for_timeout());
+            try_and_log!(self.ask_block().await);
+            try_and_log!(self.check_for_timeout().await);
         }
+    }
+    pub async fn ask_block(&mut self) -> Result<(), BlockchainError> {
+        let blocks = self.get_blocks_to_download()?;
+        self.request_blocks(blocks).await
     }
     pub async fn handle_broadcast(&self) -> Result<(), BlockchainError> {
         for (_, peer) in self.peers.iter() {
             if peer.3.has(ServiceFlags::NODE_UTREEXO) {
-                return Ok(());
+                continue;
             }
+
             let transactions = self.chain.get_unbroadcasted();
+
             for transaction in transactions {
                 let txid = transaction.txid();
                 self._mempool.write().await.accept_to_mempool(transaction);
                 peer.2.send(NodeRequest::BroadcastTransaction(txid)).await?;
             }
-
             let stale = self._mempool.write().await.get_stale();
             for tx in stale {
                 peer.2.send(NodeRequest::BroadcastTransaction(tx)).await?;
@@ -471,39 +529,68 @@ impl UtreexoNode {
         }
         Ok(())
     }
-    pub async fn ask_for_addresses(&self) -> Result<(), BlockchainError> {
-        self.send_to_random_peer(NodeRequest::GetAddresses, ServiceFlags::NONE)
+    pub async fn ask_for_addresses(&mut self) -> Result<(), BlockchainError> {
+        let peer = self
+            .send_to_random_peer(NodeRequest::GetAddresses, ServiceFlags::NONE)
             .await?;
+        self.inflight
+            .insert(InflightRequests::Addresses, (peer, Instant::now()));
+
         Ok(())
     }
     fn save_peers(&self) -> Result<(), BlockchainError> {
         Ok(self.address_man.dump_peers(&self.datadir)?)
     }
+    fn get_blocks_to_download(&mut self) -> Result<Vec<BlockHash>, BlockchainError> {
+        let mut blocks = vec![];
+        let height = self.chain.get_height()?;
+        for i in (self.last_block_request + 1)..=(self.last_block_request + 100) {
+            if i > height {
+                break;
+            }
+            self.last_block_request += 1;
+            let hash = self.chain.get_block_hash(i)?;
+            blocks.push(hash);
+        }
+
+        Ok(blocks)
+    }
     pub async fn do_initial_block_download(&mut self) -> Result<(), BlockchainError> {
+        self.create_connection().await;
         loop {
-            while let Ok(notification) = timeout(Duration::from_secs(1), self.node_rx.recv()).await
+            while let Ok(notification) =
+                timeout(Duration::from_millis(10), self.node_rx.recv()).await
             {
                 try_and_log!(self.handle_notification(notification).await);
             }
-            if let NodeState::DownloadBlocks = self.state {
-                self.download_man.handle_timeout().await;
-            } else {
-                periodic_job!(
-                    self.ibd_maybe_request_headers().await,
-                    self.last_headers_request,
-                    IBD_REQUEST_BLOCKS_AGAIN
-                );
-            }
-
             periodic_job!(
                 self.maybe_open_connection().await,
                 self.last_connection,
                 TRY_NEW_CONNECTION
             );
-            if !self.chain.is_in_idb() {
-                self.state = NodeState::Running;
-                break;
+            if self.state == NodeState::WaitingPeer {
+                continue;
             }
+            if self.state == NodeState::DownloadBlocks {
+                if (self.inflight.len() + self.blocks.len()) < MAX_INFLIGHT_REQUESTS {
+                    let blocks = self.get_blocks_to_download()?;
+                    if blocks.is_empty() {
+                        info!("Finished downloading blocks");
+                        self.state = NodeState::Running;
+                        self.chain.toggle_ibd(false);
+                        break;
+                    }
+                    self.request_blocks(blocks).await?;
+                }
+            }
+
+            self.check_for_timeout().await?;
+
+            periodic_job!(
+                self.ibd_maybe_request_headers().await,
+                self.last_headers_request,
+                IBD_REQUEST_BLOCKS_AGAIN
+            );
         }
         Ok(())
     }
@@ -539,48 +626,55 @@ impl UtreexoNode {
         }
         Ok(())
     }
-    fn handle_block(chain: &ChainState<KvChainStore>, block: UtreexoBlock) {
-        let result = Self::process_proof(
-            &block.udata.unwrap(),
-            &block.block.txdata,
-            chain,
-            &block.block.block_hash(),
-        );
-        if let Ok((proof, del_hashes, inputs)) = result {
-            if let Err(e) = chain.connect_block(&block.block, proof, inputs, del_hashes) {
-                error!(
-                    "Error while connecting block {}: {e:?}",
-                    block.block.block_hash()
-                );
-                if let BlockchainError::BlockValidationError(_) = &e {
-                    try_and_log!(chain.invalidate_block(block.block.block_hash()));
-                }
-            }
-            return;
-        }
-        error!("Error while processing proof: {:#?}", result);
-        // If we find a problem with the proof, invalidate the block.
-        try_and_log!(chain.invalidate_block(block.block.block_hash()));
-    }
-    async fn ibd_request_blocks(
-        &mut self,
-        next_blocks: Vec<BlockHash>,
-    ) -> Result<(), BlockchainError> {
-        if self.chain.get_best_block().unwrap().0 == self.chain.get_validation_index().unwrap()
-            && self.chain.is_in_idb()
-        {
-            self.chain.toggle_ibd(false);
-            info!("Leaving ibd");
-            return Ok(());
-        }
 
+    fn handle_block(&mut self, block: UtreexoBlock) -> Result<(), BlockchainError> {
+        let height = self.chain.get_validation_index()? + 1;
+        if self.chain.get_block_hash(height)? == block.block.block_hash() {
+            let (proof, del_hashes, inputs) = Self::process_proof(
+                &block.udata.unwrap(),
+                &block.block.txdata,
+                &self.chain,
+                &block.block.block_hash(),
+            )?;
+            self.chain
+                .connect_block(&block.block, proof, inputs, del_hashes)
+                .and_then(|_| {
+                    let new_height = self.chain.get_validation_index().unwrap() + 1;
+                    assert_ne!(height, new_height);
+
+                    let _ = self.chain.get_block_hash(new_height).and_then(|hash| {
+                        // It may be the case that we have the next block queued up, if so, process it
+                        if let Some(block) = self.blocks.remove(&hash) {
+                            self.handle_block(block)?;
+                        }
+                        Ok(())
+                    });
+
+                    Ok(())
+                })
+                .or_else(|e| {
+                    if let BlockchainError::BlockValidationError(_) = &e {
+                        try_and_log!(self.chain.invalidate_block(block.block.block_hash()));
+                    }
+                    error!(
+                        "Error while connecting block {}: {e:?}",
+                        block.block.block_hash()
+                    );
+                    Ok(())
+                })
+        } else {
+            self.blocks.insert(block.block.block_hash(), block);
+            Ok(())
+        }
+    }
+    async fn request_blocks(&mut self, blocks: Vec<BlockHash>) -> Result<(), BlockchainError> {
         let peer = self
             .send_to_random_peer(
-                NodeRequest::GetBlock(next_blocks.clone()),
+                NodeRequest::GetBlock(blocks.clone()),
                 ServiceFlags::NODE_UTREEXO,
             )
             .await?;
-        for block in next_blocks.iter() {
+        for block in blocks.iter() {
             self.inflight
                 .insert(InflightRequests::Blocks(*block), (peer, Instant::now()));
         }

@@ -643,7 +643,22 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         }
         Err(BlockchainError::BlockNotPresent)
     }
-
+    // fn reindex_chain(chainstore: &KvChainStore, network: Network) -> BestChain {
+    //     let mut height = 0;
+    //     let mut hash = genesis_block(network).block_hash();
+    //     while let Ok(Some(_hash)) = chainstore.get_block_hash(height) {
+    //         height += 1;
+    //         hash = _hash;
+    //     }
+    //     BestChain {
+    //         best_block: hash,
+    //         depth: height,
+    //         validation_index: hash,
+    //         rescan_index: None,
+    //         alternative_tips: vec![],
+    //         assume_valid_index: 0,
+    //     }
+    // }
     pub fn load_chain_state(
         chainstore: KvChainStore,
         network: Network,
@@ -804,7 +819,6 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
         let mut indexes = vec![];
         let mut step = 1;
         let mut index = top_height;
-
         while index > 0 {
             if indexes.len() >= 10 {
                 step *= 2;
@@ -935,7 +949,10 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
     }
     fn accept_header(&self, header: BlockHeader) -> super::Result<()> {
         trace!("Accepting header {header:?}");
-
+        let _header = self.get_disk_block_header(&header.block_hash());
+        if _header.is_ok() {
+            return Ok(()); // We already have this header
+        }
         let best_block = self.get_best_block()?;
         // Do validation in this header
         let block_hash = self.validate_header(&header)?;
@@ -970,7 +987,9 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
         match header {
             DiskBlockHeader::HeadersOnly(_, height) => Ok(height),
             DiskBlockHeader::FullyValid(_, height) => Ok(height),
-            _ => unreachable!(),
+            _ => unreachable!(
+                "Validation index is in an invalid state, you should re-index your node"
+            ),
         }
     }
 
