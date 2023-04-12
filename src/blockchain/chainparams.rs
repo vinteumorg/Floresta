@@ -1,7 +1,11 @@
+use std::{collections::HashMap, ffi::c_uint};
+
 use bitcoin::{
+    bitcoinconsensus::{VERIFY_NONE, VERIFY_P2SH, VERIFY_WITNESS},
     blockdata::constants::{genesis_block, max_target},
+    hashes::hex::FromHex,
     util::uint::Uint256,
-    Block, Network,
+    Block, BlockHash, Network,
 };
 #[derive(Clone)]
 pub struct ChainParams {
@@ -22,6 +26,19 @@ pub struct ChainParams {
     /// When we retarget we expect this many seconds to be elapsed since last time. If
     /// it's more, we decrease difficulty, if it's less we increase difficulty
     pub pow_target_timespan: u64,
+    /// We wait this many blocks before a coinbase output can be spent
+    pub coinbase_maturity: u32,
+    /// The height at which bip32 is activated
+    pub bip34_activation_height: u32,
+    /// The height at which bip65 is activated
+    pub bip65_activation_height: u32,
+    /// The height at which bip66 is activated
+    pub bip66_activation_height: u32,
+    /// The height at which segwit is activated
+    pub segwit_activation_height: u32,
+    /// The height at which csv(CHECK_SEQUENCE_VERIFY) is activated
+    pub csv_activation_height: u32,
+    pub exceptions: HashMap<BlockHash, c_uint>,
 }
 impl ChainParams {
     fn max_target(net: Network) -> Uint256 {
@@ -47,6 +64,25 @@ impl From<Network> for ChainParams {
     fn from(net: Network) -> Self {
         let genesis = genesis_block(net);
         let max_target = ChainParams::max_target(net);
+        // For some reason, some blocks in the mainnet and testnet have different rules than it should
+        // be, so we need to keep a list of exceptions and treat them differently
+        let mut exceptions = HashMap::new();
+        exceptions.insert(
+            BlockHash::from_hex("00000000000002dc756eebf4f49723ed8d30cc28a5f108eb94b1ba88ac4f9c22")
+                .unwrap(),
+            VERIFY_NONE,
+        ); // BIP16 exception on main net
+        exceptions.insert(
+            BlockHash::from_hex("0000000000000000000f14c35b2d841e986ab5441de8c585d5ffe55ea1e395ad")
+                .unwrap(),
+            VERIFY_P2SH | VERIFY_WITNESS,
+        ); // Taproot exception on main net
+        exceptions.insert(
+            BlockHash::from_hex("00000000dd30457c001f4095d208cc1296b0eed002427aa599874af7a432b105")
+                .unwrap(),
+            VERIFY_NONE,
+        ); // BIP16 exception on test net
+
         match net {
             Network::Bitcoin => ChainParams {
                 genesis,
@@ -56,6 +92,13 @@ impl From<Network> for ChainParams {
                 pow_target_spacing: 10 * 60, // One block every 600 seconds (10 minutes)
                 pow_target_timespan: 14 * 24 * 60 * 60, // two weeks
                 subsidy_halving_interval: 210_000,
+                coinbase_maturity: 100,
+                bip34_activation_height: 227931,
+                bip65_activation_height: 388381,
+                bip66_activation_height: 363725,
+                segwit_activation_height: 481824,
+                csv_activation_height: 419328,
+                exceptions,
             },
             Network::Testnet => ChainParams {
                 genesis,
@@ -65,6 +108,13 @@ impl From<Network> for ChainParams {
                 pow_target_spacing: 10 * 60, // One block every 600 seconds (10 minutes)
                 pow_target_timespan: 14 * 24 * 60 * 60, // two weeks
                 subsidy_halving_interval: 210_000,
+                coinbase_maturity: 100,
+                bip34_activation_height: 211_111,
+                bip65_activation_height: 581_885,
+                bip66_activation_height: 330_776,
+                segwit_activation_height: 834_624,
+                csv_activation_height: 770_112,
+                exceptions,
             },
             Network::Signet => ChainParams {
                 genesis,
@@ -74,6 +124,13 @@ impl From<Network> for ChainParams {
                 pow_target_spacing: 10 * 60, // One block every 600 seconds (10 minutes)
                 pow_target_timespan: 14 * 24 * 60 * 60, // two weeks
                 subsidy_halving_interval: 210_000,
+                coinbase_maturity: 100,
+                bip34_activation_height: 500,
+                csv_activation_height: 1,
+                bip65_activation_height: 1,
+                bip66_activation_height: 1,
+                segwit_activation_height: 1,
+                exceptions,
             },
             Network::Regtest => ChainParams {
                 genesis,
@@ -83,6 +140,13 @@ impl From<Network> for ChainParams {
                 pow_target_spacing: 10 * 60, // One block every 600 seconds (10 minutes)
                 pow_target_timespan: 14 * 24 * 60 * 60, // two weeks
                 subsidy_halving_interval: 150,
+                coinbase_maturity: 100,
+                bip34_activation_height: 500,
+                csv_activation_height: 0,
+                bip65_activation_height: 0,
+                bip66_activation_height: 0,
+                segwit_activation_height: 0,
+                exceptions,
             },
         }
     }

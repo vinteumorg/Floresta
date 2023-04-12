@@ -1,7 +1,7 @@
 #[cfg(feature = "experimental-p2p")]
 use super::p2p_blockchain::node::NodeRequest;
 
-use bitcoin::{blockdata::script, BlockHash};
+use bitcoin::blockdata::script;
 
 #[cfg(feature = "cli-blockchain")]
 use btcd_rpc::error::UtreexodError;
@@ -30,15 +30,22 @@ pub enum BlockchainError {
     ChannelError(async_std::channel::SendError<NodeRequest>),
     #[cfg(feature = "experimental-p2p")]
     RecvError(async_std::channel::RecvError),
+    #[cfg(feature = "experimental-p2p")]
+    CoinbaseNotMatured,
 }
 
 #[derive(Debug)]
 pub enum BlockValidationErrors {
-    PrevBlockNotFound(BlockHash),
     InvalidTx,
     NotEnoughPow,
     BadMerkleRoot,
     BadWitnessCommitment,
+    NotEnoughMoney,
+    FirstTxIsnNotCoinbase,
+    BadCoinbaseOutValue,
+    EmptyBlock,
+    BlockExtendsAnOrphanChain,
+    BadBip34,
 }
 impl From<bitcoin::consensus::encode::Error> for BlockchainError {
     fn from(err: bitcoin::consensus::encode::Error) -> Self {
@@ -87,5 +94,10 @@ impl From<std::io::Error> for BlockchainError {
 impl From<async_std::channel::RecvError> for BlockchainError {
     fn from(e: async_std::channel::RecvError) -> Self {
         BlockchainError::RecvError(e)
+    }
+}
+impl From<BlockValidationErrors> for BlockchainError {
+    fn from(e: BlockValidationErrors) -> Self {
+        BlockchainError::BlockValidationError(e)
     }
 }
