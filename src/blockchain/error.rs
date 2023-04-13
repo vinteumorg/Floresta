@@ -34,6 +34,8 @@ pub enum BlockchainError {
     CoinbaseNotMatured,
     #[cfg(feature = "experimental-p2p")]
     PeerNotFound,
+    #[cfg(feature = "experimental-p2p")]
+    AddrParseError(std::net::AddrParseError),
 }
 
 #[derive(Debug)]
@@ -64,6 +66,12 @@ impl From<kv::Error> for BlockchainError {
 impl From<async_std::channel::SendError<NodeRequest>> for BlockchainError {
     fn from(err: async_std::channel::SendError<NodeRequest>) -> Self {
         BlockchainError::ChannelError(err)
+    }
+}
+#[cfg(feature = "experimental-p2p")]
+impl From<std::net::AddrParseError> for BlockchainError {
+    fn from(err: std::net::AddrParseError) -> Self {
+        BlockchainError::AddrParseError(err)
     }
 }
 #[cfg(feature = "cli-blockchain")]

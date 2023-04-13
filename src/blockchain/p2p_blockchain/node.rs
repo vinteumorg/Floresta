@@ -2,16 +2,13 @@
 //! events, such as new blocks, peer connection/disconnection, new addresses, etc.
 //! A node should not care about peer-specific messages, peers'll handle things like pings.
 use super::{
-    address_man::{AddressMan, LocalAddress},
+    address_man::AddressMan,
     mempool::Mempool,
     peer::{Peer, PeerMessages},
 };
 use crate::blockchain::{
-    chain_state::ChainState,
-    chainstore::KvChainStore,
-    error::BlockchainError,
-    p2p_blockchain::address_man::{AddressState, DiskLocalAddress},
-    udata::proof_util,
+    chain_state::ChainState, chainparams::get_chain_dns_seeds, chainstore::KvChainStore,
+    error::BlockchainError, p2p_blockchain::address_man::AddressState, udata::proof_util,
     BlockchainInterface, BlockchainProviderInterface,
 };
 use async_std::{
@@ -33,7 +30,7 @@ use rustreexo::accumulator::proof::Proof;
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 /// Max number of simultaneous connections we initiates we are willing to hold
@@ -51,9 +48,12 @@ const IBD_REQUEST_BLOCKS_AGAIN: u64 = 10; // 10 seconds
 /// How often we broadcast transactions
 const BROADCAST_DELAY: u64 = 30; // 30 seconds
 /// Wait up to this many seconds for a peer to respond to a request
-const PEER_REQUEST_TIMEOUT: u64 = 10 * 60; // 1 minute
+const PEER_REQUEST_TIMEOUT: u64 = 30 * 60; // 30 minutes
 /// Max number of simultaneous inflight requests we allow
 const MAX_INFLIGHT_REQUESTS: usize = 10_000;
+/// Interval at which we open new feeler connections
+const FEELER_INTERVAL: u64 = 60 * 5; // 5 minutes
+
 #[derive(Debug)]
 pub enum NodeNotification {
     FromPeer(u32, PeerMessages),
@@ -101,6 +101,7 @@ pub struct UtreexoNode {
     last_peer_db_dump: Instant,
     last_broadcast: Instant,
     last_block_request: u32,
+    last_feeler: Instant,
     network: Network,
     utreexo_peers: Vec<u32>,
     peer_ids: Vec<u32>,
@@ -147,31 +148,18 @@ impl UtreexoNode {
             last_connection: Instant::now(),
             last_peer_db_dump: Instant::now(),
             last_broadcast: Instant::now(),
+            last_feeler: Instant::now(),
             datadir,
             last_get_address_request: Instant::now(),
         };
         node
     }
-
-    fn start_addr_man(&mut self) {
-        let local_db = std::fs::read_to_string(self.datadir.to_owned() + "/peers.json");
-        let peers = if let Ok(peers) = local_db {
-            info!("Peers database found, using it");
-
-            serde_json::from_str::<Vec<DiskLocalAddress>>(&peers)
-        } else {
-            info!("No peers available, using fixed peers");
-
-            let addresses = include_str!("fixed_peers.json");
-            serde_json::from_str(addresses)
-        };
-        if let Ok(peers) = peers {
-            let peers = peers
-                .iter()
-                .cloned()
-                .map(|addr| Into::<LocalAddress>::into(addr))
-                .collect::<Vec<_>>();
-            self.address_man.push_addresses(&peers);
+    fn get_default_port(&self) -> u16 {
+        match self.network {
+            Network::Bitcoin => 8333,
+            Network::Testnet => 18333,
+            Network::Signet => 38333,
+            Network::Regtest => 18444,
         }
     }
 
@@ -394,6 +382,21 @@ impl UtreexoNode {
                     }
                 }
                 PeerMessages::Ready(version) => {
+                    if version.feeler {
+                        self.send_to_peer(peer, NodeRequest::Shutdown).await?;
+                        self.address_man.update_set_state(
+                            version.address_id,
+                            AddressState::Tried(
+                                SystemTime::now()
+                                    .duration_since(UNIX_EPOCH)
+                                    .unwrap()
+                                    .as_secs(),
+                            ),
+                        );
+                        self.address_man
+                            .update_set_service_flag(version.address_id, version.services);
+                        return Ok(());
+                    }
                     info!(
                         "New peer id={} version={} blocks={}",
                         version.id, version.user_agent, version.blocks
@@ -428,21 +431,20 @@ impl UtreexoNode {
                 }
                 PeerMessages::Disconnected(idx) => {
                     self.peers.remove(&peer);
-                    info!("Peer disconnected: {}", idx);
-                    self.peer_ids = self
-                        .peer_ids
-                        .iter()
-                        .copied()
-                        .filter(|id| *id != peer)
-                        .collect();
-                    self.utreexo_peers = self
-                        .utreexo_peers
-                        .iter()
-                        .copied()
-                        .filter(|id| *id != peer)
-                        .collect();
+                    self.peer_ids.retain(|&id| id != peer);
+                    self.utreexo_peers.retain(|&id| id != peer);
 
-                    self.address_man.update_set_state(idx, AddressState::Tried);
+                    info!("Peer disconnected: {}", peer);
+
+                    self.address_man.update_set_state(
+                        idx,
+                        AddressState::Tried(
+                            SystemTime::now()
+                                .duration_since(UNIX_EPOCH)
+                                .unwrap()
+                                .as_secs(),
+                        ),
+                    );
                 }
                 PeerMessages::Addr(addresses) => {
                     let addresses: Vec<_> =
@@ -455,7 +457,11 @@ impl UtreexoNode {
     }
 
     pub async fn run(mut self) -> ! {
-        self.start_addr_man();
+        try_and_log!(self.address_man.start_addr_man(
+            self.datadir.clone(),
+            self.get_default_port(),
+            &get_chain_dns_seeds(self.network)
+        ));
         try_and_log!(self.do_initial_block_download().await);
         try_and_log!(
             self.send_to_random_peer(
@@ -488,6 +494,12 @@ impl UtreexoNode {
                 self.check_for_stale_tip().await,
                 self.last_tip_update,
                 ASSUME_STALE
+            );
+            // Open new feeler connection periodically
+            periodic_job!(
+                self.open_feeler_connection().await,
+                self.last_feeler,
+                FEELER_INTERVAL
             );
             // Try broadcast transactions
             periodic_job!(
@@ -556,7 +568,7 @@ impl UtreexoNode {
         Ok(blocks)
     }
     pub async fn do_initial_block_download(&mut self) -> Result<(), BlockchainError> {
-        self.create_connection().await;
+        self.create_connection(false).await;
         loop {
             while let Ok(notification) =
                 timeout(Duration::from_millis(10), self.node_rx.recv()).await
@@ -612,7 +624,7 @@ impl UtreexoNode {
     /// been more than 15 minutes, try to update it.
     async fn check_for_stale_tip(&mut self) -> Result<(), BlockchainError> {
         warn!("Potential stale tip detected, trying extra peers");
-        self.create_connection().await;
+        self.create_connection(false).await;
         self.send_to_random_peer(
             NodeRequest::GetHeaders(self.chain.get_block_locator().unwrap()),
             ServiceFlags::NONE,
@@ -622,11 +634,14 @@ impl UtreexoNode {
     }
     async fn maybe_open_connection(&mut self) -> Result<(), BlockchainError> {
         if self.peers.len() < MAX_OUTGOING_PEERS {
-            self.create_connection().await;
+            self.create_connection(false).await;
         }
         Ok(())
     }
-
+    async fn open_feeler_connection(&mut self) -> Result<(), BlockchainError> {
+        self.create_connection(true).await;
+        Ok(())
+    }
     fn handle_block(&mut self, block: UtreexoBlock) -> Result<(), BlockchainError> {
         let height = self.chain.get_validation_index()? + 1;
         if self.chain.get_block_hash(height)? == block.block.block_hash() {
@@ -680,14 +695,16 @@ impl UtreexoNode {
         }
         Ok(())
     }
-    async fn create_connection(&mut self) {
+    async fn create_connection(&mut self, feeler: bool) {
         // We should try to keep at least two utreexo connections
         let required_services = if self.utreexo_peers.len() < 2 {
             ServiceFlags::NETWORK | ServiceFlags::WITNESS | ServiceFlags::NODE_UTREEXO
         } else {
             ServiceFlags::NETWORK | ServiceFlags::WITNESS
         };
-        if let Some((peer_id, address)) = self.address_man.get_address_to_connect(required_services)
+        if let Some((peer_id, address)) = self
+            .address_man
+            .get_address_to_connect(required_services, feeler)
         {
             let (requests_tx, requests_rx) = bounded(1024);
             spawn(Peer::create_outbound_connection(
@@ -698,6 +715,7 @@ impl UtreexoNode {
                 self.node_tx.clone(),
                 requests_rx,
                 peer_id,
+                feeler,
             ));
             self.peers.insert(
                 self.peer_id_count,
