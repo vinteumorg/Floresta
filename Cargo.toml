@@ -26,6 +26,7 @@ rand = "0.8.5"
 bitcoin = { version = "0.29", features = ["serde", "std", "bitcoinconsensus"] }
 slip132 = "0.9.0"
 dns-lookup = "1.0.8"
+ctrlc = "3.2.5"
 
 [dev-dependencies]
 pretty_assertions = "1"

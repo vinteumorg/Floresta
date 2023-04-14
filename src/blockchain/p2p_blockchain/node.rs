@@ -2,7 +2,7 @@
 //! events, such as new blocks, peer connection/disconnection, new addresses, etc.
 //! A node should not care about peer-specific messages, peers'll handle things like pings.
 use super::{
-    address_man::AddressMan,
+    address_man::{AddressMan, LocalAddress},
     mempool::Mempool,
     peer::{Peer, PeerMessages},
 };
@@ -15,7 +15,7 @@ use async_std::{
     channel::{self, bounded, Receiver, Sender},
     future::timeout,
     sync::RwLock,
-    task::spawn,
+    task::{block_on, spawn},
 };
 use bitcoin::{
     hashes::{sha256, Hash},
@@ -312,13 +312,9 @@ impl UtreexoNode {
                 .get(idx)
                 .expect("node is in the interval 0..utreexo_peers.len(), but is not here?")
         };
-
-        let peer = self
-            .peers
-            .get(&idx)
-            .expect("node is in the interval 0..peers.len(), but is not here?");
-        peer.2.send(req.clone()).await?;
-
+        if let Some(peer) = self.peers.get(&idx) {
+            peer.2.send(req.clone()).await?;
+        }
         Ok(idx)
     }
     pub async fn handle_notification(
@@ -370,16 +366,7 @@ impl UtreexoNode {
                 }
                 PeerMessages::Headers(headers) => {
                     self.inflight.remove(&InflightRequests::Headers);
-                    if self.chain.is_in_idb() {
-                        return self.ibd_handle_headers(headers).await;
-                    }
-                    if headers.is_empty() {
-                        return Ok(());
-                    }
-                    info!("New block header: {}", headers.last().unwrap().block_hash());
-                    for header in headers {
-                        self.chain.accept_header(header)?;
-                    }
+                    return self.ibd_handle_headers(headers).await;
                 }
                 PeerMessages::Ready(version) => {
                     if version.feeler {
@@ -409,7 +396,7 @@ impl UtreexoNode {
                         self.address_man
                             .update_set_service_flag(version.address_id, version.services);
                         if version.services.has(ServiceFlags::NODE_UTREEXO) {
-                            self.utreexo_peers.push(peer_data.1);
+                            self.utreexo_peers.push(peer);
                         }
                         self.peer_ids.push(peer);
                     }
@@ -455,14 +442,29 @@ impl UtreexoNode {
         }
         Ok(())
     }
-
-    pub async fn run(mut self) -> ! {
-        try_and_log!(self.address_man.start_addr_man(
+    pub async fn init_peers(&mut self) -> Result<(), BlockchainError> {
+        let anchors = self.address_man.start_addr_man(
             self.datadir.clone(),
             self.get_default_port(),
-            &get_chain_dns_seeds(self.network)
-        ));
-        try_and_log!(self.do_initial_block_download().await);
+            &get_chain_dns_seeds(self.network),
+        )?;
+        for address in anchors {
+            self.open_connection(false, address.id, address).await;
+        }
+        Ok(())
+    }
+    pub async fn run(mut self) -> () {
+        let kill_signal = Arc::new(RwLock::new(false));
+        let _kill_signal = kill_signal.clone();
+        ctrlc::set_handler(move || {
+            info!("Shutting down");
+            *block_on(_kill_signal.write()) = true;
+        })
+        .expect("Error setting Ctrl-C handler");
+
+        try_and_log!(self.init_peers().await);
+        try_and_log!(self.do_initial_block_download(&kill_signal).await);
+
         try_and_log!(
             self.send_to_random_peer(
                 NodeRequest::GetHeaders(self.chain.get_block_locator().expect("Can get locators"),),
@@ -476,6 +478,10 @@ impl UtreexoNode {
                 timeout(Duration::from_millis(100), self.node_rx.recv()).await
             {
                 try_and_log!(self.handle_notification(notification).await);
+            }
+            if *kill_signal.read().await {
+                self.shutdown().await;
+                break;
             }
             // Save our peers db
             periodic_job!(
@@ -516,6 +522,13 @@ impl UtreexoNode {
             try_and_log!(self.ask_block().await);
             try_and_log!(self.check_for_timeout().await);
         }
+    }
+    pub async fn shutdown(&mut self) {
+        for peer in self.peer_ids.iter() {
+            try_and_log!(self.send_to_peer(*peer, NodeRequest::Shutdown).await);
+        }
+        try_and_log!(self.save_peers());
+        try_and_log!(self.chain.flush());
     }
     pub async fn ask_block(&mut self) -> Result<(), BlockchainError> {
         let blocks = self.get_blocks_to_download()?;
@@ -567,14 +580,21 @@ impl UtreexoNode {
 
         Ok(blocks)
     }
-    pub async fn do_initial_block_download(&mut self) -> Result<(), BlockchainError> {
+    pub async fn do_initial_block_download(
+        &mut self,
+        stop_signal: &Arc<RwLock<bool>>,
+    ) -> Result<(), BlockchainError> {
         self.create_connection(false).await;
         loop {
             while let Ok(notification) =
                 timeout(Duration::from_millis(10), self.node_rx.recv()).await
             {
                 try_and_log!(self.handle_notification(notification).await);
+                if *stop_signal.read().await == true {
+                    break;
+                }
             }
+
             periodic_job!(
                 self.maybe_open_connection().await,
                 self.last_connection,
@@ -695,39 +715,41 @@ impl UtreexoNode {
         }
         Ok(())
     }
-    async fn create_connection(&mut self, feeler: bool) {
+    async fn create_connection(&mut self, feeler: bool) -> Option<()> {
         // We should try to keep at least two utreexo connections
         let required_services = if self.utreexo_peers.len() < 2 {
             ServiceFlags::NETWORK | ServiceFlags::WITNESS | ServiceFlags::NODE_UTREEXO
         } else {
             ServiceFlags::NETWORK | ServiceFlags::WITNESS
         };
-        if let Some((peer_id, address)) = self
+        let (peer_id, address) = self
             .address_man
-            .get_address_to_connect(required_services, feeler)
-        {
-            let (requests_tx, requests_rx) = bounded(1024);
-            spawn(Peer::create_outbound_connection(
-                self.peer_id_count,
-                (address.get_net_address(), address.get_port()),
-                self._mempool.clone(),
-                self.network,
-                self.node_tx.clone(),
-                requests_rx,
-                peer_id,
-                feeler,
-            ));
-            self.peers.insert(
-                self.peer_id_count,
-                (
-                    PeerStatus::Awaiting,
-                    self.peer_id_count,
-                    requests_tx,
-                    ServiceFlags::NONE,
-                ),
-            );
-            self.peer_id_count += 1;
-        }
+            .get_address_to_connect(required_services, feeler)?;
+        self.open_connection(feeler, peer_id, address).await;
+        Some(())
+    }
+    async fn open_connection(&mut self, feeler: bool, peer_id: usize, address: LocalAddress) {
+        let (requests_tx, requests_rx) = bounded(1024);
+        spawn(Peer::create_outbound_connection(
+            self.peer_id_count,
+            (address.get_net_address(), address.get_port()),
+            self._mempool.clone(),
+            self.network,
+            self.node_tx.clone(),
+            requests_rx,
+            peer_id,
+            feeler,
+        ));
+        self.peers.insert(
+            self.peer_id_count,
+            (
+                PeerStatus::Awaiting,
+                peer_id as u32,
+                requests_tx,
+                ServiceFlags::NONE,
+            ),
+        );
+        self.peer_id_count += 1;
     }
 }
 

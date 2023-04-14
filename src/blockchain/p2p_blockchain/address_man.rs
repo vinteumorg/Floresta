@@ -41,7 +41,7 @@ pub struct LocalAddress {
     /// Network port this peers listens to
     port: u16,
     /// Random id for this peer
-    id: usize,
+    pub id: usize,
 }
 
 impl From<AddrV2> for LocalAddress {
@@ -215,13 +215,14 @@ impl AddressMan {
         }
         Ok(())
     }
+
     pub fn start_addr_man(
         &mut self,
         datadir: String,
         default_port: u16,
         dns_seeds: &[&'static str],
-    ) -> Result<(), BlockchainError> {
-        let local_db = std::fs::read_to_string(datadir + "/peers.json");
+    ) -> Result<Vec<LocalAddress>, BlockchainError> {
+        let local_db = std::fs::read_to_string(format!("{datadir}/peers.json"));
         let peers = if let Ok(peers) = local_db {
             info!("Peers database found, using it");
 
@@ -244,8 +245,19 @@ impl AddressMan {
                 .collect::<Vec<_>>();
             self.push_addresses(&peers);
         }
-
-        Ok(())
+        let anchors = std::fs::read_to_string(format!("{datadir}/anchors.json"));
+        if anchors.is_err() {
+            return Ok(vec![]);
+        }
+        if let Ok(anchors) = serde_json::from_str::<Vec<DiskLocalAddress>>(&anchors.unwrap()) {
+            let anchors = anchors
+                .iter()
+                .cloned()
+                .map(|addr| Into::<LocalAddress>::into(addr))
+                .collect::<Vec<_>>();
+            return Ok(anchors);
+        }
+        Ok(vec![])
     }
 
     /// Updates the state of an address
