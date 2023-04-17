@@ -73,7 +73,7 @@ impl From<AddrV2Message> for LocalAddress {
 }
 impl TryFrom<&str> for LocalAddress {
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        let split = value.split(":").collect::<Vec<_>>();
+        let split = value.split(':').collect::<Vec<_>>();
         let address = split[0].parse::<Ipv4Addr>()?;
         let port = if let Some(port) = split.get(1) {
             port.parse().unwrap_or(8333)
@@ -141,13 +141,13 @@ impl AddressMan {
     pub fn push_addresses(&mut self, addresses: &[LocalAddress]) {
         for address in addresses {
             let id = address.id;
-            if !self.addresses.contains_key(&id) {
+            if let std::collections::hash_map::Entry::Vacant(e) = self.addresses.entry(id) {
                 // For now we assume that all addresses are valid, until proven otherwise.
                 self.good_addresses.push(id);
                 if address.services.has(ServiceFlags::NODE_UTREEXO) {
                     self.utreexo_addresses.push(id);
                 }
-                self.addresses.insert(id, address.to_owned());
+                e.insert(address.to_owned());
             }
         }
     }
@@ -207,7 +207,7 @@ impl AddressMan {
             .addresses
             .values()
             .cloned()
-            .map(|item| Into::<DiskLocalAddress>::into(item))
+            .map(Into::<DiskLocalAddress>::into)
             .collect::<Vec<_>>();
         let peers = serde_json::to_string(&peers);
         if let Ok(peers) = peers {
@@ -231,7 +231,7 @@ impl AddressMan {
             info!("No peers available, using fixed peers");
             let mut peers_from_dns = 0;
             for seed in dns_seeds {
-                peers_from_dns += self.get_seeds_from_dns(&seed, default_port)?;
+                peers_from_dns += self.get_seeds_from_dns(seed, default_port)?;
             }
             info!("Got {peers_from_dns} peers from DNS Seeds",);
             let addresses = include_str!("fixed_peers.json");
@@ -241,7 +241,7 @@ impl AddressMan {
             let peers = peers
                 .iter()
                 .cloned()
-                .map(|addr| Into::<LocalAddress>::into(addr))
+                .map(Into::<LocalAddress>::into)
                 .collect::<Vec<_>>();
             self.push_addresses(&peers);
         }
@@ -253,7 +253,7 @@ impl AddressMan {
             let anchors = anchors
                 .iter()
                 .cloned()
-                .map(|addr| Into::<LocalAddress>::into(addr))
+                .map(Into::<LocalAddress>::into)
                 .collect::<Vec<_>>();
             return Ok(anchors);
         }
@@ -349,7 +349,7 @@ impl From<DiskLocalAddress> for LocalAddress {
             state: value.state,
             services,
             port: value.port,
-            id: value.id.unwrap_or_else(|| rand::random::<usize>()),
+            id: value.id.unwrap_or_else(rand::random::<usize>),
         }
     }
 }

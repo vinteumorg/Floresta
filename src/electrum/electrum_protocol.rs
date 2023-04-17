@@ -114,7 +114,7 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
 
                     let header = self.chain.get_block_header(&hash).unwrap();
                     let header = serialize(&header).to_hex();
-                    headers.extend(header.chars().into_iter());
+                    headers.push_str(&header);
                 }
                 json_rpc_res!(request, {
                     "count": count,
@@ -420,7 +420,10 @@ async fn peer_loop(
             .expect("Main loop is broken");
     }
     log!(Level::Info, "Lost a peer");
-    let _ = notify_channel.send(Message::Disconnect(id));
+    notify_channel
+        .send(Message::Disconnect(id))
+        .await
+        .expect("Main loop is broken");
     Ok(())
 }
 
@@ -472,11 +475,7 @@ pub fn get_spk_hash(spk: &Script) -> sha256::Hash {
 fn get_status(transactions: Vec<CachedTransaction>) -> sha256::Hash {
     let mut status_preimage = String::new();
     for transaction in transactions {
-        status_preimage.extend(
-            format!("{}:{}:", transaction.hash, transaction.height)
-                .chars()
-                .into_iter(),
-        );
+        status_preimage.extend(format!("{}:{}:", transaction.hash, transaction.height).chars());
     }
     get_hash_from_u8(status_preimage.as_bytes())
 }

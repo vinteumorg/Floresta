@@ -1,18 +1,15 @@
 use bitcoin::BlockHash;
 use clap::{arg, command, Parser, Subcommand, ValueEnum};
 
-#[derive(Clone, Debug, ValueEnum)]
+#[derive(Clone, Debug, ValueEnum, Default)]
 pub enum Network {
+    #[default]
     Bitcoin,
     Signet,
     Testnet,
     Regtest,
 }
-impl Default for Network {
-    fn default() -> Self {
-        Network::Bitcoin
-    }
-}
+
 impl std::fmt::Display for Network {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

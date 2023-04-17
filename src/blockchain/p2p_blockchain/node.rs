@@ -36,7 +36,7 @@ use std::{
 /// Max number of simultaneous connections we initiates we are willing to hold
 const MAX_OUTGOING_PEERS: usize = 10;
 /// We ask for peers every ASK_FOR_PEERS_INTERVAL seconds
-const ASK_FOR_PEERS_INTERVAL: u64 = 60 * 1; // One minute
+const ASK_FOR_PEERS_INTERVAL: u64 = 60; // One minute
 /// Save our database of peers every PEER_DB_DUMP_INTERVAL seconds
 const PEER_DB_DUMP_INTERVAL: u64 = 60 * 5; // 5 minutes
 /// Attempt to open a new connection (if needed) every TRY_NEW_CONNECTION seconds
@@ -128,7 +128,7 @@ impl UtreexoNode {
         datadir: String,
     ) -> Self {
         let (node_tx, node_rx) = channel::unbounded();
-        let node = UtreexoNode {
+        UtreexoNode {
             inflight: HashMap::new(),
             state: NodeState::WaitingPeer,
             peer_id_count: 0,
@@ -151,8 +151,7 @@ impl UtreexoNode {
             last_feeler: Instant::now(),
             datadir,
             last_get_address_request: Instant::now(),
-        };
-        node
+        }
     }
     fn get_default_port(&self) -> u16 {
         match self.network {
@@ -163,6 +162,7 @@ impl UtreexoNode {
         }
     }
 
+    #[allow(clippy::type_complexity)]
     fn process_proof(
         udata: &UData,
         transactions: &[Transaction],
@@ -201,7 +201,7 @@ impl UtreexoNode {
                     if let Some(leaf) = leaves_iter.next() {
                         let height = leaf.header_code >> 1;
                         let hash = chain.get_block_hash(height)?;
-                        let leaf = proof_util::reconstruct_leaf_data(&leaf, &input, hash)
+                        let leaf = proof_util::reconstruct_leaf_data(&leaf, input, hash)
                             .expect("Invalid proof");
                         // Coinbase can only be spent after a certain amount of confirmations
                         if leaf.header_code & 1 == 1
@@ -325,19 +325,19 @@ impl UtreexoNode {
         match notification {
             NodeNotification::FromPeer(peer, message) => match message {
                 PeerMessages::NewBlock(_) => {
-                    if !self.chain.is_in_idb() {
-                        if !self.inflight.contains_key(&InflightRequests::Headers) {
-                            let locator = self.chain.get_block_locator()?;
+                    if !self.chain.is_in_idb()
+                        && !self.inflight.contains_key(&InflightRequests::Headers)
+                    {
+                        let locator = self.chain.get_block_locator()?;
 
-                            let peer = self
-                                .send_to_random_peer(
-                                    NodeRequest::GetHeaders(locator),
-                                    ServiceFlags::NODE_UTREEXO,
-                                )
-                                .await?;
-                            self.inflight
-                                .insert(InflightRequests::Headers, (peer, Instant::now()));
-                        }
+                        let peer = self
+                            .send_to_random_peer(
+                                NodeRequest::GetHeaders(locator),
+                                ServiceFlags::NODE_UTREEXO,
+                            )
+                            .await?;
+                        self.inflight
+                            .insert(InflightRequests::Headers, (peer, Instant::now()));
                     }
                 }
                 PeerMessages::Block(block) => {
@@ -357,11 +357,11 @@ impl UtreexoNode {
                         }
                     }
                     self.last_tip_update = Instant::now();
-                    if self.state == NodeState::DownloadBlocks {
-                        if self.inflight.len() < MAX_INFLIGHT_REQUESTS {
-                            let blocks = self.get_blocks_to_download()?;
-                            self.request_blocks(blocks).await?;
-                        }
+                    if self.state == NodeState::DownloadBlocks
+                        && self.inflight.len() < MAX_INFLIGHT_REQUESTS
+                    {
+                        let blocks = self.get_blocks_to_download()?;
+                        self.request_blocks(blocks).await?;
                     }
                 }
                 PeerMessages::Headers(headers) => {
@@ -453,7 +453,7 @@ impl UtreexoNode {
         }
         Ok(())
     }
-    pub async fn run(mut self) -> () {
+    pub async fn run(mut self) {
         let kill_signal = Arc::new(RwLock::new(false));
         let _kill_signal = kill_signal.clone();
         ctrlc::set_handler(move || {
@@ -590,7 +590,7 @@ impl UtreexoNode {
                 timeout(Duration::from_millis(10), self.node_rx.recv()).await
             {
                 try_and_log!(self.handle_notification(notification).await);
-                if *stop_signal.read().await == true {
+                if *stop_signal.read().await {
                     break;
                 }
             }
@@ -603,17 +603,17 @@ impl UtreexoNode {
             if self.state == NodeState::WaitingPeer {
                 continue;
             }
-            if self.state == NodeState::DownloadBlocks {
-                if (self.inflight.len() + self.blocks.len()) < MAX_INFLIGHT_REQUESTS {
-                    let blocks = self.get_blocks_to_download()?;
-                    if blocks.is_empty() {
-                        info!("Finished downloading blocks");
-                        self.state = NodeState::Running;
-                        self.chain.toggle_ibd(false);
-                        break;
-                    }
-                    self.request_blocks(blocks).await?;
+            if self.state == NodeState::DownloadBlocks
+                && (self.inflight.len() + self.blocks.len()) < MAX_INFLIGHT_REQUESTS
+            {
+                let blocks = self.get_blocks_to_download()?;
+                if blocks.is_empty() {
+                    info!("Finished downloading blocks");
+                    self.state = NodeState::Running;
+                    self.chain.toggle_ibd(false);
+                    break;
                 }
+                self.request_blocks(blocks).await?;
             }
 
             self.check_for_timeout().await?;
@@ -673,7 +673,7 @@ impl UtreexoNode {
             )?;
             self.chain
                 .connect_block(&block.block, proof, inputs, del_hashes)
-                .and_then(|_| {
+                .map(|_| {
                     let new_height = self.chain.get_validation_index().unwrap() + 1;
                     assert_ne!(height, new_height);
 
@@ -684,8 +684,6 @@ impl UtreexoNode {
                         }
                         Ok(())
                     });
-
-                    Ok(())
                 })
                 .or_else(|e| {
                     if let BlockchainError::BlockValidationError(_) = &e {
