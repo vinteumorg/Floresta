@@ -151,3 +151,34 @@ impl From<Network> for ChainParams {
         }
     }
 }
+
+pub fn get_chain_dns_seeds(network: Network) -> Vec<&'static str> {
+    let mut seeds = vec![];
+    // DNS seeds taken from Bitcoin Core at commit 382b692a503355df7347efd9c128aff465b5583e
+    match network {
+        Network::Bitcoin => {
+            seeds.push("seed.bitcoin.sipa.be."); // Pieter Wuille
+            seeds.push("dnsseed.bluematt.me."); // Matt Corallo
+            seeds.push("dnsseed.bitcoin.dashjr.org."); // Luke Dashjr
+            seeds.push("seed.bitcoinstats.com."); // Christian Decker
+            seeds.push("seed.bitcoin.jonasschnelli.ch."); // Jonas Schnelli
+            seeds.push("seed.btc.petertodd.org."); // Peter Todd, only supports
+            seeds.push("seed.bitcoin.sprovoost.nl."); // Sjors Provoost
+            seeds.push("dnsseed.emzy.de."); // Stephan Oeste
+            seeds.push("seed.bitcoin.wiz.biz."); // Jason Maurice
+        }
+        Network::Testnet => {
+            seeds.push("testnet-seed.bitcoin.jonasschnelli.ch.");
+            seeds.push("seed.tbtc.petertodd.org.");
+            seeds.push("seed.testnet.bitcoin.sprovoost.nl.");
+            seeds.push("testnet-seed.bluematt.me.");
+        }
+        Network::Signet => {
+            seeds.push("seed.signet.bitcoin.sprovoost.nl.");
+        }
+        Network::Regtest => {
+            // no seeds for regtest
+        }
+    }
+    seeds
+}

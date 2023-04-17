@@ -60,6 +60,7 @@ pub struct Peer {
     send_headers: bool,
     node_requests: Receiver<NodeRequest>,
     address_id: usize,
+    feeler: bool,
 }
 impl Debug for Peer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -157,6 +158,7 @@ impl Peer {
                     blocks: self.current_best_block.unsigned_abs(),
                     address_id: self.address_id,
                     services: self.services,
+                    feeler: self.feeler,
                 }))
                 .await;
             }
@@ -261,6 +263,7 @@ impl Peer {
         node_tx: Sender<NodeNotification>,
         node_requests: Receiver<NodeRequest>,
         address_id: usize,
+        feeler: bool,
     ) {
         let stream = TcpStream::connect(address).await;
         if stream.is_err() {
@@ -288,6 +291,7 @@ impl Peer {
             send_headers: false,
             node_requests,
             inflight: Vec::new(),
+            feeler,
         };
         spawn(peer.read_loop());
     }
@@ -375,6 +379,7 @@ pub struct Version {
     pub id: u32,
     pub address_id: usize,
     pub services: ServiceFlags,
+    pub feeler: bool,
 }
 /// Messages passed from different modules to the main node to process. They should minimal
 /// and only if it requires global states, everything else should be handled by the module
