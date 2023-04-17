@@ -15,18 +15,9 @@
 
 // Coding conventions (lexicographically sorted)
 #![deny(arithmetic_overflow)]
-#![deny(clippy::absurd_extreme_comparisons)]
-#![deny(clippy::almost_swapped)]
-#![deny(clippy::assign_op_pattern)]
-#![deny(clippy::await_holding_lock)]
-#![deny(clippy::borrowed_box)]
-#![deny(clippy::boxed_local)]
-#![deny(clippy::drop_copy)]
+#![deny(clippy::all)]
 // FIXME: Rethink enum variant naming
 #![allow(clippy::enum_variant_names)]
-#![deny(clippy::needless_lifetimes)]
-#![deny(clippy::wildcard_imports)]
-#![deny(clippy::while_let_loop)]
 #![deny(missing_docs)]
 #![deny(non_camel_case_types)]
 #![deny(non_snake_case)]

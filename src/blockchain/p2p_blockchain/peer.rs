@@ -86,7 +86,7 @@ impl Peer {
         let (tx, rx) = unbounded();
         let stream: StreamReader<_, RawNetworkMessage> =
             StreamReader::new(read_stream, self.network.magic(), tx);
-        let _ = spawn(stream.read_loop());
+        spawn(stream.read_loop());
         loop {
             futures::select! {
                 request = self.node_requests.recv().fuse() => {
@@ -243,18 +243,19 @@ impl Peer {
         match inv {
             Inventory::WitnessTransaction(txid) => {
                 if let Some(tx) = self.mempool.read().await.get_from_mempool(&txid) {
-                    self.write(NetworkMessage::Tx(tx.to_owned().into())).await?;
+                    self.write(NetworkMessage::Tx(tx.to_owned())).await?;
                 }
             }
             Inventory::Transaction(txid) => {
                 if let Some(tx) = self.mempool.read().await.get_from_mempool(&txid) {
-                    self.write(NetworkMessage::Tx(tx.to_owned().into())).await?;
+                    self.write(NetworkMessage::Tx(tx.to_owned())).await?;
                 }
             }
             _ => {}
         }
         Ok(())
     }
+    #[allow(clippy::too_many_arguments)]
     pub async fn create_outbound_connection<A: ToSocketAddrs>(
         id: u32,
         address: A,

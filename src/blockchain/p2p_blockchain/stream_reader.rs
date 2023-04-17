@@ -45,8 +45,8 @@ where
             data.resize(24, 0);
 
             // Read the reader first, so learn the payload size
-            self.source.read_exact(&mut *data).await?;
-            let header: P2PMessageHeader = deserialize_partial(&mut *data)?.0;
+            self.source.read_exact(&mut data).await?;
+            let header: P2PMessageHeader = deserialize_partial(&data)?.0;
             if header.magic != self.magic {
                 return Err(crate::blockchain::BlockchainError::PeerMessageInvalidMagic);
             }

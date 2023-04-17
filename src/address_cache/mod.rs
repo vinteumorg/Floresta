@@ -218,8 +218,7 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
             return cached_script
                 .transactions
                 .iter()
-                .map(|txid| self.get_transaction(&txid))
-                .flatten()
+                .filter_map(|txid| self.get_transaction(txid))
                 .collect();
         }
         vec![]
@@ -327,7 +326,7 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
                 address.balance -= value;
                 let input = transaction
                     .input
-                    .get(index as usize)
+                    .get(index)
                     .expect("Malformed call, index is bigger than the output vector");
                 let idx = address
                     .utxos

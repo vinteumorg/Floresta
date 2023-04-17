@@ -194,9 +194,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         }
         // In each block, the first transaction, and only the first, should be coinbase
         if !transactions[0].is_coin_base() {
-            crate::error::Error::BlockValidationError(
-                BlockValidationErrors::FirstTxIsnNotCoinbase.into(),
-            );
+            return Err(BlockValidationErrors::FirstTxIsnNotCoinbase.into());
         }
         // Checks if the miner isn't trying to create inflation
         if fee + subsidy
@@ -303,7 +301,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
     }
     /// Finds where in the current index, a given branch forks out.
     fn find_fork_point(&self, header: &BlockHeader) -> Result<BlockHeader, BlockchainError> {
-        let mut header = *self.get_ancestor(&header)?;
+        let mut header = *self.get_ancestor(header)?;
         let inner = read_lock!(self);
         while !self.is_genesis(&header) {
             match inner.chainstore.get_header(&header.block_hash())? {
