@@ -11,15 +11,17 @@ impl Mempool {
     pub fn new() -> Mempool {
         Mempool(HashMap::new())
     }
-    pub fn consume_block(&mut self, block: &Block) {
+    pub fn consume_block(&mut self, block: &Block) -> Vec<Transaction> {
         if self.0.is_empty() {
-            return;
+            return vec![];
         }
+        let mut delta = vec![];
         for tx in block.txdata.iter() {
             if self.0.contains_key(&tx.txid()) {
-                self.0.remove(&tx.txid());
+                delta.push(self.0.remove(&tx.txid()));
             }
         }
+        delta.into_iter().flat_map(|tx| Some(tx?.0)).collect()
     }
     pub fn accept_to_mempool(&mut self, transaction: Transaction) {
         self.0

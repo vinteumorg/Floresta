@@ -26,6 +26,8 @@ pub enum AddressState {
     Banned(u64),
     /// We are connected to this peer right now
     Connected,
+    /// We tried connecting, but failed
+    Failed(u64),
 }
 /// How do we store peers locally
 #[derive(Debug, Clone, PartialEq)]
@@ -259,7 +261,37 @@ impl AddressMan {
         }
         Ok(vec![])
     }
-
+    /// This function moves addresses between buckets, like if the ban time of a peer expired,
+    /// or if we tried to connect to a peer and it failed in the past, but now it might be online
+    /// again.
+    pub fn rearrange_buckets(&mut self) -> Result<(), BlockchainError> {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        for (_, address) in self.addresses.iter_mut() {
+            match address.state {
+                AddressState::Banned(ban_time) => {
+                    if ban_time < now {
+                        address.state = AddressState::NeverTried;
+                    }
+                }
+                AddressState::Tried(tried_time) => {
+                    if tried_time + 24 * 60 * 60 < now {
+                        address.state = AddressState::NeverTried;
+                    }
+                }
+                AddressState::Failed(failed_time) => {
+                    if failed_time + 24 * 60 * 60 < now {
+                        address.state = AddressState::NeverTried;
+                    }
+                }
+                AddressState::NeverTried => {}
+                AddressState::Connected => {}
+            }
+        }
+        Ok(())
+    }
     /// Updates the state of an address
     pub fn update_set_state(&mut self, idx: usize, state: AddressState) {
         match state {
@@ -278,6 +310,9 @@ impl AddressMan {
                 if !self.good_addresses.contains(&idx) {
                     self.good_addresses.push(idx);
                 }
+            }
+            AddressState::Failed(_) => {
+                self.good_addresses.retain(|&x| x != idx);
             }
         }
         if let Some(address) = self.addresses.get_mut(&idx) {

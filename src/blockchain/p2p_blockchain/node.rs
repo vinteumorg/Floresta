@@ -53,7 +53,10 @@ const PEER_REQUEST_TIMEOUT: u64 = 30 * 60; // 30 minutes
 const MAX_INFLIGHT_REQUESTS: usize = 10_000;
 /// Interval at which we open new feeler connections
 const FEELER_INTERVAL: u64 = 60 * 5; // 5 minutes
-
+/// Interval at which we rearrange our addresses
+const ADDRESS_REARRANGE_INTERVAL: u64 = 60 * 60; // 1 hour
+/// How long we ban a peer for
+const BAN_TIME: u64 = 60 * 60 * 24;
 #[derive(Debug)]
 pub enum NodeNotification {
     FromPeer(u32, PeerMessages),
@@ -89,6 +92,7 @@ enum InflightRequests {
 }
 struct LocalPeerView {
     state: PeerStatus,
+    address_id: u32,
     channel: Sender<NodeRequest>,
     services: ServiceFlags,
     _last_message: Instant,
@@ -109,6 +113,7 @@ pub struct UtreexoNode {
     last_broadcast: Instant,
     last_block_request: u32,
     last_feeler: Instant,
+    last_address_rearrange: Instant,
     network: Network,
     utreexo_peers: Vec<u32>,
     peer_ids: Vec<u32>,
@@ -157,6 +162,7 @@ impl UtreexoNode {
             last_peer_db_dump: Instant::now(),
             last_broadcast: Instant::now(),
             last_feeler: Instant::now(),
+            last_address_rearrange: Instant::now(),
             datadir,
             last_get_address_request: Instant::now(),
         }
@@ -352,16 +358,32 @@ impl UtreexoNode {
                     // Remove from inflight, since we just got it.
                     self.inflight
                         .remove(&InflightRequests::Blocks(block.block.block_hash()));
+
+                    let mut mempool_delta = vec![];
                     // If we are on idb, we don't have anything in our mempool yet.
                     if !self.chain.is_in_idb() {
-                        self._mempool.write().await.consume_block(&block.block);
+                        mempool_delta
+                            .extend(self._mempool.write().await.consume_block(&block.block));
                     }
 
                     match self.handle_block(block) {
                         Ok(_) => {}
                         Err(e) => {
                             error!("Invalid block received by peer {} reason: {:?}", peer, e);
+                            // Disconnect the peer and ban it.
+                            if let Some(peer) = self.peers.get(&peer) {
+                                self.address_man.update_set_state(
+                                    peer.address_id as usize,
+                                    AddressState::Banned(BAN_TIME),
+                                )
+                            }
                             self.send_to_peer(peer, NodeRequest::Shutdown).await?;
+
+                            // Add the transactions back to the mempool.
+                            for tx in mempool_delta {
+                                self._mempool.write().await.accept_to_mempool(tx);
+                            }
+                            return Err(e);
                         }
                     }
                     self.last_tip_update = Instant::now();
@@ -504,6 +526,12 @@ impl UtreexoNode {
                 self.save_peers(),
                 self.last_peer_db_dump,
                 PEER_DB_DUMP_INTERVAL
+            );
+            // Rework our address database
+            periodic_job!(
+                self.address_man.rearrange_buckets(),
+                self.last_address_rearrange,
+                ADDRESS_REARRANGE_INTERVAL
             );
             // Aks our peers for new addresses
             periodic_job!(
@@ -766,6 +794,7 @@ impl UtreexoNode {
                 services: ServiceFlags::NONE,
                 _last_message: Instant::now(),
                 feeler,
+                address_id: peer_id as u32,
             },
         );
 
