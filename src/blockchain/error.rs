@@ -36,6 +36,8 @@ pub enum BlockchainError {
     PeerNotFound,
     #[cfg(feature = "experimental-p2p")]
     AddrParseError(std::net::AddrParseError),
+    #[cfg(feature = "experimental-p2p")]
+    PeerMisbehaving,
 }
 
 #[derive(Debug)]
