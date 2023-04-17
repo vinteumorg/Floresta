@@ -368,7 +368,7 @@ pub(super) mod peer_utils {
             user_agent,
             start_height,
             relay: false,
-            version: 70015,
+            version: 70016,
         })
     }
 }
