@@ -293,7 +293,7 @@ impl AddressMan {
         Ok(())
     }
     /// Updates the state of an address
-    pub fn update_set_state(&mut self, idx: usize, state: AddressState) {
+    pub fn update_set_state(&mut self, idx: usize, state: AddressState) -> &mut Self {
         match state {
             AddressState::Banned(_) => {
                 self.good_addresses.retain(|&x| x != idx);
@@ -318,12 +318,14 @@ impl AddressMan {
         if let Some(address) = self.addresses.get_mut(&idx) {
             address.state = state;
         };
+        self
     }
     /// Updates the service flags after we receive a version message
-    pub fn update_set_service_flag(&mut self, idx: usize, flags: ServiceFlags) {
+    pub fn update_set_service_flag(&mut self, idx: usize, flags: ServiceFlags) -> &mut Self {
         if let Some(address) = self.addresses.get_mut(&idx) {
             address.services = flags;
         }
+        self
     }
 }
 

@@ -356,8 +356,21 @@ impl UtreexoNode {
                 }
                 PeerMessages::Block(block) => {
                     // Remove from inflight, since we just got it.
-                    self.inflight
-                        .remove(&InflightRequests::Blocks(block.block.block_hash()));
+                    if self
+                        .inflight
+                        .remove(&InflightRequests::Blocks(block.block.block_hash()))
+                        .is_none()
+                    {
+                        // We didn't request this block, so we should disconnect the peer.
+                        if let Some(peer) = self.peers.get(&peer) {
+                            self.address_man.update_set_state(
+                                peer.address_id as usize,
+                                AddressState::Banned(BAN_TIME),
+                            );
+                        }
+                        self.send_to_peer(peer, NodeRequest::Shutdown).await?;
+                        return Err(BlockchainError::PeerMisbehaving);
+                    }
 
                     let mut mempool_delta = vec![];
                     // If we are on idb, we don't have anything in our mempool yet.
@@ -375,7 +388,7 @@ impl UtreexoNode {
                                 self.address_man.update_set_state(
                                     peer.address_id as usize,
                                     AddressState::Banned(BAN_TIME),
-                                )
+                                );
                             }
                             self.send_to_peer(peer, NodeRequest::Shutdown).await?;
 
@@ -400,10 +413,6 @@ impl UtreexoNode {
                 }
                 PeerMessages::Ready(version) => {
                     if version.feeler {
-                        self.peers.get_mut(&peer).and_then(|p| {
-                            p.feeler = true;
-                            Some(())
-                        });
                         self.send_to_peer(peer, NodeRequest::Shutdown).await?;
                         self.address_man.update_set_state(
                             version.address_id,
@@ -426,8 +435,7 @@ impl UtreexoNode {
                         peer_data.state = PeerStatus::Ready;
                         peer_data.services = version.services;
                         self.address_man
-                            .update_set_state(version.address_id, AddressState::Connected);
-                        self.address_man
+                            .update_set_state(version.address_id, AddressState::Connected)
                             .update_set_service_flag(version.address_id, version.services);
                         if version.services.has(ServiceFlags::NODE_UTREEXO) {
                             self.utreexo_peers.push(peer);
@@ -451,13 +459,12 @@ impl UtreexoNode {
                     }
                 }
                 PeerMessages::Disconnected(idx) => {
-                    self.peers.remove(&peer).and_then(|p| {
+                    if let Some(p) = self.peers.remove(&peer) {
                         p.channel.close();
                         if !p.feeler && p.state == PeerStatus::Ready {
                             info!("Peer disconnected: {}", peer);
                         }
-                        Some(())
-                    });
+                    }
                     self.peer_ids.retain(|&id| id != peer);
                     self.utreexo_peers.retain(|&id| id != peer);
 
