@@ -28,8 +28,7 @@ cargo build --release
 ```
 
 ### Running
-
-Right now, this project is working on signet only. Mainnet support is still a todo thing. You can get some signet coins [here] and just play around with it.
+Right now, this project is working on signet only. Mainnet support is still a todo thing. You can get some signet coins [here](signetfaucet.com/) and just play around with it.
 Copy `config.toml.sample` to `config.toml`, and fill up your xpubs and addresses that you intend to track, and then run with
 
 ```bash

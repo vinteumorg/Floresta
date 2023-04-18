@@ -70,8 +70,7 @@ Se tudo der certo, ele irá iniciar a sincronização e mostrar o progresso na t
 
 você já poderá conectar a sua carteira ao servidor, porém o saldo poderá demorar um pouco para aparecer.
 
-#### Exemplo de arquivo de configuração {#config_example}
-
+#### Exemplo de arquivo de configuração
 ```toml
 [wallet]
 xpubs = [
