@@ -1,4 +1,4 @@
-use super::AddressCacheDatabase;
+use super::{AddressCacheDatabase, Stats};
 use bitcoin::consensus::{deserialize, serialize};
 use kv::{Bucket, Config, Store};
 
@@ -93,6 +93,24 @@ impl AddressCacheDatabase for KvDatabase {
         let store = self.0.bucket::<&[u8], Vec<u8>>(Some("transactions"))?;
         let ser_tx = serde_json::to_vec(&tx)?;
         store.set(&tx.tx.txid().to_vec().as_slice(), &ser_tx)?;
+        self.1.flush()?;
+
+        Ok(())
+    }
+
+    fn get_stats(&self) -> Result<super::Stats, crate::error::Error> {
+        let store = self.0.bucket::<&[u8], Vec<u8>>(Some("stats"))?;
+        let res = store.get(&"stats".to_string().as_bytes())?;
+        if let Some(res) = res {
+            return Ok(serde_json::de::from_slice(&res)?);
+        }
+        Err(crate::error::Error::TransactionNotFound)
+    }
+
+    fn save_stats(&self, stats: &Stats) -> Result<(), crate::error::Error> {
+        let store = self.0.bucket::<&[u8], Vec<u8>>(Some("stats"))?;
+        let ser_stats = serde_json::to_vec(&stats)?;
+        store.set(&"stats".to_string().as_bytes(), &ser_stats)?;
         self.1.flush()?;
 
         Ok(())

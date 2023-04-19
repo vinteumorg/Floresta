@@ -73,7 +73,7 @@ impl InitialWalletSetup {
     }
 }
 
-fn parse_descriptors(
+pub fn parse_descriptors(
     descriptors: &[String],
 ) -> Result<Vec<Descriptor<DescriptorPublicKey>>, crate::error::Error> {
     let descriptors = descriptors
