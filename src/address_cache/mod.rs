@@ -8,7 +8,7 @@ use std::{
     vec,
 };
 
-use crate::electrum::electrum_protocol::get_spk_hash;
+use crate::{electrum::electrum_protocol::get_spk_hash, wallet_input::parse_descriptors};
 use bitcoin::{
     consensus::deserialize,
     consensus::encode::serialize_hex,
@@ -69,6 +69,18 @@ impl CachedAddress {
         }
     }
 }
+/// Holds some useful data about our wallet, like how many addresses we have, how many
+/// transactions we have, etc.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Stats {
+    pub address_count: usize,
+    pub transaction_count: usize,
+    pub utxo_count: usize,
+    pub cache_height: u32,
+    pub txo_count: usize,
+    pub balance: u64,
+    pub derivation_index: u32,
+}
 /// Public trait defining a common interface for databases to be used with our cache
 pub trait AddressCacheDatabase {
     /// Saves a new address to the database. If the address already exists, `update` should
@@ -81,6 +93,10 @@ pub trait AddressCacheDatabase {
             + Into<crate::error::Error>
             + std::convert::From<kv::Error>
             + std::convert::From<serde_json::Error>;
+    /// Loads the data associated with our watch-only wallet.
+    fn get_stats(&self) -> Result<Stats, crate::error::Error>;
+    /// Saves the data associated with our watch-only wallet.
+    fn save_stats(&self, stats: &Stats) -> Result<(), crate::error::Error>;
     /// Updates an address, probably because a new transaction arrived
     fn update(&self, address: &CachedAddress);
     /// TODO: Maybe turn this into another db
@@ -104,9 +120,9 @@ pub struct AddressCache<D: AddressCacheDatabase> {
     database: D,
     /// Maps a hash to a cached address struct, this is basically an in-memory version
     /// of our database, used for speeding up processing a block. This hash is the electrum's
-    /// script hash.
+    /// script hash
     address_map: HashMap<Hash, CachedAddress>,
-    /// Holds all scripts we are interested in.
+    /// Holds all scripts we are interested in
     script_set: HashSet<Script>,
     /// Keeps track of all utxos we own, and the script hash they belong to
     utxo_index: HashMap<OutPoint, Hash>,
@@ -170,6 +186,11 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
         }
         my_transactions
     }
+    fn get_stats(&self) -> Stats {
+        self.database
+            .get_stats()
+            .expect("Could not get stats from database")
+    }
     pub fn bump_height(&self, height: u32) {
         self.database
             .set_cache_height(height)
@@ -179,7 +200,11 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
         let scripts = database
             .load::<crate::error::Error>()
             .expect("Could not load database");
-
+        if database.get_stats().is_err() {
+            database
+                .save_stats(&Stats::default())
+                .expect("Could not save stats");
+        }
         let mut address_map = HashMap::new();
         let mut script_set = HashSet::new();
         let mut utxo_index = HashMap::new();
@@ -293,6 +318,33 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
     pub fn push_descriptor(&self, descriptor: &str) -> Result<(), crate::error::Error> {
         self.database.desc_save(descriptor)
     }
+    fn derive_addresses(&mut self) -> Result<(), crate::error::Error> {
+        let mut stats = self.get_stats();
+        let descriptors = self.database.descs_get()?;
+        let descriptors = parse_descriptors(&descriptors)?;
+        for desc in descriptors {
+            let index = stats.derivation_index;
+            for idx in index..(index + 100) {
+                let script = desc
+                    .at_derivation_index(idx)
+                    .expect("We validate those descriptors before saving")
+                    .script_pubkey();
+                self.cache_address(script);
+            }
+        }
+        stats.derivation_index += 100;
+        self.database.save_stats(&stats)?;
+        Ok(())
+    }
+    fn maybe_derive_addresses(&mut self) {
+        let stats = self.get_stats();
+        if stats.transaction_count > (stats.derivation_index as usize * 100) {
+            let res = self.derive_addresses();
+            if res.is_err() {
+                log::error!("Error deriving addresses: {:?}", res);
+            }
+        }
+    }
     /// Caches a new transaction. This method may be called for addresses we don't follow yet,
     /// this automatically makes we follow this address.
     #[allow(clippy::too_many_arguments)]
@@ -376,6 +428,7 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
             self.address_map.insert(hash, new_address);
             self.script_set.insert(script.to_owned());
         }
+        self.maybe_derive_addresses();
     }
 }
 
