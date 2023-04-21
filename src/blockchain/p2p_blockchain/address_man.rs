@@ -164,8 +164,14 @@ impl AddressMan {
         default_port: u16,
     ) -> Result<usize, std::io::Error> {
         let mut addresses = Vec::new();
+        let utreexo_seed = seed.contains("x1000000.");
         for ip in dns_lookup::lookup_host(seed)? {
-            if let Ok(ip) = LocalAddress::try_from(format!("{}:{}", ip, default_port).as_str()) {
+            if let Ok(mut ip) = LocalAddress::try_from(format!("{}:{}", ip, default_port).as_str())
+            {
+                // This seed returns utreexo nodes
+                if utreexo_seed {
+                    ip.services |= ServiceFlags::NODE_UTREEXO;
+                }
                 addresses.push(ip);
             }
         }
@@ -400,12 +406,7 @@ impl From<LocalAddress> for DiskLocalAddress {
             address,
             last_connected: value.last_connected,
             state: if value.state == AddressState::Connected {
-                AddressState::Tried(
-                    SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs(),
-                )
+                AddressState::Tried(0)
             } else {
                 value.state
             },
