@@ -491,6 +491,7 @@ impl UtreexoNode {
         let anchors = self.address_man.start_addr_man(
             self.datadir.clone(),
             self.get_default_port(),
+            self.network,
             &get_chain_dns_seeds(self.network),
         )?;
         for address in anchors {

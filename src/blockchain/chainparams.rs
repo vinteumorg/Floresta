@@ -175,6 +175,7 @@ pub fn get_chain_dns_seeds(network: Network) -> Vec<&'static str> {
         }
         Network::Signet => {
             seeds.push("seed.signet.bitcoin.sprovoost.nl.");
+            seeds.push("x1000000.seed.dlsouza.lol."); // Davidson Souza, returns utreexo peers
         }
         Network::Regtest => {
             // no seeds for regtest
