@@ -36,7 +36,7 @@ use std::{
 #[derive(PartialEq)]
 enum State {
     None,
-    RemoteVerack,
+    SentVerack,
     Connected,
 }
 enum InflightRequests {
@@ -61,6 +61,7 @@ pub struct Peer {
     node_requests: Receiver<NodeRequest>,
     address_id: usize,
     feeler: bool,
+    wants_addrv2: bool,
 }
 impl Debug for Peer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -147,10 +148,14 @@ impl Peer {
         &mut self,
         message: RawNetworkMessage,
     ) -> Result<(), BlockchainError> {
+        if self.state == State::None && message.cmd() != "version" {
+            return Err(BlockchainError::InvalidMessage(
+                "Expected version message".to_string(),
+            ));
+        }
         match message.payload {
             bitcoin::network::message::NetworkMessage::Version(version) => {
                 self.handle_version(version).await?;
-                self.state = State::Connected;
                 self.send_to_node(PeerMessages::Ready(Version {
                     user_agent: self.user_agent.clone(),
                     protocol_version: 0,
@@ -163,7 +168,7 @@ impl Peer {
                 .await;
             }
             bitcoin::network::message::NetworkMessage::Verack => {
-                self.state = State::RemoteVerack;
+                self.state = State::Connected;
             }
             bitcoin::network::message::NetworkMessage::Inv(inv) => {
                 for inv_entry in inv {
@@ -213,7 +218,7 @@ impl Peer {
                 self.write(NetworkMessage::Inv(vec![])).await?;
             }
             bitcoin::network::message::NetworkMessage::SendAddrV2 => {
-                self.write(NetworkMessage::SendAddrV2).await?;
+                self.wants_addrv2 = true;
             }
             bitcoin::network::message::NetworkMessage::GetAddr => {
                 self.write(NetworkMessage::AddrV2(vec![])).await?;
@@ -293,6 +298,7 @@ impl Peer {
             node_requests,
             inflight: Vec::new(),
             feeler,
+            wants_addrv2: false,
         };
         spawn(peer.read_loop());
     }
@@ -306,6 +312,10 @@ impl Peer {
         self.blocks_only = !version.relay;
         self.current_best_block = version.start_height;
         self.services = version.services;
+        if version.version >= 70016 {
+            self.write(NetworkMessage::SendAddrV2).await?;
+        }
+        self.state = State::SentVerack;
         let verack = NetworkMessage::Verack;
         self.write(verack).await
     }
