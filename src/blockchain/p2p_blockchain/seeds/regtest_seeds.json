@@ -1,0 +1,13 @@
+[
+    {
+        "address": {
+            "V4": "127.0.0.1"
+        },
+        "last_connected": 1678986166,
+        "state": {
+            "Tried": 0
+        },
+        "services": 16778317,
+        "port": 18444
+    }
+]
