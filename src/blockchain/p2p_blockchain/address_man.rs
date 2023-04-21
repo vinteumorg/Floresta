@@ -393,9 +393,7 @@ impl From<LocalAddress> for DiskLocalAddress {
         let address = match value.address {
             AddrV2::Ipv4(ip) => Address::V4(ip),
             AddrV2::Ipv6(ip) => Address::V6(ip),
-            _ => {
-                unreachable!()
-            }
+            _ => Address::V4(Ipv4Addr::LOCALHOST),
         };
 
         DiskLocalAddress {
