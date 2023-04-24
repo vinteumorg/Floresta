@@ -2,7 +2,6 @@ pub mod kv_database;
 pub mod merkle;
 use merkle::MerkleProof;
 use serde::{Deserialize, Serialize};
-
 use std::{
     collections::{HashMap, HashSet},
     vec,
@@ -33,6 +32,8 @@ pub struct CachedTransaction {
 impl Default for CachedTransaction {
     fn default() -> Self {
         CachedTransaction {
+            // A placeholder transaction with no input and no outputs, the bare-minimum to be
+            // serializable
             tx: deserialize(&Vec::from_hex("010000000000ffffffff").unwrap()).unwrap(),
             height: 0,
             merkle_block: None,
@@ -52,23 +53,6 @@ pub struct CachedAddress {
     utxos: Vec<OutPoint>,
 }
 
-impl CachedAddress {
-    pub fn _new(
-        script_hash: Hash,
-        balance: u64,
-        transactions: Vec<Txid>,
-        script: Script,
-        utxos: Vec<OutPoint>,
-    ) -> CachedAddress {
-        CachedAddress {
-            script_hash,
-            balance,
-            transactions,
-            script,
-            utxos,
-        }
-    }
-}
 /// Holds some useful data about our wallet, like how many addresses we have, how many
 /// transactions we have, etc.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -259,18 +243,14 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
     /// Returns the Merkle Proof for a given address
     pub fn get_merkle_proof(&self, txid: &Txid) -> Option<(Vec<String>, u32)> {
         let mut hashes = vec![];
-        if let Some(tx) = self.get_transaction(txid) {
-            // If a given transaction is cached, but the merkle tree doesn't exist, that means
-            // an unconfirmed transaction.
-            tx.merkle_block.as_ref()?;
-            for hash in tx.merkle_block?.hashes() {
-                hashes.push(hash.to_hex());
-            }
-            return Some((hashes, tx.position));
+        let tx = self.get_transaction(txid)?;
+        // If a given transaction is cached, but the merkle tree doesn't exist, that means
+        // an unconfirmed transaction.
+        tx.merkle_block.as_ref()?;
+        for hash in tx.merkle_block?.hashes() {
+            hashes.push(hash.to_hex());
         }
-        // Tx not found
-        // TODO: Ain't that an error?
-        None
+        Some((hashes, tx.position))
     }
     pub fn get_position(&self, txid: &Txid) -> Option<u32> {
         Some(self.get_transaction(txid)?.position)
@@ -280,8 +260,8 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
     }
 
     pub fn get_cached_transaction(&self, txid: &Txid) -> Option<String> {
-        let tx = self.get_transaction(txid);
-        Some(serialize_hex(&tx?.tx))
+        let tx = self.get_transaction(txid)?;
+        Some(serialize_hex(&tx.tx))
     }
     /// Adds a new address to track, should be called at wallet setup and every once in a while
     /// to cache new addresses, as we use the first ones. Only requires a script to cache.
@@ -333,8 +313,7 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
             }
         }
         stats.derivation_index += 100;
-        self.database.save_stats(&stats)?;
-        Ok(())
+        self.database.save_stats(&stats)
     }
     fn maybe_derive_addresses(&mut self) {
         let stats = self.get_stats();
