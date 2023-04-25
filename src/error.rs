@@ -25,6 +25,8 @@ pub enum Error {
     WalletInputError(slip132::Error),
     AddressParsingError(bitcoin::util::address::Error),
     MiniscriptError(miniscript::Error),
+    #[cfg(test)]
+    DatabaseError,
 }
 
 impl std::fmt::Display for Error {
@@ -48,6 +50,8 @@ impl std::fmt::Display for Error {
             Error::MiniscriptError(err) => write!(f, "Miniscript error: {err}"),
             Error::TransactionNotFound => write!(f, "Transaction not found"),
             Error::BlockValidationError(err) => write!(f, "Error while validating block: {err:?}"),
+            #[cfg(test)]
+            Error::DatabaseError => write!(f, "An unknown error happened with a database"),
         }
     }
 }
