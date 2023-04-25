@@ -1,5 +1,8 @@
 pub mod kv_database;
+#[cfg(test)]
+pub mod memory_database;
 pub mod merkle;
+
 use merkle::MerkleProof;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -427,11 +430,9 @@ mod test {
         let hex = Vec::from_hex(thing).unwrap();
         deserialize(&hex).unwrap()
     }
-    use super::{kv_database::KvDatabase, AddressCache};
-    fn get_test_cache() -> AddressCache<KvDatabase> {
-        let random_name = rand::random::<u64>();
-        let database = KvDatabase::new(format!("/tmp/utreexo/{random_name}"))
-            .expect("Could not open database");
+    use super::{kv_database::KvDatabase, memory_database::MemoryDatabase, AddressCache};
+    fn get_test_cache() -> AddressCache<MemoryDatabase> {
+        let database = MemoryDatabase::new();
         AddressCache::new(database)
     }
     fn get_test_address() -> (Address, sha256::Hash) {
