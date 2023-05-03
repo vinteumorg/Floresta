@@ -445,16 +445,20 @@ impl UtreexoNode {
 
                     if version.services.has(ServiceFlags::NODE_UTREEXO) {
                         if let NodeState::WaitingPeer = self.state {
-                            try_and_log!(
-                                self.send_to_random_peer(
-                                    NodeRequest::GetHeaders(
-                                        self.chain.get_block_locator().expect("Can get locators"),
-                                    ),
-                                    ServiceFlags::NONE
-                                )
-                                .await
-                            );
-                            self.state = NodeState::DownloadHeaders;
+                            if !self.inflight.contains_key(&InflightRequests::Headers) {
+                                try_and_log!(
+                                    self.send_to_random_peer(
+                                        NodeRequest::GetHeaders(
+                                            self.chain
+                                                .get_block_locator()
+                                                .expect("Can get locators"),
+                                        ),
+                                        ServiceFlags::NONE
+                                    )
+                                    .await
+                                );
+                                self.state = NodeState::DownloadHeaders;
+                            }
                         }
                     }
                 }
