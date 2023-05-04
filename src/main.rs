@@ -257,6 +257,17 @@ fn get_config_file(params: &cli::Cli) -> ConfigFile {
         }
     }
 }
+fn get_key_from_env() -> Option<String> {
+    let xpub = std::env::var("WALLET_XPUB");
+    match xpub {
+        Ok(key) => return Some(key),
+        Err(e) => match e {
+            std::env::VarError::NotPresent => {}
+            std::env::VarError::NotUnicode(xpub) => error!("Invalid xpub {xpub:?}"),
+        },
+    }
+    None
+}
 fn load_chain_state(
     data_dir: &String,
     network: Network,
@@ -311,12 +322,16 @@ fn get_net(net: &cli::Network) -> Network {
 }
 
 fn setup_wallet<D: AddressCacheDatabase>(
-    xpubs: Vec<String>,
+    mut xpubs: Vec<String>,
     descriptors: Vec<String>,
     addresses: Vec<String>,
     wallet: &mut AddressCache<D>,
     network: cli::Network,
 ) -> Result<(), crate::error::Error> {
+    let env_key = get_key_from_env();
+    if let Some(key) = env_key {
+        xpubs.push(key);
+    }
     let setup =
         InitialWalletSetup::build(&xpubs, &descriptors, &addresses, get_net(&network), 100)?;
     for descriptor in setup.descriptors {
@@ -341,7 +356,7 @@ fn test_rpc(rpc: &BTCDClient) -> bool {
     }
     false
 }
-/// Returns the value that is defined, if a is not defined, return a. If b is defined and
+/// Returns the value that is defined, if a is defined, return a. If b is defined and
 /// a not, returns b. If a and b is defined, returns a, etc.
 fn get_one_or_another<A, B, Return>(a: Option<A>, b: Option<B>, default: Return) -> Return
 where
