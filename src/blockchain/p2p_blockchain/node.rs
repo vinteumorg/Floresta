@@ -650,11 +650,10 @@ impl UtreexoNode {
                 timeout(Duration::from_millis(10), self.node_rx.recv()).await
             {
                 try_and_log!(self.handle_notification(notification).await);
-                if *stop_signal.read().await {
-                    break;
-                }
             }
-
+            if *stop_signal.read().await {
+                break;
+            }
             periodic_job!(
                 self.maybe_open_connection().await,
                 self.last_connection,
