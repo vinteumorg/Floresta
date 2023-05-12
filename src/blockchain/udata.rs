@@ -30,7 +30,6 @@ pub struct LeafData {
     /// The actual utxo
     pub utxo: TxOut,
 }
-
 impl LeafData {
     pub fn _get_leaf_hashes(&self) -> sha256::Hash {
         let mut ser_utxo = vec![];

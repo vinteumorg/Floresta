@@ -17,12 +17,12 @@ use bitcoin::{
 use log::{info, trace};
 use rustreexo::accumulator::{proof::Proof, stump::Stump};
 use sha2::{Digest, Sha512_256};
+use std::sync::RwLock;
 use std::{
     collections::{HashMap, HashSet},
     ffi::c_uint,
     io::Write,
 };
-use std::{sync::RwLock, time::UNIX_EPOCH};
 pub struct ChainStateInner<PersistedState: ChainStore> {
     /// The acc we use for validation.
     acc: Stump,
@@ -144,8 +144,14 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         let height = prev_block_height.unwrap() + 1;
 
         // Check pow
-        let target = self.get_next_required_work(&prev_block, height);
-        let block_hash = block_header.validate_pow(&target).map_err(|_| {
+        let expected_target = self.get_next_required_work(&prev_block, height, block_header);
+
+        let actual_target = block_header.target();
+        if actual_target > expected_target {
+            return Err(BlockValidationErrors::NotEnoughPow.into());
+        }
+
+        let block_hash = block_header.validate_pow(&actual_target).map_err(|_| {
             BlockchainError::BlockValidationError(BlockValidationErrors::NotEnoughPow)
         })?;
         Ok(block_hash)
@@ -169,7 +175,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
                 if n == 0 {
                     continue;
                 }
-                // A block must contain only one tx, and it should be the fist thing inside it
+                // A block must contain only one coinbase, and it should be the fist thing inside it
                 return Err(BlockValidationErrors::FirstTxIsnNotCoinbase.into());
             }
             // Amount of all outputs
@@ -460,7 +466,6 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         if actual_timespan > params.pow_target_timespan as u32 * 4 {
             actual_timespan = params.pow_target_timespan as u32 * 4;
         }
-
         let new_target = cur_target.mul_u32(actual_timespan);
         let new_target = new_target / expected_timespan;
 
@@ -468,14 +473,17 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
     }
     /// Returns the next required work for the next block, usually it's just the last block's target
     /// but if we are in a retarget period, it's calculated from the last 2016 blocks.
-    fn get_next_required_work(&self, last_block: &BlockHeader, next_height: u32) -> Uint256 {
-        let params = self.chain_params();
-        let last_block_time = UNIX_EPOCH + std::time::Duration::from_secs(last_block.time as u64);
+    fn get_next_required_work(
+        &self,
+        last_block: &BlockHeader,
+        next_height: u32,
+        next_header: &BlockHeader,
+    ) -> Uint256 {
+        let params: ChainParams = self.chain_params();
         // Special testnet rule, if a block takes more than 20 minutes to mine, we can
         // mine a block with diff 1
         if params.pow_allow_min_diff
-            && last_block_time + std::time::Duration::from_secs(20 * 60)
-                > std::time::SystemTime::now()
+            && last_block.time + params.pow_target_spacing as u32 * 2 < next_header.time
         {
             return params.max_target;
         }
@@ -488,7 +496,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             let next_bits =
                 Self::calc_next_work_required(&last_block, &first_block, self.chain_params());
             let target = BlockHeader::u256_from_compact_target(next_bits);
-            if target > params.max_target {
+            if target < params.max_target {
                 return target;
             }
             return params.max_target;
@@ -748,6 +756,43 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
     fn acc(&self) -> Stump {
         read_lock!(self).acc.to_owned()
     }
+    fn validate_block(
+        &self,
+        block: &Block,
+        height: u32,
+        inputs: HashMap<OutPoint, TxOut>,
+    ) -> Result<(), BlockchainError> {
+        if !block.check_merkle_root() {
+            return Err(BlockchainError::BlockValidationError(
+                BlockValidationErrors::BadMerkleRoot,
+            ));
+        }
+        if height >= self.chain_params().bip34_activation_height
+            && block.bip34_block_height() != Ok(height as u64)
+        {
+            return Err(BlockchainError::BlockValidationError(
+                BlockValidationErrors::BadBip34,
+            ));
+        }
+        if !block.check_witness_commitment() {
+            return Err(BlockchainError::BlockValidationError(
+                BlockValidationErrors::BadWitnessCommitment,
+            ));
+        }
+        let prev_block = self.get_ancestor(&block.header)?;
+        if block.header.prev_blockhash != prev_block.block_hash() {
+            return Err(BlockchainError::BlockValidationError(
+                BlockValidationErrors::BlockExtendsAnOrphanChain,
+            ));
+        }
+        // Validate block transactions
+        let subsidy = self.get_subsidy(height);
+        let verify_script = self.verify_script(height);
+        let flags = self.get_validation_flags(height);
+        Self::verify_block_transactions(inputs, &block.txdata, subsidy, verify_script, flags)
+            .map_err(|_| BlockchainError::BlockValidationError(BlockValidationErrors::InvalidTx))?;
+        Ok(())
+    }
 }
 
 impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedState> {
@@ -885,39 +930,8 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
             DiskBlockHeader::HeadersOnly(_, height) => height,
             DiskBlockHeader::InvalidChain(_) => return Ok(()),
         };
+        self.validate_block(block, height, inputs)?;
         let acc = Self::update_acc(&self.acc(), block, height, proof, del_hashes)?;
-
-        if !block.check_merkle_root() {
-            return Err(BlockchainError::BlockValidationError(
-                BlockValidationErrors::BadMerkleRoot,
-            ));
-        }
-        if height >= self.chain_params().bip34_activation_height
-            && block.bip34_block_height() != Ok(height as u64)
-        {
-            return Err(BlockchainError::BlockValidationError(
-                BlockValidationErrors::BadBip34,
-            ));
-        }
-        if !block.check_witness_commitment() {
-            return Err(BlockchainError::BlockValidationError(
-                BlockValidationErrors::BadWitnessCommitment,
-            ));
-        }
-        let prev_block = self.get_ancestor(&block.header)?;
-
-        // Check pow
-        let target = self.get_next_required_work(&prev_block, height);
-        block.header.validate_pow(&target).map_err(|_| {
-            BlockchainError::BlockValidationError(BlockValidationErrors::NotEnoughPow)
-        })?;
-        // Validate block transactions
-        let subsidy = self.get_subsidy(height);
-        let verify_script = self.verify_script(height);
-        let flags = self.get_validation_flags(height);
-        Self::verify_block_transactions(inputs, &block.txdata, subsidy, verify_script, flags)
-            .map_err(|_| BlockchainError::BlockValidationError(BlockValidationErrors::InvalidTx))?;
-
         // ... If we came this far, we consider this block valid ...
         if self.is_in_idb() && height % 10_000 == 0 {
             info!("Downloading blocks at: {height}");
@@ -1090,10 +1104,12 @@ impl Decodable for BestChain {
 
 #[cfg(test)]
 mod test {
-    use std::collections::HashMap;
+    use std::{collections::HashMap, io::Cursor};
 
     use bitcoin::{
-        consensus::deserialize, hashes::hex::FromHex, Block, BlockHash, BlockHeader, Network,
+        consensus::{deserialize, Decodable},
+        hashes::hex::FromHex,
+        Block, BlockHash, BlockHeader, Network,
     };
     use rustreexo::accumulator::proof::Proof;
 
@@ -1104,7 +1120,34 @@ mod test {
     };
 
     use super::ChainState;
+    #[test]
+    fn accept_mainnet_headers() {
+        // Accepts the first 10235 mainnet headers
+        let file = include_bytes!("./testdata/headers.zst");
+        let uncompressed: Vec<u8> = zstd::decode_all(std::io::Cursor::new(file)).unwrap();
+        let mut cursor = Cursor::new(uncompressed);
 
+        let test_id = rand::random::<u64>();
+        let chainstore = KvChainStore::new(format!("./data/{test_id}/")).unwrap();
+        let chain = ChainState::<KvChainStore>::new(chainstore, Network::Bitcoin, None);
+        while let Ok(header) = BlockHeader::consensus_decode(&mut cursor) {
+            chain.accept_header(header).unwrap();
+        }
+    }
+    #[test]
+    fn accept_first_signet_headers() {
+        // Accepts the first 2016 signet headers
+        let file = include_bytes!("./testdata/signet_headers.zst");
+        let uncompressed: Vec<u8> = zstd::decode_all(std::io::Cursor::new(file)).unwrap();
+        let mut cursor = Cursor::new(uncompressed);
+
+        let test_id = rand::random::<u64>();
+        let chainstore = KvChainStore::new(format!("./data/{test_id}/")).unwrap();
+        let chain = ChainState::<KvChainStore>::new(chainstore, Network::Signet, None);
+        while let Ok(header) = BlockHeader::consensus_decode(&mut cursor) {
+            chain.accept_header(header).unwrap();
+        }
+    }
     #[test]
     fn test_calc_next_work_required() {
         let first_block = Vec::from_hex("0100000000000000000000000000000000000000000000000000000000000000000000003ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a008f4d5fae77031e8ad22203").unwrap();
