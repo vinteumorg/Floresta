@@ -30,7 +30,6 @@ ctrlc = "3.2.5"
 
 [dev-dependencies]
 pretty_assertions = "1"
-zstd = "0.12.3"
 
 [features]
 default = ["experimental-p2p"]

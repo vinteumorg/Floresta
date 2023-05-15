@@ -44,12 +44,7 @@ impl ChainParams {
     fn max_target(net: Network) -> Uint256 {
         match net {
             Network::Bitcoin => max_target(net),
-            Network::Testnet => Uint256([
-                0x0000000000000000,
-                0x0000000000000000,
-                0x0000000000000000,
-                0x00000000ffff0000,
-            ]),
+            Network::Testnet => max_target(net),
             Network::Signet => Uint256([
                 0x00000377ae000000,
                 0x0000000000000000,
