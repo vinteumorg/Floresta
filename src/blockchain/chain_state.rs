@@ -703,6 +703,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         let chainstate = ChainState {
             inner: RwLock::new(inner),
         };
+        // Check the integrity of our chain
         chainstate.reindex_chain();
         Ok(chainstate)
     }
@@ -943,10 +944,21 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
         };
         self.validate_block(block, height, inputs)?;
         let acc = Self::update_acc(&self.acc(), block, height, proof, del_hashes)?;
+        let ibd = self.is_in_idb();
         // ... If we came this far, we consider this block valid ...
-        if self.is_in_idb() && height % 10_000 == 0 {
-            info!("Downloading blocks at: {height}");
+        if ibd && height % 10_000 == 0 {
+            info!(
+                "Downloading blocks: height={height} hash={}",
+                block.block_hash()
+            );
             self.flush()?;
+        }
+        if !ibd {
+            info!(
+                "New tip! hash={} height={height} tx_count={}",
+                block.block_hash(),
+                block.txdata.len()
+            )
         }
         // Notify others we have a new block
         async_std::task::block_on(self.notify(Notification::NewBlock((block.to_owned(), height))));
@@ -974,6 +986,9 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
         trace!("Accepting header {header:?}");
         let _header = self.get_disk_block_header(&header.block_hash());
         if _header.is_ok() {
+            if let DiskBlockHeader::HeadersOnly(header, height) = _header? {
+                self.update_tip(header.block_hash(), height);
+            }
             return Ok(()); // We already have this header
         }
         let best_block = self.get_best_block()?;
