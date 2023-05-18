@@ -30,6 +30,7 @@ mod cli;
 mod config_file;
 mod electrum;
 mod error;
+mod version;
 mod wallet_input;
 
 use std::{path::PathBuf, sync::Arc};
@@ -52,7 +53,7 @@ use crate::blockchain::cli_blockchain::UtreexodBackend;
 
 #[cfg(feature = "experimental-p2p")]
 use crate::blockchain::p2p_blockchain::{mempool::Mempool, node::UtreexoNode};
-use crate::wallet_input::InitialWalletSetup;
+use crate::{version::DIR_NAME, wallet_input::InitialWalletSetup};
 
 fn main() {
     // Setup global logger
@@ -81,14 +82,23 @@ fn main() {
             let shutdown = Arc::new(std::sync::atomic::AtomicBool::new(false));
             signal_hook::flag::register(signal_hook::consts::SIGINT, Arc::clone(&shutdown))
                 .expect("Could no register for SIGTERM");
-
             let data_dir = get_one_or_another(
                 data_dir,
                 dirs::home_dir().map(|x: PathBuf| {
-                    x.to_str().unwrap_or_default().to_owned() + "/.utreexo_wallet/"
+                    format!(
+                        "{}/{}/",
+                        x.to_str().unwrap_or_default().to_owned(),
+                        DIR_NAME,
+                    )
                 }),
                 "wallet".into(),
             );
+            let data_dir = match params.network {
+                cli::Network::Bitcoin => data_dir,
+                cli::Network::Signet => data_dir + "/signet/",
+                cli::Network::Testnet => data_dir + "/testnet3/",
+                cli::Network::Regtest => data_dir + "/regtest/",
+            };
 
             debug!("Loading wallet");
             let mut wallet = load_wallet(&data_dir);
@@ -171,11 +181,20 @@ fn main() {
             let data_dir = get_one_or_another(
                 data_dir,
                 dirs::home_dir().map(|x: PathBuf| {
-                    x.to_str().unwrap_or_default().to_owned() + "/.utreexo_wallet/"
+                    format!(
+                        "{}/{}/",
+                        x.to_str().unwrap_or_default().to_owned(),
+                        DIR_NAME,
+                    )
                 }),
                 "wallet".into(),
             );
-
+            let data_dir = match params.network {
+                cli::Network::Bitcoin => data_dir,
+                cli::Network::Signet => data_dir + "/signet/",
+                cli::Network::Testnet => data_dir + "/testnet3/",
+                cli::Network::Regtest => data_dir + "/regtest/",
+            };
             debug!("Loading wallet");
             let mut wallet = load_wallet(&data_dir);
             wallet.setup().expect("Could not initialize wallet");
@@ -199,7 +218,7 @@ fn main() {
                 get_net(&params.network),
                 assume_valid,
             ));
-            debug!("Done loading wallet");
+            debug!("Done loading database");
 
             let chain_provider = UtreexoNode::new(
                 blockchain_state.clone(),
