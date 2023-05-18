@@ -184,8 +184,6 @@ impl Peer {
                         ) => {
                             self.send_to_node(PeerMessages::NewBlock(block_hash)).await;
                         }
-                        bitcoin::network::message_blockdata::Inventory::WTx(_) => todo!(),
-                        bitcoin::network::message_blockdata::Inventory::WitnessTransaction(_) => {}
                         _ => {}
                     }
                 }
@@ -336,6 +334,11 @@ pub(super) mod peer_utils {
         message::{self, NetworkMessage},
         message_network,
     };
+
+    use crate::version::{FLORESTA_VERSION, RUSTREEXO_VERSION, RUST_BITCOIN_VERSION};
+    /// Protocol version we speak
+    pub const PROTOCOL_VERSION: u32 = 70016;
+
     pub(super) fn make_pong(nonce: u64) -> NetworkMessage {
         NetworkMessage::Pong(nonce)
     }
@@ -363,7 +366,10 @@ pub(super) mod peer_utils {
         let nonce: u64 = 1;
 
         // "User Agent (0x00 if string is 0 bytes long)"
-        let user_agent = String::from("/rust-bitcoin:0.29.3/Floresta:0.2.1");
+        let user_agent = format!(
+            "/rust-bitcoin:{}/rustreexo:{}/Floresta:{}/",
+            RUST_BITCOIN_VERSION, RUSTREEXO_VERSION, FLORESTA_VERSION
+        );
 
         // "The last block received by the emitting node"
         let start_height: i32 = 0;
@@ -378,7 +384,7 @@ pub(super) mod peer_utils {
             user_agent,
             start_height,
             relay: false,
-            version: 70016,
+            version: PROTOCOL_VERSION,
         })
     }
 }
