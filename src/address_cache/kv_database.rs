@@ -1,5 +1,9 @@
 use super::{AddressCacheDatabase, Stats};
-use bitcoin::consensus::{deserialize, serialize};
+use bitcoin::{
+    consensus::{deserialize, serialize},
+    hashes::Hash,
+    Txid,
+};
 use kv::{Bucket, Config, Store};
 
 pub struct KvDatabase(Store, Bucket<'static, String, Vec<u8>>);
@@ -114,5 +118,17 @@ impl AddressCacheDatabase for KvDatabase {
         self.1.flush()?;
 
         Ok(())
+    }
+
+    fn list_transactions(&self) -> Result<Vec<bitcoin::Txid>, crate::error::Error> {
+        let mut transactions = vec![];
+        let store = self.0.bucket::<&[u8], Vec<u8>>(Some("transactions"))?;
+
+        for item in store.iter() {
+            let item = item?;
+            let key = item.key::<&[u8]>()?;
+            transactions.push(Txid::from_slice(key).unwrap());
+        }
+        Ok(transactions)
     }
 }

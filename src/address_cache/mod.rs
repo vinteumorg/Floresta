@@ -6,6 +6,7 @@ pub mod merkle;
 use merkle::MerkleProof;
 use serde::{Deserialize, Serialize};
 use std::{
+    cmp::Ordering,
     collections::{HashMap, HashSet},
     vec,
 };
@@ -24,13 +25,31 @@ use bitcoin::{
 };
 /// Every address contains zero or more associated transactions, this struct defines what
 /// data we store for those.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, Serialize, Deserialize)]
 pub struct CachedTransaction {
     pub tx: Transaction,
     pub height: u32,
     pub merkle_block: Option<MerkleProof>,
     pub hash: Txid,
     pub position: u32,
+}
+
+impl Ord for CachedTransaction {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.height.cmp(&other.height)
+    }
+}
+
+impl PartialOrd for CachedTransaction {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl PartialEq for CachedTransaction {
+    fn eq(&self, other: &Self) -> bool {
+        self.height == other.height
+    }
 }
 impl Default for CachedTransaction {
     fn default() -> Self {
@@ -99,6 +118,8 @@ pub trait AddressCacheDatabase {
     fn get_transaction(&self, txid: &Txid) -> Result<CachedTransaction, crate::error::Error>;
     /// Saves a transaction to the database
     fn save_transaction(&self, tx: &CachedTransaction) -> Result<(), crate::error::Error>;
+    /// Returns all transactions we have cached
+    fn list_transactions(&self) -> Result<Vec<Txid>, crate::error::Error>;
 }
 /// Holds all addresses and associated transactions. We need a database with some basic
 /// methods, to store all data
@@ -227,11 +248,17 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
     /// Returns all transactions this address has, both input and outputs
     pub fn get_address_history(&self, script_hash: &sha256::Hash) -> Vec<CachedTransaction> {
         if let Some(cached_script) = self.address_map.get(script_hash) {
-            return cached_script
+            let mut transactions: Vec<_> = cached_script
                 .transactions
                 .iter()
                 .filter_map(|txid| self.get_transaction(txid))
                 .collect();
+            let mut all = transactions.clone();
+            transactions.sort();
+            transactions.retain(|tx| tx.height > 0);
+            all.retain(|tx| tx.height == 0);
+            transactions.extend(all);
+            return transactions;
         }
         vec![]
     }
@@ -327,6 +354,125 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
             }
         }
     }
+    pub fn find_unconfirmed(&self) -> Result<Vec<Transaction>, crate::error::Error> {
+        let transactions = self.database.list_transactions()?;
+        let mut unconfirmed = vec![];
+
+        for tx in transactions {
+            let tx = self.database.get_transaction(&tx)?;
+            if tx.height == 0 {
+                unconfirmed.push(tx.tx);
+            }
+        }
+        Ok(unconfirmed)
+    }
+    fn find_spend(&self, transaction: &Transaction) -> Vec<(usize, TxOut)> {
+        let mut spends = vec![];
+        for (idx, input) in transaction.input.iter().enumerate() {
+            if self.utxo_index.contains_key(&input.previous_output) {
+                let prev_tx = self.get_transaction(&input.previous_output.txid).unwrap();
+                spends.push((
+                    idx,
+                    prev_tx.tx.output[input.previous_output.vout as usize].clone(),
+                ));
+            }
+        }
+        spends
+    }
+    pub fn cache_mempool_transaction(&mut self, transaction: &Transaction) -> Vec<TxOut> {
+        let mut coins = self.find_spend(transaction);
+        for (idx, spend) in coins.iter() {
+            let script = self
+                .address_map
+                .get(&get_spk_hash(&spend.script_pubkey))
+                .unwrap()
+                .to_owned();
+            self.cache_transaction(
+                transaction,
+                0,
+                spend.value,
+                MerkleProof::default(),
+                0,
+                *idx,
+                true,
+                &script.script,
+            )
+        }
+        for (idx, out) in transaction.output.iter().enumerate() {
+            let spk_hash = get_spk_hash(&out.script_pubkey);
+            if self.script_set.contains(&out.script_pubkey) {
+                let script = self.address_map.get(&spk_hash).unwrap().to_owned();
+                coins.push((idx, out.clone()));
+                self.cache_transaction(
+                    transaction,
+                    0,
+                    out.value,
+                    MerkleProof::default(),
+                    0,
+                    idx,
+                    true,
+                    &script.script,
+                )
+            }
+        }
+        coins
+            .iter()
+            .cloned()
+            .unzip::<usize, TxOut, Vec<usize>, Vec<TxOut>>()
+            .1
+    }
+    fn save_mempool_tx(&mut self, hash: Hash, transaction_to_cache: CachedTransaction) {
+        if let Some(address) = self.address_map.get_mut(&hash) {
+            if !address.transactions.contains(&transaction_to_cache.hash) {
+                address.transactions.push(transaction_to_cache.hash);
+                self.database.update(address);
+            }
+        }
+    }
+    fn save_non_mempool_tx(
+        &mut self,
+        transaction: &Transaction,
+        is_spend: bool,
+        value: u64,
+        index: usize,
+        hash: Hash,
+        transaction_to_cache: CachedTransaction,
+    ) {
+        if let Some(address) = self.address_map.get_mut(&hash) {
+            // This transaction is spending from this address, so we should remove the UTXO
+            if is_spend {
+                assert!(value <= address.balance);
+                address.balance -= value;
+                let input = transaction
+                    .input
+                    .get(index)
+                    .expect("Malformed call, index is bigger than the output vector");
+                let idx = address
+                    .utxos
+                    .iter()
+                    .position(|utxo| *utxo == input.previous_output);
+                if let Some(idx) = idx {
+                    let utxo = address.utxos.remove(idx);
+                    self.utxo_index.remove(&utxo);
+                }
+            } else {
+                // This transaction is creating a new utxo for this address
+                let utxo = OutPoint {
+                    txid: transaction.txid(),
+                    vout: index as u32,
+                };
+                address.utxos.push(utxo);
+                self.utxo_index.insert(utxo, hash);
+
+                address.balance += value;
+            }
+
+            if !address.transactions.contains(&transaction_to_cache.hash) {
+                address.transactions.push(transaction_to_cache.hash);
+                self.database.update(address);
+            }
+        }
+    }
     /// Caches a new transaction. This method may be called for addresses we don't follow yet,
     /// this automatically makes we follow this address.
     #[allow(clippy::too_many_arguments)]
@@ -353,44 +499,7 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
             .expect("Database not working");
 
         let hash = get_spk_hash(script);
-        // An address we already known about
-        if let Some(address) = self.address_map.get_mut(&hash) {
-            // This transaction is spending from this address, so we should remove the UTXO
-            if is_spend {
-                address.balance -= value;
-                let input = transaction
-                    .input
-                    .get(index)
-                    .expect("Malformed call, index is bigger than the output vector");
-                let idx = address
-                    .utxos
-                    .iter()
-                    .position(|utxo| *utxo == input.previous_output);
-                if let Some(idx) = idx {
-                    let utxo = address.utxos.remove(idx);
-                    self.utxo_index.remove(&utxo);
-                }
-            } else {
-                // This transaction is creating a new utxo for this address
-                let utxo = OutPoint {
-                    txid: transaction.txid(),
-                    vout: index as u32,
-                };
-                address.utxos.push(utxo);
-                self.utxo_index.insert(utxo, hash);
-
-                address.balance += value;
-            }
-            if address
-                .transactions
-                .iter()
-                .any(|tx| *tx == transaction_to_cache.hash)
-            {
-                return;
-            }
-            address.transactions.push(transaction_to_cache.hash);
-            self.database.update(address);
-        } else {
+        if let std::collections::hash_map::Entry::Vacant(e) = self.address_map.entry(hash) {
             // This means `cache_transaction` have been called with an address we don't
             // follow. This may be useful for caching new addresses without re-scanning.
             // We can track this address from now onwards, but the past history is only
@@ -407,10 +516,23 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
             };
             self.database.save(&new_address);
 
-            self.address_map.insert(hash, new_address);
+            e.insert(new_address);
             self.script_set.insert(script.to_owned());
         }
         self.maybe_derive_addresses();
+        // Confirmed transaction
+        if height > 0 {
+            return self.save_non_mempool_tx(
+                transaction,
+                is_spend,
+                value,
+                index,
+                hash,
+                transaction_to_cache,
+            );
+        }
+        // Unconfirmed transaction
+        self.save_mempool_tx(hash, transaction_to_cache);
     }
 }
 

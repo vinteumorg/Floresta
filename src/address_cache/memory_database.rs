@@ -110,4 +110,8 @@ impl AddressCacheDatabase for MemoryDatabase {
             .map_err(|_| Error::DatabaseError)?;
         Ok(())
     }
+
+    fn list_transactions(&self) -> Result<Vec<Txid>, crate::error::Error> {
+        Ok(self.get_inner()?.transactions.keys().copied().collect())
+    }
 }
