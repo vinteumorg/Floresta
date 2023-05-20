@@ -53,7 +53,7 @@ use crate::blockchain::cli_blockchain::UtreexodBackend;
 
 #[cfg(feature = "experimental-p2p")]
 use crate::blockchain::p2p_blockchain::{mempool::Mempool, node::UtreexoNode};
-use crate::{version::DIR_NAME, wallet_input::InitialWalletSetup};
+use crate::{blockchain::BlockchainInterface, version::DIR_NAME, wallet_input::InitialWalletSetup};
 
 fn main() {
     // Setup global logger
@@ -177,6 +177,7 @@ fn main() {
             assume_valid,
             wallet_xpub,
             wallet_descriptor,
+            rescan,
         } => {
             let data_dir = get_one_or_another(
                 data_dir,
@@ -218,6 +219,11 @@ fn main() {
                 get_net(&params.network),
                 assume_valid,
             ));
+            if let Some(height) = rescan {
+                blockchain_state
+                    .rescan(height)
+                    .expect("Fail while setting rescan");
+            }
             debug!("Done loading database");
 
             let chain_provider = UtreexoNode::new(

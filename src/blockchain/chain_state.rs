@@ -862,7 +862,15 @@ impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedSta
         }
         Err(BlockchainError::BlockNotPresent)
     }
-
+    fn get_rescan_index(&self) -> Option<u32> {
+        read_lock!(self).best_block.rescan_index
+    }
+    fn rescan(&self, start_height: u32) -> super::Result<()> {
+        let mut inner = write_lock!(self);
+        info!("Rescanning from block {start_height}");
+        inner.best_block.rescan_index = Some(start_height);
+        Ok(())
+    }
     fn subscribe(&self, tx: Sender<Notification>) {
         let mut inner = self.inner.write().expect("get_block_hash: Poisoned lock");
         inner.subscribers.push(tx);
@@ -920,27 +928,40 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
         let mut inner = write_lock!(self);
         inner.ibd = is_ibd;
     }
+    fn process_rescan_block(&self, block: &Block) -> super::Result<()> {
+        let header = self.get_disk_block_header(&block.block_hash())?;
+        let height = header.height().expect("Recaning in an invalid tip");
+        async_std::task::block_on(self.notify(Notification::NewBlock((block.to_owned(), height))));
+        if self.get_height().unwrap() == height {
+            info!("Rescan completed");
+            write_lock!(self).best_block.rescan_index = None;
+            self.flush()?;
+            return Ok(());
+        }
+        if height % 10_000 == 0 {
+            info!("Rescanning at block height={height}");
+            write_lock!(self).best_block.rescan_index = Some(height);
+            self.flush()?;
+        }
+        Ok(())
+    }
     fn connect_block(
         &self,
         block: &Block,
         proof: Proof,
         inputs: HashMap<OutPoint, TxOut>,
         del_hashes: Vec<sha256::Hash>,
-    ) -> super::Result<()> {
+    ) -> super::Result<u32> {
         let header = self.get_disk_block_header(&block.block_hash())?;
         let height = match header {
-            // If it's valid or orphan, we don't validate
-            DiskBlockHeader::FullyValid(_, _) => {
-                self.inner
-                    .write()
-                    .unwrap()
-                    .best_block
-                    .valid_block(block.block_hash());
-                return Ok(());
+            DiskBlockHeader::FullyValid(_, height) => {
+                return Ok(height);
             }
-            DiskBlockHeader::Orphan(_) | DiskBlockHeader::InFork(_, _) => return Ok(()),
+            // If it's valid or orphan, we don't validate
+            DiskBlockHeader::Orphan(_)
+            | DiskBlockHeader::InFork(_, _)
+            | DiskBlockHeader::InvalidChain(_) => return Ok(0),
             DiskBlockHeader::HeadersOnly(_, height) => height,
-            DiskBlockHeader::InvalidChain(_) => return Ok(()),
         };
         self.validate_block(block, height, inputs)?;
         let acc = Self::update_acc(&self.acc(), block, height, proof, del_hashes)?;
@@ -964,7 +985,10 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
         async_std::task::block_on(self.notify(Notification::NewBlock((block.to_owned(), height))));
         self.update_view(height, &block.header, acc)?;
         self.save_acc()?;
-        Ok(())
+
+        // Notify others we have a new block
+        async_std::task::block_on(self.notify(Notification::NewBlock((block.to_owned(), height))));
+        Ok(height)
     }
 
     fn handle_transaction(&self) -> super::Result<()> {
@@ -1066,7 +1090,7 @@ pub struct BestChain {
     validation_index: BlockHash,
     /// We may rescan even after we validate all blocks, this index saves the position
     /// we are while re-scanning
-    rescan_index: Option<BlockHash>,
+    rescan_index: Option<u32>,
     /// Blockchains are not fast-forward only, they might have "forks", sometimes it's useful
     /// to keep track of them, in case they become the best one. This keeps track of some
     /// tips we know about, but are not the best one. We don't keep tips that are too deep
@@ -1096,8 +1120,8 @@ impl Encodable for BestChain {
         len += self.assume_valid_index.consensus_encode(writer)?;
 
         match self.rescan_index {
-            Some(hash) => len += hash.consensus_encode(writer)?,
-            None => len += BlockHash::all_zeros().consensus_encode(writer)?,
+            Some(height) => len += height.consensus_encode(writer)?,
+            None => len += 0_u32.consensus_encode(writer)?,
         }
         len += self.alternative_tips.consensus_encode(writer)?;
         Ok(len)
@@ -1110,10 +1134,10 @@ impl Decodable for BestChain {
         let best_block = BlockHash::consensus_decode(reader)?;
         let depth = u32::consensus_decode(reader)?;
         let validation_index = BlockHash::consensus_decode(reader)?;
-        let rescan_index = BlockHash::consensus_decode(reader)?;
+        let rescan_index = u32::consensus_decode(reader)?;
         let assume_valid_index = u32::consensus_decode(reader)?;
 
-        let rescan_index = if rescan_index == BlockHash::all_zeros() {
+        let rescan_index = if rescan_index == 0 {
             None
         } else {
             Some(rescan_index)

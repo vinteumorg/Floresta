@@ -33,8 +33,6 @@ pub enum BlockchainError {
     #[cfg(feature = "experimental-p2p")]
     CoinbaseNotMatured,
     #[cfg(feature = "experimental-p2p")]
-    PeerNotFound,
-    #[cfg(feature = "experimental-p2p")]
     AddrParseError(std::net::AddrParseError),
     #[cfg(feature = "experimental-p2p")]
     PeerMisbehaving,

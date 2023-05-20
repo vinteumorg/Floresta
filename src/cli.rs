@@ -78,6 +78,8 @@ pub enum Commands {
         /// Where should we store data
         #[arg(long)]
         data_dir: Option<String>,
+        #[arg(long, short, default_value = None)]
+        rescan: Option<u32>,
         /// Add a xpub to our wallet
         #[arg(long)]
         wallet_xpub: Option<Vec<String>>,
