@@ -20,6 +20,8 @@ type Result<T> = std::result::Result<T, BlockchainError>;
 /// This trait is the main interface between our blockchain backend and other services.
 /// It'll be useful for transitioning from rpc to a p2p based node
 pub trait BlockchainInterface {
+    /// Returns the roots of our utreexo accumulator
+    fn get_root_hashes(&self) -> Result<Vec<sha256::Hash>>;
     /// Returns the block with a given height in our current tip.
     fn get_block_hash(&self, height: u32) -> Result<bitcoin::BlockHash>;
     /// Returns a bitcoin [Transaction] given it's txid.

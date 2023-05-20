@@ -1,4 +1,3 @@
-#![allow(unused)]
 //! Main file for this blockchain. A node is the central task that runs and handles important
 //! events, such as new blocks, peer connection/disconnection, new addresses, etc.
 //! A node should not care about peer-specific messages, peers'll handle things like pings.
@@ -382,7 +381,7 @@ impl UtreexoNode {
                         .remove(&InflightRequests::RescanBlock(block.block.block_hash()))
                         .is_some()
                     {
-                        self.request_rescan_block().await;
+                        self.request_rescan_block().await?;
                         return self.chain.process_rescan_block(&block.block);
                     }
                     // Remove from inflight, since we just got it.
