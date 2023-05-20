@@ -649,22 +649,31 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         }
         Err(BlockchainError::BlockNotPresent)
     }
-    // fn reindex_chain(chainstore: &KvChainStore, network: Network) -> BestChain {
-    //     let mut height = 0;
-    //     let mut hash = genesis_block(network).block_hash();
-    //     while let Ok(Some(_hash)) = chainstore.get_block_hash(height) {
-    //         height += 1;
-    //         hash = _hash;
-    //     }
-    //     BestChain {
-    //         best_block: hash,
-    //         depth: height,
-    //         validation_index: hash,
-    //         rescan_index: None,
-    //         alternative_tips: vec![],
-    //         assume_valid_index: 0,
-    //     }
-    // }
+    /// If we ever find ourselves in an undefined state, with one of our chain pointers
+    /// pointing to an invalid block, we'll find out what blocks do we have, and start from this
+    /// point.
+    fn reindex_chain(&self) -> BestChain {
+        let inner = read_lock!(self);
+
+        let mut height = 0;
+        let mut hash = inner
+            .chainstore
+            .get_block_hash(0)
+            .expect("No genesis block")
+            .unwrap();
+        while let Ok(Some(_hash)) = inner.chainstore.get_block_hash(height) {
+            height += 1;
+            hash = _hash;
+        }
+        BestChain {
+            best_block: hash,
+            depth: height,
+            validation_index: hash,
+            rescan_index: None,
+            alternative_tips: vec![],
+            assume_valid_index: 0,
+        }
+    }
     pub fn load_chain_state(
         chainstore: KvChainStore,
         network: Network,
@@ -688,12 +697,15 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             assume_valid: (Self::get_assume_valid_value(network, assume_valid_hash), 0),
         };
         info!(
-            "Chainstate loaded at height: {}",
+            "Chainstate loaded at height: {}, checking if we have all blocks",
             inner.best_block.best_block
         );
-        Ok(ChainState {
+        let chainstate = ChainState {
             inner: RwLock::new(inner),
-        })
+        };
+        // Check the integrity of our chain
+        chainstate.reindex_chain();
+        Ok(chainstate)
     }
 
     fn load_acc<Storage: ChainStore>(data_storage: &Storage) -> Stump {
@@ -932,10 +944,21 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
         };
         self.validate_block(block, height, inputs)?;
         let acc = Self::update_acc(&self.acc(), block, height, proof, del_hashes)?;
+        let ibd = self.is_in_idb();
         // ... If we came this far, we consider this block valid ...
-        if self.is_in_idb() && height % 10_000 == 0 {
-            info!("Downloading blocks at: {height}");
+        if ibd && height % 10_000 == 0 {
+            info!(
+                "Downloading blocks: height={height} hash={}",
+                block.block_hash()
+            );
             self.flush()?;
+        }
+        if !ibd {
+            info!(
+                "New tip! hash={} height={height} tx_count={}",
+                block.block_hash(),
+                block.txdata.len()
+            )
         }
         // Notify others we have a new block
         async_std::task::block_on(self.notify(Notification::NewBlock((block.to_owned(), height))));
@@ -963,6 +986,9 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
         trace!("Accepting header {header:?}");
         let _header = self.get_disk_block_header(&header.block_hash());
         if _header.is_ok() {
+            if let DiskBlockHeader::HeadersOnly(header, height) = _header? {
+                self.update_tip(header.block_hash(), height);
+            }
             return Ok(()); // We already have this header
         }
         let best_block = self.get_best_block()?;
@@ -999,9 +1025,11 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
         match header {
             DiskBlockHeader::HeadersOnly(_, height) => Ok(height),
             DiskBlockHeader::FullyValid(_, height) => Ok(height),
-            _ => unreachable!(
-                "Validation index is in an invalid state, you should re-index your node"
-            ),
+            _ => {
+                self.reindex_chain();
+                log::error!("Validation index is in an invalid state, re-indexing chainstate");
+                Ok(0)
+            }
         }
     }
 

@@ -25,7 +25,7 @@ use bitcoin::{
     },
     BlockHash, BlockHeader, Network, OutPoint, Transaction, TxOut, Txid,
 };
-use log::{error, info, warn};
+use log::{error, info, trace, warn};
 use rustreexo::accumulator::proof::Proof;
 use std::{
     collections::{HashMap, HashSet},
@@ -242,7 +242,7 @@ impl UtreexoNode {
             return Ok(());
         }
         self.last_headers_request = Instant::now();
-        info!(
+        trace!(
             "Downloading headers at: {} hash: {}",
             self.chain.get_best_block()?.0,
             headers[0].block_hash()
@@ -378,7 +378,6 @@ impl UtreexoNode {
                         mempool_delta
                             .extend(self._mempool.write().await.consume_block(&block.block));
                     }
-
                     match self.handle_block(block) {
                         Ok(_) => {}
                         Err(e) => {
