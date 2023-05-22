@@ -321,19 +321,22 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                     let lock = self.address_cache.write().await;
                     lock.bump_height(height);
                 }
+                if self.chain.get_height().unwrap() == height {
+                    for peer in &mut self.peers.values() {
+                        let res = peer
+                            .write(serde_json::to_string(&result).unwrap().as_bytes())
+                            .await;
+                        if res.is_err() {
+                            info!("Could not write to peer {:?}", peer);
+                        }
+                    }
+                }
                 let transactions = self
                     .address_cache
                     .write()
                     .await
                     .block_process(&block, height);
-                for peer in &mut self.peers.values() {
-                    let res = peer
-                        .write(serde_json::to_string(&result).unwrap().as_bytes())
-                        .await;
-                    if res.is_err() {
-                        info!("Could not write to peer {:?}", peer);
-                    }
-                }
+
                 self.wallet_notify(&transactions).await;
             }
         }

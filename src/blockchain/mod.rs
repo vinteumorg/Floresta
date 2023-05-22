@@ -41,6 +41,9 @@ pub trait BlockchainInterface {
     fn subscribe(&self, tx: Sender<Notification>);
     /// Tells whether or not we are on ibd
     fn is_in_idb(&self) -> bool;
+    /// Triggers a rescan, downloading (but not validating) all blocks in [start_height:tip]
+    fn rescan(&self, start_height: u32) -> Result<()>;
+    fn get_rescan_index(&self) -> Option<u32>;
 }
 /// A [BlockchainProviderInterface] is the trait that a implementation of blockchain uses to update
 /// the chainstate.
@@ -54,7 +57,7 @@ pub trait BlockchainProviderInterface {
         proof: Proof,
         inputs: HashMap<OutPoint, TxOut>,
         del_hashes: Vec<sha256::Hash>,
-    ) -> Result<()>;
+    ) -> Result<u32>;
     /// Accepts a new header to our chain. This method is called before connect_block, and
     /// makes some basic checks on a header and saves it on disk. We only accept a block as
     /// valid after calling connect_block.
@@ -76,6 +79,7 @@ pub trait BlockchainProviderInterface {
     fn invalidate_block(&self, block: BlockHash) -> Result<()>;
     /// Checks if a coinbase is mature
     fn is_coinbase_mature(&self, height: u32, block: BlockHash) -> Result<bool>;
+    fn process_rescan_block(&self, block: &Block) -> Result<()>;
 }
 #[derive(Debug, Clone)]
 /// A notification is a hook that a type implementing [BlockchainInterface] sends each

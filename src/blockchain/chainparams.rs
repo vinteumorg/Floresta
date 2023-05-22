@@ -167,7 +167,7 @@ pub fn get_chain_dns_seeds(network: Network) -> Vec<&'static str> {
             seeds.push("dnsseed.bitcoin.dashjr.org."); // Luke Dashjr
             seeds.push("seed.bitcoinstats.com."); // Christian Decker
             seeds.push("seed.bitcoin.jonasschnelli.ch."); // Jonas Schnelli
-            seeds.push("seed.btc.petertodd.org."); // Peter Todd, only supports
+            seeds.push("seed.btc.petertodd.org."); // Peter Todd
             seeds.push("seed.bitcoin.sprovoost.nl."); // Sjors Provoost
             seeds.push("dnsseed.emzy.de."); // Stephan Oeste
             seeds.push("seed.bitcoin.wiz.biz."); // Jason Maurice

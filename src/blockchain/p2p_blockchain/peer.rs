@@ -39,10 +39,6 @@ enum State {
     SentVerack,
     Connected,
 }
-enum InflightRequests {
-    Blocks((usize, usize)),
-    Headers,
-}
 
 pub struct Peer {
     stream: TcpStream,
@@ -54,7 +50,6 @@ pub struct Peer {
     current_best_block: i32,
     last_ping: Instant,
     id: u32,
-    inflight: Vec<(Instant, InflightRequests)>,
     node_tx: Sender<NodeNotification>,
     state: State,
     send_headers: bool,
@@ -108,15 +103,18 @@ impl Peer {
         request: NodeRequest,
     ) -> Result<(), BlockchainError> {
         match request {
-            NodeRequest::GetBlock(block_hashes) => {
-                self.inflight.push((
-                    Instant::now(),
-                    InflightRequests::Blocks((block_hashes.len(), 0)),
-                ));
-                let inv = block_hashes
-                    .iter()
-                    .map(|block| Inventory::UtreexoWitnessBlock(*block))
-                    .collect();
+            NodeRequest::GetBlock((block_hashes, proof)) => {
+                let inv = if proof {
+                    block_hashes
+                        .iter()
+                        .map(|block| Inventory::UtreexoWitnessBlock(*block))
+                        .collect()
+                } else {
+                    block_hashes
+                        .iter()
+                        .map(|block| Inventory::Block(*block))
+                        .collect()
+                };
 
                 let _ = self.write(NetworkMessage::GetData(inv)).await;
             }
@@ -195,8 +193,6 @@ impl Peer {
                 self.send_to_node(PeerMessages::Block(block)).await;
             }
             bitcoin::network::message::NetworkMessage::Headers(headers) => {
-                self.inflight
-                    .push((Instant::now(), InflightRequests::Headers));
                 self.send_to_node(PeerMessages::Headers(headers)).await;
             }
             bitcoin::network::message::NetworkMessage::SendHeaders => {
@@ -294,7 +290,6 @@ impl Peer {
             state: State::None,
             send_headers: false,
             node_requests,
-            inflight: Vec::new(),
             feeler,
             wants_addrv2: false,
         };
