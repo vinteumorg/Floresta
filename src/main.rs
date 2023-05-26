@@ -22,7 +22,7 @@
 #![deny(non_camel_case_types)]
 #![deny(non_snake_case)]
 #![deny(non_upper_case_globals)]
-// #![deny(unused)]
+#![deny(unused)]
 
 mod address_cache;
 mod blockchain;
@@ -30,6 +30,7 @@ mod cli;
 mod config_file;
 mod electrum;
 mod error;
+#[cfg(feature = "json-rpc")]
 mod json_rpc;
 mod version;
 mod wallet_input;
@@ -256,7 +257,7 @@ fn main() {
             ));
             task::spawn(electrum_server.main_loop());
             info!("Server running on: 0.0.0.0:50001");
-
+            #[cfg(feature = "json-rpc")]
             let _server = json_rpc::server::RpcImpl::create(
                 blockchain_state,
                 wallet,
