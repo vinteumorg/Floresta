@@ -44,7 +44,7 @@ jobs:
       matrix:
         rust: [stable, nightly, 1.64]
         os: [ubuntu-latest, windows-latest, macos-latest]
-        features: ["experimental-p2p", "cli-blockchain"]
+        features: ["experimental-p2p", "cli-blockchain", "json-rpc"]
 
     runs-on: ${{ matrix.os }}
     steps:
