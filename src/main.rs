@@ -30,13 +30,18 @@ mod cli;
 mod config_file;
 mod electrum;
 mod error;
+#[cfg(feature = "json-rpc")]
+mod json_rpc;
 mod version;
 mod wallet_input;
 
 use std::{path::PathBuf, sync::Arc};
 
 use address_cache::{kv_database::KvDatabase, AddressCache, AddressCacheDatabase};
-use async_std::task::{self, block_on};
+use async_std::{
+    sync::RwLock,
+    task::{self, block_on},
+};
 
 use bitcoin::Network;
 use blockchain::{chain_state::ChainState, chainstore::KvChainStore};
@@ -233,6 +238,7 @@ fn main() {
                 data_dir,
             );
             info!("Starting server");
+            let wallet = Arc::new(RwLock::new(wallet));
             // Create a new electrum server, we need to block_on because `ElectrumServer::new` is `async`
             // but our main isn't, so we can't `.await` on it.
             let electrum_server = block_on(electrum::electrum_protocol::ElectrumServer::new(
@@ -251,6 +257,12 @@ fn main() {
             ));
             task::spawn(electrum_server.main_loop());
             info!("Server running on: 0.0.0.0:50001");
+            #[cfg(feature = "json-rpc")]
+            let _server = json_rpc::server::RpcImpl::create(
+                blockchain_state,
+                wallet,
+                &get_net(&params.network),
+            );
             task::block_on(chain_provider.run());
         }
     }

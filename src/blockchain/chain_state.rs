@@ -875,6 +875,11 @@ impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedSta
         let mut inner = self.inner.write().expect("get_block_hash: Poisoned lock");
         inner.subscribers.push(tx);
     }
+
+    fn get_root_hashes(&self) -> super::Result<Vec<sha256::Hash>> {
+        let inner = read_lock!(self);
+        Ok(inner.acc.roots.clone())
+    }
 }
 impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<PersistedState> {
     fn get_block_locator(&self) -> Result<Vec<BlockHash>, BlockchainError> {

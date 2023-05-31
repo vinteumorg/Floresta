@@ -221,7 +221,7 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
 
         Some(address_utxos)
     }
-    fn get_transaction(&self, txid: &Txid) -> Option<CachedTransaction> {
+    pub fn get_transaction(&self, txid: &Txid) -> Option<CachedTransaction> {
         self.database.get_transaction(txid).ok()
     }
     /// Returns all transactions this address has, both input and outputs

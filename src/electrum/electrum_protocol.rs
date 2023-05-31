@@ -69,14 +69,14 @@ pub enum Message {
 impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
     pub async fn new<'a>(
         address: &'static str,
-        address_cache: AddressCache<KvDatabase>,
+        address_cache: Arc<RwLock<AddressCache<KvDatabase>>>,
         chain: Arc<Blockchain>,
     ) -> Result<ElectrumServer<Blockchain>, Box<dyn std::error::Error>> {
         let listener = Arc::new(TcpListener::bind(address).await?);
         let (tx, rx) = unbounded();
         Ok(ElectrumServer {
             chain,
-            address_cache: Arc::new(RwLock::new(address_cache)),
+            address_cache,
             listener: Some(listener),
             peers: HashMap::new(),
             peer_accept: rx,

@@ -3,9 +3,14 @@ name = "floresta"
 version = "0.3.0"
 edition = "2021"
 
+[workspace]
+members = [".", "cli/"]
+
 [dependencies]
 rustreexo = { git = "https://www.github.com/mit-dci/rustreexo" }
-btcd-rpc = { git = "https://github.com/Davidson-Souza/rust-btcd-rpc", features = ["utreexod"], branch = "use-reqwest", optional = true }
+btcd-rpc = { git = "https://github.com/Davidson-Souza/rust-btcd-rpc", features = [
+    "utreexod",
+], branch = "use-reqwest", optional = true }
 clap = { version = "4.0.29", features = ["derive"] }
 sha2 = "^0.10.6"
 async-std = { version = "1.12.0", features = ["attributes"] }
@@ -28,6 +33,13 @@ slip132 = "0.9.0"
 dns-lookup = "1.0.8"
 ctrlc = "3.2.5"
 
+jsonrpc-http-server = { version = "18.0.0", optional = true }
+jsonrpc-derive = { version = "18.0.0", optional = true }
+jsonrpc-core = { version = "18.0.0", optional = true }
+jsonrpc-core-client = { version = "18.0.0", features = [
+    "http",
+], optional = true }
+
 [dev-dependencies]
 pretty_assertions = "1"
 zstd = "0.12.3"
@@ -36,6 +48,11 @@ zstd = "0.12.3"
 default = ["experimental-p2p"]
 cli-blockchain = ["rmp-serde", "btcd-rpc"]
 experimental-p2p = []
-
+json-rpc = [
+    "jsonrpc-http-server",
+    "jsonrpc-derive",
+    "jsonrpc-core",
+    "jsonrpc-core-client",
+]
 [patch."https://github.com/rust-lang/crates.io-index"]
 bitcoin = { git = "https://github.com/Davidson-Souza/rust-bitcoin", rev = "a320c6535567acd3771da37759a7644eea5c6eb2" }
