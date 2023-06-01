@@ -248,7 +248,7 @@ fn main() {
                 &get_net(&params.network),
             );
             let electrum_server = block_on(electrum::electrum_protocol::ElectrumServer::new(
-                "0.0.0.0:50001",
+                "0.0.0.0:50002",
                 wallet,
                 blockchain_state,
             ))
