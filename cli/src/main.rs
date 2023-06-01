@@ -35,7 +35,7 @@ fn get_host(cmd: &Cli) -> String {
         Network::Bitcoin => "127.0.0.1:8332".into(),
         Network::Testnet => "127.0.0.1:18332".into(),
         Network::Signet => "127.0.0.1:38332".into(),
-        Network::Regtest => "127.0.0.1:18443".into(),
+        Network::Regtest => "127.0.0.1:18442".into(),
     }
 }
 fn get_req(cmd: &Cli) -> (Vec<Box<RawValue>>, String) {

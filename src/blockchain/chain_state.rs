@@ -83,6 +83,17 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         sha256::Hash::from_slice(leaf_hash.as_slice())
             .expect("parent_hash: Engines shouldn't be Err")
     }
+    fn maybe_reindex(&self, potential_tip: &DiskBlockHeader) {
+        match potential_tip {
+            DiskBlockHeader::FullyValid(_, height) | DiskBlockHeader::HeadersOnly(_, height) => {
+                if *height > self.get_best_block().unwrap().0 {
+                    let best_chain = self.reindex_chain();
+                    write_lock!(self).best_block = best_chain;
+                }
+            }
+            _ => {}
+        }
+    }
     /// Returns the validation flags, given the current block height
     fn get_validation_flags(&self, height: u32) -> c_uint {
         let chains_params = read_lock!(self).chain_params.clone();
@@ -960,6 +971,7 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
         let header = self.get_disk_block_header(&block.block_hash())?;
         let height = match header {
             DiskBlockHeader::FullyValid(_, height) => {
+                self.inner.write().unwrap().best_block.validation_index = header.block_hash();
                 return Ok(height);
             }
             // If it's valid or orphan, we don't validate
@@ -986,8 +998,6 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
                 block.txdata.len()
             )
         }
-        // Notify others we have a new block
-        async_std::task::block_on(self.notify(Notification::NewBlock((block.to_owned(), height))));
         self.update_view(height, &block.header, acc)?;
         self.save_acc()?;
 
@@ -1015,9 +1025,7 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
         trace!("Accepting header {header:?}");
         let _header = self.get_disk_block_header(&header.block_hash());
         if _header.is_ok() {
-            if let DiskBlockHeader::HeadersOnly(header, height) = _header? {
-                self.update_tip(header.block_hash(), height);
-            }
+            self.maybe_reindex(&_header?);
             return Ok(()); // We already have this header
         }
         let best_block = self.get_best_block()?;
