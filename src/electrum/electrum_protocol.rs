@@ -2,7 +2,6 @@ use crate::address_cache::kv_database::KvDatabase;
 use crate::address_cache::{AddressCache, CachedTransaction};
 use crate::blockchain::{BlockchainInterface, Notification};
 use crate::electrum::request::Request;
-use crate::electrum::TransactionHistoryEntry;
 use crate::{get_arg, json_rpc_res};
 use bitcoin::hashes::hex::FromHex;
 use futures::{select, FutureExt};
@@ -74,6 +73,10 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
     ) -> Result<ElectrumServer<Blockchain>, Box<dyn std::error::Error>> {
         let listener = Arc::new(TcpListener::bind(address).await?);
         let (tx, rx) = unbounded();
+        let unconfirmed = address_cache.read().await.find_unconfirmed()?;
+        for tx in unconfirmed {
+            chain.broadcast(&tx).expect("Invalid chain");
+        }
         Ok(ElectrumServer {
             chain,
             address_cache,
@@ -156,10 +159,19 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                     .get_address_history(&script_hash);
                 let mut res = vec![];
                 for transaction in transactions {
-                    let entry = TransactionHistoryEntry {
-                        tx_hash: transaction.hash.to_hex(),
-                        height: transaction.height,
+                    let entry = if transaction.height == 0 {
+                        json!({
+                            "tx_hash": transaction.hash.to_hex(),
+                            "height": transaction.height,
+                            "fee": 2000
+                        })
+                    } else {
+                        json!({
+                            "tx_hash": transaction.hash.to_hex(),
+                            "height": transaction.height,
+                        })
                     };
+
                     res.push(entry);
                 }
 
@@ -223,6 +235,15 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                     deserialize(&hex).map_err(|_| super::error::Error::InvalidParams)?;
                 self.chain.broadcast(&tx)?;
                 let id = tx.txid();
+                let updated = self
+                    .address_cache
+                    .write()
+                    .await
+                    .cache_mempool_transaction(&tx)
+                    .into_iter()
+                    .map(|spend| (tx.clone(), spend))
+                    .collect::<Vec<_>>();
+                self.wallet_notify(&updated).await;
                 json_rpc_res!(request, id)
             }
             "blockchain.transaction.get" => {
