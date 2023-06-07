@@ -63,11 +63,11 @@ vout: A index for the desired output
 
 ### getrawtransaction
 
-Returns a cached transaction associated data.
+Returns a transaction data, given its id. The transaction itself doesn't have to be ours. But it should be cached by our internal wallet or in the mempool.
 
 **Args**
 ```
-    tx_id: The id of a transaction currently cached
+    tx_id: The id of a transaction
 ```
 **Returns**
 ```json
@@ -144,4 +144,36 @@ Returns the roots of our current forest state
 **Return**
 ```
 roots: A vec of hashes
+```
+
+### getblock
+
+Returns a full block, given its hash. Notice that this rpc will cause a actual network request to our node, so it may be slow, and if used too often, may cause more network usage.
+
+**Args**
+```
+block_hash: The hash of a block
+```
+**Return**
+```json
+{
+    "block": "A block object"
+}
+```
+
+### getpeerinfo
+
+Returns a list of peers connected to our node, and some useful information about them.
+
+**Args**: None
+
+**Returns**
+```json
+[
+    {
+        "address": "This peer's network address",
+        "services": "The services this peer announces as supported",
+        "user_agent": "A string representing this peer's software",
+    }
+]
 ```

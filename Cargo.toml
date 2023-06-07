@@ -39,6 +39,7 @@ jsonrpc-core = { version = "18.0.0", optional = true }
 jsonrpc-core-client = { version = "18.0.0", features = [
     "http",
 ], optional = true }
+oneshot = "0.1.5"
 
 [dev-dependencies]
 pretty_assertions = "1"
@@ -48,11 +49,6 @@ zstd = "0.12.3"
 default = ["experimental-p2p"]
 cli-blockchain = ["rmp-serde", "btcd-rpc"]
 experimental-p2p = []
-json-rpc = [
-    "jsonrpc-http-server",
-    "jsonrpc-derive",
-    "jsonrpc-core",
-    "jsonrpc-core-client",
-]
+json-rpc = ["jsonrpc-http-server", "jsonrpc-derive", "jsonrpc-core", "jsonrpc-core-client"]
 [patch."https://github.com/rust-lang/crates.io-index"]
 bitcoin = { git = "https://github.com/Davidson-Souza/rust-bitcoin", rev = "a320c6535567acd3771da37759a7644eea5c6eb2" }

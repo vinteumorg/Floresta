@@ -1,13 +1,19 @@
-use crate::blockchain::BlockchainProviderInterface;
+use crate::blockchain::{
+    error::BlockchainError,
+    p2p_blockchain::node_interface::{NodeInterface, NodeMethods, PeerInfo},
+    BlockchainProviderInterface,
+};
 use async_std::sync::RwLock;
 use bitcoin::{
-    consensus::deserialize, hashes::hex::FromHex, BlockHash, BlockHeader, Network, Transaction,
-    TxOut, Txid,
+    consensus::{deserialize, serialize},
+    hashes::hex::{FromHex, ToHex},
+    BlockHash, BlockHeader, Network, Transaction, TxOut, Txid,
 };
 use futures::executor::block_on;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use jsonrpc_http_server::ServerBuilder;
+use serde_json::{json, Value};
 use std::sync::Arc;
 
 use crate::{
@@ -41,11 +47,18 @@ pub trait Rpc {
     fn send_raw_transaction(&self, tx: String) -> Result<Txid>;
     #[rpc(name = "getroots")]
     fn get_roots(&self) -> Result<Vec<String>>;
+    #[rpc(name = "getpeerinfo")]
+    fn get_peer_info(&self) -> Result<Vec<PeerInfo>>;
+    #[rpc(name = "getblock")]
+    fn get_block(&self, hash: BlockHash, verbosity: Option<u8>) -> Result<Value>;
+    #[rpc(name = "findtxout")]
+    fn find_tx_out(&self, block_height: u32, tx_id: Txid, outpoint: usize) -> Result<TxOut>;
 }
 
 pub struct RpcImpl {
     chain: Arc<ChainState<KvChainStore>>,
     wallet: Arc<RwLock<AddressCache<KvDatabase>>>,
+    node: Arc<NodeInterface>,
 }
 impl Rpc for RpcImpl {
     fn get_height(&self) -> Result<u32> {
@@ -90,6 +103,9 @@ impl Rpc for RpcImpl {
         let wallet = block_on(self.wallet.read());
         if let Some(tx) = wallet.get_transaction(&tx_id) {
             return Ok(tx.tx);
+        }
+        if let Ok(Some(tx)) = self.node.get_mempool_transaction(tx_id) {
+            return Ok(tx);
         }
         Err(Error::TxNotFound.into())
     }
@@ -147,6 +163,42 @@ impl Rpc for RpcImpl {
         }
         Err(Error::TxNotFound.into())
     }
+
+    fn get_block(&self, hash: BlockHash, verbosity: Option<u8>) -> Result<Value> {
+        let verbosity = verbosity.unwrap_or(1);
+        if let Ok(Some(block)) = self.node.get_block(hash) {
+            if verbosity == 1 {
+                return Ok(serde_json::to_value(block).unwrap());
+            }
+            return Ok(json!(serialize(&block).to_hex()));
+        }
+        Err(Error::BlockNotFound.into())
+    }
+
+    fn find_tx_out(&self, block_height: u32, tx_id: Txid, outpoint: usize) -> Result<TxOut> {
+        let block_hash = self.chain.get_block_hash(block_height)?;
+        let block = self
+            .node
+            .get_block(block_hash)
+            .map_err(|_| jsonrpc_core::Error {
+                code: 5.into(),
+                message: "Block not found".into(),
+                data: None,
+            })?;
+        let tx = block.and_then(|block| block.txdata.iter().find(|tx| tx.txid() == tx_id).cloned());
+        if let Some(tx) = tx {
+            return Ok(tx.output[outpoint].clone());
+        }
+        Err(Error::TxNotFound.into())
+    }
+
+    fn get_peer_info(&self) -> Result<Vec<PeerInfo>> {
+        let peers = self.node.get_peer_info();
+        if let Ok(peers) = peers {
+            return Ok(peers);
+        }
+        Err(Error::TxNotFound.into())
+    }
 }
 impl RpcImpl {
     fn get_port(net: &Network) -> u16 {
@@ -161,9 +213,14 @@ impl RpcImpl {
         chain: Arc<ChainState<KvChainStore>>,
         wallet: Arc<RwLock<AddressCache<KvDatabase>>>,
         net: &Network,
+        node: Arc<NodeInterface>,
     ) -> jsonrpc_http_server::Server {
         let mut io = jsonrpc_core::IoHandler::new();
-        let rpc_impl = RpcImpl { chain, wallet };
+        let rpc_impl = RpcImpl {
+            chain,
+            wallet,
+            node,
+        };
         io.extend_with(rpc_impl.to_delegate());
 
         ServerBuilder::new(io)
@@ -174,5 +231,15 @@ impl RpcImpl {
                     .unwrap(),
             )
             .unwrap()
+    }
+}
+
+impl From<BlockchainError> for jsonrpc_core::Error {
+    fn from(e: BlockchainError) -> Self {
+        jsonrpc_core::Error {
+            code: 1.into(),
+            message: format!("{:?}", e),
+            data: None,
+        }
     }
 }

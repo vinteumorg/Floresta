@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use jsonrpc_core::ErrorCode;
 use serde::{Deserialize, Serialize};
 
@@ -16,10 +18,20 @@ pub enum Error {
     BlockNotFound,
     ChainError,
 }
-
-impl Into<i64> for Error {
-    fn into(self) -> i64 {
-        match self {
+impl Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let msg = match self {
+            Error::TxNotFound => "Transaction not found",
+            Error::InvalidDescriptor => "Invalid descriptor",
+            Error::BlockNotFound => "Block not found",
+            Error::ChainError => "Chain error",
+        };
+        write!(f, "{}", msg)
+    }
+}
+impl From<Error> for i64 {
+    fn from(val: Error) -> Self {
+        match val {
             Error::BlockNotFound => 1,
             Error::ChainError => 2,
             Error::TxNotFound => 3,
@@ -27,18 +39,18 @@ impl Into<i64> for Error {
         }
     }
 }
-impl Into<ErrorCode> for Error {
-    fn into(self) -> ErrorCode {
-        let code = self.into();
+impl From<Error> for ErrorCode {
+    fn from(val: Error) -> Self {
+        let code = val.into();
         ErrorCode::ServerError(code)
     }
 }
 
-impl Into<jsonrpc_core::Error> for Error {
-    fn into(self) -> jsonrpc_core::Error {
+impl From<Error> for jsonrpc_core::Error {
+    fn from(value: Error) -> Self {
         jsonrpc_core::Error {
-            message: format!("{:?}", self),
-            code: self.into(),
+            message: value.to_string(),
+            code: value.into(),
             data: None,
         }
     }
