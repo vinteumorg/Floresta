@@ -52,6 +52,8 @@ fn get_req(cmd: &Cli) -> (Vec<Box<RawValue>>, String) {
         Methods::GetRoots => "getroots",
         Methods::GetBlock { .. } => "getblock",
         Methods::GetPeerInfo => "getpeerinfo",
+        Methods::FindUtxo { .. } => "findtxout",
+        Methods::ListTransactions => "gettransactions",
     };
     let params = match &cmd.methods {
         Methods::GetBlockchainInfo => vec![],
@@ -80,6 +82,10 @@ fn get_req(cmd: &Cli) -> (Vec<Box<RawValue>>, String) {
         Methods::GetRoots => vec![],
         Methods::GetBlock { hash } => vec![arg(hash)],
         Methods::GetPeerInfo => vec![],
+        Methods::ListTransactions => vec![],
+        Methods::FindUtxo { height, txid, vout } => {
+            vec![arg(height), arg(txid), arg(vout)]
+        }
     };
 
     (params, method.to_string())
@@ -155,4 +161,12 @@ pub enum Methods {
     /// Returns information about the peers we are connected to
     #[command(name = "getpeerinfo")]
     GetPeerInfo,
+    /// List all transactions we are watching
+    #[command(name = "listtransactions")]
+    ListTransactions,
+    /// Finds a TXO by its outpoint and block height. Since we don't have a UTXO set
+    /// the block height is required to find the UTXO. Note that this command doesn't
+    /// check if the UTXO is spent or not.
+    #[command(name = "findutxo")]
+    FindUtxo { height: u32, txid: Txid, vout: u32 },
 }

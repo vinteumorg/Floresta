@@ -281,6 +281,14 @@ impl<T: 'static + Default> UtreexoNode<T> {
             version.id, version.user_agent, version.blocks
         );
         if let Some(peer_data) = self.peers.get_mut(&peer) {
+            // This peer doesn't have basic services, so we disconnect it
+            if !version
+                .services
+                .has(ServiceFlags::NETWORK | ServiceFlags::WITNESS)
+            {
+                self.send_to_peer(peer, NodeRequest::Shutdown).await?;
+                return Ok(());
+            }
             peer_data.state = PeerStatus::Ready;
             peer_data.services = version.services;
             peer_data.user_agent = version.user_agent.clone();
@@ -447,7 +455,6 @@ impl<T: 'static + Default> UtreexoNode<T> {
                 return Ok(idx);
             }
         }
-        self.state = NodeState::WaitingPeer;
         Err(BlockchainError::NoPeersAvailable)
     }
 
