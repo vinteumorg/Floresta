@@ -23,7 +23,7 @@ use bitcoin::{
         message_network::VersionMessage,
         utreexo::UtreexoBlock,
     },
-    BlockHash, BlockHeader, Network,
+    BlockHash, BlockHeader, Network, Transaction,
 };
 use futures::FutureExt;
 use log::debug;
@@ -139,6 +139,10 @@ impl Peer {
                 self.write(NetworkMessage::Inv(vec![Inventory::Transaction(tx)]))
                     .await?;
             }
+            NodeRequest::MempoolTransaction(txid) => {
+                self.write(NetworkMessage::GetData(vec![Inventory::Transaction(txid)]))
+                    .await?;
+            }
         }
         Ok(())
     }
@@ -217,10 +221,17 @@ impl Peer {
             bitcoin::network::message::NetworkMessage::GetAddr => {
                 self.write(NetworkMessage::AddrV2(vec![])).await?;
             }
-
             bitcoin::network::message::NetworkMessage::GetData(inv) => {
                 for inv_el in inv {
                     self.handle_get_data(inv_el).await?;
+                }
+            }
+            bitcoin::network::message::NetworkMessage::Tx(tx) => {
+                self.send_to_node(PeerMessages::Transaction(tx)).await;
+            }
+            bitcoin::network::message::NetworkMessage::NotFound(inv) => {
+                for inv_el in inv {
+                    self.send_to_node(PeerMessages::NotFound(inv_el)).await;
                 }
             }
             _ => {}
@@ -410,4 +421,8 @@ pub enum PeerMessages {
     Ready(Version),
     /// Remote peer disconnected
     Disconnected(usize),
+    /// Remote peer doesn't known the data we asked for
+    NotFound(Inventory),
+    /// Remote peer sent us a transaction
+    Transaction(Transaction),
 }

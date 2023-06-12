@@ -50,6 +50,8 @@ fn get_req(cmd: &Cli) -> (Vec<Box<RawValue>>, String) {
         Methods::GetBlockHeader { .. } => "getblockheader",
         Methods::LoadDescriptor { .. } => "loaddescriptor",
         Methods::GetRoots => "getroots",
+        Methods::GetBlock { .. } => "getblock",
+        Methods::GetPeerInfo => "getpeerinfo",
     };
     let params = match &cmd.methods {
         Methods::GetBlockchainInfo => vec![],
@@ -76,6 +78,8 @@ fn get_req(cmd: &Cli) -> (Vec<Box<RawValue>>, String) {
         Methods::RescanBlockchain { start_height } => vec![arg(start_height)],
         Methods::SendRawTransaction { tx } => vec![arg(tx)],
         Methods::GetRoots => vec![],
+        Methods::GetBlock { hash } => vec![arg(hash)],
+        Methods::GetPeerInfo => vec![],
     };
 
     (params, method.to_string())
@@ -145,4 +149,10 @@ pub enum Methods {
     /// Returns the roots of the current utreexo forest
     #[command(name = "getroots")]
     GetRoots,
+    /// Returns a block
+    #[command(name = "getblock")]
+    GetBlock { hash: BlockHash },
+    /// Returns information about the peers we are connected to
+    #[command(name = "getpeerinfo")]
+    GetPeerInfo,
 }

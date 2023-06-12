@@ -246,6 +246,7 @@ fn main() {
                 blockchain_state.clone(),
                 wallet.clone(),
                 &get_net(&params.network),
+                chain_provider.get_handle(),
             );
             let electrum_server = block_on(electrum::electrum_protocol::ElectrumServer::new(
                 "0.0.0.0:50001",

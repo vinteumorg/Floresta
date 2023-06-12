@@ -645,7 +645,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
                     get_hash("0000000000000004877fa2d36316398528de4f347df2f8a96f76613a298ce060")
                 }
                 Network::Signet => {
-                    get_hash("000000d1a0e224fa4679d2fb2187ba55431c284fa1b74cbc8cfda866fd4d2c09")
+                    get_hash("0000004f401bac79fe6cb3a10ef367b071e0fb51a1c9f4b3e8484e4dd03e1863")
                 }
                 Network::Regtest => {
                     get_hash("0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206")
@@ -678,7 +678,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         }
         BestChain {
             best_block: hash,
-            depth: height,
+            depth: height - 1,
             validation_index: hash,
             rescan_index: None,
             alternative_tips: vec![],
@@ -912,7 +912,7 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
         indexes.push(0);
         let hashes = indexes
             .iter()
-            .map(|idx| self.get_block_hash(*idx).unwrap())
+            .flat_map(|idx| self.get_block_hash(*idx))
             .collect();
 
         Ok(hashes)
@@ -971,7 +971,7 @@ impl<PersistedState: ChainStore> BlockchainProviderInterface for ChainState<Pers
         let header = self.get_disk_block_header(&block.block_hash())?;
         let height = match header {
             DiskBlockHeader::FullyValid(_, height) => {
-                self.inner.write().unwrap().best_block.validation_index = header.block_hash();
+                self.maybe_reindex(&header);
                 return Ok(height);
             }
             // If it's valid or orphan, we don't validate

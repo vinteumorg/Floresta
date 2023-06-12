@@ -253,11 +253,12 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
                 .iter()
                 .filter_map(|txid| self.get_transaction(txid))
                 .collect();
-            let mut all = transactions.clone();
+            let mut unconfirmed = transactions.clone();
+
+            transactions.retain(|tx| tx.height != 0);
             transactions.sort();
-            transactions.retain(|tx| tx.height > 0);
-            all.retain(|tx| tx.height == 0);
-            transactions.extend(all);
+            unconfirmed.retain(|tx| tx.height == 0);
+            transactions.extend(unconfirmed);
             return transactions;
         }
         vec![]

@@ -4,6 +4,7 @@
 use super::{
     address_man::{AddressMan, LocalAddress},
     mempool::Mempool,
+    node_interface::{NodeInterface, NodeResponse, PeerInfo, UserRequest},
     peer::{Peer, PeerMessages, Version},
 };
 use crate::blockchain::{
@@ -21,16 +22,19 @@ use bitcoin::{
     hashes::{sha256, Hash},
     network::{
         constants::ServiceFlags,
+        message_blockdata::Inventory,
         utreexo::{UData, UtreexoBlock},
     },
     BlockHash, BlockHeader, Network, OutPoint, Transaction, TxOut, Txid,
 };
 use log::{error, info, trace, warn};
+use oneshot::SendError;
 use rustreexo::accumulator::proof::Proof;
 use std::{
     collections::{HashMap, HashSet},
+    net::IpAddr,
     ops::{Deref, DerefMut},
-    sync::Arc,
+    sync::{Arc, Mutex},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -41,7 +45,7 @@ const ASK_FOR_PEERS_INTERVAL: u64 = 60; // One minute
 /// Save our database of peers every PEER_DB_DUMP_INTERVAL seconds
 const PEER_DB_DUMP_INTERVAL: u64 = 60 * 5; // 5 minutes
 /// Attempt to open a new connection (if needed) every TRY_NEW_CONNECTION seconds
-const TRY_NEW_CONNECTION: u64 = 30; // 10 seconds
+const TRY_NEW_CONNECTION: u64 = 30; // 30 seconds
 /// If ASSUME_STALE seconds passed since our last tip update, treat it as stale
 const ASSUME_STALE: u64 = 30 * 60; // 30 minutes
 /// While on IBD, if we've been without blocks for this long, ask for headers again
@@ -49,7 +53,7 @@ const IBD_REQUEST_BLOCKS_AGAIN: u64 = 10; // 10 seconds
 /// How often we broadcast transactions
 const BROADCAST_DELAY: u64 = 30; // 30 seconds
 /// Wait up to this many seconds for a peer to respond to a request
-const PEER_REQUEST_TIMEOUT: u64 = 30 * 60; // twenty seconds
+const PEER_REQUEST_TIMEOUT: u64 = 30 * 60; // 30 minutes FIXME: This is too long
 /// Max number of simultaneous inflight requests we allow
 const MAX_INFLIGHT_REQUESTS: usize = 1_000;
 /// Interval at which we open new feeler connections
@@ -62,7 +66,7 @@ const BAN_TIME: u64 = 60 * 60 * 24;
 pub enum NodeNotification {
     FromPeer(u32, PeerMessages),
 }
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Hash)]
 /// Sent from node to peers, usually to request something
 pub enum NodeRequest {
     /// Get this block's data
@@ -75,6 +79,8 @@ pub enum NodeRequest {
     Shutdown,
     /// Sends a transaction to peers
     BroadcastTransaction(Txid),
+    /// Ask for an unconfirmed transaction
+    MempoolTransaction(Txid),
 }
 
 #[derive(Default, PartialEq)]
@@ -85,22 +91,28 @@ enum NodeState {
     DownloadBlocks,
     Running,
 }
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, Hash, PartialEq, Eq, Clone)]
 enum InflightRequests {
     Headers,
     Blocks(BlockHash),
     RescanBlock(BlockHash),
     Addresses,
+    UserRequest(UserRequest),
 }
 #[derive(Debug, Clone)]
-struct LocalPeerView {
+pub struct LocalPeerView {
     state: PeerStatus,
     address_id: u32,
     channel: Sender<NodeRequest>,
     services: ServiceFlags,
+    user_agent: String,
+    address: IpAddr,
+    port: u16,
     _last_message: Instant,
     feeler: bool,
+    height: u32,
 }
+
 #[derive(Debug, PartialEq, Clone, Copy)]
 enum RescanStatus {
     InProgress(u32),
@@ -156,18 +168,24 @@ enum PeerStatus {
 pub struct IBDNode {
     blocks: HashMap<BlockHash, UtreexoBlock>,
 }
+
 #[derive(Debug, Clone)]
 pub struct RunningNode {
     last_rescan_request: RescanStatus,
     last_feeler: Instant,
     last_address_rearrange: Instant,
+    user_requests: Arc<NodeInterface>,
 }
+
 impl Default for RunningNode {
     fn default() -> Self {
         RunningNode {
             last_rescan_request: RescanStatus::None,
             last_feeler: Instant::now(),
             last_address_rearrange: Instant::now(),
+            user_requests: Arc::new(NodeInterface {
+                requests: Mutex::new(vec![]),
+            }),
         }
     }
 }
@@ -230,6 +248,14 @@ impl<T: 'static + Default> UtreexoNode<T> {
         );
         Ok(())
     }
+    fn get_peer_info(&self, peer: &LocalPeerView) -> Option<PeerInfo> {
+        Some(PeerInfo {
+            address: format!("{}:{}", peer.address, peer.port),
+            services: peer.services.to_string(),
+            user_agent: peer.user_agent.clone(),
+            initial_height: peer.height,
+        })
+    }
     async fn handle_peer_ready(
         &mut self,
         peer: u32,
@@ -257,6 +283,8 @@ impl<T: 'static + Default> UtreexoNode<T> {
         if let Some(peer_data) = self.peers.get_mut(&peer) {
             peer_data.state = PeerStatus::Ready;
             peer_data.services = version.services;
+            peer_data.user_agent = version.user_agent.clone();
+            peer_data.height = version.blocks;
             self.address_man
                 .update_set_state(version.address_id, AddressState::Connected)
                 .update_set_service_flag(version.address_id, version.services);
@@ -345,7 +373,7 @@ impl<T: 'static + Default> UtreexoNode<T> {
         for request in self.inflight.keys() {
             let (_, time) = self.inflight.get(request).unwrap();
             if time.elapsed() > Duration::from_secs(PEER_REQUEST_TIMEOUT) {
-                timed_out.push(*request);
+                timed_out.push(request.clone());
             }
         }
         let mut removed_peers = HashSet::new();
@@ -366,9 +394,13 @@ impl<T: 'static + Default> UtreexoNode<T> {
                         .await?;
                     self.last_headers_request = Instant::now();
                 }
+                InflightRequests::UserRequest(_) => {}
             }
 
-            let (peer, _) = self.inflight.remove(&request).unwrap();
+            let Some((peer, _)) = self.inflight.remove(&request) else {
+                continue;
+            };
+
             if !removed_peers.contains(&peer) {
                 self.peers.get_mut(&peer).unwrap().state = PeerStatus::ShutingDown;
                 self.send_to_peer(peer, NodeRequest::Shutdown).await?;
@@ -386,7 +418,6 @@ impl<T: 'static + Default> UtreexoNode<T> {
     ) -> Result<u32, BlockchainError> {
         for _ in 0..10 {
             if self.peers.is_empty() {
-                println!("1 => {:?}", self.0.peers);
                 return Err(BlockchainError::NoPeersAvailable);
             }
             let idx = if required_services.has(ServiceFlags::NODE_UTREEXO) {
@@ -534,8 +565,8 @@ impl<T: 'static + Default> UtreexoNode<T> {
     }
 
     async fn create_connection(&mut self, feeler: bool) -> Option<()> {
-        // We should try to keep at least two utreexo connections
-        let required_services = if self.utreexo_peers.len() < 2 {
+        // We should try to keep at least one utreexo connections
+        let required_services = if self.utreexo_peers.is_empty() {
             ServiceFlags::NETWORK | ServiceFlags::WITNESS | ServiceFlags::NODE_UTREEXO
         } else {
             ServiceFlags::NETWORK | ServiceFlags::WITNESS
@@ -543,6 +574,17 @@ impl<T: 'static + Default> UtreexoNode<T> {
         let (peer_id, address) = self
             .address_man
             .get_address_to_connect(required_services, feeler)?;
+        self.address_man
+            .update_set_state(peer_id, AddressState::Connected);
+        // Don't connect to the same peer twice
+        if self
+            .0
+            .peers
+            .iter()
+            .any(|peers| peers.1.address == address.get_net_address())
+        {
+            return None;
+        }
 
         self.open_connection(feeler, peer_id, address).await;
         Some(())
@@ -564,12 +606,16 @@ impl<T: 'static + Default> UtreexoNode<T> {
         self.peers.insert(
             peer_count,
             LocalPeerView {
+                address: address.get_net_address(),
+                port: address.get_port(),
+                user_agent: "".to_string(),
                 state: PeerStatus::Awaiting,
                 channel: requests_tx,
                 services: ServiceFlags::NONE,
                 _last_message: Instant::now(),
                 feeler,
                 address_id: peer_id as u32,
+                height: 0,
             },
         );
 
@@ -577,11 +623,6 @@ impl<T: 'static + Default> UtreexoNode<T> {
     }
 }
 impl UtreexoNode<IBDNode> {
-    /// Processing blocks actually takes a lot of CPU time, and we need to wait until it either
-    /// succeed or fail before doing something else. This will hang our node up (not peers, only
-    /// the node) and make it do funky stuff, like timeout blocks we just got but not processed.
-    /// This task solves it by taking up the actual CPU time for processing blocks, while our
-    /// node's main loop can continue normally.
     async fn handle_block(
         chain: &Arc<ChainState<KvChainStore>>,
         block: UtreexoBlock,
@@ -693,6 +734,12 @@ impl UtreexoNode<IBDNode> {
             if self.state == NodeState::DownloadBlocks && currently_inflight < MAX_INFLIGHT_REQUESTS
             {
                 let blocks = self.get_blocks_to_download()?;
+                if blocks.is_empty() {
+                    info!("Finished downloading blocks");
+                    self.chain.toggle_ibd(false);
+
+                    break;
+                }
                 self.request_blocks(blocks).await?;
             }
 
@@ -804,6 +851,7 @@ impl UtreexoNode<IBDNode> {
                         addresses.iter().cloned().map(|addr| addr.into()).collect();
                     self.address_man.push_addresses(&addresses);
                 }
+                _ => {}
             },
         }
         Ok(())
@@ -811,6 +859,73 @@ impl UtreexoNode<IBDNode> {
 }
 
 impl UtreexoNode<RunningNode> {
+    #[cfg(feature = "json-rpc")]
+    /// Returns a handle to the node interface that we can use to request data from our
+    /// node. This struct is thread safe, so we can use it from multiple threads and have
+    /// multiple handles. It also doesn't require a mutable reference to the node, or any
+    /// synchronization mechanism.
+    pub fn get_handle(&self) -> Arc<NodeInterface> {
+        self.1.user_requests.clone()
+    }
+    fn check_request_timeout(&mut self) -> Result<(), SendError<NodeResponse>> {
+        let mutex = self.1.user_requests.requests.lock().unwrap();
+        let mut to_remove = vec![];
+        for req in mutex.iter() {
+            if req.time.elapsed() > Duration::from_secs(10) {
+                to_remove.push(req.req);
+            }
+        }
+        drop(mutex);
+        for request in to_remove {
+            self.1.user_requests.send_answer(request, None);
+        }
+
+        Ok(())
+    }
+    async fn handle_user_request(&mut self) {
+        let mut requests = vec![];
+
+        for request in self.1.user_requests.requests.lock().unwrap().iter() {
+            if !self
+                .inflight
+                .contains_key(&InflightRequests::UserRequest(request.req))
+            {
+                requests.push(request.req);
+            }
+        }
+        self.perform_user_request(requests).await;
+    }
+    fn handle_get_peer_info(&self) {
+        let mut peers = vec![];
+        for peer in self.peers.values() {
+            peers.push(self.get_peer_info(peer));
+        }
+        let peers = peers.into_iter().flatten().collect();
+        self.1.user_requests.send_answer(
+            UserRequest::GetPeerInfo,
+            Some(NodeResponse::GetPeerInfo(peers)),
+        );
+    }
+    async fn perform_user_request(&mut self, user_req: Vec<UserRequest>) {
+        for user_req in user_req {
+            let req = match user_req {
+                UserRequest::Block(block) => NodeRequest::GetBlock((vec![block], false)),
+                UserRequest::UtreexoBlock(block) => NodeRequest::GetBlock((vec![block], true)),
+                UserRequest::MempoolTransaction(txid) => NodeRequest::MempoolTransaction(txid),
+                UserRequest::GetPeerInfo => {
+                    self.handle_get_peer_info();
+                    continue;
+                }
+            };
+            let peer = self.send_to_random_peer(req, ServiceFlags::NONE).await;
+            if let Ok(peer) = peer {
+                self.inflight.insert(
+                    InflightRequests::UserRequest(user_req),
+                    (peer, Instant::now()),
+                );
+            }
+        }
+    }
     pub async fn run(mut self) {
         let kill_signal = Arc::new(RwLock::new(false));
         let _kill_signal = kill_signal.clone();
@@ -825,7 +940,7 @@ impl UtreexoNode<RunningNode> {
         let mut ibd = UtreexoNode(self.0, IBDNode::default());
         try_and_log!(UtreexoNode::<IBDNode>::run(&mut ibd, &kill_signal).await);
         // Then take the final state and run the node
-        self = UtreexoNode(ibd.0, RunningNode::default());
+        self = UtreexoNode(ibd.0, self.1);
 
         let _ = self
             .send_to_random_peer(
@@ -844,6 +959,8 @@ impl UtreexoNode<RunningNode> {
                 self.shutdown().await;
                 break;
             }
+            // Jobs that don't need a connected peer
+
             // Save our peers db
             periodic_job!(
                 self.save_peers(),
@@ -856,6 +973,15 @@ impl UtreexoNode<RunningNode> {
                 self.1.last_address_rearrange,
                 ADDRESS_REARRANGE_INTERVAL
             );
+            // Perhaps we need more connections
+            periodic_job!(
+                self.maybe_open_connection().await,
+                self.last_connection,
+                TRY_NEW_CONNECTION
+            );
+            try_and_log!(self.check_request_timeout());
+            self.handle_user_request().await;
+
             // Those jobs bellow needs a connected peer to work
             if self.state == NodeState::WaitingPeer {
                 continue;
@@ -883,12 +1009,6 @@ impl UtreexoNode<RunningNode> {
                 self.handle_broadcast().await,
                 self.last_broadcast,
                 BROADCAST_DELAY
-            );
-            // Perhaps we need more connections
-            periodic_job!(
-                self.maybe_open_connection().await,
-                self.last_connection,
-                TRY_NEW_CONNECTION
             );
             try_and_log!(self.ask_block().await);
             try_and_log!(self.check_for_timeout().await);
@@ -971,6 +1091,26 @@ impl UtreexoNode<RunningNode> {
         {
             self.request_rescan_block().await?;
             return self.chain.process_rescan_block(&block.block);
+        }
+        if self
+            .inflight
+            .remove(&InflightRequests::UserRequest(UserRequest::Block(
+                block.block.block_hash(),
+            )))
+            .is_some()
+        {
+            if block.udata.is_some() {
+                self.1.user_requests.send_answer(
+                    UserRequest::UtreexoBlock(block.block.block_hash()),
+                    Some(NodeResponse::UtreexoBlock(block)),
+                );
+                return Ok(());
+            }
+            self.1.user_requests.send_answer(
+                UserRequest::Block(block.block.block_hash()),
+                Some(NodeResponse::Block(block.block)),
+            );
+            return Ok(());
         }
         // Remove from inflight, since we just got it.
         if self
@@ -1064,6 +1204,31 @@ impl UtreexoNode<RunningNode> {
                     let addresses: Vec<_> =
                         addresses.iter().cloned().map(|addr| addr.into()).collect();
                     self.address_man.push_addresses(&addresses);
+                }
+                PeerMessages::NotFound(inv) => match inv {
+                    Inventory::Error => {}
+                    Inventory::Block(block)
+                    | Inventory::WitnessBlock(block)
+                    | Inventory::UtreexoBlock(block)
+                    | Inventory::UtreexoWitnessBlock(block)
+                    | Inventory::CompactBlock(block) => {
+                        self.1
+                            .user_requests
+                            .send_answer(UserRequest::Block(block), None);
+                    }
+
+                    Inventory::WitnessTransaction(tx) | Inventory::Transaction(tx) => {
+                        self.1
+                            .user_requests
+                            .send_answer(UserRequest::MempoolTransaction(tx), None);
+                    }
+                    _ => {}
+                },
+                PeerMessages::Transaction(tx) => {
+                    self.1.user_requests.send_answer(
+                        UserRequest::MempoolTransaction(tx.txid()),
+                        Some(NodeResponse::MempoolTransaction(tx)),
+                    );
                 }
             },
         }
