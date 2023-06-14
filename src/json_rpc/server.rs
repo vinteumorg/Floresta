@@ -53,12 +53,15 @@ pub trait Rpc {
     fn get_block(&self, hash: BlockHash, verbosity: Option<u8>) -> Result<Value>;
     #[rpc(name = "findtxout")]
     fn find_tx_out(&self, block_height: u32, tx_id: Txid, outpoint: usize) -> Result<TxOut>;
+    #[rpc(name = "stop")]
+    fn stop(&self) -> Result<bool>;
 }
 
 pub struct RpcImpl {
     chain: Arc<ChainState<KvChainStore>>,
     wallet: Arc<RwLock<AddressCache<KvDatabase>>>,
     node: Arc<NodeInterface>,
+    kill_signal: Arc<RwLock<bool>>,
 }
 impl Rpc for RpcImpl {
     fn get_height(&self) -> Result<u32> {
@@ -199,6 +202,11 @@ impl Rpc for RpcImpl {
         }
         Err(Error::TxNotFound.into())
     }
+
+    fn stop(&self) -> Result<bool> {
+        *async_std::task::block_on(self.kill_signal.write()) = true;
+        Ok(true)
+    }
 }
 impl RpcImpl {
     fn get_port(net: &Network) -> u16 {
@@ -214,12 +222,14 @@ impl RpcImpl {
         wallet: Arc<RwLock<AddressCache<KvDatabase>>>,
         net: &Network,
         node: Arc<NodeInterface>,
+        kill_signal: Arc<RwLock<bool>>,
     ) -> jsonrpc_http_server::Server {
         let mut io = jsonrpc_core::IoHandler::new();
         let rpc_impl = RpcImpl {
             chain,
             wallet,
             node,
+            kill_signal,
         };
         io.extend_with(rpc_impl.to_delegate());
 

@@ -184,6 +184,8 @@ fn main() {
             wallet_descriptor,
             rescan,
         } => {
+            let kill_signal = Arc::new(RwLock::new(false));
+
             let data_dir = get_one_or_another(
                 data_dir,
                 dirs::home_dir().map(|x: PathBuf| {
@@ -247,6 +249,7 @@ fn main() {
                 wallet.clone(),
                 &get_net(&params.network),
                 chain_provider.get_handle(),
+                kill_signal.clone(),
             );
             let electrum_server = block_on(electrum::electrum_protocol::ElectrumServer::new(
                 "0.0.0.0:50001",
@@ -264,7 +267,15 @@ fn main() {
             ));
             task::spawn(electrum_server.main_loop());
             info!("Server running on: 0.0.0.0:50001");
-            task::block_on(chain_provider.run());
+            let _kill_signal = kill_signal.clone();
+            ctrlc::set_handler(move || {
+                if *block_on(_kill_signal.write()) {
+                    info!("Already shutting down, please wait");
+                }
+                *block_on(_kill_signal.write()) = true;
+            })
+            .expect("Error setting Ctrl-C handler");
+            task::block_on(chain_provider.run(&kill_signal));
         }
     }
 }

@@ -54,6 +54,7 @@ fn get_req(cmd: &Cli) -> (Vec<Box<RawValue>>, String) {
         Methods::GetPeerInfo => "getpeerinfo",
         Methods::FindUtxo { .. } => "findtxout",
         Methods::ListTransactions => "gettransactions",
+        Methods::Stop => "stop",
     };
     let params = match &cmd.methods {
         Methods::GetBlockchainInfo => vec![],
@@ -86,6 +87,7 @@ fn get_req(cmd: &Cli) -> (Vec<Box<RawValue>>, String) {
         Methods::FindUtxo { height, txid, vout } => {
             vec![arg(height), arg(txid), arg(vout)]
         }
+        Methods::Stop => vec![],
     };
 
     (params, method.to_string())
@@ -169,4 +171,7 @@ pub enum Methods {
     /// check if the UTXO is spent or not.
     #[command(name = "findutxo")]
     FindUtxo { height: u32, txid: Txid, vout: u32 },
+    /// Stops the node
+    #[command(name = "stop")]
+    Stop,
 }
