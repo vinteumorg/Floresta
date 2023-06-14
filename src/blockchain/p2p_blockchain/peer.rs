@@ -36,6 +36,7 @@ use std::{
 #[derive(PartialEq)]
 enum State {
     None,
+    SentVersion(Instant),
     SentVerack,
     Connected,
 }
@@ -77,12 +78,13 @@ impl Peer {
         // send a version
         let version = peer_utils::build_version_message();
         self.write(version).await?;
-
+        self.state = State::SentVersion(Instant::now());
         let read_stream = BufReader::new(self.stream.clone());
         let (tx, rx) = unbounded();
         let stream: StreamReader<_, RawNetworkMessage> =
             StreamReader::new(read_stream, self.network.magic(), tx);
         spawn(stream.read_loop());
+
         loop {
             futures::select! {
                 request = self.node_requests.recv().fuse() => {
@@ -96,6 +98,13 @@ impl Peer {
                     }
                 }
             };
+            if let State::SentVersion(when) = self.state {
+                if Instant::now().duration_since(when) > Duration::from_secs(10) {
+                    return Err(BlockchainError::InvalidMessage(
+                        "Version timeout".to_string(),
+                    ));
+                }
+            }
         }
     }
     pub async fn handle_node_request(
@@ -276,8 +285,9 @@ impl Peer {
         address_id: usize,
         feeler: bool,
     ) {
-        let stream = TcpStream::connect(address).await;
-        if stream.is_err() {
+        let stream =
+            async_std::future::timeout(Duration::from_secs(10), TcpStream::connect(address)).await;
+        let Ok(Ok(stream)) = stream else {
             let _ = node_tx
                 .send(NodeNotification::FromPeer(
                     id,
@@ -285,7 +295,7 @@ impl Peer {
                 ))
                 .await;
             return;
-        }
+        };
         let peer = Peer {
             address_id,
             blocks_only: false,
@@ -296,7 +306,7 @@ impl Peer {
             network,
             node_tx,
             services: ServiceFlags::NONE,
-            stream: stream.unwrap(),
+            stream,
             user_agent: "".into(),
             state: State::None,
             send_headers: false,

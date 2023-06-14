@@ -98,6 +98,7 @@ enum InflightRequests {
     RescanBlock(BlockHash),
     Addresses,
     UserRequest(UserRequest),
+    Connect(u32),
 }
 #[derive(Debug, Clone)]
 pub struct LocalPeerView {
@@ -280,7 +281,17 @@ impl<T: 'static + Default> UtreexoNode<T> {
             "New peer id={} version={} blocks={}",
             version.id, version.user_agent, version.blocks
         );
+        self.inflight.remove(&InflightRequests::Connect(peer));
+
         if let Some(peer_data) = self.peers.get_mut(&peer) {
+            // This peer doesn't have basic services, so we disconnect it
+            if !version
+                .services
+                .has(ServiceFlags::NETWORK | ServiceFlags::WITNESS)
+            {
+                self.send_to_peer(peer, NodeRequest::Shutdown).await?;
+                return Ok(());
+            }
             peer_data.state = PeerStatus::Ready;
             peer_data.services = version.services;
             peer_data.user_agent = version.user_agent.clone();
@@ -379,6 +390,9 @@ impl<T: 'static + Default> UtreexoNode<T> {
         let mut removed_peers = HashSet::new();
         let mut to_request = vec![];
         for request in timed_out {
+            let Some((peer, _)) = self.inflight.remove(&request) else {
+                continue;
+            };
             match request {
                 InflightRequests::Blocks(block) | InflightRequests::RescanBlock(block) => {
                     to_request.push(block)
@@ -395,14 +409,16 @@ impl<T: 'static + Default> UtreexoNode<T> {
                     self.last_headers_request = Instant::now();
                 }
                 InflightRequests::UserRequest(_) => {}
+                InflightRequests::Connect(_) => {
+                    self.send_to_peer(peer, NodeRequest::Shutdown).await?
+                }
             }
 
-            let Some((peer, _)) = self.inflight.remove(&request) else {
-                continue;
-            };
-
             if !removed_peers.contains(&peer) {
-                self.peers.get_mut(&peer).unwrap().state = PeerStatus::ShutingDown;
+                if let Some(peer) = self.peers.get_mut(&peer) {
+                    peer.state = PeerStatus::ShutingDown;
+                }
+
                 self.send_to_peer(peer, NodeRequest::Shutdown).await?;
                 removed_peers.insert(peer);
             }
@@ -447,7 +463,6 @@ impl<T: 'static + Default> UtreexoNode<T> {
                 return Ok(idx);
             }
         }
-        self.state = NodeState::WaitingPeer;
         Err(BlockchainError::NoPeersAvailable)
     }
 
@@ -602,6 +617,11 @@ impl<T: 'static + Default> UtreexoNode<T> {
             feeler,
         ));
         let peer_count: u32 = self.peer_id_count;
+
+        self.inflight.insert(
+            InflightRequests::Connect(peer_count),
+            (peer_count, Instant::now()),
+        );
 
         self.peers.insert(
             peer_count,
