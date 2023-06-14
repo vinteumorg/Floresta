@@ -16,7 +16,7 @@ use async_std::{
     channel::{self, bounded, Receiver, Sender},
     future::timeout,
     sync::RwLock,
-    task::{block_on, spawn},
+    task::spawn,
 };
 use bitcoin::{
     hashes::{sha256, Hash},
@@ -481,6 +481,7 @@ impl<T: 'static + Default> UtreexoNode<T> {
     }
 
     pub async fn shutdown(&mut self) {
+        info!("Shutting down node");
         for peer in self.peer_ids.iter() {
             try_and_log!(self.send_to_peer(*peer, NodeRequest::Shutdown).await);
         }
@@ -946,19 +947,12 @@ impl UtreexoNode<RunningNode> {
             }
         }
     }
-    pub async fn run(mut self) {
-        let kill_signal = Arc::new(RwLock::new(false));
-        let _kill_signal = kill_signal.clone();
-        ctrlc::set_handler(move || {
-            info!("Shutting down");
-            *block_on(_kill_signal.write()) = true;
-        })
-        .expect("Error setting Ctrl-C handler");
+    pub async fn run(mut self, kill_signal: &Arc<RwLock<bool>>) {
         try_and_log!(self.init_peers().await);
 
         // Use this node state to Initial Block download
         let mut ibd = UtreexoNode(self.0, IBDNode::default());
-        try_and_log!(UtreexoNode::<IBDNode>::run(&mut ibd, &kill_signal).await);
+        try_and_log!(UtreexoNode::<IBDNode>::run(&mut ibd, kill_signal).await);
         // Then take the final state and run the node
         self = UtreexoNode(ibd.0, self.1);
 
