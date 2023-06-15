@@ -1,0 +1,20 @@
+[package]
+name = "floresta-chain"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+async-std = { version = "1.12.0", features = ["attributes"] }
+rustreexo = { git = "https://www.github.com/mit-dci/rustreexo" }
+sha2 = "^0.10.6"
+log = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+kv = "0.24.0"
+bitcoin = { version = "0.29", features = ["serde", "std", "bitcoinconsensus"] }
+thiserror = "1.0.0"
+zstd = "0.12.3"
+
+[dev-dependencies]
+pretty_assertions = "1"
+rand = "0.8.5"
+serde_json = "1.0"
