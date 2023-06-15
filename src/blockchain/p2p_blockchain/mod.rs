@@ -3,6 +3,7 @@
 pub mod address_man;
 pub mod mempool;
 pub mod node;
+pub mod node_context;
 pub mod node_interface;
 pub mod peer;
 pub mod stream_reader;
