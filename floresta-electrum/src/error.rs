@@ -1,7 +1,7 @@
 #[cfg(feature = "cli-blockchain")]
 use btcd_rpc::error::UtreexodError;
 
-use floresta_chain::BlockchainError;
+use floresta_chain::{impl_error_from, BlockchainError};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -14,7 +14,9 @@ pub enum Error {
     #[error("Invalid json string {0}")]
     ParsingError(#[from] serde_json::Error),
     #[error("Blockchain error")]
-    BlockchainError(#[from] BlockchainError),
+    ChainError(BlockchainError),
     #[error("IO error")]
     IoError(#[from] std::io::Error),
 }
+
+impl_error_from!(Error, BlockchainError, ChainError);

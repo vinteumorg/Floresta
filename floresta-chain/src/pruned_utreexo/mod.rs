@@ -1,18 +1,18 @@
+extern crate alloc;
 pub mod chain_state;
 pub mod chainparams;
 pub mod chainstore;
 pub mod error;
 pub mod udata;
 
-use std::collections::HashMap;
-
+use crate::prelude::*;
 use async_std::channel::Sender;
 use bitcoin::{hashes::sha256, Block, BlockHash, BlockHeader, OutPoint, Transaction, TxOut};
 use rustreexo::accumulator::{node_hash::NodeHash, proof::Proof};
 
 use self::error::BlockchainError;
 
-type Result<T> = std::result::Result<T, BlockchainError>;
+type Result<T> = core::result::Result<T, BlockchainError>;
 /// This trait is the main interface between our blockchain backend and other services.
 /// It'll be useful for transitioning from rpc to a p2p based node
 pub trait BlockchainInterface {

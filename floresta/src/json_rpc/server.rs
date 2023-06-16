@@ -110,7 +110,9 @@ impl Rpc for RpcImpl {
         let wallet = block_on(self.wallet.write());
         let result = wallet.push_descriptor(&descriptor).and_then(|_| {
             if let Some(rescan) = rescan {
-                self.chain.rescan(rescan)?;
+                self.chain
+                    .rescan(rescan)
+                    .map_err(|_| <Error as Into<jsonrpc_core::Error>>::into(Error::ChainError))?;
             }
             Ok(())
         });

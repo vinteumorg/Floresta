@@ -1,99 +1,79 @@
+use crate::prelude::*;
 use bitcoin::blockdata::script;
 #[cfg(feature = "cli-blockchain")]
 use btcd_rpc::error::UtreexodError;
-use thiserror::Error;
 
-#[derive(Error, Debug)]
+use crate::impl_error_from;
+
+#[derive(Debug)]
 pub enum BlockchainError {
-    #[error("Block not present")]
     BlockNotPresent,
     #[cfg(feature = "cli-blockchain")]
     #[error("Json-Rpc error")]
     JsonRpcError(#[from] UtreexodError),
-    #[error("Parsing error")]
     ParsingError(bitcoin::hashes::hex::Error),
-    #[error("Invalid block")]
     BlockValidationError(BlockValidationErrors),
-    #[error("Invalid Proof")]
     InvalidProof,
-    #[error("Utreexo Error {0}")]
     UtreexoError(String),
-    #[error("Database error")]
     DatabaseError(kv::Error),
-    #[error("Decoding error")]
     ConsensusDecodeError(bitcoin::consensus::encode::Error),
-    #[error("This chain is not initialized")]
     ChainNotInitialized,
-    #[error("We are in an invalid tip")]
     InvalidTip(String),
-    #[error(transparent)]
-    IoError(std::io::Error),
+    ScriptValidationFailed(script::Error),
+    IoError(ioError),
 }
 
-#[derive(Error, Debug)]
+#[derive(Debug)]
 pub enum BlockValidationErrors {
-    #[error("This block contains an invalid transaction")]
     InvalidTx,
-    #[error("This block doesn't have enough proof-of-work")]
     NotEnoughPow,
-    #[error("Wrong merkle root")]
     BadMerkleRoot,
-    #[error("Wrong witness commitment")]
     BadWitnessCommitment,
-    #[error("A transaction spends more than it should")]
     NotEnoughMoney,
-    #[error("The first transaction in a block isn't a coinbase")]
     FirstTxIsnNotCoinbase,
-    #[error("Coinbase claims more bitcoins than it should")]
     BadCoinbaseOutValue,
-    #[error("This block is empty (doesn't have a coinbase tx)")]
     EmptyBlock,
-    #[error("This block extends a chain we don't have the ancestors")]
     BlockExtendsAnOrphanChain,
-    #[error("BIP34 commitment mismatch")]
     BadBip34,
 }
-impl From<bitcoin::consensus::encode::Error> for BlockchainError {
-    fn from(err: bitcoin::consensus::encode::Error) -> Self {
-        Self::ConsensusDecodeError(err)
+impl Display for BlockValidationErrors {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            BlockValidationErrors::InvalidTx => {
+                write!(f, "This block contains an invalid transaction")
+            }
+            BlockValidationErrors::NotEnoughPow => {
+                write!(f, "This block doesn't have enough proof-of-work")
+            }
+            BlockValidationErrors::BadMerkleRoot => write!(f, "Wrong merkle root"),
+            BlockValidationErrors::BadWitnessCommitment => write!(f, "Wrong witness commitment"),
+            BlockValidationErrors::NotEnoughMoney => {
+                write!(f, "A transaction spends more than it should")
+            }
+            BlockValidationErrors::FirstTxIsnNotCoinbase => {
+                write!(f, "The first transaction in a block isn't a coinbase")
+            }
+            BlockValidationErrors::BadCoinbaseOutValue => {
+                write!(f, "Coinbase claims more bitcoins than it should")
+            }
+            BlockValidationErrors::EmptyBlock => {
+                write!(f, "This block is empty (doesn't have a coinbase tx)")
+            }
+            BlockValidationErrors::BlockExtendsAnOrphanChain => {
+                write!(f, "This block extends a chain we don't have the ancestors")
+            }
+            BlockValidationErrors::BadBip34 => write!(f, "BIP34 commitment mismatch"),
+        }
     }
 }
-
-impl From<kv::Error> for BlockchainError {
-    fn from(err: kv::Error) -> Self {
-        BlockchainError::DatabaseError(err)
-    }
-}
-
-#[cfg(feature = "cli-blockchain")]
-impl From<UtreexodError> for BlockchainError {
-    fn from(err: UtreexodError) -> Self {
-        BlockchainError::JsonRpcError(err)
-    }
-}
-impl From<bitcoin::hashes::hex::Error> for BlockchainError {
-    fn from(err: bitcoin::hashes::hex::Error) -> Self {
-        BlockchainError::ParsingError(err)
-    }
-}
-impl From<script::Error> for BlockchainError {
-    fn from(_: script::Error) -> Self {
-        BlockchainError::BlockValidationError(BlockValidationErrors::InvalidTx)
-    }
-}
-impl From<String> for BlockchainError {
-    fn from(err: String) -> Self {
-        BlockchainError::UtreexoError(err)
-    }
-}
-impl From<std::io::Error> for BlockchainError {
-    fn from(e: std::io::Error) -> Self {
-        BlockchainError::IoError(e)
-    }
-}
-
-impl From<BlockValidationErrors> for BlockchainError {
-    fn from(e: BlockValidationErrors) -> Self {
-        BlockchainError::BlockValidationError(e)
-    }
-}
+impl_error_from!(BlockchainError, kv::Error, DatabaseError);
+impl_error_from!(BlockchainError, ioError, IoError);
+impl_error_from!(
+    BlockchainError,
+    bitcoin::consensus::encode::Error,
+    ConsensusDecodeError
+);
+impl_error_from!(BlockchainError, BlockValidationErrors, BlockValidationError);
+impl_error_from!(BlockchainError, bitcoin::hashes::hex::Error, ParsingError);
+impl_error_from!(BlockchainError, String, UtreexoError);
+impl_error_from!(BlockchainError, script::Error, ScriptValidationFailed);

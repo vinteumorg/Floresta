@@ -1,4 +1,6 @@
-use std::{collections::HashMap, ffi::c_uint};
+extern crate alloc;
+use crate::prelude::*;
+use alloc::vec::Vec;
 
 use bitcoin::{
     bitcoinconsensus::{VERIFY_NONE, VERIFY_P2SH, VERIFY_WITNESS},
@@ -7,6 +9,7 @@ use bitcoin::{
     util::uint::Uint256,
     Block, BlockHash, Network,
 };
+use core::ffi::c_uint;
 #[derive(Clone)]
 pub struct ChainParams {
     /// The network's first block, also called genesis block.
@@ -160,7 +163,7 @@ impl From<Network> for ChainParams {
 }
 
 pub fn get_chain_dns_seeds(network: Network) -> Vec<&'static str> {
-    let mut seeds = vec![];
+    let mut seeds = Vec::new();
     // DNS seeds taken from Bitcoin Core at commit 382b692a503355df7347efd9c128aff465b5583e
     match network {
         Network::Bitcoin => {

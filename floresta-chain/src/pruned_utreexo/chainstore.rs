@@ -3,9 +3,8 @@
 //! This is a basic kv database that stores all metadata about our blockchain and utreexo
 //! state.
 //! Author: Davidson Souza
-type Result<T> = std::result::Result<T, kv::Error>;
-
-use std::ops::Deref;
+type Result<T> = core::result::Result<T, kv::Error>;
+use crate::prelude::*;
 
 use bitcoin::{
     consensus::{deserialize, serialize, Decodable, Encodable},
@@ -46,9 +45,9 @@ impl Deref for DiskBlockHeader {
     }
 }
 impl Decodable for DiskBlockHeader {
-    fn consensus_decode<R: std::io::Read + ?Sized>(
+    fn consensus_decode<R: Read + ?Sized>(
         reader: &mut R,
-    ) -> std::result::Result<Self, bitcoin::consensus::encode::Error> {
+    ) -> core::result::Result<Self, bitcoin::consensus::encode::Error> {
         let tag = u8::consensus_decode(reader)?;
         let header = BlockHeader::consensus_decode(reader)?;
 
@@ -73,10 +72,10 @@ impl Decodable for DiskBlockHeader {
     }
 }
 impl Encodable for DiskBlockHeader {
-    fn consensus_encode<W: std::io::Write + ?Sized>(
+    fn consensus_encode<W: Write + ?Sized>(
         &self,
         writer: &mut W,
-    ) -> std::result::Result<usize, std::io::Error> {
+    ) -> core::result::Result<usize, ioError> {
         let mut len = 80 + 1; // Header + tag + height
         match self {
             DiskBlockHeader::FullyValid(header, height) => {

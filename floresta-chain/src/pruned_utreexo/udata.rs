@@ -1,16 +1,16 @@
 //! UData is the serialized data used for proof propagation in utreexo. It contains all
 //! data needed for validating some piece of information, like a transaction and a block.
+
+use crate::prelude::*;
 use bitcoin::{
     consensus::{Decodable, Encodable},
     hashes::{sha256, Hash},
     BlockHash, OutPoint, TxOut,
 };
-use serde::Deserialize;
 use sha2::{Digest, Sha512_256};
-
 /// Leaf data is the data that is hashed when adding to utreexo state. It contains validation
 /// data and some commitments to make it harder to attack an utreexo-only node.
-#[derive(Debug, Deserialize, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct LeafData {
     /// A commitment to the block creating this utxo
     pub block_hash: BlockHash,
@@ -46,12 +46,12 @@ impl LeafData {
     }
 }
 impl Decodable for LeafData {
-    fn consensus_decode<R: std::io::Read + ?Sized>(
+    fn consensus_decode<R: Read + ?Sized>(
         reader: &mut R,
     ) -> Result<Self, bitcoin::consensus::encode::Error> {
         Self::consensus_decode_from_finite_reader(reader)
     }
-    fn consensus_decode_from_finite_reader<R: std::io::Read + ?Sized>(
+    fn consensus_decode_from_finite_reader<R: Read + ?Sized>(
         reader: &mut R,
     ) -> Result<Self, bitcoin::consensus::encode::Error> {
         let block_hash = BlockHash::consensus_decode(reader)?;
@@ -150,7 +150,9 @@ pub mod proof_util {
 }
 #[cfg(test)]
 mod test {
+    extern crate std;
     use std::str::FromStr;
+    use std::vec::Vec;
 
     use bitcoin::{
         consensus::deserialize, hashes::hex::FromHex, network::utreexo::CompactLeafData, Amount,

@@ -1,9 +1,10 @@
+#![no_std]
 use bitcoin::hashes::{sha256, Hash};
 use bitcoin::Script;
 use miniscript::{Descriptor, DescriptorPublicKey};
-use sha2::Digest;
-use std::str::FromStr;
+use prelude::*;
 
+use sha2::Digest;
 pub mod constants;
 
 pub fn get_hash_from_u8(data: &[u8]) -> sha256::Hash {
@@ -32,4 +33,39 @@ pub fn parse_descriptors(
         .flatten()
         .collect::<Vec<_>>();
     Ok(descriptors)
+}
+#[cfg(feature = "no-std")]
+pub mod prelude {
+    extern crate alloc;
+    pub use alloc::{borrow::ToOwned, string::String, vec, vec::Vec};
+    pub use core::{
+        cmp, convert,
+        core::str::FromStr,
+        fmt,
+        fmt::Display,
+        iter, mem, ops,
+        ops::{Deref, DerefMut},
+        option, result, slice, str,
+    };
+
+    pub use core2::{
+        error::Error,
+        io::{Error as ioError, Read, Write},
+    };
+    pub use hashbrown::{HashMap, HashSet};
+}
+#[cfg(not(feature = "no-std"))]
+pub mod prelude {
+    extern crate std;
+    pub use std::borrow::ToOwned;
+    pub use std::{
+        collections::{HashMap, HashSet},
+        fmt::Display,
+        io::{Error as ioError, Read, Write},
+        ops::{Deref, DerefMut},
+        str::FromStr,
+        string::String,
+        vec,
+        vec::Vec,
+    };
 }

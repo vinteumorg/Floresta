@@ -1,4 +1,4 @@
-use floresta_chain::BlockchainError;
+use floresta_chain::{impl_error_from, BlockchainError};
 use thiserror::Error;
 
 use crate::node::NodeRequest;
@@ -8,7 +8,7 @@ use super::peer::PeerError;
 #[derive(Error, Debug)]
 pub enum WireError {
     #[error("Blockchain error")]
-    BlockchainError(#[from] BlockchainError),
+    BlockchainError(BlockchainError),
     #[error("Error while writing into a channel")]
     ChannelSendError(async_std::channel::SendError<NodeRequest>),
     #[error("Peer error")]
@@ -26,3 +26,5 @@ pub enum WireError {
     #[error("Generic io error")]
     IoError(std::io::Error),
 }
+impl_error_from!(WireError, PeerError, PeerError);
+impl_error_from!(WireError, BlockchainError, BlockchainError);
