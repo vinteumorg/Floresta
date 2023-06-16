@@ -7,4 +7,4 @@ pub const RUST_BITCOIN_VERSION: &str = "0.29.3";
 /// Version of rustreexo we use
 pub const RUSTREEXO_VERSION: &str = "0.1.0";
 /// Our own version
-pub const FLORESTA_VERSION: &str = "0.3.0";
+pub const FLORESTA_VERSION: &str = env!("CARGO_PKG_VERSION");
