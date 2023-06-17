@@ -1,7 +1,7 @@
 mod p2p_wire;
 
 use bitcoin::{Block, BlockHeader, Transaction};
-pub use p2p_wire::{address_man, mempool, node, node_interface};
+pub use p2p_wire::{address_man, mempool, node, node_interface, node_context};
 
 /// NodeHooks is a trait that defines the hooks that a node can use to interact with the network
 /// and the blockchain. Every time an event happens, the node will call the corresponding hook.

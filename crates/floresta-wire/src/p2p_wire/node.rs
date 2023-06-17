@@ -23,14 +23,14 @@ use bitcoin::{
         message_blockdata::Inventory,
         utreexo::{UData, UtreexoBlock},
     },
-    BlockHash, BlockHeader, Network, OutPoint, Transaction, TxOut, Txid,
+    BlockHash, BlockHeader, OutPoint, Transaction, TxOut, Txid,
 };
 use floresta_chain::{
     pruned_utreexo::{
         chainparams::get_chain_dns_seeds, udata::proof_util, BlockchainInterface,
         UpdatableChainstate,
     },
-    BlockchainError,
+    BlockchainError, Network,
 };
 use log::{error, info, trace, warn};
 use rustreexo::accumulator::{node_hash::NodeHash, proof::Proof};
@@ -606,7 +606,7 @@ impl<T: 'static + Default + NodeContext, Chain: BlockchainInterface + UpdatableC
             self.peer_id_count,
             (address.get_net_address(), address.get_port()),
             self.mempool.clone(),
-            self.network,
+            self.network.into(),
             self.node_tx.clone(),
             requests_rx,
             peer_id,

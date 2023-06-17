@@ -115,8 +115,4 @@ impl AddressCacheDatabase for MemoryDatabase {
     fn list_transactions(&self) -> anyhow::Result<Vec<Txid>> {
         Ok(self.get_inner()?.transactions.keys().copied().collect())
     }
-
-    fn list_transactions(&self) -> Result<Vec<Txid>, crate::error::Error> {
-        Ok(self.get_inner()?.transactions.keys().copied().collect())
-    }
 }

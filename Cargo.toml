@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "florestad",
+    "crates/floresta",
     "crates/floresta-chain",
     "crates/floresta-cli",
     "crates/floresta-common",

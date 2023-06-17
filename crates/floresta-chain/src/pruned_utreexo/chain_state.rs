@@ -1,12 +1,13 @@
 extern crate alloc;
 use super::{
+    chain_state_builder::ChainStateBuilder,
     chainparams::ChainParams,
     chainstore::{ChainStore, DiskBlockHeader, KvChainStore},
     error::{BlockValidationErrors, BlockchainError},
     BlockchainInterface, Notification, UpdatableChainstate,
 };
 use crate::prelude::*;
-use crate::{read_lock, write_lock};
+use crate::{read_lock, write_lock, Network};
 use alloc::{borrow::ToOwned, fmt::format, string::ToString, vec::Vec};
 use async_std::channel::Sender;
 use bitcoin::{
@@ -15,8 +16,9 @@ use bitcoin::{
     consensus::{deserialize_partial, Decodable, Encodable},
     hashes::{hex::FromHex, sha256, Hash},
     util::uint::Uint256,
-    Block, BlockHash, BlockHeader, Network, OutPoint, Transaction, TxOut,
+    Block, BlockHash, BlockHeader, OutPoint, Transaction, TxOut,
 };
+
 use core::ffi::c_uint;
 use futures::executor::block_on;
 use log::{info, trace};
@@ -606,7 +608,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         network: Network,
         assume_valid: Option<BlockHash>,
     ) -> ChainState<KvChainStore> {
-        let genesis = genesis_block(network);
+        let genesis = genesis_block(network.into());
         chainstore
             .save_header(&super::chainstore::DiskBlockHeader::FullyValid(
                 genesis.header,
@@ -1081,6 +1083,26 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
         inner.acc.roots.clone()
     }
 }
+
+impl<T: ChainStore> From<ChainStateBuilder<T>> for ChainState<T> {
+    fn from(mut builder: ChainStateBuilder<T>) -> Self {
+        let inner = ChainStateInner {
+            acc: builder.acc(),
+            chainstore: builder.chainstore(),
+            best_block: builder.best_block(),
+            assume_valid: builder.assume_valid(),
+            ibd: builder.ibd(),
+            broadcast_queue: Vec::new(),
+            subscribers: Vec::new(),
+            fee_estimation: (1_f64, 1_f64, 1_f64),
+            chain_params: builder.chain_params(),
+        };
+
+        let inner = RwLock::new(inner);
+        Self { inner }
+    }
+}
+
 #[macro_export]
 /// Grabs a RwLock for reading
 macro_rules! read_lock {
@@ -1141,6 +1163,18 @@ impl Encodable for BestChain {
         Ok(len)
     }
 }
+impl From<(BlockHash, u32)> for BestChain {
+    fn from((best_block, depth): (BlockHash, u32)) -> Self {
+        Self {
+            best_block,
+            depth,
+            validation_index: best_block,
+            rescan_index: None,
+            assume_valid_index: 0,
+            alternative_tips: Vec::new(),
+        }
+    }
+}
 impl Decodable for BestChain {
     fn consensus_decode<R: Read + ?Sized>(
         reader: &mut R,
@@ -1172,10 +1206,11 @@ impl Decodable for BestChain {
 mod test {
     extern crate std;
     use crate::prelude::HashMap;
+    use crate::Network;
     use bitcoin::{
         consensus::{deserialize, Decodable},
         hashes::hex::FromHex,
-        Block, BlockHash, BlockHeader, Network,
+        Block, BlockHash, BlockHeader,
     };
     use rustreexo::accumulator::proof::Proof;
     use std::io::Cursor;

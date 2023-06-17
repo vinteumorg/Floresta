@@ -230,7 +230,7 @@ fn main() {
             let chain_provider = UtreexoNode::new(
                 blockchain_state.clone(),
                 Arc::new(async_std::sync::RwLock::new(Mempool::new())),
-                get_net(&params.network),
+                get_net(&params.network).into(),
                 data_dir,
             );
             info!("Starting server");
@@ -317,13 +317,13 @@ fn load_chain_state(
     assume_valid: Option<bitcoin::BlockHash>,
 ) -> ChainState<KvChainStore> {
     let db = KvChainStore::new(data_dir.to_string()).expect("Could not read db");
-    match ChainState::<KvChainStore>::load_chain_state(db, network, assume_valid) {
+    match ChainState::<KvChainStore>::load_chain_state(db, network.into(), assume_valid) {
         Ok(chainstate) => chainstate,
         Err(err) => match err {
             BlockchainError::ChainNotInitialized => {
                 let db = KvChainStore::new(data_dir.to_string()).expect("Could not read db");
 
-                ChainState::<KvChainStore>::new(db, network, assume_valid)
+                ChainState::<KvChainStore>::new(db, network.into(), assume_valid)
             }
             _ => unreachable!(),
         },

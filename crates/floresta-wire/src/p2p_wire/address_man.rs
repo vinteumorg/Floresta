@@ -2,13 +2,11 @@
 //! metadata. This module is very important in keeping our node protected against targeted
 //! attacks, like eclipse attacks.
 
-use bitcoin::{
-    network::{
-        address::{AddrV2, AddrV2Message},
-        constants::ServiceFlags,
-    },
-    Network,
+use bitcoin::network::{
+    address::{AddrV2, AddrV2Message},
+    constants::ServiceFlags,
 };
+use floresta_chain::Network;
 use log::info;
 use serde::{Deserialize, Serialize};
 use std::{

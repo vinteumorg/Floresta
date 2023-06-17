@@ -125,7 +125,6 @@ pub trait ChainStore {
     fn flush(&self) -> Result<()>;
     fn update_block_index(&self, height: u32, hash: BlockHash) -> Result<()>;
 }
-
 pub struct KvChainStore(Store);
 impl KvChainStore {
     pub fn new(datadir: String) -> Result<KvChainStore> {

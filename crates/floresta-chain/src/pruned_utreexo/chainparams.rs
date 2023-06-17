@@ -2,15 +2,16 @@ extern crate alloc;
 use crate::prelude::*;
 use alloc::vec::Vec;
 
+use crate::Network;
 use bitcoin::{
     bitcoinconsensus::{VERIFY_NONE, VERIFY_P2SH, VERIFY_WITNESS},
     blockdata::constants::{genesis_block, max_target},
     hashes::hex::FromHex,
     util::uint::Uint256,
-    Block, BlockHash, Network,
+    Block, BlockHash,
 };
 use core::ffi::c_uint;
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ChainParams {
     /// The network's first block, also called genesis block.
     pub genesis: Block,
@@ -48,7 +49,7 @@ pub struct ChainParams {
 impl ChainParams {
     fn max_target(net: Network) -> Uint256 {
         match net {
-            Network::Bitcoin => max_target(net),
+            Network::Bitcoin => max_target(net.into()),
             Network::Testnet => Uint256([
                 0x0000000000000000,
                 0x0000000000000000,
@@ -72,7 +73,7 @@ impl ChainParams {
 }
 impl From<Network> for ChainParams {
     fn from(net: Network) -> Self {
-        let genesis = genesis_block(net);
+        let genesis = genesis_block(net.into());
         let max_target = ChainParams::max_target(net);
         // For some reason, some blocks in the mainnet and testnet have different rules than it should
         // be, so we need to keep a list of exceptions and treat them differently
