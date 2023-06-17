@@ -21,6 +21,7 @@ pub enum MemoryDatabaseError {
     #[error("Lock poisoned")]
     PoisonedLock,
 }
+#[derive(Debug, Default)]
 pub struct MemoryDatabase {
     inner: RwLock<Inner>,
 }

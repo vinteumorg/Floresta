@@ -887,6 +887,7 @@ impl<Chain: BlockchainInterface + UpdatableChainstate> UtreexoNode<RunningNode, 
     pub fn get_handle(&self) -> Arc<NodeInterface> {
         self.1.user_requests.clone()
     }
+    #[allow(clippy::result_large_err)]
     fn check_request_timeout(&mut self) -> Result<(), SendError<NodeResponse>> {
         let mutex = self.1.user_requests.requests.lock().unwrap();
         let mut to_remove = vec![];
@@ -986,7 +987,8 @@ impl<Chain: BlockchainInterface + UpdatableChainstate> UtreexoNode<RunningNode, 
                 self.address_man.rearrange_buckets(),
                 self.1.last_address_rearrange,
                 ADDRESS_REARRANGE_INTERVAL,
-                RunningNode
+                RunningNode,
+                true
             );
             // Perhaps we need more connections
             periodic_job!(
@@ -1273,8 +1275,8 @@ macro_rules! periodic_job {
             $timer = Instant::now();
         }
     };
-    ($what: expr, $timer: expr, $interval: ident, $no_log: literal) => {
-        if $timer.elapsed() > Duration::from_secs($interval) {
+    ($what: expr, $timer: expr, $interval: ident, $context: ty, $no_log: literal) => {
+        if $timer.elapsed() > Duration::from_secs(<$context>::$interval) {
             $what;
             $timer = Instant::now();
         }

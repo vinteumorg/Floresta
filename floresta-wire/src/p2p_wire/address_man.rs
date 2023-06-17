@@ -315,7 +315,7 @@ impl AddressMan {
     /// This function moves addresses between buckets, like if the ban time of a peer expired,
     /// or if we tried to connect to a peer and it failed in the past, but now it might be online
     /// again.
-    pub fn rearrange_buckets(&mut self) -> Result<(), ()> {
+    pub fn rearrange_buckets(&mut self) {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -341,7 +341,6 @@ impl AddressMan {
                 AddressState::Connected => {}
             }
         }
-        Ok(())
     }
     /// Updates the state of an address
     pub fn update_set_state(&mut self, idx: usize, state: AddressState) -> &mut Self {
