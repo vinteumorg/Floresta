@@ -718,43 +718,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "floresta"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-std",
- "bitcoin",
- "btcd-rpc",
- "clap",
- "ctrlc",
- "dirs",
- "floresta-chain",
- "floresta-common",
- "floresta-electrum",
- "floresta-watch-only",
- "floresta-wire",
- "futures 0.3.28",
- "jsonrpc-core",
- "jsonrpc-core-client",
- "jsonrpc-derive",
- "jsonrpc-http-server",
- "kv",
- "log",
- "miniscript",
- "oneshot",
- "pretty_assertions",
- "pretty_env_logger",
- "rand 0.8.5",
- "rmp-serde",
- "rustreexo",
- "serde",
- "serde_json",
- "sha2",
- "slip132",
- "toml",
-]
-
-[[package]]
 name = "floresta-chain"
 version = "0.1.0"
 dependencies = [
@@ -862,6 +825,42 @@ dependencies = [
  "serde_json",
  "sha2",
  "thiserror",
+ "toml",
+]
+
+[[package]]
+name = "florestad"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-std",
+ "bitcoin",
+ "btcd-rpc",
+ "clap",
+ "ctrlc",
+ "dirs",
+ "floresta-chain",
+ "floresta-common",
+ "floresta-electrum",
+ "floresta-watch-only",
+ "floresta-wire",
+ "futures 0.3.28",
+ "jsonrpc-core",
+ "jsonrpc-core-client",
+ "jsonrpc-derive",
+ "jsonrpc-http-server",
+ "kv",
+ "log",
+ "miniscript",
+ "pretty_assertions",
+ "pretty_env_logger",
+ "rand 0.8.5",
+ "rmp-serde",
+ "rustreexo",
+ "serde",
+ "serde_json",
+ "sha2",
+ "slip132",
  "toml",
 ]
 

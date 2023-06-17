@@ -1,12 +1,12 @@
 [workspace]
 members = [
-    "floresta",
-    "floresta-chain",
-    "floresta-cli",
-    "floresta-common",
-    "floresta-electrum",
-    "floresta-watch-only",
-    "floresta-wire",
+    "florestad",
+    "crates/floresta-chain",
+    "crates/floresta-cli",
+    "crates/floresta-common",
+    "crates/floresta-electrum",
+    "crates/floresta-watch-only",
+    "crates/floresta-wire",
 ]
 
 [patch."https://github.com/rust-lang/crates.io-index"]
