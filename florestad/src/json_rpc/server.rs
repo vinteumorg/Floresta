@@ -241,13 +241,3 @@ impl RpcImpl {
             .unwrap()
     }
 }
-
-impl From<BlockchainError> for jsonrpc_core::Error {
-    fn from(e: BlockchainError) -> Self {
-        jsonrpc_core::Error {
-            code: 1.into(),
-            message: format!("{:?}", e),
-            data: None,
-        }
-    }
-}
