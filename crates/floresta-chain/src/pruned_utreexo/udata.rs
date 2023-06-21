@@ -19,7 +19,7 @@ pub struct LeafData {
     /// Header code is a compact commitment to the block height and whether or not this
     /// transaction is coinbase. It's defined as
     ///
-    /// ```
+    /// ```ignore
     /// header_code: u32 = if transaction.is_coinbase() {
     ///     (block_height << 1 ) | 1
     /// } else {

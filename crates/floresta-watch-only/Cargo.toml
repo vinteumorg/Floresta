@@ -19,3 +19,7 @@ floresta-common = { path = "../floresta-common" }
 
 [dev-dependencies]
 rand = "0.8.5"
+
+[features]
+default = []
+memory-database = []

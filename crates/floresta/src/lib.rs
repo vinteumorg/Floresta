@@ -29,6 +29,6 @@
 //! Floresta is the Portuguese word for forest. It is a reference to the Utreexo accumulator,
 //! which is a forest of trees. It's pronounced /floˈɾɛstɐ/.
 pub use floresta_chain as chain;
-pub use floresta_common::*;
+pub use floresta_common as common;
 pub use floresta_watch_only as wallet;
 pub use floresta_wire as wire;

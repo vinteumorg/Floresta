@@ -2,27 +2,94 @@
 
 //! This example shows how to create a watch-only wallet, and drive it.
 
-use bitcoin::{hashes::hex::FromHex, Script};
+use bitcoin::{consensus::deserialize, hashes::hex::FromHex, Script};
 use floresta_common::get_spk_hash;
-use floresta_watch_only::{kv_database::KvDatabase, AddressCache};
+use floresta_watch_only::{memory_database::MemoryDatabase, AddressCache};
+use miniscript::{bitcoin::secp256k1::Secp256k1, Descriptor};
 
 fn main() {
-    let chain_data = KvDatabase::new("chain_data".into()).unwrap();
-    let wallet = AddressCache::new(chain_data);
-    wallet
-        .push_descriptor("wpkh([c258d2a6/0'/0'/0']tpubD6NzVbkrYhZ")
-        .unwrap();
+    // First, we need some place to store the wallet data. Here, we use an in-memory database,
+    // that will be destroyed when the program exits. You can use any database that implements
+    // the `AddressCacheDatabase` trait.
+    let wallet_data = MemoryDatabase::new();
+    // Then, we create the wallet itself.
+    let mut wallet = AddressCache::new(wallet_data);
+    // Now, we need to add the addresses we want to watch. We can add them one by one, or
+    // we can add a descriptor that will generate the addresses for us. Here, we use a
+    // descriptor that generates P2WPKH addresses. The descriptor is parsed using the
+    // `miniscript` library. You can use any descriptor that `miniscript` supports.
+
+    // To parse a descriptor, we need a `Secp256k1` context. This is a wrapper around the
+    // secp256k1 library, that provides some additional functionality. We need it to parse
+    // the descriptor, and to derive the addresses.
+    let secp = Secp256k1::new();
+
+    // We can now parse the descriptor. The `parse_descriptor` function returns a tuple
+    // containing the parsed descriptor, and the map of the keys used in the descriptor.
+    // The keys are indexed by their fingerprint, and the index of the key in the descriptor.
+    let (descriptor, _) = Descriptor::parse_descriptor(&secp, "wpkh([18940c85/84'/1'/0']tpubDDgpGUUjzTqLqQL9WzPvMDTKyD95AUcwWohMWWoj5kqGU7VLSZ3ju9ZtHRN4ofK6KNaZsTSpB6yGrFuV1V4yVgcwksueuFW3YnKxwoNqb3V/0/*)#0vfhw5fe").unwrap();
+
+    // We can now add the descriptor to the wallet. This will generate the first 100 addresses
+    // for us, and add them to the wallet.
+    for i in 0..100 {
+        wallet.cache_address(
+            bitcoin::Script::try_from(
+                descriptor
+                    .at_derivation_index(i)
+                    .unwrap()
+                    .explicit_script()
+                    .unwrap()
+                    .as_bytes()
+                    .to_vec(),
+            )
+            .unwrap(),
+        );
+    }
+    // We can now process some blocks. Here, we process the first 11 blocks of a custom
+    // regtest network. Each coinbase some of the addresses derived above.
+    for block in BLOCKS.iter() {
+        let block = Vec::from_hex(block).unwrap();
+        let _ = wallet.block_process(&deserialize(&block).unwrap(), 1);
+    }
+    // We can now query the wallet for information about the addresses we added. For example,
+    // we can get the history of the second address, the balance, and the UTXOs. To fetch the
+    // history, we need to know the hash of the address. We can get it using the `get_spk_hash`
+    // function from the `floresta_common` crate. This hash is defined by the Electrum protocol.
     let hash =
-        get_spk_hash(&Script::from_hex("0014c258d2a6f2b4b2d7e0a1f0b1a7b7a6a7b7a6a7b7").unwrap());
+        get_spk_hash(&Script::from_hex("00148dae58668d0c15f7ed4f430925634c9a2c666b84").unwrap());
+
+    // We can now query the wallet for the information we want.
+
+    // Fetch all txids that involve the address.
     let history = wallet
         .get_address_history(&hash)
         .iter()
         .map(|tx| tx.hash)
         .collect::<Vec<_>>();
+    // Fetch the balance of the address.
     let balance = wallet.get_address_balance(&hash);
+    // Fetch the UTXOs of the address.
     let utxos = wallet.get_address_utxos(&hash);
 
-    println!("History: {:?}", history);
-    println!("Balance: {:?}", balance);
-    println!("UTXOs: {:?}", utxos);
+    // We can now print the information we fetched.
+    println!("************** Wallet Summary *****************\n");
+    println!("Descriptor: {}\n", descriptor);
+    println!("Address #1 hash: {}\n", hash);
+    println!("History: {:#?}\n", history);
+    println!("Balance: {:?}\n", balance);
+    println!("UTXOs: {:#?}", utxos);
 }
+
+const BLOCKS: [&str; 11] = [
+    "0000002006226e46111a0b59caaf126043eb5bbf28c34f3a5e332a1fc7b2b73cf188910f05b917cfbd9c40358ff9a0e64f9da95fd676b8a02a42a32c1c192bd76db60eef20249364ffff7f200300000001020000000001010000000000000000000000000000000000000000000000000000000000000000ffffffff03510101ffffffff0200f2052a01000000160014b4ad0d1d8978f3680fa3fc2dfb81b1143a27d4a30000000000000000266a24aa21a9ede2f61c3f71d1defd3fa999dfa36953755c690689799962b48bebd836974e8cf90120000000000000000000000000000000000000000000000000000000000000000000000000",
+    "000000201b0abeb75b806f29ee13248bf9c7892672cf80ded985f27fb2f5eb41108bca061e0d3a1c401b2cb5abdc7d1b45da6fa6eb23c7b2ceb82b3c501e15e33d8f30089b309364ffff7f200000000001020000000001010000000000000000000000000000000000000000000000000000000000000000ffffffff03520101ffffffff0200f2052a010000001600148dae58668d0c15f7ed4f430925634c9a2c666b840000000000000000266a24aa21a9ede2f61c3f71d1defd3fa999dfa36953755c690689799962b48bebd836974e8cf90120000000000000000000000000000000000000000000000000000000000000000000000000",
+    "000000203ed220606ae32337ff45816054bb01a39bfd943ca84daa61c50ad173285f414df345b7d00a902077ef29be75ea0f7b6a4b816d6ad61112865273576fcd3e4b109b309364ffff7f200000000001020000000001010000000000000000000000000000000000000000000000000000000000000000ffffffff03530101ffffffff0200f2052a010000001600148dae58668d0c15f7ed4f430925634c9a2c666b840000000000000000266a24aa21a9ede2f61c3f71d1defd3fa999dfa36953755c690689799962b48bebd836974e8cf90120000000000000000000000000000000000000000000000000000000000000000000000000",
+    "00000020ba4b379335f3896b025293e6ceeceb865a22093e8550adcca844adfd2afdb00c7482b91566cb4f5c26f917e121699d61bba1926b9dbf43e0fa85fae80649f6889c309364ffff7f200000000001020000000001010000000000000000000000000000000000000000000000000000000000000000ffffffff03540101ffffffff0200f2052a010000001600148dae58668d0c15f7ed4f430925634c9a2c666b840000000000000000266a24aa21a9ede2f61c3f71d1defd3fa999dfa36953755c690689799962b48bebd836974e8cf90120000000000000000000000000000000000000000000000000000000000000000000000000",
+    "000000208297ce55eed31f7d3fb2cb5b1a5aaeddbc8b4b3133b5623502603a7c1b807477075cf1bb8f9e2f58c63c8ed8b3a085a52a5c982adc6a020994dd59cbe227832d9c309364ffff7f200000000001020000000001010000000000000000000000000000000000000000000000000000000000000000ffffffff03550101ffffffff0200f2052a010000001600148dae58668d0c15f7ed4f430925634c9a2c666b840000000000000000266a24aa21a9ede2f61c3f71d1defd3fa999dfa36953755c690689799962b48bebd836974e8cf90120000000000000000000000000000000000000000000000000000000000000000000000000",
+    "00000020936b5320b7b346069715fd6ab491b8a29241b5c990b39f50a793c6329b7005671bf190dc397e976064eccff3eca995df63c3f49948fd2889355b935ff42c91de9c309364ffff7f200000000001020000000001010000000000000000000000000000000000000000000000000000000000000000ffffffff03560101ffffffff0200f2052a010000001600148dae58668d0c15f7ed4f430925634c9a2c666b840000000000000000266a24aa21a9ede2f61c3f71d1defd3fa999dfa36953755c690689799962b48bebd836974e8cf90120000000000000000000000000000000000000000000000000000000000000000000000000",
+    "0000002058217e2ee8e6074c8b26d67b96c9130f0cb52adcced5ba67a30e53a7eacee37caaa4812183e293e93428161f6f89179066124152ca8b1658d66ace5b76aa61849c309364ffff7f200200000001020000000001010000000000000000000000000000000000000000000000000000000000000000ffffffff03570101ffffffff0200f2052a010000001600148dae58668d0c15f7ed4f430925634c9a2c666b840000000000000000266a24aa21a9ede2f61c3f71d1defd3fa999dfa36953755c690689799962b48bebd836974e8cf90120000000000000000000000000000000000000000000000000000000000000000000000000",
+    "00000020e48e8d22a54e78018591d386fbe5b09d3588756cc541e514074f82aa2596a76400b239f668cb9c5c5809e206754c96a0215a5d7013405ac1b4ad37536400c3649d309364ffff7f200000000001020000000001010000000000000000000000000000000000000000000000000000000000000000ffffffff03580101ffffffff0200f2052a010000001600148dae58668d0c15f7ed4f430925634c9a2c666b840000000000000000266a24aa21a9ede2f61c3f71d1defd3fa999dfa36953755c690689799962b48bebd836974e8cf90120000000000000000000000000000000000000000000000000000000000000000000000000",
+    "00000020c007dbdee745169560c57367725b69be705b2e2728c6da6313c722309d4a456bce0d0e66ddf0ad519cb91384f1e5038ee3765f31b57781f6eda08678e83e1fcc9f309364ffff7f200100000001020000000001010000000000000000000000000000000000000000000000000000000000000000ffffffff03590101ffffffff0200f2052a010000001600148dae58668d0c15f7ed4f430925634c9a2c666b840000000000000000266a24aa21a9ede2f61c3f71d1defd3fa999dfa36953755c690689799962b48bebd836974e8cf90120000000000000000000000000000000000000000000000000000000000000000000000000",
+    "000000201096d0268755a324b6b9a1df531877b3f8e161c21261063ba1f1d79d5ba22e5bb386dd8071a9d2a62a2763cc64ceebe85535d4665d7a4f02f18408579874852e9f309364ffff7f200000000001020000000001010000000000000000000000000000000000000000000000000000000000000000ffffffff035a0101ffffffff0200f2052a010000001600148dae58668d0c15f7ed4f430925634c9a2c666b840000000000000000266a24aa21a9ede2f61c3f71d1defd3fa999dfa36953755c690689799962b48bebd836974e8cf90120000000000000000000000000000000000000000000000000000000000000000000000000",
+    "00000020d0a457ae192831a9dcc1245ed7387c1efc3423bd09d5a306a02772f3ac16827c021a6dbe6981c7e57307533026dc972dd29e5b04d899ba13df355c87cd2797ed9f309364ffff7f200100000001020000000001010000000000000000000000000000000000000000000000000000000000000000ffffffff035b0101ffffffff0200f2052a010000001600148dae58668d0c15f7ed4f430925634c9a2c666b840000000000000000266a24aa21a9ede2f61c3f71d1defd3fa999dfa36953755c690689799962b48bebd836974e8cf90120000000000000000000000000000000000000000000000000000000000000000000000000",
+];

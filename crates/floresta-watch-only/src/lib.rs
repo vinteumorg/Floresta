@@ -3,7 +3,7 @@ use floresta_common::{get_spk_hash, parse_descriptors};
 use thiserror::Error;
 
 pub mod kv_database;
-#[cfg(test)]
+#[cfg(any(test, feature = "memory-database"))]
 pub mod memory_database;
 pub mod merkle;
 
@@ -465,7 +465,6 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
                 };
                 address.utxos.push(utxo);
                 self.utxo_index.insert(utxo, hash);
-
                 address.balance += value;
             }
 
