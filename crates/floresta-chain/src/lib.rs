@@ -46,3 +46,16 @@ macro_rules! impl_error_from {
         }
     };
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use bitcoin::network::constants::Network as BNetwork;
+    #[test]
+    fn test_network() {
+        assert_eq!(Network::Bitcoin, BNetwork::Bitcoin.into());
+        assert_eq!(Network::Testnet, BNetwork::Testnet.into());
+        assert_eq!(Network::Regtest, BNetwork::Regtest.into());
+        assert_eq!(Network::Signet, BNetwork::Signet.into());
+    }
+}
