@@ -13,9 +13,9 @@ impl Mempool {
     }
     pub fn consume_block(&mut self, block: &Block) -> Vec<Transaction> {
         if self.0.is_empty() {
-            return vec![];
+            return Vec::new();
         }
-        let mut delta = vec![];
+        let mut delta = Vec::new();
         for tx in block.txdata.iter() {
             if self.0.contains_key(&tx.txid()) {
                 delta.push(self.0.remove(&tx.txid()));
@@ -34,7 +34,7 @@ impl Mempool {
         None
     }
     pub fn get_stale(&mut self) -> Vec<Txid> {
-        let mut stale = vec![];
+        let mut stale = Vec::new();
         for (txid, transaction) in self.0.iter_mut() {
             if transaction.1.elapsed() > Duration::from_secs(60 * 60) {
                 transaction.1 = Instant::now();

@@ -1214,7 +1214,7 @@ mod test {
     };
     use rustreexo::accumulator::proof::Proof;
     use std::io::Cursor;
-    use std::{format, vec, vec::Vec};
+    use std::{format, vec::Vec};
 
     use super::{
         BlockchainInterface, ChainParams, DiskBlockHeader, KvChainStore, UpdatableChainstate,
@@ -1278,7 +1278,7 @@ mod test {
             let block: Block = deserialize(&block).unwrap();
             chain.accept_header(block.header).unwrap();
             chain
-                .connect_block(&block, Proof::default(), HashMap::new(), vec![])
+                .connect_block(&block, Proof::default(), HashMap::new(), Vec::new())
                 .unwrap();
         }
         assert_eq!(

@@ -112,7 +112,7 @@ impl Default for RunningNode {
             last_feeler: Instant::now(),
             last_address_rearrange: Instant::now(),
             user_requests: Arc::new(NodeInterface {
-                requests: Mutex::new(vec![]),
+                requests: Mutex::new(Vec::new()),
             }),
         }
     }
@@ -301,7 +301,7 @@ impl<T: 'static + Default + NodeContext, Chain: BlockchainInterface + UpdatableC
             .map(|hash| NodeHash::Some(hash.into_inner()))
             .collect();
         let proof = Proof::new(targets, hashes);
-        let hashes = vec![];
+        let hashes = Vec::new();
         let mut leaves_iter = udata.leaves.iter().cloned();
         let mut tx_iter = transactions.iter();
 
@@ -377,7 +377,7 @@ impl<T: 'static + Default + NodeContext, Chain: BlockchainInterface + UpdatableC
         Ok(())
     }
     async fn check_for_timeout(&mut self) -> Result<(), WireError> {
-        let mut timed_out = vec![];
+        let mut timed_out = Vec::new();
         for request in self.inflight.keys() {
             let (_, time) = self.inflight.get(request).unwrap();
             if time.elapsed() > Duration::from_secs(T::REQUEST_TIMEOUT) {
@@ -385,7 +385,7 @@ impl<T: 'static + Default + NodeContext, Chain: BlockchainInterface + UpdatableC
             }
         }
         let mut removed_peers = HashSet::new();
-        let mut to_request = vec![];
+        let mut to_request = Vec::new();
         for request in timed_out {
             let Some((peer, _)) = self.inflight.remove(&request) else {
                 continue;
@@ -526,7 +526,7 @@ impl<T: 'static + Default + NodeContext, Chain: BlockchainInterface + UpdatableC
             .map_err(WireError::IoError)
     }
     fn get_blocks_to_download(&mut self) -> Result<Vec<BlockHash>, WireError> {
-        let mut blocks = vec![];
+        let mut blocks = Vec::new();
         let tip = self.chain.get_height()?;
 
         for i in (self.last_block_request + 1)..=(self.last_block_request + 100) {
@@ -890,7 +890,7 @@ impl<Chain: BlockchainInterface + UpdatableChainstate> UtreexoNode<RunningNode, 
     #[allow(clippy::result_large_err)]
     fn check_request_timeout(&mut self) -> Result<(), SendError<NodeResponse>> {
         let mutex = self.1.user_requests.requests.lock().unwrap();
-        let mut to_remove = vec![];
+        let mut to_remove = Vec::new();
         for req in mutex.iter() {
             if req.time.elapsed() > Duration::from_secs(10) {
                 to_remove.push(req.req);
@@ -904,7 +904,7 @@ impl<Chain: BlockchainInterface + UpdatableChainstate> UtreexoNode<RunningNode, 
         Ok(())
     }
     async fn handle_user_request(&mut self) {
-        let mut requests = vec![];
+        let mut requests = Vec::new();
 
         for request in self.1.user_requests.requests.lock().unwrap().iter() {
             if !self
@@ -917,7 +917,7 @@ impl<Chain: BlockchainInterface + UpdatableChainstate> UtreexoNode<RunningNode, 
         self.perform_user_request(requests).await;
     }
     fn handle_get_peer_info(&self) {
-        let mut peers = vec![];
+        let mut peers = Vec::new();
         for peer in self.peer_ids.iter() {
             peers.push(self.get_peer_info(peer));
         }

@@ -1,4 +1,5 @@
-use floresta_chain::{impl_error_from, BlockchainError};
+use floresta_chain::BlockchainError;
+use floresta_common::impl_error_from;
 use thiserror::Error;
 
 use crate::node::NodeRequest;

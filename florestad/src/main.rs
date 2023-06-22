@@ -413,7 +413,7 @@ where
 }
 
 fn get_both_vec<T>(a: Option<Vec<T>>, b: Option<Vec<T>>) -> Vec<T> {
-    let mut result: Vec<T> = vec![];
+    let mut result: Vec<T> = Vec::new();
     if let Some(a) = a {
         result.extend(a.into_iter());
     }

@@ -74,7 +74,7 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
     ) -> Result<ElectrumServer<Blockchain>, Box<dyn std::error::Error>> {
         let listener = Arc::new(TcpListener::bind(address).await?);
         let (tx, rx) = unbounded();
-        let unconfirmed = address_cache.read().await.find_unconfirmed()?;
+        let unconfirmed = address_cache.read().await.find_unconfirmed().unwrap();
         for tx in unconfirmed {
             chain.broadcast(&tx).expect("Invalid chain");
         }
@@ -161,7 +161,7 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                     .read()
                     .await
                     .get_address_history(&script_hash);
-                let mut res = vec![];
+                let mut res = Vec::new();
                 for transaction in transactions {
                     let entry = if transaction.height == 0 {
                         json!({
@@ -188,7 +188,7 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                 if utxos.is_none() {
                     return Err(crate::error::Error::InvalidParams);
                 }
-                let mut final_utxos = vec![];
+                let mut final_utxos = Vec::new();
                 for (utxo, prevout) in utxos.unwrap().into_iter() {
                     let height = self
                         .address_cache

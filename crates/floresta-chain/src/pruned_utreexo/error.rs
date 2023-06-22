@@ -2,8 +2,7 @@ use crate::prelude::*;
 use bitcoin::blockdata::script;
 #[cfg(feature = "cli-blockchain")]
 use btcd_rpc::error::UtreexodError;
-
-use crate::impl_error_from;
+use floresta_common::impl_error_from;
 
 #[derive(Debug)]
 pub enum BlockchainError {

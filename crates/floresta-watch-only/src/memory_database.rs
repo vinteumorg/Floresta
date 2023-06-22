@@ -4,10 +4,9 @@
 //!
 //! For actual databases that can be used for production code, see [KvDatabase].
 use super::{AddressCacheDatabase, CachedAddress, CachedTransaction, Stats};
-
 use bitcoin::{hashes::sha256, Txid};
-use std::{collections::HashMap, sync::RwLock};
-use thiserror::Error;
+use floresta_common::prelude::sync::RwLock;
+use floresta_common::prelude::*;
 #[derive(Debug, Default)]
 struct Inner {
     addresses: HashMap<sha256::Hash, CachedAddress>,
@@ -16,22 +15,25 @@ struct Inner {
     height: u32,
     descriptors: Vec<String>,
 }
-#[derive(Debug, Error)]
+
+#[derive(Debug)]
 pub enum MemoryDatabaseError {
-    #[error("Lock poisoned")]
     PoisonedLock,
 }
 #[derive(Debug, Default)]
 pub struct MemoryDatabase {
     inner: RwLock<Inner>,
 }
+
+type Result<T> = floresta_common::prelude::Result<T, MemoryDatabaseError>;
+
 impl MemoryDatabase {
-    fn get_inner(&self) -> Result<std::sync::RwLockReadGuard<Inner>, MemoryDatabaseError> {
+    fn get_inner(&self) -> Result<sync::RwLockReadGuard<Inner>> {
         self.inner
             .read()
             .map_err(|_| MemoryDatabaseError::PoisonedLock)
     }
-    fn get_inner_mut(&self) -> Result<std::sync::RwLockWriteGuard<Inner>, MemoryDatabaseError> {
+    fn get_inner_mut(&self) -> Result<sync::RwLockWriteGuard<Inner>> {
         self.inner
             .write()
             .map_err(|_| MemoryDatabaseError::PoisonedLock)
@@ -43,6 +45,7 @@ impl MemoryDatabase {
     }
 }
 impl AddressCacheDatabase for MemoryDatabase {
+    type Error = MemoryDatabaseError;
     fn save(&self, address: &CachedAddress) {
         self.get_inner_mut()
             .map(|mut inner| {
@@ -53,19 +56,19 @@ impl AddressCacheDatabase for MemoryDatabase {
             .unwrap();
     }
 
-    fn load(&self) -> anyhow::Result<Vec<CachedAddress>> {
+    fn load(&self) -> Result<Vec<CachedAddress>> {
         Ok(self.get_inner()?.addresses.values().cloned().collect())
     }
 
-    fn get_stats(&self) -> anyhow::Result<super::Stats> {
+    fn get_stats(&self) -> Result<super::Stats> {
         Ok(self.get_inner()?.stats.to_owned())
     }
 
-    fn save_stats(&self, stats: &super::Stats) -> anyhow::Result<()> {
+    fn save_stats(&self, stats: &super::Stats) -> Result<()> {
         self.get_inner_mut().map(|mut inner| {
             inner.stats.clone_from(stats);
         })?;
-        anyhow::Ok(())
+        Ok(())
     }
 
     fn update(&self, address: &super::CachedAddress) {
@@ -79,40 +82,40 @@ impl AddressCacheDatabase for MemoryDatabase {
             .unwrap();
     }
 
-    fn get_cache_height(&self) -> anyhow::Result<u32> {
+    fn get_cache_height(&self) -> Result<u32> {
         Ok(self.get_inner()?.height)
     }
 
-    fn set_cache_height(&self, height: u32) -> anyhow::Result<()> {
+    fn set_cache_height(&self, height: u32) -> Result<()> {
         self.get_inner_mut()?.height = height;
         Ok(())
     }
 
-    fn desc_save(&self, descriptor: &str) -> anyhow::Result<()> {
-        anyhow::Ok(self.get_inner_mut().map(|mut inner| {
+    fn desc_save(&self, descriptor: &str) -> Result<()> {
+        self.get_inner_mut().map(|mut inner| {
             inner.descriptors.push(descriptor.into());
-        })?)
+        })
     }
 
-    fn descs_get(&self) -> anyhow::Result<Vec<String>> {
+    fn descs_get(&self) -> Result<Vec<String>> {
         Ok(self.get_inner()?.descriptors.to_owned())
     }
 
-    fn get_transaction(&self, txid: &bitcoin::Txid) -> anyhow::Result<super::CachedTransaction> {
+    fn get_transaction(&self, txid: &bitcoin::Txid) -> Result<super::CachedTransaction> {
         if let Some(tx) = self.get_inner()?.transactions.get(txid) {
-            return anyhow::Ok(tx.clone());
+            return Ok(tx.clone());
         }
-        Err(MemoryDatabaseError::PoisonedLock.into())
+        Err(MemoryDatabaseError::PoisonedLock)
     }
 
-    fn save_transaction(&self, tx: &super::CachedTransaction) -> anyhow::Result<()> {
+    fn save_transaction(&self, tx: &super::CachedTransaction) -> Result<()> {
         self.get_inner_mut()?
             .transactions
             .insert(tx.hash, tx.to_owned());
-        anyhow::Ok(())
+        Ok(())
     }
 
-    fn list_transactions(&self) -> anyhow::Result<Vec<Txid>> {
+    fn list_transactions(&self) -> Result<Vec<Txid>> {
         Ok(self.get_inner()?.transactions.keys().copied().collect())
     }
 }

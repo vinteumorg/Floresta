@@ -120,7 +120,7 @@ impl NodeMethods for NodeInterface {
         let peer_info = rx.recv()?;
         Ok(match peer_info {
             Some(NodeResponse::GetPeerInfo(peer_info)) => peer_info,
-            None => vec![],
+            None => Vec::new(),
             _ => unreachable!(),
         })
     }

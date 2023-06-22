@@ -57,7 +57,7 @@ fn get_req(cmd: &Cli) -> (Vec<Box<RawValue>>, String) {
         Methods::Stop => "stop",
     };
     let params = match &cmd.methods {
-        Methods::GetBlockchainInfo => vec![],
+        Methods::GetBlockchainInfo => Vec::new(),
         Methods::GetBlockHash { height } => vec![arg(height)],
         Methods::GetTxOut { txid, vout } => vec![arg(txid), arg(vout)],
         Methods::GetTxProof { txids, blockhash } => {
@@ -80,14 +80,14 @@ fn get_req(cmd: &Cli) -> (Vec<Box<RawValue>>, String) {
         }
         Methods::RescanBlockchain { start_height } => vec![arg(start_height)],
         Methods::SendRawTransaction { tx } => vec![arg(tx)],
-        Methods::GetRoots => vec![],
+        Methods::GetRoots => Vec::new(),
         Methods::GetBlock { hash } => vec![arg(hash)],
-        Methods::GetPeerInfo => vec![],
-        Methods::ListTransactions => vec![],
+        Methods::GetPeerInfo => Vec::new(),
+        Methods::ListTransactions => Vec::new(),
         Methods::FindUtxo { height, txid, vout } => {
             vec![arg(height), arg(txid), arg(vout)]
         }
-        Methods::Stop => vec![],
+        Methods::Stop => Vec::new(),
     };
 
     (params, method.to_string())

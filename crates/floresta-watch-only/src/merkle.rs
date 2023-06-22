@@ -3,6 +3,7 @@ use bitcoin::{
     hashes::{sha256d, Hash, HashEngine},
     Block, Txid,
 };
+use floresta_common::prelude::*;
 use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MerkleProof {
@@ -20,7 +21,7 @@ impl MerkleProof {
     fn new() -> Self {
         MerkleProof {
             target: Txid::all_zeros(),
-            hashes: vec![],
+            hashes: Vec::new(),
             pos: 0,
         }
     }
@@ -33,7 +34,7 @@ impl MerkleProof {
     /// this only proves one tx at the time.
     pub fn from_block_hashes(tx_list: Vec<sha256d::Hash>, target: u64) -> Self {
         let target_hash = tx_list[target as usize];
-        let (_, proof) = Self::transverse(tx_list, vec![], target);
+        let (_, proof) = Self::transverse(tx_list, Vec::new(), target);
         Self {
             target: target_hash.into(),
             pos: target,
@@ -92,7 +93,7 @@ impl MerkleProof {
             return (nodes, proof);
         }
         // Here we store all nodes for the next row
-        let mut new_nodes = vec![];
+        let mut new_nodes = Vec::new();
         // Grab a node's sibling. In a Merkle Tree, our target nodes are given, and its parent
         // can be computed using available data. We must only provide a node's sibling, so verifier
         // can get a parent hash.
@@ -126,13 +127,13 @@ impl MerkleProof {
 }
 
 impl Decodable for MerkleProof {
-    fn consensus_decode<R: std::io::Read + ?Sized>(
+    fn consensus_decode<R: Read + ?Sized>(
         reader: &mut R,
     ) -> Result<Self, bitcoin::consensus::encode::Error> {
         let pos = u64::consensus_decode(reader)?;
         let target = Txid::consensus_decode(reader)?;
         let len = u64::consensus_decode(reader)?;
-        let mut hashes = vec![];
+        let mut hashes = Vec::new();
         for _ in 0..len {
             let hash = sha256d::Hash::consensus_decode(reader)?;
             hashes.push(hash);
@@ -145,10 +146,7 @@ impl Decodable for MerkleProof {
     }
 }
 impl Encodable for MerkleProof {
-    fn consensus_encode<W: std::io::Write + ?Sized>(
-        &self,
-        writer: &mut W,
-    ) -> Result<usize, std::io::Error> {
+    fn consensus_encode<W: Write + ?Sized>(&self, writer: &mut W) -> Result<usize, ioError> {
         let mut len = 0;
         len += self.pos.consensus_encode(writer)?;
         len += self.target.consensus_encode(writer)?;
@@ -169,16 +167,16 @@ mod test {
         consensus::deserialize,
         hashes::{hex::FromHex, sha256d},
     };
-    use std::str::FromStr;
+    use floresta_common::prelude::*;
     #[test]
     fn test_merkle_root() {
-        let hashes = vec![
+        let hashes = Vec::from([
             "9fe0683d05e5a8ce867712f0f744a1e9893365307d433ab3b8f65dfc59d561de",
             "9e2804f04a9d52ad4b67e10cba631934915a7d6d083126b338dda680522bb602",
             "01ad659d8d3f17e96d54e4240614fad5813a58cc1ac67a336839b0bf6c56f2d3",
             "8627dad7e4df3cc60d1349aac61cae36436423429a12f3df9a1e54a5ca8ee008",
             "5f82784d819f440ee1766d9802d113c54626bd613009cbf699213f49adf2fbbd",
-        ];
+        ]);
         let root = sha256d::Hash::from_str(
             "ff8fa20a8da05e334d59d257c8ba6f76b31856fafe92afdb51151daa2fe0a240",
         )
@@ -193,13 +191,13 @@ mod test {
     #[test]
     fn test_serialization() {
         use bitcoin::consensus::serialize;
-        let hashes = vec![
+        let hashes = Vec::from([
             "9fe0683d05e5a8ce867712f0f744a1e9893365307d433ab3b8f65dfc59d561de",
             "9e2804f04a9d52ad4b67e10cba631934915a7d6d083126b338dda680522bb602",
             "01ad659d8d3f17e96d54e4240614fad5813a58cc1ac67a336839b0bf6c56f2d3",
             "8627dad7e4df3cc60d1349aac61cae36436423429a12f3df9a1e54a5ca8ee008",
             "5f82784d819f440ee1766d9802d113c54626bd613009cbf699213f49adf2fbbd",
-        ];
+        ]);
         let root = sha256d::Hash::from_str(
             "ff8fa20a8da05e334d59d257c8ba6f76b31856fafe92afdb51151daa2fe0a240",
         )

@@ -23,3 +23,5 @@ rand = "0.8.5"
 [features]
 default = []
 memory-database = []
+no-std = []
+std = ["serde/std"]

@@ -298,7 +298,7 @@ impl AddressMan {
         }
         let anchors = std::fs::read_to_string(format!("{datadir}/anchors.json"));
         if anchors.is_err() {
-            return Ok(vec![]);
+            return Ok(Vec::new());
         }
         if let Ok(anchors) = serde_json::from_str::<Vec<DiskLocalAddress>>(&anchors.unwrap()) {
             let anchors = anchors
@@ -308,7 +308,7 @@ impl AddressMan {
                 .collect::<Vec<_>>();
             return Ok(anchors);
         }
-        Ok(vec![])
+        Ok(Vec::new())
     }
     /// This function moves addresses between buckets, like if the ban time of a peer expired,
     /// or if we tried to connect to a peer and it failed in the past, but now it might be online

@@ -44,7 +44,6 @@ jobs:
       matrix:
         rust: [stable, nightly, 1.64]
         os: [ubuntu-latest, windows-latest, macos-latest]
-        features: ["experimental-p2p", "cli-blockchain", "json-rpc"]
 
     runs-on: ${{ matrix.os }}
     steps:
@@ -53,4 +52,4 @@ jobs:
           toolchain: ${{ matrix.rust }}
 
       - name: Cross compile
-        run: cargo test --verbose --features ${{ matrix.features }}
+        run: cargo test --verbose

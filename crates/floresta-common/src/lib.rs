@@ -59,13 +59,25 @@ pub mod prelude {
     extern crate std;
     pub use std::borrow::ToOwned;
     pub use std::{
-        collections::{HashMap, HashSet},
-        fmt::Display,
+        collections::{hash_map::Entry, HashMap, HashSet},
+        error::Error,
+        fmt::{self, Display, Formatter},
         io::{Error as ioError, Read, Write},
         ops::{Deref, DerefMut},
+        result::Result,
         str::FromStr,
         string::String,
-        vec,
-        vec::Vec,
+        sync,
+        vec::{self, Vec},
+    };
+}
+#[macro_export]
+macro_rules! impl_error_from {
+    ($thing: ty, $from_thing: ty, $field: ident) => {
+        impl From<$from_thing> for $thing {
+            fn from(e: $from_thing) -> Self {
+                <$thing>::$field(e)
+            }
+        }
     };
 }

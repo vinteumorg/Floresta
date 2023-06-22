@@ -208,7 +208,7 @@ impl Peer {
                 }
             }
             bitcoin::network::message::NetworkMessage::GetHeaders(_) => {
-                self.write(NetworkMessage::Headers(vec![])).await?;
+                self.write(NetworkMessage::Headers(Vec::new())).await?;
             }
             bitcoin::network::message::NetworkMessage::Block(block) => {
                 self.send_to_node(PeerMessages::Block(block)).await;
@@ -230,13 +230,13 @@ impl Peer {
                 self.send_to_node(PeerMessages::Addr(addresses)).await;
             }
             bitcoin::network::message::NetworkMessage::GetBlocks(_) => {
-                self.write(NetworkMessage::Inv(vec![])).await?;
+                self.write(NetworkMessage::Inv(Vec::new())).await?;
             }
             bitcoin::network::message::NetworkMessage::SendAddrV2 => {
                 self.wants_addrv2 = true;
             }
             bitcoin::network::message::NetworkMessage::GetAddr => {
-                self.write(NetworkMessage::AddrV2(vec![])).await?;
+                self.write(NetworkMessage::AddrV2(Vec::new())).await?;
             }
             bitcoin::network::message::NetworkMessage::GetData(inv) => {
                 for inv_el in inv {

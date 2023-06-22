@@ -32,7 +32,7 @@ pub struct LeafData {
 }
 impl LeafData {
     pub fn _get_leaf_hashes(&self) -> sha256::Hash {
-        let mut ser_utxo = vec![];
+        let mut ser_utxo = Vec::new();
         let _ = self.utxo.consensus_encode(&mut ser_utxo);
         let leaf_hash = Sha512_256::new()
             .chain_update(self.block_hash)

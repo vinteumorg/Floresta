@@ -36,16 +36,6 @@ impl From<Network> for bitcoin::network::constants::Network {
         }
     }
 }
-#[macro_export]
-macro_rules! impl_error_from {
-    ($thing: ty, $from_thing: ty, $field: ident) => {
-        impl From<$from_thing> for $thing {
-            fn from(e: $from_thing) -> Self {
-                <$thing>::$field(e)
-            }
-        }
-    };
-}
 
 #[cfg(test)]
 mod test {

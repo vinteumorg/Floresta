@@ -1,7 +1,8 @@
 #[cfg(feature = "cli-blockchain")]
 use btcd_rpc::error::UtreexodError;
 
-use floresta_chain::{impl_error_from, BlockchainError};
+use floresta_chain::BlockchainError;
+use floresta_common::impl_error_from;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
