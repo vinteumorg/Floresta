@@ -13,7 +13,7 @@ pub trait NodeContext {
     /// Save our database of peers every PEER_DB_DUMP_INTERVAL seconds
     const PEER_DB_DUMP_INTERVAL: u64 = 60 * 5; // 5 minutes
     /// Attempt to open a new connection (if needed) every TRY_NEW_CONNECTION seconds
-    const TRY_NEW_CONNECTION: u64 = 30; // 30 seconds
+    const TRY_NEW_CONNECTION: u64 = 10; // 10 seconds
     /// If ASSUME_STALE seconds passed since our last tip update, treat it as stale
     const ASSUME_STALE: u64 = 30 * 60; // 30 minutes
     /// While on IBD, if we've been without blocks for this long, ask for headers again
@@ -28,6 +28,8 @@ pub trait NodeContext {
     const ADDRESS_REARRANGE_INTERVAL: u64 = 60 * 60; // 1 hour
     /// How long we ban a peer for
     const BAN_TIME: u64 = 60 * 60 * 24;
+    /// How often we check if we haven't missed a block
+    const BLOCK_CHECK_INTERVAL: u64 = 60 * 5; // 5 minutes
 }
 
 #[derive(Debug, Clone)]
@@ -35,6 +37,7 @@ pub struct RunningNode {
     pub last_rescan_request: RescanStatus,
     pub last_feeler: Instant,
     pub last_address_rearrange: Instant,
+    pub last_block_check: Instant,
     pub user_requests: Arc<NodeInterface>,
 }
 impl NodeContext for RunningNode {

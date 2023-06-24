@@ -87,11 +87,14 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
     }
     fn maybe_reindex(&self, potential_tip: &DiskBlockHeader) {
         match potential_tip {
-            DiskBlockHeader::FullyValid(_, height) | DiskBlockHeader::HeadersOnly(_, height) => {
+            DiskBlockHeader::HeadersOnly(_, height) => {
                 if *height > self.get_best_block().unwrap().0 {
                     let best_chain = self.reindex_chain();
                     write_lock!(self).best_block = best_chain;
                 }
+            }
+            DiskBlockHeader::FullyValid(header, _) => {
+                self.inner.write().best_block.validation_index = header.block_hash();
             }
             _ => {}
         }
@@ -689,7 +692,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         }
         BestChain {
             best_block: hash,
-            depth: height - 1,
+            depth: height,
             validation_index: hash,
             rescan_index: None,
             alternative_tips: Vec::new(),

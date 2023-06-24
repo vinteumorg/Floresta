@@ -108,14 +108,12 @@ impl Rpc for RpcImpl {
 
     fn load_descriptor(&self, descriptor: String, rescan: Option<u32>) -> Result<()> {
         let wallet = block_on(self.wallet.write());
-        let result = wallet.push_descriptor(&descriptor).and_then(|_| {
-            if let Some(rescan) = rescan {
-                self.chain
-                    .rescan(rescan)
-                    .map_err(|_| <Error as Into<jsonrpc_core::Error>>::into(Error::ChainError))?;
-            }
-            Ok(())
-        });
+        let result = wallet.push_descriptor(&descriptor);
+        if let Some(rescan) = rescan {
+            self.chain
+                .rescan(rescan)
+                .map_err(|_| jsonrpc_core::Error::internal_error())?;
+        }
         if result.is_err() {
             return Err(Error::InvalidDescriptor.into());
         }

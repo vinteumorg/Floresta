@@ -114,6 +114,7 @@ impl Default for RunningNode {
             user_requests: Arc::new(NodeInterface {
                 requests: Mutex::new(Vec::new()),
             }),
+            last_block_check: Instant::now(),
         }
     }
 }
@@ -386,14 +387,14 @@ impl<T: 'static + Default + NodeContext, Chain: BlockchainInterface + UpdatableC
         }
         let mut removed_peers = HashSet::new();
         let mut to_request = Vec::new();
+        let mut rescan_blocks = Vec::new();
         for request in timed_out {
             let Some((peer, _)) = self.inflight.remove(&request) else {
                 continue;
             };
             match request {
-                InflightRequests::Blocks(block) | InflightRequests::RescanBlock(block) => {
-                    to_request.push(block)
-                }
+                InflightRequests::Blocks(block) => to_request.push(block),
+                InflightRequests::RescanBlock(block) => rescan_blocks.push(block),
                 InflightRequests::Headers => {
                     self.send_to_random_peer(NodeRequest::GetAddresses, ServiceFlags::NONE)
                         .await?;
@@ -414,6 +415,16 @@ impl<T: 'static + Default + NodeContext, Chain: BlockchainInterface + UpdatableC
                 removed_peers.insert(peer);
             }
         }
+        for hash in rescan_blocks {
+            let peer = self
+                .send_to_random_peer(
+                    NodeRequest::GetBlock((vec![hash], false)),
+                    ServiceFlags::NONE,
+                )
+                .await?;
+            self.inflight
+                .insert(InflightRequests::RescanBlock(hash), (peer, Instant::now()));
+        }
         self.request_blocks(to_request).await?;
         Ok(())
     }
@@ -426,10 +437,10 @@ impl<T: 'static + Default + NodeContext, Chain: BlockchainInterface + UpdatableC
         if self.peers.is_empty() {
             return Err(WireError::NoPeersAvailable);
         }
-        loop {
+        for _ in 0..10 {
             let idx = if required_services.has(ServiceFlags::NODE_UTREEXO) {
                 if self.utreexo_peers.is_empty() {
-                    return Err(WireError::NoPeersAvailable);
+                    return Err(WireError::NoUtreexoPeersAvailable);
                 }
                 let idx = rand::random::<usize>() % self.utreexo_peers.len();
                 *self
@@ -457,6 +468,8 @@ impl<T: 'static + Default + NodeContext, Chain: BlockchainInterface + UpdatableC
                 return Ok(idx);
             }
         }
+        self.create_connection(false).await;
+        Err(WireError::NoPeerToSendRequest)
     }
 
     pub async fn init_peers(&mut self) -> Result<(), WireError> {
@@ -576,8 +589,8 @@ impl<T: 'static + Default + NodeContext, Chain: BlockchainInterface + UpdatableC
     }
 
     async fn create_connection(&mut self, feeler: bool) -> Option<()> {
-        // We should try to keep at least one utreexo connections
-        let required_services = if self.utreexo_peers.is_empty() {
+        // We should try to keep at least two utreexo connections
+        let required_services = if self.utreexo_peers.len() < 2 {
             ServiceFlags::NETWORK | ServiceFlags::WITNESS | ServiceFlags::NODE_UTREEXO
         } else {
             ServiceFlags::NETWORK | ServiceFlags::WITNESS
@@ -927,6 +940,21 @@ impl<Chain: BlockchainInterface + UpdatableChainstate> UtreexoNode<RunningNode, 
             Some(NodeResponse::GetPeerInfo(peers)),
         );
     }
+    /// In some edge cases, we may get a block header, but not the block itself. This
+    /// function checks if we have the block, and if not, requests it.
+    async fn ask_missed_block(&mut self) -> Result<(), WireError> {
+        let best_block = self.chain.get_best_block()?.0;
+        let validation_index = self.chain.get_validation_index()?;
+
+        if best_block == validation_index {
+            return Ok(());
+        }
+        for block in validation_index..=best_block {
+            let block = self.0.chain.get_block_hash(block)?;
+            self.request_blocks(vec![block]).await?;
+        }
+        Ok(())
+    }
     async fn perform_user_request(&mut self, user_req: Vec<UserRequest>) {
         for user_req in user_req {
             let req = match user_req {
@@ -989,6 +1017,13 @@ impl<Chain: BlockchainInterface + UpdatableChainstate> UtreexoNode<RunningNode, 
                 ADDRESS_REARRANGE_INTERVAL,
                 RunningNode,
                 true
+            );
+            // Check if we haven't missed any block
+            periodic_job!(
+                self.ask_missed_block().await,
+                self.1.last_block_check,
+                BLOCK_CHECK_INTERVAL,
+                RunningNode
             );
             // Perhaps we need more connections
             periodic_job!(
@@ -1210,8 +1245,6 @@ impl<Chain: BlockchainInterface + UpdatableChainstate> UtreexoNode<RunningNode, 
                     for header in headers.iter() {
                         self.chain.accept_header(*header)?;
                     }
-                    let hashes = headers.iter().map(|header| header.block_hash()).collect();
-                    self.request_blocks(hashes).await?;
                 }
                 PeerMessages::Ready(version) => {
                     self.handle_peer_ready(peer, &version).await?;
@@ -1264,7 +1297,7 @@ macro_rules! try_and_log {
         let result = $what;
 
         if let Err(error) = result {
-            log::error!("{:?}", error);
+            log::error!("{}:{} - {:?}", line!(), file!(), error);
         }
     };
 }

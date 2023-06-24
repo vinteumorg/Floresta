@@ -26,6 +26,10 @@ pub enum WireError {
     ChannelRecvError(#[from] async_std::channel::RecvError),
     #[error("Generic io error")]
     IoError(std::io::Error),
+    #[error("We don't have any utreexo peers")]
+    NoUtreexoPeersAvailable,
+    #[error("We couldn't find a peer to send the request")]
+    NoPeerToSendRequest,
 }
 impl_error_from!(WireError, PeerError, PeerError);
 impl_error_from!(WireError, BlockchainError, BlockchainError);
