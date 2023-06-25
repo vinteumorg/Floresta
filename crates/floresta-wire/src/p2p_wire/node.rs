@@ -407,12 +407,12 @@ impl<T: 'static + Default + NodeContext, Chain: BlockchainInterface + UpdatableC
             }
 
             if !removed_peers.contains(&peer) {
-                if let Some(peer) = self.peers.get_mut(&peer) {
-                    peer.state = PeerStatus::ShutingDown;
-                }
-
                 self.send_to_peer(peer, NodeRequest::Shutdown).await?;
                 removed_peers.insert(peer);
+                if let Some(peer) = self.peers.get_mut(&peer) {
+                    info!("Peer {} timed out request, shuting down", peer.address);
+                    peer.state = PeerStatus::ShutingDown;
+                }
             }
         }
         for hash in rescan_blocks {
@@ -992,8 +992,7 @@ impl<Chain: BlockchainInterface + UpdatableChainstate> UtreexoNode<RunningNode, 
             .await;
 
         loop {
-            while let Ok(notification) =
-                timeout(Duration::from_millis(100), self.node_rx.recv()).await
+            while let Ok(notification) = timeout(Duration::from_secs(1), self.node_rx.recv()).await
             {
                 try_and_log!(self.handle_notification(notification).await);
             }

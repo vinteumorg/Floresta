@@ -27,7 +27,7 @@
 //! You can find examples of how to use the crates in the examples directory.
 //! # Name
 //! Floresta is the Portuguese word for forest. It is a reference to the Utreexo accumulator,
-//! which is a forest of trees. It's pronounced /floˈɾɛstɐ/.
+//! which is a forest of Merkle trees. It's pronounced /floˈɾɛstɐ/.
 pub use floresta_chain as chain;
 pub use floresta_common as common;
 pub use floresta_watch_only as wallet;
