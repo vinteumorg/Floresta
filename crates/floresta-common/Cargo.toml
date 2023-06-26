@@ -1,0 +1,12 @@
+[package]
+name = "floresta-common"
+version = "0.1.0"
+edition = "2021"
+description = "Multiple inernal utilities"
+authors = ["Davidson Souza <davidson.lucas.souza@outlook.com>"]
+license = "MIT"
+
+[dependencies]
+sha2 = "^0.10.6"
+bitcoin = "0.29.2"
+miniscript = { git = "https://github.com/douglaz/rust-miniscript.git", branch = "master-2023-03-30" }
