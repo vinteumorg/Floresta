@@ -300,17 +300,17 @@ fn get_config_file(params: &cli::Cli) -> ConfigFile {
         }
     }
 }
-// fn get_key_from_env() -> Option<String> {
-//     let xpub = std::env::var("WALLET_XPUB");
-//     match xpub {
-//         Ok(key) => return Some(key),
-//         Err(e) => match e {
-//             std::env::VarError::NotPresent => {}
-//             std::env::VarError::NotUnicode(xpub) => error!("Invalid xpub {xpub:?}"),
-//         },
-//     }
-//     None
-// }
+fn get_key_from_env() -> Option<String> {
+    let xpub = std::env::var("WALLET_XPUB");
+    match xpub {
+        Ok(key) => return Some(key),
+        Err(e) => match e {
+            std::env::VarError::NotPresent => {}
+            std::env::VarError::NotUnicode(xpub) => error!("Invalid xpub {xpub:?}"),
+        },
+    }
+    None
+}
 fn load_chain_state(
     data_dir: &String,
     network: Network,
@@ -365,12 +365,15 @@ fn get_net(net: &cli::Network) -> Network {
 }
 
 fn setup_wallet<D: AddressCacheDatabase>(
-    xpubs: Vec<String>,
+    mut xpubs: Vec<String>,
     descriptors: Vec<String>,
     addresses: Vec<String>,
     wallet: &mut AddressCache<D>,
     network: cli::Network,
 ) -> anyhow::Result<()> {
+    if let Some(key) = get_key_from_env() {
+        xpubs.push(key);
+    }
     let setup =
         InitialWalletSetup::build(&xpubs, &descriptors, &addresses, get_net(&network), 100)?;
     for descriptor in setup.descriptors {
