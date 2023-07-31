@@ -3,6 +3,7 @@ use super::{
     chain_state_builder::ChainStateBuilder,
     chainparams::ChainParams,
     chainstore::{ChainStore, DiskBlockHeader, KvChainStore},
+    consensus::Consensus,
     error::{BlockValidationErrors, BlockchainError},
     BlockchainInterface, Notification, UpdatableChainstate,
 };
@@ -12,9 +13,9 @@ use alloc::{borrow::ToOwned, fmt::format, string::ToString, vec::Vec};
 use async_std::channel::Sender;
 use bitcoin::{
     bitcoinconsensus,
-    blockdata::constants::{genesis_block, COIN_VALUE},
+    blockdata::constants::genesis_block,
     consensus::{deserialize_partial, Decodable, Encodable},
-    hashes::{hex::FromHex, sha256, Hash},
+    hashes::{hex::FromHex, sha256},
     util::uint::Uint256,
     Block, BlockHash, BlockHeader, OutPoint, Transaction, TxOut,
 };
@@ -23,7 +24,6 @@ use core::ffi::c_uint;
 use futures::executor::block_on;
 use log::{info, trace};
 use rustreexo::accumulator::{node_hash::NodeHash, proof::Proof, stump::Stump};
-use sha2::{Digest, Sha512_256};
 use spin::RwLock;
 
 pub struct ChainStateInner<PersistedState: ChainStore> {
@@ -45,8 +45,8 @@ pub struct ChainStateInner<PersistedState: ChainStore> {
     fee_estimation: (f64, f64, f64),
     /// Are we in Initial Block Download?
     ibd: bool,
-    /// Global parameter of the chain we are in
-    chain_params: ChainParams,
+    /// Parameters for the chain and functions that verify the chain.
+    consensus: Consensus,
     /// Assume valid is a Core-specific config that tells the node to not validate signatures
     /// in blocks before this one. Note that we only skip signature validation, everything else
     /// is still validated.
@@ -57,34 +57,6 @@ pub struct ChainState<PersistedState: ChainStore> {
 }
 
 impl<PersistedState: ChainStore> ChainState<PersistedState> {
-    // TODO: Move to LeafData
-    pub fn get_leaf_hashes(
-        transaction: &Transaction,
-        vout: u32,
-        height: u32,
-        block_hash: BlockHash,
-    ) -> sha256::Hash {
-        let header_code = height << 1;
-
-        let mut ser_utxo = Vec::new();
-        let utxo = transaction.output.get(vout as usize).unwrap();
-        utxo.consensus_encode(&mut ser_utxo).unwrap();
-        let header_code = if transaction.is_coin_base() {
-            header_code | 1
-        } else {
-            header_code
-        };
-
-        let leaf_hash = Sha512_256::new()
-            .chain_update(block_hash)
-            .chain_update(transaction.txid())
-            .chain_update(vout.to_le_bytes())
-            .chain_update(header_code.to_le_bytes())
-            .chain_update(ser_utxo)
-            .finalize();
-        sha256::Hash::from_slice(leaf_hash.as_slice())
-            .expect("parent_hash: Engines shouldn't be Err")
-    }
     fn maybe_reindex(&self, potential_tip: &DiskBlockHeader) {
         match potential_tip {
             DiskBlockHeader::HeadersOnly(_, height) => {
@@ -101,7 +73,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
     }
     /// Returns the validation flags, given the current block height
     fn get_validation_flags(&self, height: u32) -> c_uint {
-        let chains_params = read_lock!(self).chain_params.clone();
+        let chains_params = &read_lock!(self).consensus.parameters;
         let hash = read_lock!(self)
             .chainstore
             .get_block_hash(height)
@@ -135,19 +107,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         }
         flags
     }
-    /// Returns the amount of block subsidy to be paid in a block, given it's height.
-    /// Bitcoin Core source: https://github.com/bitcoin/bitcoin/blob/2b211b41e36f914b8d0487e698b619039cc3c8e2/src/validation.cpp#L1501-L1512
-    fn get_subsidy(&self, height: u32) -> u64 {
-        let halvings = height / read_lock!(self).chain_params.subsidy_halving_interval as u32;
-        // Force block reward to zero when right shift is undefined.
-        if halvings >= 64 {
-            return 0;
-        }
-        let mut subsidy = 50 * COIN_VALUE;
-        // Subsidy is cut in half every 210,000 blocks which will occur approximately every 4 years.
-        subsidy >>= halvings;
-        subsidy
-    }
+
     fn update_header(&self, header: &DiskBlockHeader) -> Result<(), BlockchainError> {
         Ok(read_lock!(self).chainstore.save_header(header)?)
     }
@@ -172,63 +132,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         })?;
         Ok(block_hash)
     }
-    fn verify_block_transactions(
-        mut utxos: HashMap<OutPoint, TxOut>,
-        transactions: &[Transaction],
-        subsidy: u64,
-        verify_script: bool,
-        flags: c_uint,
-    ) -> Result<bool, BlockchainError> {
-        // Blocks must contain at least one transaction
-        if transactions.is_empty() {
-            return Err(BlockValidationErrors::EmptyBlock.into());
-        }
-        let mut fee = 0;
-        // Skip the coinbase tx
-        for (n, transaction) in transactions.iter().enumerate() {
-            // We don't need to verify the coinbase inputs, as it spends newly generated coins
-            if transaction.is_coin_base() {
-                if n == 0 {
-                    continue;
-                }
-                // A block must contain only one coinbase, and it should be the fist thing inside it
-                return Err(BlockValidationErrors::FirstTxIsnNotCoinbase.into());
-            }
-            // Amount of all outputs
-            let output_value = transaction.output.iter().fold(0, |acc, tx| acc + tx.value);
-            // Amount of all inputs
-            let in_value = transaction.input.iter().fold(0, |acc, input| {
-                acc + utxos
-                    .get(&input.previous_output)
-                    .expect("We have all prevouts here")
-                    .value
-            });
-            // Value in should be greater or equal to value out. Otherwise, inflation.
-            if output_value > in_value {
-                return Err(BlockValidationErrors::NotEnoughMoney.into());
-            }
-            // Fee is the difference between inputs and outputs
-            fee += in_value - output_value;
-            // Verify the tx script
-            if verify_script {
-                transaction.verify_with_flags(|outpoint| utxos.remove(outpoint), flags)?;
-            }
-        }
-        // In each block, the first transaction, and only the first, should be coinbase
-        if !transactions[0].is_coin_base() {
-            return Err(BlockValidationErrors::FirstTxIsnNotCoinbase.into());
-        }
-        // Checks if the miner isn't trying to create inflation
-        if fee + subsidy
-            < transactions[0]
-                .output
-                .iter()
-                .fold(0, |acc, out| acc + out.value)
-        {
-            return Err(BlockValidationErrors::BadCoinbaseOutValue.into());
-        }
-        Ok(true)
-    }
+
     #[inline]
     /// Whether a node is the genesis block for this net
     fn is_genesis(&self, header: &BlockHeader) -> bool {
@@ -463,66 +367,12 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             .push(branch_tip.block_hash());
         Ok(())
     }
-    /// Calculates the next target for the proof of work algorithm, given the
-    /// current target and the time it took to mine the last 2016 blocks.
-    fn calc_next_work_required(
-        last_block: &BlockHeader,
-        first_block: &BlockHeader,
-        params: ChainParams,
-    ) -> u32 {
-        let cur_target = last_block.target();
 
-        let expected_timespan = Uint256::from_u64(params.pow_target_timespan).unwrap();
-        let mut actual_timespan = last_block.time - first_block.time;
-        // Difficulty adjustments are limited, to prevent large swings in difficulty
-        // caused by malicious miners.
-        if actual_timespan < params.pow_target_timespan as u32 / 4 {
-            actual_timespan = params.pow_target_timespan as u32 / 4;
-        }
-        if actual_timespan > params.pow_target_timespan as u32 * 4 {
-            actual_timespan = params.pow_target_timespan as u32 * 4;
-        }
-        let new_target = cur_target.mul_u32(actual_timespan);
-        let new_target = new_target / expected_timespan;
-
-        BlockHeader::compact_target_from_u256(&new_target)
-    }
-    /// Returns the next required work for the next block, usually it's just the last block's target
-    /// but if we are in a retarget period, it's calculated from the last 2016 blocks.
-    fn get_next_required_work(
-        &self,
-        last_block: &BlockHeader,
-        next_height: u32,
-        next_header: &BlockHeader,
-    ) -> Uint256 {
-        let params: ChainParams = self.chain_params();
-        // Special testnet rule, if a block takes more than 20 minutes to mine, we can
-        // mine a block with diff 1
-        if params.pow_allow_min_diff
-            && last_block.time + params.pow_target_spacing as u32 * 2 < next_header.time
-        {
-            return params.max_target;
-        }
-        // Regtest don't have retarget
-        if !params.pow_allow_no_retarget && (next_height) % 2016 == 0 {
-            // First block in this epoch
-            let first_block = self.get_block_header_by_height(next_height - 2016);
-            let last_block = self.get_block_header_by_height(next_height - 1);
-
-            let next_bits =
-                Self::calc_next_work_required(&last_block, &first_block, self.chain_params());
-            let target = BlockHeader::u256_from_compact_target(next_bits);
-            if target < params.max_target {
-                return target;
-            }
-            return params.max_target;
-        }
-        last_block.target()
-    }
     /// Returns the chain_params struct for the current network
     fn chain_params(&self) -> ChainParams {
         let inner = read_lock!(self);
-        inner.chain_params.clone()
+        // We clone the parameters here, because we don't want to hold the lock for too long
+        inner.consensus.parameters.clone()
     }
     // This function should be only called if a block is guaranteed to be on chain
     fn get_block_header_by_height(&self, height: u32) -> BlockHeader {
@@ -532,53 +382,6 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         self.get_block_header(&block)
             .expect("This block should also be present")
     }
-    fn update_acc(
-        acc: &Stump,
-        block: &Block,
-        height: u32,
-        proof: Proof,
-        del_hashes: Vec<sha256::Hash>,
-    ) -> Result<Stump, BlockchainError> {
-        let block_hash = block.block_hash();
-        let mut leaf_hashes = Vec::new();
-        let del_hashes = del_hashes
-            .iter()
-            .map(|hash| NodeHash::from(hash.into_inner()))
-            .collect::<Vec<_>>();
-
-        if !proof.verify(&del_hashes, acc)? {
-            return Err(BlockchainError::InvalidProof);
-        }
-        let mut block_inputs = HashSet::new();
-        for transaction in block.txdata.iter() {
-            for input in transaction.input.iter() {
-                block_inputs.insert((input.previous_output.txid, input.previous_output.vout));
-            }
-        }
-
-        for transaction in block.txdata.iter() {
-            for (i, output) in transaction.output.iter().enumerate() {
-                if !output.script_pubkey.is_provably_unspendable()
-                    && !block_inputs.contains(&(transaction.txid(), i as u32))
-                {
-                    leaf_hashes.push(Self::get_leaf_hashes(
-                        transaction,
-                        i as u32,
-                        height,
-                        block_hash,
-                    ))
-                }
-            }
-        }
-        let hashes: Vec<NodeHash> = leaf_hashes
-            .iter()
-            .map(|&hash| NodeHash::from(hash.into_inner()))
-            .collect();
-        let acc = acc.modify(&hashes, &del_hashes, &proof)?.0;
-
-        Ok(acc)
-    }
-
     fn save_acc(&self) -> Result<(), bitcoin::consensus::encode::Error> {
         let inner = read_lock!(self);
         let mut ser_acc: Vec<u8> = Vec::new();
@@ -639,7 +442,9 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
                 subscribers: Vec::new(),
                 fee_estimation: (1_f64, 1_f64, 1_f64),
                 ibd: true,
-                chain_params: network.into(),
+                consensus: Consensus {
+                    parameters: network.into(),
+                },
                 assume_valid: (assume_valid_hash, 0),
             }),
         }
@@ -718,7 +523,9 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             fee_estimation: (1_f64, 1_f64, 1_f64),
             subscribers: Vec::new(),
             ibd: true,
-            chain_params: network.into(),
+            consensus: Consensus {
+                parameters: network.into(),
+            },
             assume_valid: (Self::get_assume_valid_value(network, assume_valid_hash), 0),
         };
         info!(
@@ -790,6 +597,38 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
     fn acc(&self) -> Stump {
         read_lock!(self).acc.to_owned()
     }
+    /// Returns the next required work for the next block, usually it's just the last block's target
+    /// but if we are in a retarget period, it's calculated from the last 2016 blocks.
+    fn get_next_required_work(
+        &self,
+        last_block: &BlockHeader,
+        next_height: u32,
+        next_header: &BlockHeader,
+    ) -> Uint256 {
+        let params: ChainParams = self.chain_params();
+        // Special testnet rule, if a block takes more than 20 minutes to mine, we can
+        // mine a block with diff 1
+        if params.pow_allow_min_diff
+            && last_block.time + params.pow_target_spacing as u32 * 2 < next_header.time
+        {
+            return params.max_target;
+        }
+        // Regtest don't have retarget
+        if !params.pow_allow_no_retarget && (next_height) % 2016 == 0 {
+            // First block in this epoch
+            let first_block = self.get_block_header_by_height(next_height - 2016);
+            let last_block = self.get_block_header_by_height(next_height - 1);
+
+            let next_bits =
+                Consensus::calc_next_work_required(&last_block, &first_block, self.chain_params());
+            let target = BlockHeader::u256_from_compact_target(next_bits);
+            if target < params.max_target {
+                return target;
+            }
+            return params.max_target;
+        }
+        last_block.target()
+    }
     fn validate_block(
         &self,
         block: &Block,
@@ -820,10 +659,10 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             ));
         }
         // Validate block transactions
-        let subsidy = self.get_subsidy(height);
+        let subsidy = read_lock!(self).consensus.get_subsidy(height);
         let verify_script = self.verify_script(height);
         let flags = self.get_validation_flags(height);
-        Self::verify_block_transactions(inputs, &block.txdata, subsidy, verify_script, flags)
+        Consensus::verify_block_transactions(inputs, &block.txdata, subsidy, verify_script, flags)
             .map_err(|_| BlockchainError::BlockValidationError(BlockValidationErrors::InvalidTx))?;
         Ok(())
     }
@@ -1011,7 +850,7 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
             DiskBlockHeader::HeadersOnly(_, height) => height,
         };
         self.validate_block(block, height, inputs)?;
-        let acc = Self::update_acc(&self.acc(), block, height, proof, del_hashes)?;
+        let acc = Consensus::update_acc(&self.acc(), block, height, proof, del_hashes)?;
         let ibd = self.is_in_idb();
         // ... If we came this far, we consider this block valid ...
         if ibd && height % 10_000 == 0 {
@@ -1098,7 +937,9 @@ impl<T: ChainStore> From<ChainStateBuilder<T>> for ChainState<T> {
             broadcast_queue: Vec::new(),
             subscribers: Vec::new(),
             fee_estimation: (1_f64, 1_f64, 1_f64),
-            chain_params: builder.chain_params(),
+            consensus: Consensus {
+                parameters: builder.chain_params(),
+            },
         };
 
         let inner = RwLock::new(inner);
@@ -1208,8 +1049,8 @@ impl Decodable for BestChain {
 #[cfg(test)]
 mod test {
     extern crate std;
-    use crate::prelude::HashMap;
     use crate::Network;
+    use crate::{prelude::HashMap, pruned_utreexo::consensus::Consensus};
     use bitcoin::{
         consensus::{deserialize, Decodable},
         hashes::hex::FromHex,
@@ -1260,7 +1101,7 @@ mod test {
         let last_block = Vec::from_hex("00000020dec6741f7dc5df6661bcb2d3ec2fceb14bd0e6def3db80da904ed1eeb8000000d1f308132e6a72852c04b059e92928ea891ae6d513cd3e67436f908c804ec7be51df535fae77031e4d00f800").unwrap();
         let last_block = deserialize(&last_block).unwrap();
 
-        let next_target = super::ChainState::<KvChainStore>::calc_next_work_required(
+        let next_target = Consensus::calc_next_work_required(
             &last_block,
             &first_block,
             ChainParams::from(Network::Bitcoin),
