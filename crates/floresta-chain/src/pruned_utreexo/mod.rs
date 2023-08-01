@@ -5,6 +5,7 @@ pub mod chainparams;
 pub mod chainstore;
 pub mod consensus;
 pub mod error;
+pub mod partial_chain;
 pub mod udata;
 
 use crate::prelude::*;

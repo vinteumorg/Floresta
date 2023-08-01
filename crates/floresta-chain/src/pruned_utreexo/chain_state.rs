@@ -594,7 +594,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         let inner = self.inner.read();
         inner.assume_valid.1 < height
     }
-    fn acc(&self) -> Stump {
+    pub fn acc(&self) -> Stump {
         read_lock!(self).acc.to_owned()
     }
     /// Returns the next required work for the next block, usually it's just the last block's target
