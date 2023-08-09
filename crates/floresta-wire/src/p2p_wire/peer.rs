@@ -27,7 +27,7 @@ use bitcoin::{
     BlockHash, BlockHeader, Network, Transaction,
 };
 use futures::FutureExt;
-use log::debug;
+use log::{debug, error};
 use std::{
     fmt::Debug,
     sync::Arc,
@@ -49,6 +49,8 @@ pub struct Peer {
     blocks_only: bool,
     services: ServiceFlags,
     user_agent: String,
+    messages: u64,
+    start_time: Instant,
     current_best_block: i32,
     last_ping: Instant,
     id: u32,
@@ -74,6 +76,8 @@ pub enum PeerError {
     MessageTooBig,
     #[error("Peer sent us a message with the wrong magic bits")]
     MagicBitsMismatch,
+    #[error("Peer sent us too many message in a short period of time")]
+    TooManyMessages,
 }
 impl Debug for Peer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -110,12 +114,24 @@ impl Peer {
                         self.handle_node_request(request).await?;
                     }
                 }
-                peer_request = async_std::future::timeout(Duration::from_secs(1), rx.recv()).fuse() => {
+                peer_request = async_std::future::timeout(Duration::from_secs(10), rx.recv()).fuse() => {
                     if let Ok(Ok(peer_request)) = peer_request {
                         self.handle_peer_message(peer_request?).await?;
                     }
                 }
             };
+            // divide the number of messages by the number of seconds we've been connected,
+            // if it's more than 100 msg/sec, this peer is sending us too many messages, and we should
+            // disconnect.
+            if self.messages > 0
+                && self.messages / Instant::now().duration_since(self.start_time).as_secs() > 10
+            {
+                error!(
+                    "Peer {} is sending us too many messages, disconnecting",
+                    self.id
+                );
+                return Err(PeerError::TooManyMessages);
+            }
             if let State::SentVersion(when) = self.state {
                 if Instant::now().duration_since(when) > Duration::from_secs(10) {
                     return Err(PeerError::UnexpectedMessage);
@@ -315,6 +331,8 @@ impl Peer {
             node_tx,
             services: ServiceFlags::NONE,
             stream,
+            messages: 0,
+            start_time: Instant::now(),
             user_agent: "".into(),
             state: State::None,
             send_headers: false,
