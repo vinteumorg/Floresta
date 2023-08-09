@@ -3,8 +3,6 @@
 //! assume anything about the chainstate, so it can be used in any context.
 //! We use this to avoid code reuse among the different implementations of the chainstate.
 
-use core::ffi::c_uint;
-
 use floresta_common::prelude::*;
 
 use bitcoin::{
@@ -14,12 +12,17 @@ use bitcoin::{
     util::uint::Uint256,
     Block, BlockHash, BlockHeader, OutPoint, Transaction, TxOut,
 };
+use core::ffi::c_uint;
 use rustreexo::accumulator::{node_hash::NodeHash, proof::Proof, stump::Stump};
 use sha2::{Digest, Sha512_256};
 
 use crate::{BlockValidationErrors, BlockchainError, ChainParams};
-
+/// This struct contains all the information and methods needed to validate a block,
+/// it is used by the [ChainState] to validate blocks and transactions.
+#[derive(Debug, Clone)]
 pub struct Consensus {
+    /// The parameters of the chain we are validating, it is usually hardcoded
+    /// constants. See [ChainParams] for more information.
     pub parameters: ChainParams,
 }
 
@@ -37,6 +40,9 @@ impl Consensus {
         subsidy >>= halvings;
         subsidy
     }
+
+    /// Returns the hash of a leaf node in the utreexo accumulator.
+    #[inline]
     fn get_leaf_hashes(
         transaction: &Transaction,
         vout: u32,
@@ -64,6 +70,16 @@ impl Consensus {
         sha256::Hash::from_slice(leaf_hash.as_slice())
             .expect("parent_hash: Engines shouldn't be Err")
     }
+    /// Verify if all transactions in a block are valid. Here we check the following:
+    /// - The block must contain at least one transaction, and this transaction must be coinbase
+    /// - The first transaction in the block must be coinbase
+    /// - The coinbase transaction must have the correct value (subsidy + fees)
+    /// - The block must not create more coins than allowed
+    /// - All transactions must be valid:
+    ///     - The transaction must not be coinbase (already checked)
+    ///     - The transaction must not have duplicate inputs
+    ///     - The transaction must not spend more coins than it claims in the inputs
+    ///     - The transaction must have valid scripts
     pub fn verify_block_transactions(
         mut utxos: HashMap<OutPoint, TxOut>,
         transactions: &[Transaction],
@@ -145,7 +161,11 @@ impl Consensus {
 
         BlockHeader::compact_target_from_u256(&new_target)
     }
-
+    /// Updates our accumulator with the new block. This is done by calculating the new
+    /// root hash of the accumulator, and then verifying the proof of inclusion of the
+    /// deleted nodes. If the proof is valid, we return the new accumulator. Otherwise,
+    /// we return an error.
+    /// This function is pure, it doesn't modify the accumulator, but returns a new one.
     pub fn update_acc(
         acc: &Stump,
         block: &Block,
@@ -159,17 +179,19 @@ impl Consensus {
             .iter()
             .map(|hash| NodeHash::from(hash.into_inner()))
             .collect::<Vec<_>>();
-
+        // Verify the proof of inclusion of the deleted nodes
         if !proof.verify(&del_hashes, acc)? {
-            return Err(BlockchainError::InvalidProof);
+            return Err(BlockValidationErrors::InvalidProof.into());
         }
+        // Get inputs from the block, we'll need this HashSet to check if an output is spent
+        // in the same block. If it is, we don't need to add it to the accumulator.
         let mut block_inputs = HashSet::new();
         for transaction in block.txdata.iter() {
             for input in transaction.input.iter() {
                 block_inputs.insert((input.previous_output.txid, input.previous_output.vout));
             }
         }
-
+        // Get all leaf hashes that will be added to the accumulator
         for transaction in block.txdata.iter() {
             for (i, output) in transaction.output.iter().enumerate() {
                 if !output.script_pubkey.is_provably_unspendable()
@@ -184,12 +206,13 @@ impl Consensus {
                 }
             }
         }
+        // Convert the leaf hashes to NodeHashes used in Rustreexo
         let hashes: Vec<NodeHash> = leaf_hashes
             .iter()
             .map(|&hash| NodeHash::from(hash.into_inner()))
             .collect();
+        // Update the accumulator
         let acc = acc.modify(&hashes, &del_hashes, &proof)?.0;
-
         Ok(acc)
     }
 }

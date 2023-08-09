@@ -22,7 +22,7 @@ pub enum BlockchainError {
     IoError(ioError),
 }
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum BlockValidationErrors {
     InvalidTx,
     NotEnoughPow,
@@ -34,6 +34,7 @@ pub enum BlockValidationErrors {
     EmptyBlock,
     BlockExtendsAnOrphanChain,
     BadBip34,
+    InvalidProof,
 }
 impl Display for BlockValidationErrors {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -62,6 +63,7 @@ impl Display for BlockValidationErrors {
                 write!(f, "This block extends a chain we don't have the ancestors")
             }
             BlockValidationErrors::BadBip34 => write!(f, "BIP34 commitment mismatch"),
+            BlockValidationErrors::InvalidProof => write!(f, "Invalid proof"),
         }
     }
 }
