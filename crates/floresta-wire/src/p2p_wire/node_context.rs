@@ -30,6 +30,8 @@ pub trait NodeContext {
     const BAN_TIME: u64 = 60 * 60 * 24;
     /// How often we check if we haven't missed a block
     const BLOCK_CHECK_INTERVAL: u64 = 60 * 5; // 5 minutes
+    /// How often we send our addresses to our peers
+    const SEND_ADDRESSES_INTERVAL: u64 = 60 * 60; // 1 hour
 }
 
 #[derive(Debug, Clone)]

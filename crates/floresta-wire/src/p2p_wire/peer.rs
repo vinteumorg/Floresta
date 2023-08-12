@@ -181,6 +181,9 @@ impl Peer {
                 self.write(NetworkMessage::GetData(vec![Inventory::Transaction(txid)]))
                     .await?;
             }
+            NodeRequest::SendAddresses(addresses) => {
+                self.write(NetworkMessage::AddrV2(addresses)).await?;
+            }
         }
         Ok(())
     }
