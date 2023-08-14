@@ -157,6 +157,31 @@ impl AddressMan {
             }
         }
     }
+    pub fn get_addresses_to_send(&self) -> Result<Vec<(AddrV2, u64, ServiceFlags, u16)>, ()> {
+        let addresses = self
+            .addresses
+            .iter()
+            .flat_map(|(time, v)| {
+                if let AddressState::Tried(time) = v.state {
+                    if time + RETRY_TIME
+                        < SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap()
+                            .as_secs()
+                    {
+                        Some((v.address.clone(), time, v.services, v.port))
+                    } else {
+                        None
+                    }
+                } else if matches!(v.state, AddressState::Connected) {
+                    Some((v.address.clone(), *time as u64, v.services, v.port))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        Ok(addresses)
+    }
     pub fn get_seeds_from_dns(
         &mut self,
         seed: &str,

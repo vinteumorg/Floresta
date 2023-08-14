@@ -19,6 +19,7 @@ use async_std::{
 use bitcoin::{
     hashes::{sha256, Hash},
     network::{
+        address::AddrV2Message,
         constants::ServiceFlags,
         message_blockdata::Inventory,
         utreexo::{UData, UtreexoBlock},
@@ -66,6 +67,8 @@ pub enum NodeRequest {
     BroadcastTransaction(Txid),
     /// Ask for an unconfirmed transaction
     MempoolTransaction(Txid),
+    /// Sends know addresses to our peers
+    SendAddresses(Vec<AddrV2Message>),
 }
 
 #[derive(Default, PartialEq)]
@@ -126,6 +129,7 @@ pub struct NodeCommon<Chain: BlockchainInterface + UpdatableChainstate> {
     last_connection: Instant,
     last_peer_db_dump: Instant,
     last_broadcast: Instant,
+    last_send_addresses: Instant,
     last_block_request: u32,
     network: Network,
     last_get_address_request: Instant,
@@ -194,6 +198,7 @@ impl<T: 'static + Default + NodeContext, Chain: BlockchainInterface + UpdatableC
                 last_peer_db_dump: Instant::now(),
                 last_broadcast: Instant::now(),
                 last_get_address_request: Instant::now(),
+                last_send_addresses: Instant::now(),
                 datadir,
             },
             T::default(),
@@ -975,6 +980,24 @@ impl<Chain: BlockchainInterface + UpdatableChainstate> UtreexoNode<RunningNode, 
             }
         }
     }
+    async fn send_addresses(&mut self) -> Result<(), WireError> {
+        let addresses = self
+            .address_man
+            .get_addresses_to_send()
+            .unwrap()
+            .into_iter()
+            .map(|(addr, time, services, port)| AddrV2Message {
+                services,
+                addr,
+                port,
+                time: time as u32,
+            })
+            .collect();
+
+        self.send_to_random_peer(NodeRequest::SendAddresses(addresses), ServiceFlags::NONE)
+            .await?;
+        Ok(())
+    }
     pub async fn run(mut self, kill_signal: &Arc<RwLock<bool>>) {
         try_and_log!(self.init_peers().await);
 
@@ -1064,6 +1087,13 @@ impl<Chain: BlockchainInterface + UpdatableChainstate> UtreexoNode<RunningNode, 
                 self.handle_broadcast().await,
                 self.last_broadcast,
                 BROADCAST_DELAY,
+                RunningNode
+            );
+            // Send our addresses to our peers
+            periodic_job!(
+                self.send_addresses().await,
+                self.last_send_addresses,
+                SEND_ADDRESSES_INTERVAL,
                 RunningNode
             );
             try_and_log!(self.ask_block().await);
