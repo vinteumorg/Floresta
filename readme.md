@@ -36,13 +36,13 @@ Right now, this project is working on signet only. Mainnet support is still a to
 Copy `config.toml.sample` to `config.toml`, and fill up your xpubs and addresses that you intend to track, and then run with
 
 ```bash
-floresta -c config.toml --network signet run
+florestad -c config.toml --network signet run
 ```
 
 or
 
 ```bash
-./target/release/floresta -c config.toml --network signet run
+./target/release/florestad -c config.toml --network signet run
 ```
 
 or
