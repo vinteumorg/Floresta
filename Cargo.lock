@@ -742,7 +742,7 @@ dependencies = [
  "floresta-wire",
  "hashbrown 0.14.0",
  "miniscript 10.0.0",
- "rustreexo 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rustreexo",
 ]
 
 [[package]]
@@ -808,7 +808,7 @@ dependencies = [
  "pretty_assertions",
  "rand 0.8.5",
  "rmp-serde",
- "rustreexo 0.1.0 (git+https://www.github.com/mit-dci/rustreexo)",
+ "rustreexo",
  "serde",
  "serde_json",
  "sha2",
@@ -849,7 +849,7 @@ dependencies = [
  "pretty_assertions",
  "rand 0.8.5",
  "rmp-serde",
- "rustreexo 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rustreexo",
  "serde",
  "serde_json",
  "sha2",
@@ -885,7 +885,7 @@ dependencies = [
  "pretty_env_logger",
  "rand 0.8.5",
  "rmp-serde",
- "rustreexo 0.1.0 (git+https://www.github.com/mit-dci/rustreexo)",
+ "rustreexo",
  "serde",
  "serde_json",
  "sha2",
