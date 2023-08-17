@@ -9,4 +9,8 @@ license = "MIT"
 [dependencies]
 sha2 = "^0.10.6"
 bitcoin = "0.29.2"
-miniscript = { git = "https://github.com/douglaz/rust-miniscript.git", branch = "master-2023-03-30" }
+miniscript = { git = "https://github.com/douglaz/rust-miniscript.git", optional = true, branch = "master-2023-03-30" }
+
+[features]
+default = ["descriptors"]
+descriptors = ["miniscript"]

@@ -11,8 +11,10 @@ use crate::prelude::*;
 use crate::{read_lock, write_lock, Network};
 use alloc::{borrow::ToOwned, fmt::format, string::ToString, vec::Vec};
 use async_std::channel::Sender;
+#[cfg(feature = "bitcoinconsensus")]
+use bitcoin::bitcoinconsensus;
+
 use bitcoin::{
-    bitcoinconsensus,
     blockdata::constants::genesis_block,
     consensus::{deserialize_partial, Decodable, Encodable},
     hashes::{hex::FromHex, sha256},
@@ -71,6 +73,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             _ => {}
         }
     }
+    #[cfg(feature = "bitcoinconsensus")]
     /// Returns the validation flags, given the current block height
     fn get_validation_flags(&self, height: u32) -> c_uint {
         let chains_params = &read_lock!(self).consensus.parameters;
@@ -661,7 +664,10 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         // Validate block transactions
         let subsidy = read_lock!(self).consensus.get_subsidy(height);
         let verify_script = self.verify_script(height);
+        #[cfg(feature = "bitcoinconsensus")]
         let flags = self.get_validation_flags(height);
+        #[cfg(not(feature = "bitcoinconsensus"))]
+        let flags = 0;
         Consensus::verify_block_transactions(inputs, &block.txdata, subsidy, verify_script, flags)
             .map_err(|_| BlockchainError::BlockValidationError(BlockValidationErrors::InvalidTx))?;
         Ok(())
@@ -962,7 +968,7 @@ macro_rules! write_lock {
     };
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 /// Internal representation of the chain we are in
 pub struct BestChain {
     /// Hash of the last block in the chain we believe has more work on

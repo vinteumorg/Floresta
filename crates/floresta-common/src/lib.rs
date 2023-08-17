@@ -1,6 +1,7 @@
 #![no_std]
 use bitcoin::hashes::{sha256, Hash};
 use bitcoin::Script;
+#[cfg(feature = "descriptors")]
 use miniscript::{Descriptor, DescriptorPublicKey};
 use prelude::*;
 
@@ -18,6 +19,7 @@ pub fn get_spk_hash(spk: &Script) -> sha256::Hash {
     hash.reverse();
     sha256::Hash::from_slice(hash.as_slice()).expect("Engines shouldn't be Err")
 }
+#[cfg(feature = "descriptors")]
 pub fn parse_descriptors(
     descriptors: &[String],
 ) -> Result<Vec<Descriptor<DescriptorPublicKey>>, miniscript::Error> {

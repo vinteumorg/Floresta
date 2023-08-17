@@ -3,10 +3,15 @@ use crate::prelude::*;
 use alloc::vec::Vec;
 
 use crate::Network;
+
+#[cfg(feature = "bitcoinconsensus")]
 use bitcoin::{
     bitcoinconsensus::{VERIFY_NONE, VERIFY_P2SH, VERIFY_WITNESS},
-    blockdata::constants::{genesis_block, max_target},
     hashes::hex::FromHex,
+};
+
+use bitcoin::{
+    blockdata::constants::{genesis_block, max_target},
     util::uint::Uint256,
     Block, BlockHash,
 };
@@ -71,29 +76,38 @@ impl ChainParams {
         }
     }
 }
+#[cfg(feature = "bitcoinconsensus")]
+fn get_exceptions() -> HashMap<BlockHash, c_uint> {
+    // For some reason, some blocks in the mainnet and testnet have different rules than it should
+    // be, so we need to keep a list of exceptions and treat them differently
+    let mut exceptions = HashMap::new();
+    exceptions.insert(
+        BlockHash::from_hex("00000000000002dc756eebf4f49723ed8d30cc28a5f108eb94b1ba88ac4f9c22")
+            .unwrap(),
+        VERIFY_NONE,
+    ); // BIP16 exception on main net
+    exceptions.insert(
+        BlockHash::from_hex("0000000000000000000f14c35b2d841e986ab5441de8c585d5ffe55ea1e395ad")
+            .unwrap(),
+        VERIFY_P2SH | VERIFY_WITNESS,
+    ); // Taproot exception on main net
+    exceptions.insert(
+        BlockHash::from_hex("00000000dd30457c001f4095d208cc1296b0eed002427aa599874af7a432b105")
+            .unwrap(),
+        VERIFY_NONE,
+    ); // BIP16 exception on test net
+    exceptions
+}
+
+#[cfg(not(feature = "bitcoinconsensus"))]
+fn get_exceptions() -> HashMap<BlockHash, c_uint> {
+    HashMap::new()
+}
 impl From<Network> for ChainParams {
     fn from(net: Network) -> Self {
         let genesis = genesis_block(net.into());
         let max_target = ChainParams::max_target(net);
-        // For some reason, some blocks in the mainnet and testnet have different rules than it should
-        // be, so we need to keep a list of exceptions and treat them differently
-        let mut exceptions = HashMap::new();
-        exceptions.insert(
-            BlockHash::from_hex("00000000000002dc756eebf4f49723ed8d30cc28a5f108eb94b1ba88ac4f9c22")
-                .unwrap(),
-            VERIFY_NONE,
-        ); // BIP16 exception on main net
-        exceptions.insert(
-            BlockHash::from_hex("0000000000000000000f14c35b2d841e986ab5441de8c585d5ffe55ea1e395ad")
-                .unwrap(),
-            VERIFY_P2SH | VERIFY_WITNESS,
-        ); // Taproot exception on main net
-        exceptions.insert(
-            BlockHash::from_hex("00000000dd30457c001f4095d208cc1296b0eed002427aa599874af7a432b105")
-                .unwrap(),
-            VERIFY_NONE,
-        ); // BIP16 exception on test net
-
+        let exceptions = get_exceptions();
         match net {
             Network::Bitcoin => ChainParams {
                 genesis,

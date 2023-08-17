@@ -122,6 +122,7 @@ impl Consensus {
             // Fee is the difference between inputs and outputs
             fee += in_value - output_value;
             // Verify the tx script
+            #[cfg(feature = "bitcoinconsensus")]
             if verify_script {
                 transaction.verify_with_flags(|outpoint| utxos.remove(outpoint), flags)?;
             }

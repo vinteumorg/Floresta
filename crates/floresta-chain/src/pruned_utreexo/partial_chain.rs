@@ -10,7 +10,9 @@ use super::{
     consensus::Consensus,
     error::{BlockValidationErrors, BlockchainError},
 };
-use bitcoin::{bitcoinconsensus, BlockHeader};
+#[cfg(feature = "bitcoinconsensus")]
+use bitcoin::bitcoinconsensus;
+use bitcoin::BlockHeader;
 use core::ffi::c_uint;
 use log::info;
 use rustreexo::accumulator::stump::Stump;
@@ -73,6 +75,7 @@ impl PartialChainState {
         let index = height - self.initial_height;
         self.blocks.get(index as usize)
     }
+    #[cfg(feature = "bitcoinconsensus")]
     /// Returns the validation flags, given the current block height
     fn get_validation_flags(&self, height: u32) -> c_uint {
         let chains_params = &self.consensus.parameters;
@@ -196,7 +199,10 @@ impl PartialChainState {
         // Validate block transactions
         let subsidy = self.consensus.get_subsidy(height);
         let verify_script = self.assume_valid;
+        #[cfg(feature = "bitcoinconsensus")]
         let flags = self.get_validation_flags(height);
+        #[cfg(not(feature = "bitcoinconsensus"))]
+        let flags = 0;
         let valid = Consensus::verify_block_transactions(
             inputs,
             &block.txdata,
