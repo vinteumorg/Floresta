@@ -16,7 +16,11 @@ use core::ffi::c_uint;
 use rustreexo::accumulator::{node_hash::NodeHash, proof::Proof, stump::Stump};
 use sha2::{Digest, Sha512_256};
 
-use crate::{BlockValidationErrors, BlockchainError, ChainParams};
+use super::{
+    chainparams::ChainParams,
+    error::{BlockValidationErrors, BlockchainError},
+};
+
 /// This struct contains all the information and methods needed to validate a block,
 /// it is used by the [ChainState] to validate blocks and transactions.
 #[derive(Debug, Clone)]
@@ -180,7 +184,7 @@ impl Consensus {
             .map(|hash| NodeHash::from(hash.into_inner()))
             .collect::<Vec<_>>();
         // Verify the proof of inclusion of the deleted nodes
-        if !proof.verify(&del_hashes, acc)? {
+        if !acc.verify(&proof, &del_hashes)? {
             return Err(BlockValidationErrors::InvalidProof.into());
         }
         // Get inputs from the block, we'll need this HashSet to check if an output is spent

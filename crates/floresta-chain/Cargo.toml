@@ -4,27 +4,26 @@ version = "0.1.0"
 edition = "2021"
 
 [lib]
-crate-type = ["rlib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-rustreexo = { git = "https://www.github.com/mit-dci/rustreexo" }
+rustreexo = "0.1.0"
 sha2 = "^0.10.6"
 log = "0.4"
 kv = "0.24.0"
 bitcoin = { version = "0.29", features = [
     "serde",
     "no-std",
-    "bitcoinconsensus",
-] }
+], default-features = false }
 spin = "0.9.8"
 core2 = { version = "0.4.0", optional = true }
 hashbrown = { version = "0.14.0", optional = true }
-secp256k1 = { version = "*", features = ["alloc"] }
+secp256k1 = { version = "*", features = ["alloc"], optional = true }
 async-std = { version = "1.12.0", default-features = false, features = [
     "std",
     "futures-core",
 ] }
-floresta-common = { path = "../floresta-common" }
+floresta-common = { path = "../floresta-common", default-features = false }
 futures = "0.3.28"
 wasm-bindgen = "0.2.87"
 
@@ -35,6 +34,3 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 zstd = "0.12.3"
 hex = "0.4.3"
-
-[features]
-no-std = ["hashbrown", "core2"]

@@ -1,7 +1,9 @@
+#[cfg(not(target_arch = "wasm32"))]
 mod p2p_wire;
+#[cfg(not(target_arch = "wasm32"))]
+pub use p2p_wire::{address_man, mempool, node, node_context, node_interface};
 
 use bitcoin::{Block, BlockHeader, Transaction};
-pub use p2p_wire::{address_man, mempool, node, node_context, node_interface};
 
 /// NodeHooks is a trait that defines the hooks that a node can use to interact with the network
 /// and the blockchain. Every time an event happens, the node will call the corresponding hook.

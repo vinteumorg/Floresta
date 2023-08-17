@@ -37,7 +37,7 @@ pub fn parse_descriptors(
 #[cfg(feature = "no-std")]
 pub mod prelude {
     extern crate alloc;
-    pub use alloc::{borrow::ToOwned, string::String, vec, vec::Vec};
+    pub use alloc::{borrow::ToOwned, boxed::Box, string::String, vec, vec::Vec};
     pub use core::{
         cmp, convert,
         core::str::FromStr,
@@ -59,6 +59,7 @@ pub mod prelude {
     extern crate std;
     pub use std::borrow::ToOwned;
     pub use std::{
+        boxed::Box,
         collections::{hash_map::Entry, HashMap, HashSet},
         error::Error,
         fmt::{self, Display, Formatter},

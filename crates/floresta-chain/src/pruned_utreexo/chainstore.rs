@@ -3,7 +3,6 @@
 //! This is a basic kv database that stores all metadata about our blockchain and utreexo
 //! state.
 //! Author: Davidson Souza
-type Result<T> = core::result::Result<T, kv::Error>;
 use crate::prelude::*;
 
 use bitcoin::{
@@ -110,24 +109,25 @@ impl Encodable for DiskBlockHeader {
 }
 use kv::{Config, Integer, Store};
 
-use super::chain_state::BestChain;
+use super::{chain_state::BestChain, error::DatabaseError};
 pub trait ChainStore {
+    type Error: DatabaseError;
     /// Saves the current state of our accumulator.
-    fn save_roots(&self, roots: Vec<u8>) -> Result<()>;
+    fn save_roots(&self, roots: Vec<u8>) -> Result<(), Self::Error>;
     /// Loads the state of our accumulator.
-    fn load_roots(&self) -> Result<Option<Vec<u8>>>;
+    fn load_roots(&self) -> Result<Option<Vec<u8>>, Self::Error>;
     /// Loads the blockchain height
-    fn load_height(&self) -> Result<Option<BestChain>>;
-    fn save_height(&self, height: &BestChain) -> Result<()>;
-    fn get_header(&self, block_hash: &BlockHash) -> Result<Option<DiskBlockHeader>>;
-    fn save_header(&self, header: &DiskBlockHeader) -> Result<()>;
-    fn get_block_hash(&self, height: u32) -> Result<Option<BlockHash>>;
-    fn flush(&self) -> Result<()>;
-    fn update_block_index(&self, height: u32, hash: BlockHash) -> Result<()>;
+    fn load_height(&self) -> Result<Option<BestChain>, Self::Error>;
+    fn save_height(&self, height: &BestChain) -> Result<(), Self::Error>;
+    fn get_header(&self, block_hash: &BlockHash) -> Result<Option<DiskBlockHeader>, Self::Error>;
+    fn save_header(&self, header: &DiskBlockHeader) -> Result<(), Self::Error>;
+    fn get_block_hash(&self, height: u32) -> Result<Option<BlockHash>, Self::Error>;
+    fn flush(&self) -> Result<(), Self::Error>;
+    fn update_block_index(&self, height: u32, hash: BlockHash) -> Result<(), Self::Error>;
 }
 pub struct KvChainStore(Store);
 impl KvChainStore {
-    pub fn new(datadir: String) -> Result<KvChainStore> {
+    pub fn new(datadir: String) -> Result<KvChainStore, kv::Error> {
         // Configure the database
         let cfg = Config::new(datadir + "/chain_data").cache_capacity(100_000_000);
 
@@ -138,18 +138,19 @@ impl KvChainStore {
     }
 }
 impl ChainStore for KvChainStore {
-    fn load_roots(&self) -> Result<Option<Vec<u8>>> {
+    type Error = kv::Error;
+    fn load_roots(&self) -> Result<Option<Vec<u8>>, Self::Error> {
         let bucket = self.0.bucket::<&str, Vec<u8>>(None)?;
         bucket.get(&"roots")
     }
-    fn save_roots(&self, roots: Vec<u8>) -> Result<()> {
+    fn save_roots(&self, roots: Vec<u8>) -> Result<(), Self::Error> {
         let bucket = self.0.bucket::<&str, Vec<u8>>(None)?;
 
         bucket.set(&"roots", &roots)?;
         Ok(())
     }
 
-    fn load_height(&self) -> Result<Option<BestChain>> {
+    fn load_height(&self) -> Result<Option<BestChain>, Self::Error> {
         let bucket = self.0.bucket::<&str, Vec<u8>>(None)?;
         let height = bucket.get(&"height")?;
 
@@ -159,13 +160,13 @@ impl ChainStore for KvChainStore {
         Ok(None)
     }
 
-    fn save_height(&self, height: &BestChain) -> Result<()> {
+    fn save_height(&self, height: &BestChain) -> Result<(), Self::Error> {
         let bucket = self.0.bucket::<&str, Vec<u8>>(None)?;
         let height = serialize(height);
         bucket.set(&"height", &height)?;
         Ok(())
     }
-    fn get_header(&self, block_hash: &BlockHash) -> Result<Option<DiskBlockHeader>> {
+    fn get_header(&self, block_hash: &BlockHash) -> Result<Option<DiskBlockHeader>, Self::Error> {
         let bucket = self.0.bucket::<&[u8], Vec<u8>>(Some("header"))?;
         let block_hash = serialize(&block_hash);
 
@@ -175,7 +176,7 @@ impl ChainStore for KvChainStore {
         }
         Ok(None)
     }
-    fn flush(&self) -> Result<()> {
+    fn flush(&self) -> Result<(), Self::Error> {
         // Flush the header bucket
         let bucket = self.0.bucket::<&[u8], Vec<u8>>(Some("header"))?;
         bucket.flush()?;
@@ -188,7 +189,7 @@ impl ChainStore for KvChainStore {
 
         Ok(())
     }
-    fn save_header(&self, header: &DiskBlockHeader) -> Result<()> {
+    fn save_header(&self, header: &DiskBlockHeader) -> Result<(), Self::Error> {
         let ser_header = serialize(header);
         let block_hash = serialize(&header.block_hash());
         let bucket = self.0.bucket::<&[u8], Vec<u8>>(Some("header"))?;
@@ -196,7 +197,7 @@ impl ChainStore for KvChainStore {
         Ok(())
     }
 
-    fn get_block_hash(&self, height: u32) -> Result<Option<BlockHash>> {
+    fn get_block_hash(&self, height: u32) -> Result<Option<BlockHash>, Self::Error> {
         let bucket = self.0.bucket::<Integer, Vec<u8>>(Some("index"))?;
         let block = bucket.get(&Integer::from(height))?;
         if let Some(block) = block {
@@ -205,7 +206,7 @@ impl ChainStore for KvChainStore {
         Ok(None)
     }
 
-    fn update_block_index(&self, height: u32, hash: BlockHash) -> Result<()> {
+    fn update_block_index(&self, height: u32, hash: BlockHash) -> Result<(), Self::Error> {
         let bucket = self.0.bucket::<Integer, Vec<u8>>(Some("index"))?;
         let block_hash = serialize(&hash);
 

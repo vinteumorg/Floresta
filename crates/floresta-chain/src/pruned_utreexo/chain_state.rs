@@ -410,10 +410,10 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
     }
 
     pub fn new(
-        chainstore: KvChainStore,
+        chainstore: PersistedState,
         network: Network,
         assume_valid: Option<BlockHash>,
-    ) -> ChainState<KvChainStore> {
+    ) -> ChainState<PersistedState> {
         let genesis = genesis_block(network.into());
         chainstore
             .save_header(&super::chainstore::DiskBlockHeader::FullyValid(

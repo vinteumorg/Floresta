@@ -1,9 +1,11 @@
 use crate::prelude::*;
+
 use bitcoin::blockdata::script;
 #[cfg(feature = "cli-blockchain")]
 use btcd_rpc::error::UtreexodError;
+use core::fmt::Debug;
 use floresta_common::impl_error_from;
-
+pub trait DatabaseError: Debug + Send + Sync + 'static {}
 #[derive(Debug)]
 pub enum BlockchainError {
     BlockNotPresent,
@@ -14,7 +16,7 @@ pub enum BlockchainError {
     BlockValidationError(BlockValidationErrors),
     InvalidProof,
     UtreexoError(String),
-    DatabaseError(kv::Error),
+    DatabaseError(Box<dyn DatabaseError>),
     ConsensusDecodeError(bitcoin::consensus::encode::Error),
     ChainNotInitialized,
     InvalidTip(String),
@@ -67,7 +69,13 @@ impl Display for BlockValidationErrors {
         }
     }
 }
-impl_error_from!(BlockchainError, kv::Error, DatabaseError);
+
+impl<T: DatabaseError> From<T> for BlockchainError {
+    fn from(value: T) -> Self {
+        BlockchainError::DatabaseError(Box::new(value))
+    }
+}
+
 impl_error_from!(BlockchainError, ioError, IoError);
 impl_error_from!(
     BlockchainError,
@@ -78,3 +86,5 @@ impl_error_from!(BlockchainError, BlockValidationErrors, BlockValidationError);
 impl_error_from!(BlockchainError, bitcoin::hashes::hex::Error, ParsingError);
 impl_error_from!(BlockchainError, String, UtreexoError);
 impl_error_from!(BlockchainError, script::Error, ScriptValidationFailed);
+
+impl DatabaseError for kv::Error {}

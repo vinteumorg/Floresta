@@ -742,7 +742,7 @@ dependencies = [
  "floresta-wire",
  "hashbrown 0.14.0",
  "miniscript 10.0.0",
- "rustreexo",
+ "rustreexo 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -760,8 +760,8 @@ dependencies = [
  "log",
  "pretty_assertions",
  "rand 0.8.5",
- "rustreexo",
- "secp256k1 0.27.0",
+ "rustreexo 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "secp256k1 0.24.3",
  "serde",
  "serde_json",
  "sha2",
@@ -808,7 +808,7 @@ dependencies = [
  "pretty_assertions",
  "rand 0.8.5",
  "rmp-serde",
- "rustreexo",
+ "rustreexo 0.1.0 (git+https://www.github.com/mit-dci/rustreexo)",
  "serde",
  "serde_json",
  "sha2",
@@ -849,7 +849,7 @@ dependencies = [
  "pretty_assertions",
  "rand 0.8.5",
  "rmp-serde",
- "rustreexo",
+ "rustreexo 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde",
  "serde_json",
  "sha2",
@@ -885,7 +885,7 @@ dependencies = [
  "pretty_env_logger",
  "rand 0.8.5",
  "rmp-serde",
- "rustreexo",
+ "rustreexo 0.1.0 (git+https://www.github.com/mit-dci/rustreexo)",
  "serde",
  "serde_json",
  "sha2",
@@ -2179,6 +2179,15 @@ dependencies = [
  "libc",
  "linux-raw-sys",
  "windows-sys 0.48.0",
+]
+
+[[package]]
+name = "rustreexo"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4852cab7dec3e1d89bb3ce30ca3461f7d6baee2143d0460c07bf1a718af68997"
+dependencies = [
+ "bitcoin_hashes 0.12.0",
 ]
 
 [[package]]

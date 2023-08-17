@@ -5,13 +5,15 @@
 
 use floresta_common::prelude::*;
 
-use super::consensus::Consensus;
+use super::{
+    chainparams::ChainParams,
+    consensus::Consensus,
+    error::{BlockValidationErrors, BlockchainError},
+};
 use bitcoin::{bitcoinconsensus, BlockHeader};
 use core::ffi::c_uint;
 use log::info;
 use rustreexo::accumulator::stump::Stump;
-
-use crate::{BlockValidationErrors, BlockchainError, ChainParams};
 
 /// A partial chain is a chain that only contains a subset of the blocks in the
 /// full chain. We use multiple partial chains to sync up with the full chain,
@@ -216,11 +218,15 @@ mod tests {
     use core::str::FromStr;
     use std::collections::HashMap;
 
-    use crate::{BlockValidationErrors, Network};
     use bitcoin::{consensus::deserialize, Block};
     use rustreexo::accumulator::{node_hash::NodeHash, proof::Proof, stump::Stump};
 
-    use crate::{pruned_utreexo::consensus::Consensus, ChainParams};
+    use crate::{
+        pruned_utreexo::{
+            chainparams::ChainParams, consensus::Consensus, error::BlockValidationErrors,
+        },
+        Network,
+    };
 
     use super::PartialChainState;
     #[test]

@@ -2,7 +2,9 @@ use bitcoin::hashes::Hash;
 use bitcoin::BlockHash;
 use rustreexo::accumulator::stump::Stump;
 
-use crate::{BestChain, ChainParams, ChainState, ChainStore};
+use super::chain_state::{BestChain, ChainState};
+use super::chainparams::ChainParams;
+use super::chainstore::ChainStore;
 
 #[derive(Clone, Debug)]
 pub enum BlockchainBuilderError {
