@@ -101,10 +101,10 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                     .chain
                     .get_block_hash(height as u32)
                     .map_err(|_| super::error::Error::InvalidParams)?;
-                let header = self.chain.get_block_header(&hash).map_err(|val| {
-                    println!("Error: {:?}", val);
-                    super::error::Error::ChainError(val)
-                })?;
+                let header = self
+                    .chain
+                    .get_block_header(&hash)
+                    .map_err(super::error::Error::ChainError)?;
                 let header = serialize(&header).to_hex();
                 json_rpc_res!(request, header)
             }

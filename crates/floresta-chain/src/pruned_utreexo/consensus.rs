@@ -84,6 +84,7 @@ impl Consensus {
     ///     - The transaction must not have duplicate inputs
     ///     - The transaction must not spend more coins than it claims in the inputs
     ///     - The transaction must have valid scripts
+    #[allow(unused)]
     pub fn verify_block_transactions(
         mut utxos: HashMap<OutPoint, TxOut>,
         transactions: &[Transaction],

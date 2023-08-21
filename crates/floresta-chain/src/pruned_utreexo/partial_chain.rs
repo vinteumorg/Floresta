@@ -4,7 +4,7 @@
 //! the sync in parallel.
 
 use floresta_common::prelude::*;
-
+extern crate alloc;
 use super::{
     chainparams::ChainParams,
     consensus::Consensus,
@@ -13,6 +13,7 @@ use super::{
 #[cfg(feature = "bitcoinconsensus")]
 use bitcoin::bitcoinconsensus;
 use bitcoin::BlockHeader;
+#[cfg(feature = "bitcoinconsensus")]
 use core::ffi::c_uint;
 use log::info;
 use rustreexo::accumulator::stump::Stump;
@@ -61,7 +62,7 @@ impl PartialChainState {
     }
     /// Returns the validation error, if any
     pub fn error(&self) -> Option<BlockValidationErrors> {
-        self.error
+        self.error.clone()
     }
     /// Returns the height we have synced up to so far
     pub fn current_height(&self) -> u32 {
@@ -212,7 +213,7 @@ impl PartialChainState {
         )?;
         if !valid {
             return Err(BlockchainError::BlockValidationError(
-                BlockValidationErrors::InvalidTx,
+                BlockValidationErrors::InvalidTx(String::from("invalid block transactions")),
             ));
         }
         Ok(())

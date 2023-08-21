@@ -16,6 +16,7 @@ use std::{
 };
 use thiserror::Error;
 const RETRY_TIME: u64 = 60 * 60; // 1 hour
+type AddressToSend = Vec<(AddrV2, u64, ServiceFlags, u16)>;
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub enum AddressState {
@@ -157,7 +158,7 @@ impl AddressMan {
             }
         }
     }
-    pub fn get_addresses_to_send(&self) -> Result<Vec<(AddrV2, u64, ServiceFlags, u16)>, ()> {
+    pub fn get_addresses_to_send(&self) -> AddressToSend {
         let addresses = self
             .addresses
             .iter()
@@ -180,7 +181,7 @@ impl AddressMan {
                 }
             })
             .collect();
-        Ok(addresses)
+        addresses
     }
     pub fn get_seeds_from_dns(
         &mut self,

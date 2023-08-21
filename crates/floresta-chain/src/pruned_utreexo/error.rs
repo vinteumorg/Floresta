@@ -24,9 +24,9 @@ pub enum BlockchainError {
     IoError(ioError),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum BlockValidationErrors {
-    InvalidTx,
+    InvalidTx(String),
     NotEnoughPow,
     BadMerkleRoot,
     BadWitnessCommitment,
@@ -41,8 +41,8 @@ pub enum BlockValidationErrors {
 impl Display for BlockValidationErrors {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            BlockValidationErrors::InvalidTx => {
-                write!(f, "This block contains an invalid transaction")
+            BlockValidationErrors::InvalidTx(e) => {
+                write!(f, "This block contains an invalid transaction {}", e)
             }
             BlockValidationErrors::NotEnoughPow => {
                 write!(f, "This block doesn't have enough proof-of-work")

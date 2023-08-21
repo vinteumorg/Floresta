@@ -21,7 +21,7 @@ use bitcoin::{
     util::uint::Uint256,
     Block, BlockHash, BlockHeader, OutPoint, Transaction, TxOut,
 };
-
+#[cfg(feature = "bitcoinconsensus")]
 use core::ffi::c_uint;
 use futures::executor::block_on;
 use log::{info, trace};
@@ -72,6 +72,21 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             }
             _ => {}
         }
+    }
+    /// Just adds headers to the chainstate, without validating them.
+    pub fn push_headers(
+        &self,
+        headers: Vec<BlockHeader>,
+        height: u32,
+    ) -> Result<(), BlockchainError> {
+        let chainstore = &read_lock!(self).chainstore;
+        for (offset, &header) in headers.iter().enumerate() {
+            let block_hash = header.block_hash();
+            let disk_header = DiskBlockHeader::FullyValid(header, height + offset as u32);
+            chainstore.save_header(&disk_header)?;
+            chainstore.update_block_index(height + offset as u32, block_hash)?;
+        }
+        Ok(())
     }
     #[cfg(feature = "bitcoinconsensus")]
     /// Returns the validation flags, given the current block height
@@ -669,7 +684,11 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         #[cfg(not(feature = "bitcoinconsensus"))]
         let flags = 0;
         Consensus::verify_block_transactions(inputs, &block.txdata, subsidy, verify_script, flags)
-            .map_err(|_| BlockchainError::BlockValidationError(BlockValidationErrors::InvalidTx))?;
+            .map_err(|err| {
+                BlockchainError::BlockValidationError(BlockValidationErrors::InvalidTx(
+                    alloc::format!("{:?}", err),
+                ))
+            })?;
         Ok(())
     }
 }

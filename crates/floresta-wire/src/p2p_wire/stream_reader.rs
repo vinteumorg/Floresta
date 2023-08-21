@@ -40,8 +40,7 @@ where
     }
     async fn read_loop_inner(&mut self) -> Result<(), PeerError> {
         loop {
-            let mut data: Vec<u8> = Vec::new();
-            data.resize(24, 0);
+            let mut data: Vec<u8> = vec![0; 24];
 
             // Read the reader first, so learn the payload size
             self.source.read_exact(&mut data).await?;

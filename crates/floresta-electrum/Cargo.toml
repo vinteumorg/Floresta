@@ -8,7 +8,7 @@ floresta-common = { path = "../floresta-common" }
 floresta-chain = { path = "../floresta-chain" }
 floresta-watch-only = { path = "../floresta-watch-only" }
 
-rustreexo = { git = "https://www.github.com/mit-dci/rustreexo" }
+rustreexo = "0.1.0"
 btcd-rpc = { git = "https://github.com/Davidson-Souza/rust-btcd-rpc", features = [
     "utreexod",
 ], branch = "use-reqwest", optional = true }
