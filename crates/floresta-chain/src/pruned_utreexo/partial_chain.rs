@@ -4,14 +4,19 @@
 //! the sync in parallel.
 
 use floresta_common::prelude::*;
-
-use super::consensus::Consensus;
-use bitcoin::{bitcoinconsensus, BlockHeader};
+extern crate alloc;
+use super::{
+    chainparams::ChainParams,
+    consensus::Consensus,
+    error::{BlockValidationErrors, BlockchainError},
+};
+#[cfg(feature = "bitcoinconsensus")]
+use bitcoin::bitcoinconsensus;
+use bitcoin::BlockHeader;
+#[cfg(feature = "bitcoinconsensus")]
 use core::ffi::c_uint;
 use log::info;
 use rustreexo::accumulator::stump::Stump;
-
-use crate::{BlockValidationErrors, BlockchainError, ChainParams};
 
 /// A partial chain is a chain that only contains a subset of the blocks in the
 /// full chain. We use multiple partial chains to sync up with the full chain,
@@ -57,7 +62,7 @@ impl PartialChainState {
     }
     /// Returns the validation error, if any
     pub fn error(&self) -> Option<BlockValidationErrors> {
-        self.error
+        self.error.clone()
     }
     /// Returns the height we have synced up to so far
     pub fn current_height(&self) -> u32 {
@@ -71,6 +76,7 @@ impl PartialChainState {
         let index = height - self.initial_height;
         self.blocks.get(index as usize)
     }
+    #[cfg(feature = "bitcoinconsensus")]
     /// Returns the validation flags, given the current block height
     fn get_validation_flags(&self, height: u32) -> c_uint {
         let chains_params = &self.consensus.parameters;
@@ -194,7 +200,10 @@ impl PartialChainState {
         // Validate block transactions
         let subsidy = self.consensus.get_subsidy(height);
         let verify_script = self.assume_valid;
+        #[cfg(feature = "bitcoinconsensus")]
         let flags = self.get_validation_flags(height);
+        #[cfg(not(feature = "bitcoinconsensus"))]
+        let flags = 0;
         let valid = Consensus::verify_block_transactions(
             inputs,
             &block.txdata,
@@ -204,7 +213,7 @@ impl PartialChainState {
         )?;
         if !valid {
             return Err(BlockchainError::BlockValidationError(
-                BlockValidationErrors::InvalidTx,
+                BlockValidationErrors::InvalidTx(String::from("invalid block transactions")),
             ));
         }
         Ok(())
@@ -216,11 +225,15 @@ mod tests {
     use core::str::FromStr;
     use std::collections::HashMap;
 
-    use crate::{BlockValidationErrors, Network};
     use bitcoin::{consensus::deserialize, Block};
     use rustreexo::accumulator::{node_hash::NodeHash, proof::Proof, stump::Stump};
 
-    use crate::{pruned_utreexo::consensus::Consensus, ChainParams};
+    use crate::{
+        pruned_utreexo::{
+            chainparams::ChainParams, consensus::Consensus, error::BlockValidationErrors,
+        },
+        Network,
+    };
 
     use super::PartialChainState;
     #[test]

@@ -418,10 +418,10 @@ where
 fn get_both_vec<T>(a: Option<Vec<T>>, b: Option<Vec<T>>) -> Vec<T> {
     let mut result: Vec<T> = Vec::new();
     if let Some(a) = a {
-        result.extend(a.into_iter());
+        result.extend(a);
     }
     if let Some(b) = b {
-        result.extend(b.into_iter());
+        result.extend(b);
     }
     result
 }

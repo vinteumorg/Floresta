@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-rustreexo = { git = "https://www.github.com/mit-dci/rustreexo" }
+rustreexo = "0.1.0"
 btcd-rpc = { git = "https://github.com/Davidson-Souza/rust-btcd-rpc", features = [
     "utreexod",
 ], branch = "use-reqwest", optional = true }

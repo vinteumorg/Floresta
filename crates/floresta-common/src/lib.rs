@@ -1,6 +1,7 @@
 #![no_std]
 use bitcoin::hashes::{sha256, Hash};
 use bitcoin::Script;
+#[cfg(feature = "descriptors")]
 use miniscript::{Descriptor, DescriptorPublicKey};
 use prelude::*;
 
@@ -18,6 +19,7 @@ pub fn get_spk_hash(spk: &Script) -> sha256::Hash {
     hash.reverse();
     sha256::Hash::from_slice(hash.as_slice()).expect("Engines shouldn't be Err")
 }
+#[cfg(feature = "descriptors")]
 pub fn parse_descriptors(
     descriptors: &[String],
 ) -> Result<Vec<Descriptor<DescriptorPublicKey>>, miniscript::Error> {
@@ -37,7 +39,7 @@ pub fn parse_descriptors(
 #[cfg(feature = "no-std")]
 pub mod prelude {
     extern crate alloc;
-    pub use alloc::{borrow::ToOwned, string::String, vec, vec::Vec};
+    pub use alloc::{borrow::ToOwned, boxed::Box, string::String, vec, vec::Vec};
     pub use core::{
         cmp, convert,
         core::str::FromStr,
@@ -59,6 +61,7 @@ pub mod prelude {
     extern crate std;
     pub use std::borrow::ToOwned;
     pub use std::{
+        boxed::Box,
         collections::{hash_map::Entry, HashMap, HashSet},
         error::Error,
         fmt::{self, Display, Formatter},

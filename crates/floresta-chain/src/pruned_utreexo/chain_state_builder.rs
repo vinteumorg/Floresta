@@ -1,8 +1,10 @@
 use bitcoin::hashes::Hash;
-use bitcoin::BlockHash;
+use bitcoin::{BlockHash, BlockHeader};
 use rustreexo::accumulator::stump::Stump;
 
-use crate::{BestChain, ChainParams, ChainState, ChainStore};
+use super::chain_state::{BestChain, ChainState};
+use super::chainparams::ChainParams;
+use super::chainstore::ChainStore;
 
 #[derive(Clone, Debug)]
 pub enum BlockchainBuilderError {
@@ -17,6 +19,7 @@ pub struct ChainStateBuilder<PersistedState: ChainStore> {
     chain_params: Option<ChainParams>,
     assume_valid: Option<(BlockHash, u32)>,
     tip: Option<(BlockHash, u32)>,
+    first: Option<BlockHeader>,
 }
 
 impl<T: ChainStore> ChainStateBuilder<T> {
@@ -28,6 +31,7 @@ impl<T: ChainStore> ChainStateBuilder<T> {
             chain_params: None,
             assume_valid: None,
             tip: None,
+            first: None,
         }
     }
     pub fn build(self) -> Result<ChainState<T>, BlockchainBuilderError> {
@@ -37,12 +41,28 @@ impl<T: ChainStore> ChainStateBuilder<T> {
         if self.chain_params.is_none() {
             return Err(BlockchainBuilderError::MissingChainParams);
         }
+        if let Some(first) = self.first {
+            self.chainstore
+                .as_ref()
+                .unwrap()
+                .save_header(&crate::DiskBlockHeader::FullyValid(
+                    first,
+                    self.tip.unwrap().1,
+                ))
+                .unwrap();
+            self.chainstore
+                .as_ref()
+                .unwrap()
+                .update_block_index(self.tip.unwrap().1, self.tip.unwrap().0)
+                .unwrap();
+        }
         Ok(ChainState::from(self))
     }
     pub fn with_chainstore(mut self, chainstore: T) -> Self {
         self.chainstore = Some(chainstore);
         self
     }
+
     pub fn toggle_ibd(mut self, ibd: bool) -> Self {
         self.ibd = ibd;
         self
@@ -59,8 +79,9 @@ impl<T: ChainStore> ChainStateBuilder<T> {
         self.acc = Some(acc);
         self
     }
-    pub fn with_tip(mut self, tip: (BlockHash, u32)) -> Self {
+    pub fn with_tip(mut self, tip: (BlockHash, u32), header: BlockHeader) -> Self {
         self.tip = Some(tip);
+        self.first = Some(header);
         self
     }
     pub fn acc(&self) -> Stump {

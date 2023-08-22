@@ -984,7 +984,6 @@ impl<Chain: BlockchainInterface + UpdatableChainstate> UtreexoNode<RunningNode, 
         let addresses = self
             .address_man
             .get_addresses_to_send()
-            .unwrap()
             .into_iter()
             .map(|(addr, time, services, port)| AddrV2Message {
                 services,

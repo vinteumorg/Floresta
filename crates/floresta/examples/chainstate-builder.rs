@@ -5,6 +5,7 @@
 //! the simplest way to create a node, but you can also create a node that starts at a given
 //! block, or that doesn't validate all signatures. All customizations are done through the
 //! ChainStateBuilder struct. This example shows how to use it.
+use bitcoin::blockdata::constants::genesis_block;
 use bitcoin::hashes::Hash;
 use bitcoin::BlockHash;
 use floresta::chain::{ChainState, KvChainStore, Network};
@@ -12,7 +13,6 @@ use floresta::chain::{ChainState, KvChainStore, Network};
 use floresta_chain::pruned_utreexo::chain_state_builder::ChainStateBuilder;
 use floresta_chain::ChainParams;
 use rustreexo::accumulator::stump::Stump;
-use std::str::FromStr;
 
 const DATA_DIR: &str = "./data";
 
@@ -44,7 +44,10 @@ async fn main() {
     let _chain: ChainState<KvChainStore> = ChainStateBuilder::new()
         .with_assume_valid((BlockHash::all_zeros(), 0))
         .with_chain_params(ChainParams::from(Network::Bitcoin))
-        .with_tip((BlockHash::from_str("").unwrap(), 0))
+        .with_tip(
+            (genesis_block(bitcoin::Network::Bitcoin).block_hash(), 0),
+            genesis_block(bitcoin::Network::Bitcoin).header,
+        )
         .assume_utreexo(Stump::new())
         .with_chainstore(chain_store)
         .build()
