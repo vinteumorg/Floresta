@@ -87,4 +87,11 @@ impl_error_from!(BlockchainError, bitcoin::hashes::hex::Error, ParsingError);
 impl_error_from!(BlockchainError, String, UtreexoError);
 impl_error_from!(BlockchainError, script::Error, ScriptValidationFailed);
 
+impl Display for BlockchainError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
 impl DatabaseError for kv::Error {}
+impl core2::error::Error for BlockchainError {}

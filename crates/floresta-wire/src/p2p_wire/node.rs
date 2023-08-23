@@ -169,6 +169,8 @@ enum PeerStatus {
 }
 impl<T: 'static + Default + NodeContext, Chain: BlockchainInterface + UpdatableChainstate>
     UtreexoNode<T, Chain>
+where
+    WireError: From<<Chain as BlockchainInterface>::Error>,
 {
     pub fn new(
         chain: Arc<Chain>,
@@ -656,7 +658,10 @@ impl<T: 'static + Default + NodeContext, Chain: BlockchainInterface + UpdatableC
         self.peer_id_count += 1;
     }
 }
-impl<Chain: BlockchainInterface + UpdatableChainstate> UtreexoNode<IBDNode, Chain> {
+impl<Chain: BlockchainInterface + UpdatableChainstate> UtreexoNode<IBDNode, Chain>
+where
+    WireError: From<<Chain as BlockchainInterface>::Error>,
+{
     /// Processing blocks actually takes a lot of CPU time, and we need to wait until it either
     /// succeed or fail before doing something else. This will hang our node up (not peers, only
     /// the node) and make it do funky stuff, like timeout blocks we just got but not processed.
@@ -897,7 +902,10 @@ impl<Chain: BlockchainInterface + UpdatableChainstate> UtreexoNode<IBDNode, Chai
     }
 }
 
-impl<Chain: BlockchainInterface + UpdatableChainstate> UtreexoNode<RunningNode, Chain> {
+impl<Chain: BlockchainInterface + UpdatableChainstate> UtreexoNode<RunningNode, Chain>
+where
+    WireError: From<<Chain as BlockchainInterface>::Error>,
+{
     /// Returns a handle to the node interface that we can use to request data from our
     /// node. This struct is thread safe, so we can use it from multiple threads and have
     /// multiple handles. It also doesn't require a mutable reference to the node, or any

@@ -5,9 +5,6 @@ edition = "2021"
 
 [dependencies]
 rustreexo = "0.1.0"
-btcd-rpc = { git = "https://github.com/Davidson-Souza/rust-btcd-rpc", features = [
-    "utreexod",
-], branch = "use-reqwest", optional = true }
 clap = { version = "4.0.29", features = ["derive"] }
 sha2 = "^0.10.6"
 async-std = { version = "1.12.0", features = ["attributes"] }
@@ -19,7 +16,6 @@ kv = "0.24.0"
 miniscript = { git = "https://github.com/douglaz/rust-miniscript.git", branch = "master-2023-03-30" }
 pretty_env_logger = "0.4.0"
 futures = "0.3.4"
-rmp-serde = { optional = true, version = "1.1.1" }
 toml = "0.5.10"
 dirs = "4.0.0"
 rand = "0.8.5"

@@ -30,5 +30,8 @@
 //! which is a forest of Merkle trees. It's pronounced /floˈɾɛstɐ/.
 pub use floresta_chain as chain;
 pub use floresta_common as common;
+#[cfg(feature = "watch-only-wallet")]
 pub use floresta_watch_only as wallet;
 pub use floresta_wire as wire;
+#[cfg(feature = "electrum-server")]
+pub use floresta_electrum as electrum;
