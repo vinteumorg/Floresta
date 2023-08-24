@@ -104,7 +104,7 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                 let header = self
                     .chain
                     .get_block_header(&hash)
-                    .map_err(super::error::Error::ChainError)?;
+                    .map_err(|e| super::error::Error::ChainError(Box::new(e)))?;
                 let header = serialize(&header).to_hex();
                 json_rpc_res!(request, header)
             }
@@ -119,7 +119,10 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                         .get_block_hash(height as u32)
                         .map_err(|_| super::error::Error::InvalidParams)?;
 
-                    let header = self.chain.get_block_header(&hash).unwrap();
+                    let header = self
+                        .chain
+                        .get_block_header(&hash)
+                        .map_err(|e| super::error::Error::ChainError(Box::new(e)))?;
                     let header = serialize(&header).to_hex();
                     headers.push_str(&header);
                 }
@@ -131,8 +134,14 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
             }
             "blockchain.estimatefee" => json_rpc_res!(request, 0.0001),
             "blockchain.headers.subscribe" => {
-                let (height, hash) = self.chain.get_best_block()?;
-                let header = self.chain.get_block_header(&hash)?;
+                let (height, hash) = self
+                    .chain
+                    .get_best_block()
+                    .map_err(|e| super::error::Error::ChainError(Box::new(e)))?;
+                let header = self
+                    .chain
+                    .get_block_header(&hash)
+                    .map_err(|e| super::error::Error::ChainError(Box::new(e)))?;
                 let result = json!({
                     "height": height,
                     "hex": serialize(&header).to_hex()
@@ -237,7 +246,9 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                     Vec::from_hex(&tx).map_err(|_| super::error::Error::InvalidParams)?;
                 let tx: Transaction =
                     deserialize(&hex).map_err(|_| super::error::Error::InvalidParams)?;
-                self.chain.broadcast(&tx)?;
+                self.chain
+                    .broadcast(&tx)
+                    .map_err(|e| super::error::Error::ChainError(Box::new(e)))?;
                 let id = tx.txid();
                 let updated = self
                     .address_cache

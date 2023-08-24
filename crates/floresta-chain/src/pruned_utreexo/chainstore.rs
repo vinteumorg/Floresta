@@ -2,7 +2,6 @@
 
 //! This is a basic kv database that stores all metadata about our blockchain and utreexo
 //! state.
-//! Author: Davidson Souza
 use crate::prelude::*;
 
 use bitcoin::{
@@ -109,22 +108,7 @@ impl Encodable for DiskBlockHeader {
 }
 use kv::{Config, Integer, Store};
 
-use super::{chain_state::BestChain, error::DatabaseError};
-pub trait ChainStore {
-    type Error: DatabaseError;
-    /// Saves the current state of our accumulator.
-    fn save_roots(&self, roots: Vec<u8>) -> Result<(), Self::Error>;
-    /// Loads the state of our accumulator.
-    fn load_roots(&self) -> Result<Option<Vec<u8>>, Self::Error>;
-    /// Loads the blockchain height
-    fn load_height(&self) -> Result<Option<BestChain>, Self::Error>;
-    fn save_height(&self, height: &BestChain) -> Result<(), Self::Error>;
-    fn get_header(&self, block_hash: &BlockHash) -> Result<Option<DiskBlockHeader>, Self::Error>;
-    fn save_header(&self, header: &DiskBlockHeader) -> Result<(), Self::Error>;
-    fn get_block_hash(&self, height: u32) -> Result<Option<BlockHash>, Self::Error>;
-    fn flush(&self) -> Result<(), Self::Error>;
-    fn update_block_index(&self, height: u32, hash: BlockHash) -> Result<(), Self::Error>;
-}
+use super::{chain_state::BestChain, ChainStore};
 pub struct KvChainStore(Store);
 impl KvChainStore {
     pub fn new(datadir: String) -> Result<KvChainStore, kv::Error> {

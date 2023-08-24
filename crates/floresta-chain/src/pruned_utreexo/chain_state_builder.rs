@@ -4,7 +4,7 @@ use rustreexo::accumulator::stump::Stump;
 
 use super::chain_state::{BestChain, ChainState};
 use super::chainparams::ChainParams;
-use super::chainstore::ChainStore;
+use super::ChainStore;
 
 #[derive(Clone, Debug)]
 pub enum BlockchainBuilderError {

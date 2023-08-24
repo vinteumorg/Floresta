@@ -123,7 +123,7 @@ impl PartialChainState {
     }
     #[inline]
     /// Returns the ancestor for a given block header
-    fn get_ancestor(&self, height: u32) -> super::Result<BlockHeader> {
+    fn get_ancestor(&self, height: u32) -> Result<BlockHeader, BlockchainError> {
         let prev = self.get_block(height - 1).unwrap();
         Ok(*prev)
     }
@@ -173,7 +173,7 @@ impl PartialChainState {
         block: &bitcoin::Block,
         height: u32,
         inputs: HashMap<bitcoin::OutPoint, bitcoin::TxOut>,
-    ) -> super::Result<()> {
+    ) -> Result<(), BlockchainError> {
         if !block.check_merkle_root() {
             return Err(BlockchainError::BlockValidationError(
                 BlockValidationErrors::BadMerkleRoot,

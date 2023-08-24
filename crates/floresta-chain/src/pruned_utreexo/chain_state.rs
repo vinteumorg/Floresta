@@ -2,10 +2,10 @@ extern crate alloc;
 use super::{
     chain_state_builder::ChainStateBuilder,
     chainparams::ChainParams,
-    chainstore::{ChainStore, DiskBlockHeader, KvChainStore},
+    chainstore::{DiskBlockHeader, KvChainStore},
     consensus::Consensus,
     error::{BlockValidationErrors, BlockchainError},
-    BlockchainInterface, Notification, UpdatableChainstate,
+    BlockchainInterface, ChainStore, Notification, UpdatableChainstate,
 };
 use crate::prelude::*;
 use crate::{read_lock, write_lock, Network};
@@ -490,7 +490,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             }
         }
     }
-    fn get_disk_block_header(&self, hash: &BlockHash) -> super::Result<DiskBlockHeader> {
+    fn get_disk_block_header(&self, hash: &BlockHash) -> Result<DiskBlockHeader, BlockchainError> {
         let inner = read_lock!(self);
         if let Some(header) = inner.chainstore.get_header(hash)? {
             return Ok(header);
@@ -699,7 +699,7 @@ impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedSta
         self.inner.read().ibd
     }
 
-    fn get_block_hash(&self, height: u32) -> super::Result<bitcoin::BlockHash> {
+    fn get_block_hash(&self, height: u32) -> Result<bitcoin::BlockHash, Self::Error> {
         let inner = self.inner.read();
         if let Some(hash) = inner.chainstore.get_block_hash(height)? {
             return Ok(hash);
@@ -707,22 +707,22 @@ impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedSta
         Err(BlockchainError::BlockNotPresent)
     }
 
-    fn get_tx(&self, _txid: &bitcoin::Txid) -> super::Result<Option<bitcoin::Transaction>> {
+    fn get_tx(&self, _txid: &bitcoin::Txid) -> Result<Option<bitcoin::Transaction>, Self::Error> {
         unimplemented!("This chainstate doesn't hold any tx")
     }
 
-    fn get_height(&self) -> super::Result<u32> {
+    fn get_height(&self) -> Result<u32, Self::Error> {
         let inner = read_lock!(self);
         Ok(inner.best_block.depth)
     }
 
-    fn broadcast(&self, tx: &bitcoin::Transaction) -> super::Result<()> {
+    fn broadcast(&self, tx: &bitcoin::Transaction) -> Result<(), Self::Error> {
         let mut inner = write_lock!(self);
         inner.broadcast_queue.push(tx.clone());
         Ok(())
     }
 
-    fn estimate_fee(&self, target: usize) -> super::Result<f64> {
+    fn estimate_fee(&self, target: usize) -> Result<f64, Self::Error> {
         let inner = read_lock!(self);
         if target == 1 {
             Ok(inner.fee_estimation.0)
@@ -733,16 +733,16 @@ impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedSta
         }
     }
 
-    fn get_block(&self, _hash: &BlockHash) -> super::Result<bitcoin::Block> {
+    fn get_block(&self, _hash: &BlockHash) -> Result<bitcoin::Block, Self::Error> {
         unimplemented!("This chainstate doesn't hold full blocks")
     }
 
-    fn get_best_block(&self) -> super::Result<(u32, BlockHash)> {
+    fn get_best_block(&self) -> Result<(u32, BlockHash), Self::Error> {
         let inner = read_lock!(self);
         Ok((inner.best_block.depth, inner.best_block.best_block))
     }
 
-    fn get_block_header(&self, hash: &BlockHash) -> super::Result<bitcoin::BlockHeader> {
+    fn get_block_header(&self, hash: &BlockHash) -> Result<bitcoin::BlockHeader, Self::Error> {
         let inner = read_lock!(self);
         if let Some(header) = inner.chainstore.get_header(hash)? {
             return Ok(*header);
@@ -752,7 +752,7 @@ impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedSta
     fn get_rescan_index(&self) -> Option<u32> {
         read_lock!(self).best_block.rescan_index
     }
-    fn rescan(&self, start_height: u32) -> super::Result<()> {
+    fn rescan(&self, start_height: u32) -> Result<(), Self::Error> {
         let mut inner = write_lock!(self);
         info!("Rescanning from block {start_height}");
         inner.best_block.rescan_index = Some(start_height);
@@ -786,7 +786,7 @@ impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedSta
 
         Ok(hashes)
     }
-    fn get_validation_index(&self) -> super::Result<u32> {
+    fn get_validation_index(&self) -> Result<u32, Self::Error> {
         let inner = self.inner.read();
         let validation = inner.best_block.validation_index;
         let header = self.get_disk_block_header(&validation)?;
@@ -799,7 +799,7 @@ impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedSta
         }
     }
 
-    fn is_coinbase_mature(&self, height: u32, block: BlockHash) -> super::Result<bool> {
+    fn is_coinbase_mature(&self, height: u32, block: BlockHash) -> Result<bool, Self::Error> {
         let chain_params = self.chain_params();
         let current_height = self.get_disk_block_header(&block)?.height().unwrap_or(0);
 
@@ -811,7 +811,7 @@ impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedSta
     }
 }
 impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedState> {
-    fn invalidate_block(&self, block: BlockHash) -> super::Result<()> {
+    fn invalidate_block(&self, block: BlockHash) -> Result<(), BlockchainError> {
         let height = self.get_disk_block_header(&block)?.height();
         if height.is_none() {
             return Err(BlockchainError::BlockNotPresent);
@@ -838,7 +838,7 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
         let mut inner = write_lock!(self);
         inner.ibd = is_ibd;
     }
-    fn process_rescan_block(&self, block: &Block) -> super::Result<()> {
+    fn process_rescan_block(&self, block: &Block) -> Result<(), BlockchainError> {
         let header = self.get_disk_block_header(&block.block_hash())?;
         let height = header.height().expect("Recaning in an invalid tip");
         block_on(self.notify(Notification::NewBlock((block.to_owned(), height))));
@@ -861,7 +861,7 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
         proof: Proof,
         inputs: HashMap<OutPoint, TxOut>,
         del_hashes: Vec<sha256::Hash>,
-    ) -> super::Result<u32> {
+    ) -> Result<u32, BlockchainError> {
         let header = self.get_disk_block_header(&block.block_hash())?;
         let height = match header {
             DiskBlockHeader::FullyValid(_, height) => {
@@ -900,11 +900,11 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
         Ok(height)
     }
 
-    fn handle_transaction(&self) -> super::Result<()> {
+    fn handle_transaction(&self) -> Result<(), BlockchainError> {
         unimplemented!("This chain_state has no mempool")
     }
 
-    fn flush(&self) -> super::Result<()> {
+    fn flush(&self) -> Result<(), BlockchainError> {
         self.save_acc()?;
         let inner = read_lock!(self);
         inner.chainstore.flush()?;
@@ -912,7 +912,7 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
         Ok(())
     }
 
-    fn accept_header(&self, header: BlockHeader) -> super::Result<()> {
+    fn accept_header(&self, header: BlockHeader) -> Result<(), BlockchainError> {
         trace!("Accepting header {header:?}");
         let _header = self.get_disk_block_header(&header.block_hash());
         if _header.is_ok() {
