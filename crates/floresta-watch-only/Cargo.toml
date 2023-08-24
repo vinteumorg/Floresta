@@ -5,7 +5,10 @@ edition = "2021"
 description = "A simple, lightweight and Electrum-First, watch-only wallet"
 authors = ["Davidson Souza <davidson.lucas.souza@outlook.com>"]
 keywords = ["bitcoin", "watch-only", "electrum-server"]
+categories = ["bitcoin", "blockchain", "node"]
 license = "MIT"
+repository = "https://github.com/Davidson-Souza/Floresta"
+readme = "README.md"
 
 [dependencies]
 serde = "1.0.0"

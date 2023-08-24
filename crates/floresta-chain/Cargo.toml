@@ -2,6 +2,17 @@
 name = "floresta-chain"
 version = "0.1.0"
 edition = "2021"
+authors = ["Davidson Souza <davidson.lucas.souza@outlook.com>"]
+description = """
+    Reusable components for building consensus-critical Bitcoin applications.
+    Using floresta-chain, you can create a Bitcoin node that validates blocks
+    and transactions, acording to the Bitcoin consensus rules.
+"""
+repository = "https://github.com/Davidson-Souza/Floresta"
+license = "MIT"
+readme = "README.md"
+keywords = ["bitcoin", "utreexo", "node", "consensus"]
+categories = ["bitcoin", "blockchain", "node"]
 
 [lib]
 crate-type = ["cdylib", "rlib"]

@@ -2,9 +2,12 @@
 name = "floresta-common"
 version = "0.1.0"
 edition = "2021"
-description = "Multiple inernal utilities"
+description = "Common types and functions for Floresta"
 authors = ["Davidson Souza <davidson.lucas.souza@outlook.com>"]
 license = "MIT"
+repository = "https://github.com/Davidson-Souza/Floresta"
+readme = "README.md"
+
 
 [dependencies]
 sha2 = "^0.10.6"

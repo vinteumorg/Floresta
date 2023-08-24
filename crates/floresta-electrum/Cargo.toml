@@ -2,6 +2,17 @@
 name = "floresta-electrum"
 version = "0.1.0"
 edition = "2021"
+authors = ["Davidson Souza <davidson.lucas.souza@outlook.com>"]
+description = """
+    A simple Electrum server implementation for Floresta. It is based on the
+    Electrum protocol specification and works out of the box with any wallet
+    that supports Electrum servers.
+"""
+repository = "https://github.com/Davidson-Souza/Floresta"
+license = "MIT"
+readme = "README.md"
+keywords = ["bitcoin", "utreexo", "node", "blockchain", "rust"]
+categories = ["bitcoin", "blockchain", "node"]
 
 [dependencies]
 floresta-common = { path = "../floresta-common" }

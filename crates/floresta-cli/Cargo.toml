@@ -4,6 +4,15 @@ version = "0.1.0"
 edition = "2021"
 authors = ["Davidson Souza <davidson.lucas.souza@outlook.com>"]
 license = "MIT"
+description = """
+    A command line interface for Florestad. You can use this client to interact
+    with a running Florestad node.
+"""
+repository = "https://github.com/Davidson-Souza/Floresta"
+readme = "README.md"
+keywords = ["bitcoin", "utreexo", "node", "blockchain", "rust"]
+categories = ["bitcoin", "blockchain", "node"]
+
 
 [dependencies]
 jsonrpc = "0.14.1"
