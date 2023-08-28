@@ -8,10 +8,6 @@
 //! we need from the network. An Electrum Server that talks full Electrum protocol and can be
 //! used with any wallet that understands this protocol. Finally, it has the `AddressCache`,
 //! a watch-only wallet that keeps track of your wallet's transactions.
-//!
-//! Right now, the blockchain backend uses a running utreexod's RPC to get needed data, this
-//! is because Utreexo p2p messages are WIP, and we want to try out utreexo before that, so we use
-//! a client-server base to test, but this is not final nor the goal.
 
 // Coding conventions (lexicographically sorted)
 #![deny(arithmetic_overflow)]

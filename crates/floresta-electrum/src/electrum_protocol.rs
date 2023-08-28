@@ -28,6 +28,7 @@ use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+/// A client connected to the server
 #[derive(Debug, Clone, Default)]
 pub struct Peer {
     _addresses: HashSet<Script>,
@@ -35,6 +36,7 @@ pub struct Peer {
 }
 
 impl Peer {
+    /// Send a message to the client, should be a serialized JSON
     pub async fn write(&self, data: &[u8]) -> Result<(), std::io::Error> {
         if let Some(stream) = &self.stream {
             let mut stream = &**stream;
@@ -44,6 +46,7 @@ impl Peer {
 
         Ok(())
     }
+    /// Create a new peer from a stream
     pub fn new(stream: Arc<TcpStream>) -> Self {
         Peer {
             _addresses: HashSet::new(),
@@ -52,22 +55,38 @@ impl Peer {
     }
 }
 pub struct ElectrumServer<Blockchain: BlockchainInterface> {
+    /// The blockchain backend we are using. This will be used to query
+    /// blockchain information and broadcast transactions.
     pub chain: Arc<Blockchain>,
+    /// The address cache is used to store addresses and transactions, like a
+    /// watch-only wallet, but it is adapted to the electrum protocol.
     pub address_cache: Arc<RwLock<AddressCache<KvDatabase>>>,
+    /// The listener is used to accept new connections to our server.
     pub listener: Option<Arc<TcpListener>>,
+    /// The peers are the clients connected to our server, we keep track of them
+    /// using a unique id.
     pub peers: HashMap<u32, Arc<Peer>>,
+    /// The peer_accept channel is used to send peer related message to the main
+    /// thread.
     pub peer_accept: Receiver<Message>,
+    /// The notify_tx channel is used to send notifications to the main thread.
     pub notify_tx: Sender<Message>,
+    /// The peer_addresses is used to keep track of the addresses of each peer.
+    /// We keep the script_hash and which peer has it, so we can notify the
+    /// peers when a new transaction is received.
     pub peer_addresses: HashMap<sha256::Hash, Arc<Peer>>,
 }
 pub enum Message {
+    /// A new peer just connected to the server
     NewPeer((u32, Arc<Peer>)),
+    /// Some peer just sent a message
     Message((u32, String)),
+    /// A peer just disconnected
     Disconnect(u32),
 }
 
 impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
-    pub async fn new<'a>(
+    pub async fn new(
         address: &'static str,
         address_cache: Arc<RwLock<AddressCache<KvDatabase>>>,
         chain: Arc<Blockchain>,
@@ -88,7 +107,9 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
             peer_addresses: HashMap::new(),
         })
     }
-    pub async fn handle_blockchain_request(
+    /// Handle a request from a peer. All methods are defined in the electrum
+    /// protocol.
+    pub async fn handle_peer_request(
         &mut self,
         peer: Arc<Peer>,
         request: Request,
@@ -398,7 +419,7 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                     }
                     let peer = peer.unwrap().to_owned();
                     let id = req.id.to_owned();
-                    let res = self.handle_blockchain_request(peer.clone(), req).await;
+                    let res = self.handle_peer_request(peer.clone(), req).await;
 
                     if let Ok(res) = res {
                         peer.write(serde_json::to_string(&res).unwrap().as_bytes())
