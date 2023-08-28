@@ -309,7 +309,7 @@ where
             .map(|hash| NodeHash::Some(hash.into_inner()))
             .collect();
         let proof = Proof::new(targets, hashes);
-        let hashes = Vec::new();
+        let mut hashes = Vec::new();
         let mut leaves_iter = udata.leaves.iter().cloned();
         let mut tx_iter = transactions.iter();
 
@@ -341,6 +341,7 @@ where
                         {
                             return Err(WireError::CoinbaseNotMatured);
                         }
+                        hashes.push(leaf._get_leaf_hashes());
                         inputs.insert(leaf.prevout, leaf.utxo);
                     }
                 }
