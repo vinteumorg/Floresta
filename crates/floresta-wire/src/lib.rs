@@ -1,3 +1,14 @@
+// SPDX-License-Identifier: MIT
+//! # Floresta Wire
+//! This crate provides the core networking logic for a full node using libfloresta,
+//! including the P2P network and the mempool. You can easily integrate it with any
+//! other crate that provides a `BlockchainInterface` and `UpdatableChainstate`
+//! implementation.
+//!
+//! A node also gives you a `handle` that you can use to send messages to the node,
+//! like requesting blocks, mempool transactions or asking to connect with a given
+//! peer.
+
 #[cfg(not(target_arch = "wasm32"))]
 mod p2p_wire;
 #[cfg(not(target_arch = "wasm32"))]

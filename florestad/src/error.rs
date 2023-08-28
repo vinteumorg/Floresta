@@ -44,7 +44,7 @@ impl std::fmt::Display for Error {
         }
     }
 }
-/// Implements [From<T>] where [T] is a possible error outcome in this crate, this macro only
+/// Implements `From<T>` where `T` is a possible error outcome in this crate, this macro only
 /// takes [T] and builds [Error] with the right variant.
 macro_rules! impl_from_error {
     ($field: ident, $error: ty) => {
