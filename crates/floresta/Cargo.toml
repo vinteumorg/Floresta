@@ -5,6 +5,16 @@ authors = ["Davidson Souza <davidson.lucas.souza@outlook.com>"]
 edition = "2021"
 description = """
     A modular and extensible framework for building Utreexo based Bitcoin nodes.
+
+    Using libfloresta, you can build lightweight Bitcoin nodes that can be
+    extended with plugins to add new features. The library is designed to be
+    modular and extensible, so you can easily add new features to your node
+    without having to modify the core structs. The framework is also designed to
+    be easy to use, so you can get started with your node in a few lines of
+    code.
+
+    See the examples directory for examples of how to use this library, and
+    each crate's documentation for more information on how to use each module.
 """
 repository = "https://github.com/Davidson-Souza/Floresta"
 license = "MIT"
