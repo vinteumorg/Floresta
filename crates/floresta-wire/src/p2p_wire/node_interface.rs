@@ -1,4 +1,4 @@
-use std::{sync::Mutex, time::Instant};
+use std::{net::IpAddr, sync::Mutex, time::Instant};
 
 use bitcoin::{network::utreexo::UtreexoBlock, Block, BlockHash, Transaction, Txid};
 use serde::{Deserialize, Serialize};
@@ -9,6 +9,7 @@ pub enum UserRequest {
     UtreexoBlock(BlockHash),
     MempoolTransaction(Txid),
     GetPeerInfo,
+    Connect((IpAddr, u16)),
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PeerInfo {
@@ -24,6 +25,7 @@ pub enum NodeResponse {
     UtreexoBlock(UtreexoBlock),
     MempoolTransaction(Transaction),
     GetPeerInfo(Vec<PeerInfo>),
+    Connect(bool),
 }
 
 pub trait NodeMethods {
@@ -37,6 +39,7 @@ pub trait NodeMethods {
         txid: Txid,
     ) -> Result<Option<Transaction>, oneshot::RecvError>;
     fn get_peer_info(&self) -> Result<Vec<PeerInfo>, oneshot::RecvError>;
+    fn connect(&self, addr: IpAddr, port: u16) -> Result<bool, oneshot::RecvError>;
 }
 #[derive(Debug)]
 pub struct NodeInterface {
@@ -59,6 +62,19 @@ impl NodeInterface {
     }
 }
 impl NodeMethods for NodeInterface {
+    fn connect(&self, addr: IpAddr, port: u16) -> Result<bool, oneshot::RecvError> {
+        let (tx, rx) = oneshot::channel();
+        self.requests.lock().unwrap().push(RequestData {
+            time: Instant::now(),
+            resolve: tx,
+            req: UserRequest::Connect((addr, port)),
+        });
+        let connected = rx.recv()?;
+        Ok(match connected {
+            Some(NodeResponse::Connect(connected)) => connected,
+            _ => unreachable!(),
+        })
+    }
     fn get_block(&self, block: BlockHash) -> Result<Option<Block>, oneshot::RecvError> {
         let (tx, rx) = oneshot::channel();
         self.requests.lock().unwrap().push(RequestData {
