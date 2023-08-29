@@ -13,6 +13,7 @@ use super::{
 use async_std::{
     channel::{self, bounded, Receiver, SendError, Sender},
     future::timeout,
+    net::TcpStream,
     sync::RwLock,
     task::spawn,
 };
@@ -623,7 +624,7 @@ where
     }
     async fn open_connection(&mut self, feeler: bool, peer_id: usize, address: LocalAddress) {
         let (requests_tx, requests_rx) = bounded(1024);
-        spawn(Peer::create_outbound_connection(
+        spawn(Peer::<TcpStream>::create_outbound_connection(
             self.peer_id_count,
             (address.get_net_address(), address.get_port()),
             self.mempool.clone(),

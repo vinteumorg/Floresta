@@ -8,7 +8,7 @@ use thiserror::Error;
 
 use async_std::{
     channel::{unbounded, Receiver, Sender},
-    io::{BufReader, WriteExt},
+    io::BufReader,
     net::{TcpStream, ToSocketAddrs},
     sync::RwLock,
     task::spawn,
@@ -26,7 +26,7 @@ use bitcoin::{
     },
     BlockHash, BlockHeader, Network, Transaction,
 };
-use futures::FutureExt;
+use futures::{AsyncRead, AsyncWrite, AsyncWriteExt, FutureExt};
 use log::{debug, error};
 use std::{
     fmt::Debug,
@@ -41,9 +41,23 @@ enum State {
     SentVerack,
     Connected,
 }
+/// A trait defining how the transport we use should behave. Trasport is anything
+/// that allows to read/write from/into. Like a TcpStream or a Socks5 proxy
+pub trait Transport:
+    AsyncRead + AsyncWrite + Unpin + Clone + Sync + Send + AsyncWriteExt + 'static
+{
+    /// Asks the stream to shutdown, the final part of the disconnection process
+    fn shutdown(&mut self) -> Result<()>;
+}
 
-pub struct Peer {
-    stream: TcpStream,
+impl Transport for TcpStream {
+    fn shutdown(&mut self) -> Result<()> {
+        Ok(TcpStream::shutdown(&self, std::net::Shutdown::Both)?)
+    }
+}
+
+pub struct Peer<T: Transport> {
+    stream: T,
     mempool: Arc<RwLock<Mempool>>,
     network: Network,
     blocks_only: bool,
@@ -79,7 +93,7 @@ pub enum PeerError {
     #[error("Peer sent us too many message in a short period of time")]
     TooManyMessages,
 }
-impl Debug for Peer {
+impl Debug for Peer<TcpStream> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.id)?;
         write!(f, "{:?}", self.stream.peer_addr())?;
@@ -88,7 +102,7 @@ impl Debug for Peer {
 }
 type Result<T> = std::result::Result<T, PeerError>;
 
-impl Peer {
+impl<T: Transport> Peer<T> {
     pub async fn read_loop(mut self) -> Result<()> {
         let err = self.peer_loop_inner().await;
         debug!("Peer connection loop closed: {err:?}");
@@ -168,7 +182,7 @@ impl Peer {
                     .await;
             }
             NodeRequest::Shutdown => {
-                let _ = self.stream.shutdown(std::net::Shutdown::Both);
+                let _ = self.stream.shutdown();
             }
             NodeRequest::GetAddresses => {
                 self.write(NetworkMessage::GetAddr).await?;
@@ -275,26 +289,28 @@ impl Peer {
         Ok(())
     }
 }
-impl Peer {
-    pub async fn write(&self, msg: NetworkMessage) -> Result<()> {
+impl<T: Transport> Peer<T> {
+    pub async fn write(&mut self, msg: NetworkMessage) -> Result<()> {
         let data = &mut RawNetworkMessage {
             magic: self.network.magic(),
             payload: msg,
         };
         let data = serialize(&data);
-        (&self.stream).write_all(&data).await?;
+        self.stream.write_all(data.as_slice()).await?;
         Ok(())
     }
-    pub async fn handle_get_data(&self, inv: Inventory) -> Result<()> {
+    pub async fn handle_get_data(&mut self, inv: Inventory) -> Result<()> {
         match inv {
             Inventory::WitnessTransaction(txid) => {
-                if let Some(tx) = self.mempool.read().await.get_from_mempool(&txid) {
-                    self.write(NetworkMessage::Tx(tx.to_owned())).await?;
+                let tx = self.mempool.read().await.get_from_mempool(&txid).cloned();
+                if let Some(tx) = tx {
+                    self.write(NetworkMessage::Tx(tx)).await?;
                 }
             }
             Inventory::Transaction(txid) => {
-                if let Some(tx) = self.mempool.read().await.get_from_mempool(&txid) {
-                    self.write(NetworkMessage::Tx(tx.to_owned())).await?;
+                let tx = self.mempool.read().await.get_from_mempool(&txid).cloned();
+                if let Some(tx) = tx {
+                    self.write(NetworkMessage::Tx(tx)).await?;
                 }
             }
             _ => {}
