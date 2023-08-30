@@ -19,7 +19,7 @@ use async_std::{
 use bitcoin::{
     hashes::{sha256, Hash},
     network::{
-        address::AddrV2Message,
+        address::{AddrV2, AddrV2Message},
         constants::ServiceFlags,
         message_blockdata::Inventory,
         utreexo::{UData, UtreexoBlock},
@@ -977,6 +977,21 @@ where
                 UserRequest::MempoolTransaction(txid) => NodeRequest::MempoolTransaction(txid),
                 UserRequest::GetPeerInfo => {
                     self.handle_get_peer_info();
+                    continue;
+                }
+                UserRequest::Connect((addr, port)) => {
+                    let addr_v2 = match addr {
+                        IpAddr::V4(addr) => AddrV2::Ipv4(addr),
+                        IpAddr::V6(addr) => AddrV2::Ipv6(addr),
+                    };
+                    let id = rand::random::<usize>();
+                    let local_addr =
+                        LocalAddress::new(addr_v2, 0, AddressState::NeverTried, 0.into(), port, id);
+                    self.open_connection(false, 0, local_addr).await;
+                    self.1.user_requests.send_answer(
+                        UserRequest::Connect((addr, port)),
+                        Some(NodeResponse::Connect(true)),
+                    );
                     continue;
                 }
             };
