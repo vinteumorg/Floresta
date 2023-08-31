@@ -318,6 +318,40 @@ impl<T: Transport> Peer<T> {
         Ok(())
     }
     #[allow(clippy::too_many_arguments)]
+    pub fn create_peer_from_transport(
+        stream: T,
+        id: u32,
+        mempool: Arc<RwLock<Mempool>>,
+        network: Network,
+        node_tx: Sender<NodeNotification>,
+        node_requests: Receiver<NodeRequest>,
+        address_id: usize,
+        feeler: bool,
+    ) {
+        let peer = Peer {
+            address_id,
+            blocks_only: false,
+            current_best_block: -1,
+            id,
+            mempool,
+            last_ping: Instant::now(),
+            network,
+            node_tx,
+            services: ServiceFlags::NONE,
+            stream,
+            messages: 0,
+            start_time: Instant::now(),
+            user_agent: "".into(),
+            state: State::None,
+            send_headers: false,
+            node_requests,
+            feeler,
+            wants_addrv2: false,
+        };
+        spawn(peer.read_loop());
+    }
+
+    #[allow(clippy::too_many_arguments)]
     pub async fn create_outbound_connection<A: ToSocketAddrs>(
         id: u32,
         address: A,
