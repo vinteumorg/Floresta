@@ -51,9 +51,12 @@ pub trait Rpc {
     fn find_tx_out(&self, block_height: u32, tx_id: Txid, outpoint: usize) -> Result<TxOut>;
     #[rpc(name = "stop")]
     fn stop(&self) -> Result<bool>;
+    #[rpc(name = "addnode")]
+    fn add_node(&self, node: String) -> Result<bool>;
 }
 
 pub struct RpcImpl {
+    network: Network,
     chain: Arc<ChainState<KvChainStore>>,
     wallet: Arc<RwLock<AddressCache<KvDatabase>>>,
     node: Arc<NodeInterface>,
@@ -62,6 +65,23 @@ pub struct RpcImpl {
 impl Rpc for RpcImpl {
     fn get_height(&self) -> Result<u32> {
         Ok(self.chain.get_best_block().unwrap().0)
+    }
+
+    fn add_node(&self, node: String) -> Result<bool> {
+        let node = node.split(':').collect::<Vec<&str>>();
+        let (ip, port) = if node.len() == 2 {
+            (node[0], node[1].parse().map_err(|_| Error::InvalidPort)?)
+        } else {
+            match self.network {
+                Network::Bitcoin => (node[0], 8333),
+                Network::Testnet => (node[0], 18333),
+                Network::Regtest => (node[0], 18444),
+                Network::Signet => (node[0], 38333),
+            }
+        };
+        let node = ip.parse().map_err(|_| Error::InvalidAddress)?;
+        self.node.connect(node, port).unwrap();
+        Ok(true)
     }
 
     fn get_blockchain_info(&self) -> Result<GetBlockchainInfoRes> {
@@ -219,9 +239,11 @@ impl RpcImpl {
         net: &Network,
         node: Arc<NodeInterface>,
         kill_signal: Arc<RwLock<bool>>,
+        network: Network,
     ) -> jsonrpc_http_server::Server {
         let mut io = jsonrpc_core::IoHandler::new();
         let rpc_impl = RpcImpl {
+            network,
             chain,
             wallet,
             node,

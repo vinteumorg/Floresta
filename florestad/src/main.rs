@@ -238,6 +238,7 @@ fn main() {
                 &get_net(&params.network),
                 chain_provider.get_handle(),
                 kill_signal.clone(),
+                get_net(&params.network).into(),
             );
             // Create a new electrum server, we need to block_on because `ElectrumServer::new` is `async`
             // but our main isn't, so we can't `.await` on it.
