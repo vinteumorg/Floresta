@@ -55,6 +55,7 @@ fn get_req(cmd: &Cli) -> (Vec<Box<RawValue>>, String) {
         Methods::FindUtxo { .. } => "findtxout",
         Methods::ListTransactions => "gettransactions",
         Methods::Stop => "stop",
+        Methods::AddNode { .. } => "addnode",
     };
     let params = match &cmd.methods {
         Methods::GetBlockchainInfo => Vec::new(),
@@ -88,6 +89,9 @@ fn get_req(cmd: &Cli) -> (Vec<Box<RawValue>>, String) {
             vec![arg(height), arg(txid), arg(vout)]
         }
         Methods::Stop => Vec::new(),
+        Methods::AddNode { node } => {
+            vec![arg(node)]
+        }
     };
 
     (params, method.to_string())
@@ -174,4 +178,8 @@ pub enum Methods {
     /// Stops the node
     #[command(name = "stop")]
     Stop,
+    /// Connects with a peer, given its address and port
+    /// Usage: addnode <ip:[port]>
+    #[command(name = "addnode")]
+    AddNode { node: String },
 }

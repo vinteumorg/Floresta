@@ -17,6 +17,8 @@ pub enum Error {
     InvalidDescriptor,
     BlockNotFound,
     ChainError,
+    InvalidPort,
+    InvalidAddress,
 }
 impl Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -25,6 +27,8 @@ impl Display for Error {
             Error::InvalidDescriptor => "Invalid descriptor",
             Error::BlockNotFound => "Block not found",
             Error::ChainError => "Chain error",
+            Error::InvalidPort => "Invalid port",
+            Error::InvalidAddress => "Invalid address",
         };
         write!(f, "{}", msg)
     }
@@ -36,6 +40,8 @@ impl From<Error> for i64 {
             Error::ChainError => 2,
             Error::TxNotFound => 3,
             Error::InvalidDescriptor => 4,
+            Error::InvalidPort => 5,
+            Error::InvalidAddress => 6,
         }
     }
 }
