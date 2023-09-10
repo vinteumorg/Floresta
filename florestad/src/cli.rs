@@ -74,10 +74,14 @@ pub enum Commands {
     },
     #[cfg(feature = "experimental-p2p")]
     /// Starts your wallet and server
+    #[command(author, version, about, long_about = None)]
     Run {
         /// Where should we store data
         #[arg(long)]
         data_dir: Option<String>,
+        #[arg(long, short, default_value = None)]
+        /// The url of a proxy we should open p2p connections through (e.g. 127.0.0.1:9050)
+        proxy: Option<String>,
         #[arg(long, short, default_value = None)]
         rescan: Option<u32>,
         /// Add a xpub to our wallet
