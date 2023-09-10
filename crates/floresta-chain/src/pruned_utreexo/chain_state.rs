@@ -1074,8 +1074,8 @@ impl Decodable for BestChain {
 #[cfg(test)]
 mod test {
     extern crate std;
-    use crate::Network;
     use crate::{prelude::HashMap, pruned_utreexo::consensus::Consensus};
+    use crate::{KvChainStore, Network};
     use bitcoin::{
         consensus::{deserialize, Decodable},
         hashes::hex::FromHex,
@@ -1085,9 +1085,7 @@ mod test {
     use std::io::Cursor;
     use std::{format, vec::Vec};
 
-    use super::{
-        BlockchainInterface, ChainParams, DiskBlockHeader, KvChainStore, UpdatableChainstate,
-    };
+    use super::{BlockchainInterface, ChainParams, DiskBlockHeader, UpdatableChainstate};
 
     use super::ChainState;
     #[test]

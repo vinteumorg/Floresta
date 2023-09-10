@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
+    str::FromStr,
     time::{SystemTime, UNIX_EPOCH},
 };
 use thiserror::Error;
@@ -77,6 +78,12 @@ impl From<AddrV2Message> for LocalAddress {
             id: rand::random::<usize>(),
         }
     }
+}
+impl FromStr for LocalAddress {
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        LocalAddress::try_from(s)
+    }
+    type Err = std::net::AddrParseError;
 }
 impl TryFrom<&str> for LocalAddress {
     fn try_from(value: &str) -> Result<Self, Self::Error> {

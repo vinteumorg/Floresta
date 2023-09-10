@@ -8,7 +8,7 @@ use thiserror::Error;
 
 use async_std::{
     channel::{unbounded, Receiver, Sender},
-    io::{BufReader, WriteExt},
+    io::BufReader,
     net::{TcpStream, ToSocketAddrs},
     sync::RwLock,
     task::spawn,
@@ -26,24 +26,38 @@ use bitcoin::{
     },
     BlockHash, BlockHeader, Network, Transaction,
 };
-use futures::FutureExt;
-use log::{debug, error};
+use futures::{AsyncRead, AsyncWrite, AsyncWriteExt, FutureExt};
+use log::{debug, error, info, warn};
 use std::{
     fmt::Debug,
     sync::Arc,
     time::{Duration, Instant},
 };
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 enum State {
     None,
     SentVersion(Instant),
     SentVerack,
     Connected,
 }
+/// A trait defining how the transport we use should behave. Transport is anything
+/// that allows to read/write from/into. Like a TcpStream or a Socks5 proxy
+pub trait Transport:
+    AsyncRead + AsyncWrite + Unpin + Clone + Sync + Send + AsyncWriteExt + 'static
+{
+    /// Asks the stream to shutdown, the final part of the disconnection process
+    fn shutdown(&mut self) -> Result<()>;
+}
 
-pub struct Peer {
-    stream: TcpStream,
+impl Transport for TcpStream {
+    fn shutdown(&mut self) -> Result<()> {
+        Ok(TcpStream::shutdown(self, std::net::Shutdown::Both)?)
+    }
+}
+
+pub struct Peer<T: Transport> {
+    stream: T,
     mempool: Arc<RwLock<Mempool>>,
     network: Network,
     blocks_only: bool,
@@ -79,7 +93,7 @@ pub enum PeerError {
     #[error("Peer sent us too many message in a short period of time")]
     TooManyMessages,
 }
-impl Debug for Peer {
+impl Debug for Peer<TcpStream> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.id)?;
         write!(f, "{:?}", self.stream.peer_addr())?;
@@ -88,7 +102,7 @@ impl Debug for Peer {
 }
 type Result<T> = std::result::Result<T, PeerError>;
 
-impl Peer {
+impl<T: Transport> Peer<T> {
     pub async fn read_loop(mut self) -> Result<()> {
         let err = self.peer_loop_inner().await;
         debug!("Peer connection loop closed: {err:?}");
@@ -106,7 +120,6 @@ impl Peer {
         let stream: StreamReader<_, RawNetworkMessage> =
             StreamReader::new(read_stream, self.network.magic(), tx);
         spawn(stream.read_loop());
-
         loop {
             futures::select! {
                 request = self.node_requests.recv().fuse() => {
@@ -168,7 +181,7 @@ impl Peer {
                     .await;
             }
             NodeRequest::Shutdown => {
-                let _ = self.stream.shutdown(std::net::Shutdown::Both);
+                let _ = self.stream.shutdown();
             }
             NodeRequest::GetAddresses => {
                 self.write(NetworkMessage::GetAddr).await?;
@@ -188,113 +201,158 @@ impl Peer {
         Ok(())
     }
     pub async fn handle_peer_message(&mut self, message: RawNetworkMessage) -> Result<()> {
-        if self.state == State::None && message.cmd() != "version" {
-            return Err(PeerError::UnexpectedMessage);
-        }
-        match message.payload {
-            bitcoin::network::message::NetworkMessage::Version(version) => {
-                self.handle_version(version).await?;
-                self.send_to_node(PeerMessages::Ready(Version {
-                    user_agent: self.user_agent.clone(),
-                    protocol_version: 0,
-                    id: self.id,
-                    blocks: self.current_best_block.unsigned_abs(),
-                    address_id: self.address_id,
-                    services: self.services,
-                    feeler: self.feeler,
-                }))
-                .await;
-            }
-            bitcoin::network::message::NetworkMessage::Verack => {
-                self.state = State::Connected;
-            }
-            bitcoin::network::message::NetworkMessage::Inv(inv) => {
-                for inv_entry in inv {
-                    match inv_entry {
-                        bitcoin::network::message_blockdata::Inventory::Error => {}
-                        bitcoin::network::message_blockdata::Inventory::Transaction(_) => {}
-                        bitcoin::network::message_blockdata::Inventory::Block(block_hash)
-                        | bitcoin::network::message_blockdata::Inventory::WitnessBlock(
-                            block_hash,
-                        )
-                        | bitcoin::network::message_blockdata::Inventory::CompactBlock(
-                            block_hash,
-                        ) => {
-                            self.send_to_node(PeerMessages::NewBlock(block_hash)).await;
+        match self.state {
+            State::Connected => match message.payload {
+                NetworkMessage::Inv(inv) => {
+                    for inv_entry in inv {
+                        match inv_entry {
+                            Inventory::Error => {}
+                            Inventory::Transaction(_) => {}
+                            Inventory::Block(block_hash)
+                            | Inventory::WitnessBlock(block_hash)
+                            | Inventory::CompactBlock(block_hash) => {
+                                self.send_to_node(PeerMessages::NewBlock(block_hash)).await;
+                            }
+                            _ => {}
                         }
-                        _ => {}
                     }
                 }
-            }
-            bitcoin::network::message::NetworkMessage::GetHeaders(_) => {
-                self.write(NetworkMessage::Headers(Vec::new())).await?;
-            }
-            bitcoin::network::message::NetworkMessage::Block(block) => {
-                self.send_to_node(PeerMessages::Block(block)).await;
-            }
-            bitcoin::network::message::NetworkMessage::Headers(headers) => {
-                self.send_to_node(PeerMessages::Headers(headers)).await;
-            }
-            bitcoin::network::message::NetworkMessage::SendHeaders => {
-                self.send_headers = true;
-                self.write(NetworkMessage::SendHeaders).await?;
-            }
-            bitcoin::network::message::NetworkMessage::Ping(nonce) => {
-                self.handle_ping(nonce).await?;
-            }
-            bitcoin::network::message::NetworkMessage::FeeFilter(_) => {
-                self.write(NetworkMessage::FeeFilter(1000)).await?;
-            }
-            bitcoin::network::message::NetworkMessage::AddrV2(addresses) => {
-                self.send_to_node(PeerMessages::Addr(addresses)).await;
-            }
-            bitcoin::network::message::NetworkMessage::GetBlocks(_) => {
-                self.write(NetworkMessage::Inv(Vec::new())).await?;
-            }
-            bitcoin::network::message::NetworkMessage::SendAddrV2 => {
-                self.wants_addrv2 = true;
-            }
-            bitcoin::network::message::NetworkMessage::GetAddr => {
-                self.write(NetworkMessage::AddrV2(Vec::new())).await?;
-            }
-            bitcoin::network::message::NetworkMessage::GetData(inv) => {
-                for inv_el in inv {
-                    self.handle_get_data(inv_el).await?;
+                NetworkMessage::GetHeaders(_) => {
+                    self.write(NetworkMessage::Headers(Vec::new())).await?;
                 }
-            }
-            bitcoin::network::message::NetworkMessage::Tx(tx) => {
-                self.send_to_node(PeerMessages::Transaction(tx)).await;
-            }
-            bitcoin::network::message::NetworkMessage::NotFound(inv) => {
-                for inv_el in inv {
-                    self.send_to_node(PeerMessages::NotFound(inv_el)).await;
+                NetworkMessage::Block(block) => {
+                    self.send_to_node(PeerMessages::Block(block)).await;
                 }
-            }
-            _ => {}
+                NetworkMessage::Headers(headers) => {
+                    self.send_to_node(PeerMessages::Headers(headers)).await;
+                }
+                NetworkMessage::SendHeaders => {
+                    self.send_headers = true;
+                    self.write(NetworkMessage::SendHeaders).await?;
+                }
+                NetworkMessage::Ping(nonce) => {
+                    self.handle_ping(nonce).await?;
+                }
+                NetworkMessage::FeeFilter(_) => {
+                    self.write(NetworkMessage::FeeFilter(1000)).await?;
+                }
+                NetworkMessage::AddrV2(addresses) => {
+                    self.send_to_node(PeerMessages::Addr(addresses)).await;
+                }
+                NetworkMessage::GetBlocks(_) => {
+                    self.write(NetworkMessage::Inv(Vec::new())).await?;
+                }
+                NetworkMessage::GetAddr => {
+                    self.write(NetworkMessage::AddrV2(Vec::new())).await?;
+                }
+                NetworkMessage::GetData(inv) => {
+                    for inv_el in inv {
+                        self.handle_get_data(inv_el).await?;
+                    }
+                }
+                NetworkMessage::Tx(tx) => {
+                    self.send_to_node(PeerMessages::Transaction(tx)).await;
+                }
+                NetworkMessage::NotFound(inv) => {
+                    for inv_el in inv {
+                        self.send_to_node(PeerMessages::NotFound(inv_el)).await;
+                    }
+                }
+                NetworkMessage::SendAddrV2 => {
+                    self.wants_addrv2 = true;
+                    self.write(NetworkMessage::SendAddrV2).await?;
+                }
+                NetworkMessage::Unknown { command, payload } => {
+                    warn!("Unknown message: {} {:?}", command, payload);
+                }
+
+                // Explicitly ignore these messages, if something changes in the future
+                // this would cause a compile error.
+                NetworkMessage::Verack
+                | NetworkMessage::Version(_)
+                | NetworkMessage::WtxidRelay
+                | NetworkMessage::Reject(_)
+                | NetworkMessage::Alert(_)
+                | NetworkMessage::BlockTxn(_)
+                | NetworkMessage::CFCheckpt(_)
+                | NetworkMessage::CFHeaders(_)
+                | NetworkMessage::CFilter(_)
+                | NetworkMessage::CmpctBlock(_)
+                | NetworkMessage::FilterAdd(_)
+                | NetworkMessage::FilterClear
+                | NetworkMessage::FilterLoad(_)
+                | NetworkMessage::GetBlockTxn(_)
+                | NetworkMessage::GetCFCheckpt(_)
+                | NetworkMessage::GetCFHeaders(_)
+                | NetworkMessage::Addr(_)
+                | NetworkMessage::GetCFilters(_)
+                | NetworkMessage::MemPool
+                | NetworkMessage::MerkleBlock(_)
+                | NetworkMessage::Pong(_)
+                | NetworkMessage::SendCmpct(_) => {}
+            },
+            State::None | State::SentVersion(_) => match message.payload {
+                bitcoin::network::message::NetworkMessage::Version(version) => {
+                    self.handle_version(version).await?;
+                    self.send_to_node(PeerMessages::Ready(Version {
+                        user_agent: self.user_agent.clone(),
+                        protocol_version: 0,
+                        id: self.id,
+                        blocks: self.current_best_block.unsigned_abs(),
+                        address_id: self.address_id,
+                        services: self.services,
+                        feeler: self.feeler,
+                    }))
+                    .await;
+                }
+                _ => {
+                    info!("Unexpected message: {:?}", message.payload);
+                    return Err(PeerError::UnexpectedMessage);
+                }
+            },
+            State::SentVerack => match message.payload {
+                bitcoin::network::message::NetworkMessage::Verack => {
+                    self.state = State::Connected;
+                }
+                bitcoin::network::message::NetworkMessage::SendAddrV2 => {
+                    self.wants_addrv2 = true;
+                }
+                bitcoin::network::message::NetworkMessage::SendHeaders => {
+                    self.send_headers = true;
+                }
+                bitcoin::network::message::NetworkMessage::WtxidRelay => {}
+                _ => {
+                    info!("==>Unexpected message: {:?}", message.payload);
+
+                    return Err(PeerError::UnexpectedMessage);
+                }
+            },
         }
         Ok(())
     }
 }
-impl Peer {
-    pub async fn write(&self, msg: NetworkMessage) -> Result<()> {
+impl<T: Transport> Peer<T> {
+    pub async fn write(&mut self, msg: NetworkMessage) -> Result<()> {
         let data = &mut RawNetworkMessage {
             magic: self.network.magic(),
             payload: msg,
         };
         let data = serialize(&data);
-        (&self.stream).write_all(&data).await?;
+        self.stream.write_all(data.as_slice()).await?;
         Ok(())
     }
-    pub async fn handle_get_data(&self, inv: Inventory) -> Result<()> {
+    pub async fn handle_get_data(&mut self, inv: Inventory) -> Result<()> {
         match inv {
             Inventory::WitnessTransaction(txid) => {
-                if let Some(tx) = self.mempool.read().await.get_from_mempool(&txid) {
-                    self.write(NetworkMessage::Tx(tx.to_owned())).await?;
+                let tx = self.mempool.read().await.get_from_mempool(&txid).cloned();
+                if let Some(tx) = tx {
+                    self.write(NetworkMessage::Tx(tx)).await?;
                 }
             }
             Inventory::Transaction(txid) => {
-                if let Some(tx) = self.mempool.read().await.get_from_mempool(&txid) {
-                    self.write(NetworkMessage::Tx(tx.to_owned())).await?;
+                let tx = self.mempool.read().await.get_from_mempool(&txid).cloned();
+                if let Some(tx) = tx {
+                    self.write(NetworkMessage::Tx(tx)).await?;
                 }
             }
             _ => {}
@@ -302,7 +360,41 @@ impl Peer {
         Ok(())
     }
     #[allow(clippy::too_many_arguments)]
-    pub async fn create_outbound_connection<A: ToSocketAddrs>(
+    pub fn create_peer_from_transport(
+        stream: T,
+        id: u32,
+        mempool: Arc<RwLock<Mempool>>,
+        network: Network,
+        node_tx: Sender<NodeNotification>,
+        node_requests: Receiver<NodeRequest>,
+        address_id: usize,
+        feeler: bool,
+    ) {
+        let peer = Peer {
+            address_id,
+            blocks_only: false,
+            current_best_block: -1,
+            id,
+            mempool,
+            last_ping: Instant::now(),
+            network,
+            node_tx,
+            services: ServiceFlags::NONE,
+            stream,
+            messages: 0,
+            start_time: Instant::now(),
+            user_agent: "".into(),
+            state: State::None,
+            send_headers: false,
+            node_requests,
+            feeler,
+            wants_addrv2: false,
+        };
+        spawn(peer.read_loop());
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn create_outbound_connection<A: ToSocketAddrs + Debug>(
         id: u32,
         address: A,
         mempool: Arc<RwLock<Mempool>>,
@@ -360,6 +452,7 @@ impl Peer {
         }
         self.state = State::SentVerack;
         let verack = NetworkMessage::Verack;
+        self.state = State::SentVerack;
         self.write(verack).await
     }
     async fn send_to_node(&self, message: PeerMessages) {

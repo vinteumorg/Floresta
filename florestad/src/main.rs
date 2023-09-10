@@ -173,6 +173,7 @@ fn main() {
             wallet_xpub,
             wallet_descriptor,
             rescan,
+            proxy,
         } => {
             let kill_signal = Arc::new(RwLock::new(false));
 
@@ -228,6 +229,7 @@ fn main() {
                 Arc::new(async_std::sync::RwLock::new(Mempool::new())),
                 get_net(&params.network).into(),
                 data_dir,
+                proxy.map(|x| x.parse().expect("Invalid proxy address")),
             );
             info!("Starting server");
             let wallet = Arc::new(RwLock::new(wallet));
