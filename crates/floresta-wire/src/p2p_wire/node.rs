@@ -8,6 +8,7 @@ use super::{
     node_context::{IBDNode, NodeContext, RunningNode},
     node_interface::{NodeInterface, NodeResponse, PeerInfo, UserRequest},
     peer::{Peer, PeerMessages, Version},
+    socks::{Socks5Addr, Socks5Error, Socks5StreamBuilder},
 };
 
 use async_std::{
@@ -34,12 +35,13 @@ use floresta_chain::{
     },
     BlockchainError, Network,
 };
+use futures::Future;
 use log::{error, info, trace, warn};
 use rustreexo::accumulator::{node_hash::NodeHash, proof::Proof};
 use std::{
     collections::{HashMap, HashSet},
     fmt::Debug,
-    net::IpAddr,
+    net::{IpAddr, SocketAddr},
     ops::{Deref, DerefMut},
     sync::{Arc, Mutex},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -145,6 +147,7 @@ pub struct NodeCommon<Chain: BlockchainInterface + UpdatableChainstate> {
     mempool: Arc<RwLock<Mempool>>,
     datadir: String,
     address_man: AddressMan,
+    socks5: Option<Socks5StreamBuilder>,
 }
 
 pub struct UtreexoNode<Context, Chain: BlockchainInterface + UpdatableChainstate>(
@@ -168,8 +171,10 @@ enum PeerStatus {
     Ready,
     ShutingDown,
 }
-impl<T: 'static + Default + NodeContext, Chain: BlockchainInterface + UpdatableChainstate>
-    UtreexoNode<T, Chain>
+impl<
+        T: 'static + Default + NodeContext,
+        Chain: BlockchainInterface + UpdatableChainstate + 'static,
+    > UtreexoNode<T, Chain>
 where
     WireError: From<<Chain as BlockchainInterface>::Error>,
 {
@@ -178,8 +183,10 @@ where
         mempool: Arc<RwLock<Mempool>>,
         network: Network,
         datadir: String,
+        proxy: Option<SocketAddr>,
     ) -> Self {
         let (node_tx, node_rx) = channel::unbounded();
+        let socks5 = proxy.map(Socks5StreamBuilder::new);
         UtreexoNode(
             NodeCommon {
                 inflight: HashMap::new(),
@@ -203,6 +210,7 @@ where
                 last_get_address_request: Instant::now(),
                 last_send_addresses: Instant::now(),
                 datadir,
+                socks5,
             },
             T::default(),
         )
@@ -622,18 +630,90 @@ where
         self.open_connection(feeler, peer_id, address).await;
         Some(())
     }
-    async fn open_connection(&mut self, feeler: bool, peer_id: usize, address: LocalAddress) {
-        let (requests_tx, requests_rx) = bounded(1024);
-        spawn(Peer::<TcpStream>::create_outbound_connection(
-            self.peer_id_count,
+    #[allow(clippy::too_many_arguments)]
+    fn open_non_proxy_connection(
+        feeler: bool,
+        peer_id: usize,
+        address: LocalAddress,
+        requests_rx: Receiver<NodeRequest>,
+        peer_id_count: u32,
+        mempool: Arc<RwLock<Mempool>>,
+        network: bitcoin::Network,
+        node_tx: Sender<NodeNotification>,
+    ) -> impl Future<Output = ()> + Send + 'static {
+        Peer::<TcpStream>::create_outbound_connection(
+            peer_id_count,
             (address.get_net_address(), address.get_port()),
-            self.mempool.clone(),
-            self.network.into(),
-            self.node_tx.clone(),
+            mempool,
+            network,
+            node_tx,
             requests_rx,
             peer_id,
             feeler,
-        ));
+        )
+    }
+    #[allow(clippy::too_many_arguments)]
+    async fn open_proxy_connection(
+        proxy: SocketAddr,
+        feeler: bool,
+        mempool: Arc<RwLock<Mempool>>,
+        network: bitcoin::Network,
+        node_tx: Sender<NodeNotification>,
+        peer_id: usize,
+        address: LocalAddress,
+        requests_rx: Receiver<NodeRequest>,
+        peer_id_count: u32,
+    ) -> Result<(), Socks5Error> {
+        let addr = match address.get_net_address() {
+            IpAddr::V4(ip) => Socks5Addr::Ipv4(ip),
+            IpAddr::V6(ip) => Socks5Addr::Ipv6(ip),
+        };
+
+        let proxy = TcpStream::connect(proxy).await?;
+        let stream = Socks5StreamBuilder::connect(proxy, addr, address.get_port()).await?;
+        Peer::create_peer_from_transport(
+            stream,
+            peer_id_count,
+            mempool,
+            network,
+            node_tx,
+            requests_rx,
+            peer_id,
+            feeler,
+        );
+        Ok(())
+    }
+    async fn open_connection(&mut self, feeler: bool, peer_id: usize, address: LocalAddress) {
+        let (requests_tx, requests_rx) = bounded(1024);
+        if let Some(ref proxy) = self.socks5 {
+            spawn(timeout(
+                Duration::from_secs(10),
+                Self::open_proxy_connection(
+                    proxy.address,
+                    feeler,
+                    self.mempool.clone(),
+                    self.network.into(),
+                    self.node_tx.clone(),
+                    peer_id,
+                    address.clone(),
+                    requests_rx,
+                    self.peer_id_count,
+                ),
+            ));
+        } else {
+            Self::open_non_proxy_connection(
+                feeler,
+                peer_id,
+                address.clone(),
+                requests_rx,
+                self.peer_id_count,
+                self.mempool.clone(),
+                self.network.into(),
+                self.node_tx.clone(),
+            )
+            .await;
+        }
+
         let peer_count: u32 = self.peer_id_count;
 
         self.inflight.insert(
@@ -660,7 +740,7 @@ where
         self.peer_id_count += 1;
     }
 }
-impl<Chain: BlockchainInterface + UpdatableChainstate> UtreexoNode<IBDNode, Chain>
+impl<Chain: BlockchainInterface + UpdatableChainstate + 'static> UtreexoNode<IBDNode, Chain>
 where
     WireError: From<<Chain as BlockchainInterface>::Error>,
 {
@@ -904,7 +984,7 @@ where
     }
 }
 
-impl<Chain: BlockchainInterface + UpdatableChainstate> UtreexoNode<RunningNode, Chain>
+impl<Chain: BlockchainInterface + UpdatableChainstate + 'static> UtreexoNode<RunningNode, Chain>
 where
     WireError: From<<Chain as BlockchainInterface>::Error>,
 {
