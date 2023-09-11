@@ -1127,8 +1127,16 @@ where
                 self.shutdown().await;
                 break;
             }
+
             // Jobs that don't need a connected peer
 
+            // Check whether we are in a stale tip
+            periodic_job!(
+                self.check_for_stale_tip().await,
+                self.last_tip_update,
+                ASSUME_STALE,
+                RunningNode
+            );
             // Save our peers db
             periodic_job!(
                 self.save_peers(),
@@ -1144,13 +1152,6 @@ where
                 RunningNode,
                 true
             );
-            // Check if we haven't missed any block
-            periodic_job!(
-                self.ask_missed_block().await,
-                self.1.last_block_check,
-                BLOCK_CHECK_INTERVAL,
-                RunningNode
-            );
             // Perhaps we need more connections
             periodic_job!(
                 self.maybe_open_connection().await,
@@ -1158,25 +1159,30 @@ where
                 TRY_NEW_CONNECTION,
                 RunningNode
             );
+
+            // Requests using the node handle
             try_and_log!(self.check_request_timeout());
             self.handle_user_request().await;
+
+            // Check if some of our peers have timed out a request
+            try_and_log!(self.check_for_timeout().await);
 
             // Those jobs bellow needs a connected peer to work
             if self.state == NodeState::WaitingPeer {
                 continue;
             }
+            // Check if we haven't missed any block
+            periodic_job!(
+                self.ask_missed_block().await,
+                self.1.last_block_check,
+                BLOCK_CHECK_INTERVAL,
+                RunningNode
+            );
             // Aks our peers for new addresses
             periodic_job!(
                 self.ask_for_addresses().await,
                 self.last_get_address_request,
                 ASK_FOR_PEERS_INTERVAL,
-                RunningNode
-            );
-            // Check whether we are in a stale tip
-            periodic_job!(
-                self.check_for_stale_tip().await,
-                self.last_tip_update,
-                ASSUME_STALE,
                 RunningNode
             );
             // Open new feeler connection periodically
@@ -1201,7 +1207,6 @@ where
                 RunningNode
             );
             try_and_log!(self.ask_block().await);
-            try_and_log!(self.check_for_timeout().await);
             try_and_log!(self.request_rescan_block().await);
         }
     }
