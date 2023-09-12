@@ -32,7 +32,7 @@ const SOCKS_ADDR_TYPE_IPV6: u8 = 4;
 pub enum Socks5Addr {
     Ipv4(Ipv4Addr),
     Ipv6(Ipv6Addr),
-    Domain(String),
+    Domain(Box<[u8]>),
 }
 impl From<Socks5Addr> for u8 {
     fn from(val: Socks5Addr) -> Self {
@@ -61,7 +61,7 @@ impl Socks5StreamBuilder {
             Socks5Addr::Ipv6(addr) => addr.octets().to_vec(),
             Socks5Addr::Domain(domain) => {
                 let mut buf = vec![domain.len() as u8];
-                buf.extend_from_slice(domain.as_bytes());
+                buf.extend_from_slice(&domain);
                 buf
             }
         };
@@ -117,6 +117,7 @@ pub enum Socks5Error {
     InvalidVersion,
     InvalidAuthMethod,
     ConnectionFailed,
+    InvalidAddress,
     ReadError(futures::io::Error),
 }
 

@@ -664,9 +664,16 @@ where
         requests_rx: Receiver<NodeRequest>,
         peer_id_count: u32,
     ) -> Result<(), Socks5Error> {
-        let addr = match address.get_net_address() {
-            IpAddr::V4(ip) => Socks5Addr::Ipv4(ip),
-            IpAddr::V6(ip) => Socks5Addr::Ipv6(ip),
+        let addr = match address.get_address() {
+            AddrV2::Cjdns(addr) => Socks5Addr::Ipv6(addr),
+            AddrV2::I2p(addr) => Socks5Addr::Domain(addr.into()),
+            AddrV2::Ipv4(addr) => Socks5Addr::Ipv4(addr),
+            AddrV2::Ipv6(addr) => Socks5Addr::Ipv6(addr),
+            AddrV2::TorV2(addr) => Socks5Addr::Domain(addr.into()),
+            AddrV2::TorV3(addr) => Socks5Addr::Domain(addr.into()),
+            AddrV2::Unknown(_, _) => {
+                return Err(Socks5Error::InvalidAddress);
+            }
         };
 
         let proxy = TcpStream::connect(proxy).await?;

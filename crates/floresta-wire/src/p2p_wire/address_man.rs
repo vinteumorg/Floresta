@@ -142,6 +142,11 @@ impl LocalAddress {
             _ => IpAddr::V4(Ipv4Addr::LOCALHOST),
         }
     }
+    /// Returns the actual address, as defined in AddrV2. This is useful
+    /// if we are trying a peer that needs a proxy like Tor.
+    pub fn get_address(&self) -> AddrV2 {
+        self.address.clone()
+    }
 }
 /// A module that keeps track of know addresses and serve them to our node to connect
 #[derive(Default)]
@@ -421,14 +426,23 @@ impl From<LocalAddress> for DiskLocalAddress {
         let address = match value.address {
             AddrV2::Ipv4(ip) => Address::V4(ip),
             AddrV2::Ipv6(ip) => Address::V6(ip),
-            _ => Address::V4(Ipv4Addr::LOCALHOST),
+            AddrV2::Cjdns(ip) => Address::Cjdns(ip),
+            AddrV2::I2p(ip) => Address::I2p(ip),
+            AddrV2::TorV2(ip) => Address::OnionV2(ip),
+            AddrV2::TorV3(ip) => Address::OnionV3(ip),
+            AddrV2::Unknown(_, _) => Address::V4(Ipv4Addr::LOCALHOST),
         };
 
         DiskLocalAddress {
             address,
             last_connected: value.last_connected,
             state: if value.state == AddressState::Connected {
-                AddressState::Tried(0)
+                AddressState::Tried(
+                    SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs(),
+                )
             } else {
                 value.state
             },
@@ -443,6 +457,10 @@ impl From<DiskLocalAddress> for LocalAddress {
         let address = match value.address {
             Address::V4(ip) => AddrV2::Ipv4(ip),
             Address::V6(ip) => AddrV2::Ipv6(ip),
+            Address::Cjdns(ip) => AddrV2::Cjdns(ip),
+            Address::I2p(ip) => AddrV2::I2p(ip),
+            Address::OnionV2(ip) => AddrV2::TorV2(ip),
+            Address::OnionV3(ip) => AddrV2::TorV3(ip),
         };
         let services = ServiceFlags::from(value.services);
         LocalAddress {
@@ -457,6 +475,17 @@ impl From<DiskLocalAddress> for LocalAddress {
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Address {
+    /// Regular ipv4 address
     V4(Ipv4Addr),
+    /// Regular ipv6 address
     V6(Ipv6Addr),
+    /// Tor v2 address, this may never be used, as OnionV2 is deprecated
+    /// but we'll keep it here for completeness sake
+    OnionV2([u8; 10]),
+    /// Tor v3 address. This is the preferred way to connect to a tor node
+    OnionV3([u8; 32]),
+    /// Cjdns ipv6 address
+    Cjdns(Ipv6Addr),
+    /// I2p address, a 32 byte node key
+    I2p([u8; 32]),
 }
