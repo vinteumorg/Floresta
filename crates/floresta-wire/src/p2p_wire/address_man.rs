@@ -169,23 +169,22 @@ impl AddressMan {
         let addresses = self
             .addresses
             .iter()
-            .flat_map(|(time, v)| {
-                if let AddressState::Tried(time) = v.state {
-                    if time + RETRY_TIME
-                        < SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .unwrap()
-                            .as_secs()
-                    {
-                        Some((v.address.clone(), time, v.services, v.port))
-                    } else {
-                        None
+            .flat_map(|(time, v)| match v.state {
+                AddressState::Tried(time) => {
+                    let timeout = time + RETRY_TIME;
+                    let now_as_sec = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs();
+                    if timeout < now_as_sec {
+                        return Some((v.address.clone(), time, v.services, v.port));
                     }
-                } else if matches!(v.state, AddressState::Connected) {
-                    Some((v.address.clone(), *time as u64, v.services, v.port))
-                } else {
                     None
                 }
+                AddressState::Connected => {
+                    Some((v.address.clone(), *time as u64, v.services, v.port))
+                }
+                _ => None,
             })
             .collect();
         addresses
@@ -245,14 +244,7 @@ impl AddressMan {
         match peer.state {
             AddressState::Banned(_) => None,
             AddressState::Connected => self.get_random_good_address(),
-            AddressState::NeverTried => Some((id, peer)),
-            AddressState::Tried(time) => {
-                if now - time > RETRY_TIME {
-                    Some((id, peer))
-                } else {
-                    None
-                }
-            }
+            AddressState::NeverTried | AddressState::Tried(_) => Some((id, peer)),
             AddressState::Failed(time) => {
                 if now - time > RETRY_TIME {
                     Some((id, peer))
@@ -368,8 +360,7 @@ impl AddressMan {
                         address.state = AddressState::NeverTried;
                     }
                 }
-                AddressState::NeverTried => {}
-                AddressState::Connected => {}
+                AddressState::Connected | AddressState::NeverTried => {}
             }
         }
     }
