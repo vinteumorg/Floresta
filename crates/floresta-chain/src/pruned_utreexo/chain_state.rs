@@ -653,6 +653,12 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         height: u32,
         inputs: HashMap<OutPoint, TxOut>,
     ) -> Result<(), BlockchainError> {
+        let prev_block = self.get_ancestor(&block.header)?;
+        if block.header.prev_blockhash != prev_block.block_hash() {
+            return Err(BlockchainError::BlockValidationError(
+                BlockValidationErrors::BlockExtendsAnOrphanChain,
+            ));
+        }
         if !block.check_merkle_root() {
             return Err(BlockchainError::BlockValidationError(
                 BlockValidationErrors::BadMerkleRoot,
@@ -670,12 +676,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
                 BlockValidationErrors::BadWitnessCommitment,
             ));
         }
-        let prev_block = self.get_ancestor(&block.header)?;
-        if block.header.prev_blockhash != prev_block.block_hash() {
-            return Err(BlockchainError::BlockValidationError(
-                BlockValidationErrors::BlockExtendsAnOrphanChain,
-            ));
-        }
+
         // Validate block transactions
         let subsidy = read_lock!(self).consensus.get_subsidy(height);
         let verify_script = self.verify_script(height);

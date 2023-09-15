@@ -33,10 +33,10 @@ use floresta_chain::{
         chainparams::get_chain_dns_seeds, udata::proof_util, BlockchainInterface,
         UpdatableChainstate,
     },
-    BlockchainError, Network,
+    BlockValidationErrors, BlockchainError, Network,
 };
 use futures::Future;
-use log::{error, info, trace, warn};
+use log::{debug, error, info, trace, warn};
 use rustreexo::accumulator::{node_hash::NodeHash, proof::Proof};
 use std::{
     collections::{HashMap, HashSet},
@@ -1281,7 +1281,12 @@ where
 
         Ok(())
     }
+    /// This function is called every time we get a Block message from a peer.
+    /// This block may be a rescan block, a user request or a new block that we
+    /// need to process.
     async fn handle_block_data(&mut self, block: UtreexoBlock, peer: u32) -> Result<(), WireError> {
+        // Rescan block, a block that the wallet is interested in to check if it contains
+        // any transaction that we are interested in.
         if self
             .inflight
             .remove(&InflightRequests::RescanBlock(block.block.block_hash()))
@@ -1290,6 +1295,8 @@ where
             self.request_rescan_block().await?;
             return Ok(self.chain.process_rescan_block(&block.block)?);
         }
+        // If this block is a request made through the user interface, send it back to the
+        // user.
         if self
             .inflight
             .remove(&InflightRequests::UserRequest(UserRequest::Block(
@@ -1310,7 +1317,12 @@ where
             );
             return Ok(());
         }
-        // Remove from inflight, since we just got it.
+
+        // If none of the above, it means that this block is a new block that we need to
+        // process.
+
+        // Check if we actually requested this block. If a peer sends a block we didn't
+        // request, we should disconnect it.
         if self
             .inflight
             .remove(&InflightRequests::Blocks(block.block.block_hash()))
@@ -1330,7 +1342,6 @@ where
             self.send_to_peer(peer, NodeRequest::Shutdown).await?;
             return Err(WireError::PeerMisbehaving);
         }
-        let mempool_delta = self.mempool.write().await.consume_block(&block.block);
 
         let (proof, del_hashes, inputs) = Self::process_proof(
             &block.udata.unwrap(),
@@ -1344,12 +1355,29 @@ where
             .connect_block(&block.block, proof, inputs, del_hashes)
         {
             error!("Invalid block received by peer {} reason: {:?}", peer, e);
-            try_and_log!(self.chain.invalidate_block(block.block.block_hash()));
 
-            error!(
-                "Error while connecting block {}: {e:?}",
-                block.block.block_hash()
-            );
+            if let BlockchainError::BlockValidationError(e) = e {
+                // Because the proof isn't committed to the block, we can't invalidate
+                // it if the proof is invalid. Any other error should cause the block
+                // to be invalidated.
+                match e {
+                    BlockValidationErrors::InvalidTx(_)
+                    | BlockValidationErrors::NotEnoughPow
+                    | BlockValidationErrors::BadMerkleRoot
+                    | BlockValidationErrors::BadWitnessCommitment
+                    | BlockValidationErrors::NotEnoughMoney
+                    | BlockValidationErrors::FirstTxIsnNotCoinbase
+                    | BlockValidationErrors::BadCoinbaseOutValue
+                    | BlockValidationErrors::EmptyBlock
+                    | BlockValidationErrors::BlockExtendsAnOrphanChain
+                    | BlockValidationErrors::BadBip34 => {
+                        self.send_to_peer(peer, NodeRequest::Shutdown).await?;
+                        try_and_log!(self.chain.invalidate_block(block.block.block_hash()));
+                    }
+                    BlockValidationErrors::InvalidProof => {}
+                }
+            }
+
             // Disconnect the peer and ban it.
             if let Some(peer) = self.peers.get(&peer).cloned() {
                 self.address_man.update_set_state(
@@ -1358,13 +1386,15 @@ where
                 );
             }
             self.send_to_peer(peer, NodeRequest::Shutdown).await?;
-
-            // Add the transactions back to the mempool.
-            for tx in mempool_delta {
-                self.mempool.write().await.accept_to_mempool(tx);
-            }
-            return Err(e.into());
+            return Err(WireError::PeerMisbehaving);
         }
+        // Remove confirmed transactions from the mempool.
+        let mempool_delta = self.mempool.write().await.consume_block(&block.block);
+        debug!(
+            "Block {} accepted, confirmed transactions: {:?}",
+            block.block.block_hash(),
+            mempool_delta
+        );
         self.last_tip_update = Instant::now();
         Ok(())
     }
