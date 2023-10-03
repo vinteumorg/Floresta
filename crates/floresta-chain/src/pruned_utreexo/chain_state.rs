@@ -699,6 +699,10 @@ impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedSta
     fn is_in_idb(&self) -> bool {
         self.inner.read().ibd
     }
+    fn get_block_height(&self, hash: &BlockHash) -> Result<Option<u32>, Self::Error> {
+        self.get_disk_block_header(hash)
+            .map(|header| header.height())
+    }
 
     fn get_block_hash(&self, height: u32) -> Result<bitcoin::BlockHash, Self::Error> {
         let inner = self.inner.read();
