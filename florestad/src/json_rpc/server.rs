@@ -1,14 +1,17 @@
 use async_std::sync::RwLock;
 use bitcoin::{
     consensus::{deserialize, serialize},
-    hashes::hex::{FromHex, ToHex},
-    BlockHash, BlockHeader, Network, Transaction, TxOut, Txid,
+    hashes::{
+        hex::{FromHex, ToHex},
+        Hash,
+    },
+    Address, BlockHash, BlockHeader, Network, Script, TxIn, TxOut, Txid,
 };
 use floresta_chain::{
     pruned_utreexo::{BlockchainInterface, UpdatableChainstate},
     ChainState, KvChainStore,
 };
-use floresta_watch_only::{kv_database::KvDatabase, AddressCache};
+use floresta_watch_only::{kv_database::KvDatabase, AddressCache, CachedTransaction};
 use floresta_wire::node_interface::{NodeInterface, NodeMethods, PeerInfo};
 use futures::executor::block_on;
 use jsonrpc_core::Result;
@@ -17,7 +20,10 @@ use jsonrpc_http_server::ServerBuilder;
 use serde_json::{json, Value};
 use std::sync::Arc;
 
-use super::res::{Error, GetBlockchainInfoRes};
+use super::res::{
+    BlockJson, Error, GetBlockchainInfoRes, RawTxJson, ScriptPubKeyJson, ScriptSigJson, TxInJson,
+    TxOutJson,
+};
 
 #[rpc]
 pub trait Rpc {
@@ -28,7 +34,7 @@ pub trait Rpc {
     #[rpc(name = "getblockheader")]
     fn get_block_header(&self, hash: BlockHash) -> Result<BlockHeader>;
     #[rpc(name = "gettransaction")]
-    fn get_transaction(&self, tx_id: Txid) -> Result<Transaction>;
+    fn get_transaction(&self, tx_id: Txid, verbosity: Option<bool>) -> Result<Value>;
     #[rpc(name = "gettxproof")]
     fn get_tx_proof(&self, tx_id: Txid) -> Result<Vec<String>>;
     #[rpc(name = "gettxout")]
@@ -88,11 +94,32 @@ impl Rpc for RpcImpl {
         let (height, hash) = self.chain.get_best_block().unwrap();
         let validated = self.chain.get_validation_index().unwrap();
         let ibd = self.chain.is_in_idb();
+        let latest_header = self.chain.get_block_header(&hash).unwrap();
+        let latest_work = latest_header.work();
+        let latest_block_time = latest_header.time;
+        let leaf_count = self.chain.acc().leaves as u32;
+        let root_count = self.chain.acc().roots.len() as u32;
+        let root_hashes = self
+            .chain
+            .acc()
+            .roots
+            .into_iter()
+            .map(|r| r.to_string())
+            .collect();
+        let validated_blocks = self.chain.get_validation_index().unwrap();
         Ok(GetBlockchainInfoRes {
             best_block: hash.to_string(),
             height,
             ibd,
             validated,
+            latest_work: latest_work.to_string(),
+            latest_block_time,
+            leaf_count,
+            root_count,
+            root_hashes,
+            chain: self.network.to_string(),
+            difficulty: latest_header.difficulty(self.network),
+            progress: validated_blocks as f32 / height as f32,
         })
     }
 
@@ -115,13 +142,16 @@ impl Rpc for RpcImpl {
         Err(Error::BlockNotFound.into())
     }
 
-    fn get_transaction(&self, tx_id: Txid) -> Result<Transaction> {
+    fn get_transaction(&self, tx_id: Txid, verbosity: Option<bool>) -> Result<Value> {
         let wallet = block_on(self.wallet.read());
-        if let Some(tx) = wallet.get_transaction(&tx_id) {
-            return Ok(tx.tx);
+        if verbosity == Some(true) {
+            if let Some(tx) = wallet.get_transaction(&tx_id) {
+                return Ok(serde_json::to_value(serialize(&tx.tx)).unwrap());
+            }
+            return Err(Error::TxNotFound.into());
         }
-        if let Ok(Some(tx)) = self.node.get_mempool_transaction(tx_id) {
-            return Ok(tx);
+        if let Some(tx) = wallet.get_transaction(&tx_id) {
+            return Ok(serde_json::to_value(self.make_raw_transaction(tx)).unwrap());
         }
         Err(Error::TxNotFound.into())
     }
@@ -184,6 +214,55 @@ impl Rpc for RpcImpl {
         let verbosity = verbosity.unwrap_or(1);
         if let Ok(Some(block)) = self.node.get_block(hash) {
             if verbosity == 1 {
+                let tip = self.chain.get_height().map_err(|_| Error::ChainError)?;
+                let height = self
+                    .chain
+                    .get_block_height(&hash)
+                    .map_err(|_| Error::ChainError)?
+                    .unwrap();
+                let mut last_block_times: Vec<_> = ((height - 11)..height)
+                    .into_iter()
+                    .map(|h| {
+                        self.chain
+                            .get_block_header(&self.chain.get_block_hash(h).unwrap())
+                            .unwrap()
+                            .time
+                    })
+                    .collect();
+                last_block_times.sort();
+
+                let median_time_past = last_block_times[5];
+
+                let block = BlockJson {
+                    bits: block.header.bits.to_hex(),
+                    chainwork: block.header.work().to_string(),
+                    confirmations: (tip - height) + 1,
+                    difficulty: block.header.difficulty(self.network),
+                    hash: block.header.block_hash().to_string(),
+                    height: height,
+                    merkleroot: block.header.merkle_root.to_string(),
+                    nonce: block.header.nonce,
+                    previousblockhash: block.header.prev_blockhash.to_string(),
+                    size: block.size(),
+                    time: block.header.time,
+                    tx: block
+                        .txdata
+                        .iter()
+                        .map(|tx| tx.txid().to_string())
+                        .collect(),
+                    version: block.header.version,
+                    version_hex: format!("{:x}", block.header.version),
+                    weight: block.weight(),
+                    mediantime: median_time_past,
+                    n_tx: block.txdata.len(),
+                    nextblockhash: self
+                        .chain
+                        .get_block_hash(height + 1)
+                        .ok()
+                        .map(|h| h.to_string()),
+                    strippedsize: block.strippedsize(),
+                };
+
                 return Ok(serde_json::to_value(block).unwrap());
             }
             return Ok(json!(serialize(&block).to_hex()));
@@ -225,6 +304,106 @@ impl Rpc for RpcImpl {
     }
 }
 impl RpcImpl {
+    fn make_vin(&self, input: TxIn) -> TxInJson {
+        let txid = input.previous_output.txid.to_hex();
+        let vout = input.previous_output.vout;
+        let sequence = input.sequence.0;
+        TxInJson {
+            txid,
+            vout,
+            script_sig: ScriptSigJson {
+                asm: input.script_sig.asm(),
+                hex: input.script_sig.to_hex(),
+            },
+            witness: input.witness.iter().map(|w| w.to_hex()).collect(),
+            sequence,
+        }
+    }
+    fn get_script_type(script: Script) -> Option<&'static str> {
+        if script.is_p2pkh() {
+            return Some("p2pkh");
+        }
+        if script.is_p2sh() {
+            return Some("p2sh");
+        }
+        if script.is_v0_p2wpkh() {
+            return Some("v0_p2wpkh");
+        }
+        if script.is_v0_p2wsh() {
+            return Some("v0_p2wsh");
+        }
+        None
+    }
+    fn make_vout(&self, output: TxOut, n: u32) -> TxOutJson {
+        let value = output.value;
+        TxOutJson {
+            value,
+            n,
+            script_pub_key: ScriptPubKeyJson {
+                asm: output.script_pubkey.asm(),
+                hex: output.script_pubkey.to_hex(),
+                req_sigs: 0, // This field is deprecated
+                address: Address::from_script(&output.script_pubkey, self.network)
+                    .map(|a| a.to_string())
+                    .unwrap(),
+                type_: Self::get_script_type(output.script_pubkey)
+                    .or(Some("nonstandard"))
+                    .unwrap()
+                    .to_string(),
+            },
+        }
+    }
+    fn make_raw_transaction(&self, tx: CachedTransaction) -> RawTxJson {
+        let raw_tx = tx.tx;
+        let in_active_chain = tx.height != 0;
+        let hex = serialize(&raw_tx).to_hex();
+        let txid = raw_tx.txid().to_hex();
+        let block_hash = self
+            .chain
+            .get_block_hash(tx.height)
+            .unwrap_or(BlockHash::all_zeros());
+        let tip = self.chain.get_height().unwrap();
+        let confirmations = if in_active_chain {
+            tip - tx.height + 1
+        } else {
+            0
+        };
+
+        RawTxJson {
+            in_active_chain,
+            hex,
+            txid,
+            hash: raw_tx.wtxid().to_hex(),
+            size: raw_tx.size() as u32,
+            vsize: raw_tx.vsize() as u32,
+            weight: raw_tx.weight() as u32,
+            version: raw_tx.version as u32,
+            locktime: raw_tx.lock_time.0,
+            vin: raw_tx
+                .input
+                .iter()
+                .map(|input| self.make_vin(input.clone()))
+                .collect(),
+            vout: raw_tx
+                .output
+                .into_iter()
+                .enumerate()
+                .map(|(i, output)| self.make_vout(output, i as u32))
+                .collect(),
+            blockhash: block_hash.to_hex(),
+            confirmations,
+            blocktime: self
+                .chain
+                .get_block_header(&block_hash)
+                .map(|h| h.time)
+                .unwrap_or(0),
+            time: self
+                .chain
+                .get_block_header(&block_hash)
+                .map(|h| h.time)
+                .unwrap_or(0),
+        }
+    }
     fn get_port(net: &Network) -> u16 {
         match net {
             Network::Bitcoin => 8332,

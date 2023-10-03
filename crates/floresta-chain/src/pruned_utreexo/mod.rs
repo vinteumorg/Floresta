@@ -48,7 +48,10 @@ pub trait BlockchainInterface {
     fn get_validation_index(&self) -> Result<u32, Self::Error>;
     /// Triggers a rescan, downloading (but not validating) all blocks in [start_height:tip]
     fn rescan(&self, start_height: u32) -> Result<(), Self::Error>;
+    /// Returns where we are in the rescan
     fn get_rescan_index(&self) -> Option<u32>;
+    /// Returns the height of a block, given it's hash
+    fn get_block_height(&self, hash: &BlockHash) -> Result<Option<u32>, Self::Error>;
 }
 /// [UpdatableChainstate] is a contract that a is expected from a chainstate
 /// implementation, that wishes to be updated. Using those methods, a backend like the p2p-node,
