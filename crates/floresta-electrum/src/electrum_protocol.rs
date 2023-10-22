@@ -125,7 +125,7 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                 let header = self
                     .chain
                     .get_block_header(&hash)
-                    .map_err(|e| super::error::Error::ChainError(Box::new(e)))?;
+                    .map_err(|e| super::error::Error::Blockchain(Box::new(e)))?;
                 let header = serialize(&header).to_hex();
                 json_rpc_res!(request, header)
             }
@@ -143,7 +143,7 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                     let header = self
                         .chain
                         .get_block_header(&hash)
-                        .map_err(|e| super::error::Error::ChainError(Box::new(e)))?;
+                        .map_err(|e| super::error::Error::Blockchain(Box::new(e)))?;
                     let header = serialize(&header).to_hex();
                     headers.push_str(&header);
                 }
@@ -158,11 +158,11 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                 let (height, hash) = self
                     .chain
                     .get_best_block()
-                    .map_err(|e| super::error::Error::ChainError(Box::new(e)))?;
+                    .map_err(|e| super::error::Error::Blockchain(Box::new(e)))?;
                 let header = self
                     .chain
                     .get_block_header(&hash)
-                    .map_err(|e| super::error::Error::ChainError(Box::new(e)))?;
+                    .map_err(|e| super::error::Error::Blockchain(Box::new(e)))?;
                 let result = json!({
                     "height": height,
                     "hex": serialize(&header).to_hex()
@@ -269,7 +269,7 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                     deserialize(&hex).map_err(|_| super::error::Error::InvalidParams)?;
                 self.chain
                     .broadcast(&tx)
-                    .map_err(|e| super::error::Error::ChainError(Box::new(e)))?;
+                    .map_err(|e| super::error::Error::Blockchain(Box::new(e)))?;
                 let id = tx.txid();
                 let updated = self
                     .address_cache

@@ -9,9 +9,9 @@ use super::peer::PeerError;
 #[derive(Error, Debug)]
 pub enum WireError {
     #[error("Blockchain error")]
-    BlockchainError(BlockchainError),
+    Blockchain(BlockchainError),
     #[error("Error while writing into a channel")]
-    ChannelSendError(async_std::channel::SendError<NodeRequest>),
+    ChannelSend(async_std::channel::SendError<NodeRequest>),
     #[error("Peer error")]
     PeerError(PeerError),
     #[error("Coinbase didn't mature")]
@@ -23,13 +23,13 @@ pub enum WireError {
     #[error("Our peer is misbehaving")]
     PeerMisbehaving,
     #[error("Error while reading from a channel")]
-    ChannelRecvError(#[from] async_std::channel::RecvError),
+    ChannelRecv(#[from] async_std::channel::RecvError),
     #[error("Generic io error")]
-    IoError(std::io::Error),
+    Io(std::io::Error),
     #[error("We don't have any utreexo peers")]
     NoUtreexoPeersAvailable,
     #[error("We couldn't find a peer to send the request")]
     NoPeerToSendRequest,
 }
 impl_error_from!(WireError, PeerError, PeerError);
-impl_error_from!(WireError, BlockchainError, BlockchainError);
+impl_error_from!(WireError, BlockchainError, Blockchain);

@@ -79,11 +79,11 @@ pub struct Peer<T: Transport> {
 #[derive(Debug, Error)]
 pub enum PeerError {
     #[error("Error while sending to peer")]
-    SendError,
+    Send,
     #[error("Error while reading from peer")]
-    ReadError(#[from] std::io::Error),
+    Read(#[from] std::io::Error),
     #[error("Error while parsing message")]
-    ParseError(#[from] bitcoin::consensus::encode::Error),
+    Parse(#[from] bitcoin::consensus::encode::Error),
     #[error("Peer sent us a message that we aren't expecting")]
     UnexpectedMessage,
     #[error("Peer sent us a message that is too big")]

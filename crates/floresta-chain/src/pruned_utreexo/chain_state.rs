@@ -145,9 +145,9 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             return Err(BlockValidationErrors::NotEnoughPow.into());
         }
 
-        let block_hash = block_header.validate_pow(&actual_target).map_err(|_| {
-            BlockchainError::BlockValidationError(BlockValidationErrors::NotEnoughPow)
-        })?;
+        let block_hash = block_header
+            .validate_pow(&actual_target)
+            .map_err(|_| BlockchainError::BlockValidation(BlockValidationErrors::NotEnoughPow))?;
         Ok(block_hash)
     }
 
@@ -655,24 +655,24 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
     ) -> Result<(), BlockchainError> {
         let prev_block = self.get_ancestor(&block.header)?;
         if block.header.prev_blockhash != prev_block.block_hash() {
-            return Err(BlockchainError::BlockValidationError(
+            return Err(BlockchainError::BlockValidation(
                 BlockValidationErrors::BlockExtendsAnOrphanChain,
             ));
         }
         if !block.check_merkle_root() {
-            return Err(BlockchainError::BlockValidationError(
+            return Err(BlockchainError::BlockValidation(
                 BlockValidationErrors::BadMerkleRoot,
             ));
         }
         if height >= self.chain_params().bip34_activation_height
             && block.bip34_block_height() != Ok(height as u64)
         {
-            return Err(BlockchainError::BlockValidationError(
+            return Err(BlockchainError::BlockValidation(
                 BlockValidationErrors::BadBip34,
             ));
         }
         if !block.check_witness_commitment() {
-            return Err(BlockchainError::BlockValidationError(
+            return Err(BlockchainError::BlockValidation(
                 BlockValidationErrors::BadWitnessCommitment,
             ));
         }
@@ -686,9 +686,9 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         let flags = 0;
         Consensus::verify_block_transactions(inputs, &block.txdata, subsidy, verify_script, flags)
             .map_err(|err| {
-                BlockchainError::BlockValidationError(BlockValidationErrors::InvalidTx(
-                    alloc::format!("{:?}", err),
-                ))
+                BlockchainError::BlockValidation(BlockValidationErrors::InvalidTx(alloc::format!(
+                    "{:?}", err
+                )))
             })?;
         Ok(())
     }

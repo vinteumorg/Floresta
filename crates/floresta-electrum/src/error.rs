@@ -11,9 +11,9 @@ pub enum Error {
     #[error("Invalid params passed in")]
     InvalidParams,
     #[error("Invalid json string {0}")]
-    ParsingError(#[from] serde_json::Error),
+    Parsing(#[from] serde_json::Error),
     #[error("Blockchain error")]
-    ChainError(Box<dyn core2::error::Error + Send + 'static>),
+    Blockchain(Box<dyn core2::error::Error + Send + 'static>),
     #[error("IO error")]
-    IoError(#[from] std::io::Error),
+    Io(#[from] std::io::Error),
 }
