@@ -12,8 +12,6 @@
 // Coding conventions (lexicographically sorted)
 #![deny(arithmetic_overflow)]
 #![deny(clippy::all)]
-// FIXME: Rethink enum variant naming
-#![allow(clippy::enum_variant_names)]
 #![deny(missing_docs)]
 #![deny(non_camel_case_types)]
 #![deny(non_snake_case)]
@@ -284,12 +282,12 @@ fn get_config_file(params: &cli::Cli) -> ConfigFile {
         data
     } else {
         match data.unwrap_err() {
-            error::Error::TomlParsingError(e) => {
+            error::Error::TomlParsing(e) => {
                 error!("Error while parsing config file, ignoring it");
                 debug!("{e}");
                 ConfigFile::default()
             }
-            error::Error::IoError(e) => {
+            error::Error::Io(e) => {
                 error!("Error reading config file, ignoring it");
                 debug!("{e}");
                 ConfigFile::default()

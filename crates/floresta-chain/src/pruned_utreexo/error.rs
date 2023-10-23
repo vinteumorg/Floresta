@@ -12,16 +12,16 @@ pub enum BlockchainError {
     #[cfg(feature = "cli-blockchain")]
     #[error("Json-Rpc error")]
     JsonRpcError(#[from] UtreexodError),
-    ParsingError(bitcoin::hashes::hex::Error),
-    BlockValidationError(BlockValidationErrors),
+    Parsing(bitcoin::hashes::hex::Error),
+    BlockValidation(BlockValidationErrors),
     InvalidProof,
     UtreexoError(String),
-    DatabaseError(Box<dyn DatabaseError>),
-    ConsensusDecodeError(bitcoin::consensus::encode::Error),
+    Database(Box<dyn DatabaseError>),
+    ConsensusDecode(bitcoin::consensus::encode::Error),
     ChainNotInitialized,
     InvalidTip(String),
     ScriptValidationFailed(script::Error),
-    IoError(ioError),
+    Io(ioError),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -72,18 +72,18 @@ impl Display for BlockValidationErrors {
 
 impl<T: DatabaseError> From<T> for BlockchainError {
     fn from(value: T) -> Self {
-        BlockchainError::DatabaseError(Box::new(value))
+        BlockchainError::Database(Box::new(value))
     }
 }
 
-impl_error_from!(BlockchainError, ioError, IoError);
+impl_error_from!(BlockchainError, ioError, Io);
 impl_error_from!(
     BlockchainError,
     bitcoin::consensus::encode::Error,
-    ConsensusDecodeError
+    ConsensusDecode
 );
-impl_error_from!(BlockchainError, BlockValidationErrors, BlockValidationError);
-impl_error_from!(BlockchainError, bitcoin::hashes::hex::Error, ParsingError);
+impl_error_from!(BlockchainError, BlockValidationErrors, BlockValidation);
+impl_error_from!(BlockchainError, bitcoin::hashes::hex::Error, Parsing);
 impl_error_from!(BlockchainError, String, UtreexoError);
 impl_error_from!(BlockchainError, script::Error, ScriptValidationFailed);
 

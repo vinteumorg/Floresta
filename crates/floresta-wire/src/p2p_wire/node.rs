@@ -364,7 +364,7 @@ where
                 peer.channel
                     .send(req)
                     .await
-                    .map_err(WireError::ChannelSendError)?;
+                    .map_err(WireError::ChannelSend)?;
             }
         }
         Ok(())
@@ -456,7 +456,7 @@ where
                 peer.channel
                     .send(req.clone())
                     .await
-                    .map_err(WireError::ChannelSendError)?;
+                    .map_err(WireError::ChannelSend)?;
                 return Ok(idx);
             }
         }
@@ -474,7 +474,7 @@ where
                 self.network,
                 &get_chain_dns_seeds(self.network),
             )
-            .map_err(WireError::IoError)?;
+            .map_err(WireError::Io)?;
         for address in anchors {
             self.open_connection(false, address.id, address).await;
         }
@@ -507,14 +507,14 @@ where
                 peer.channel
                     .send(NodeRequest::BroadcastTransaction(txid))
                     .await
-                    .map_err(WireError::ChannelSendError)?;
+                    .map_err(WireError::ChannelSend)?;
             }
             let stale = self.mempool.write().await.get_stale();
             for tx in stale {
                 peer.channel
                     .send(NodeRequest::BroadcastTransaction(tx))
                     .await
-                    .map_err(WireError::ChannelSendError)?;
+                    .map_err(WireError::ChannelSend)?;
             }
         }
         Ok(())
@@ -528,7 +528,7 @@ where
     fn save_peers(&self) -> Result<(), WireError> {
         self.address_man
             .dump_peers(&self.datadir)
-            .map_err(WireError::IoError)
+            .map_err(WireError::Io)
     }
     fn get_blocks_to_download(&mut self) -> Result<Vec<BlockHash>, WireError> {
         let mut blocks = Vec::new();
@@ -745,7 +745,7 @@ where
         try_and_log!(chain
             .connect_block(&block.block, proof, inputs, del_hashes)
             .map_err(|e| {
-                if let BlockchainError::BlockValidationError(_) = &e {
+                if let BlockchainError::BlockValidation(_) = &e {
                     try_and_log!(chain.invalidate_block(block.block.block_hash()));
                 }
                 error!(
@@ -824,10 +824,7 @@ where
             if self.state == NodeState::DownloadBlocks {
                 self.process_queued_blocks().await.or_else(|err| {
                     // This usually means we just processed all blocks, and we are done.
-                    if matches!(
-                        err,
-                        WireError::BlockchainError(BlockchainError::BlockNotPresent)
-                    ) {
+                    if matches!(err, WireError::Blockchain(BlockchainError::BlockNotPresent)) {
                         info!("Finished downloading blocks");
                         self.chain.toggle_ibd(false);
                         Ok(())
@@ -1336,7 +1333,7 @@ where
         {
             error!("Invalid block received by peer {} reason: {:?}", peer, e);
 
-            if let BlockchainError::BlockValidationError(e) = e {
+            if let BlockchainError::BlockValidation(e) = e {
                 // Because the proof isn't committed to the block, we can't invalidate
                 // it if the proof is invalid. Any other error should cause the block
                 // to be invalidated.

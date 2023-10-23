@@ -6,41 +6,41 @@ use floresta_chain::{BlockValidationErrors, BlockchainError};
 pub enum Error {
     #[cfg(feature = "cli-blockchain")]
     UtreexodError(UtreexodError),
-    ParsingError(bitcoin::hashes::hex::Error),
-    EncodeError(encode::Error),
-    DbError(kv::Error),
-    ParseNumError(std::num::ParseIntError),
-    RustreexoError(String),
-    IoError(std::io::Error),
-    BlockValidationError(BlockValidationErrors),
-    ScriptValidationError(bitcoin::blockdata::script::Error),
-    ChainError(BlockchainError),
-    SerdeJsonError(serde_json::Error),
-    TomlParsingError(toml::de::Error),
-    WalletInputError(slip132::Error),
-    AddressParsingError(bitcoin::util::address::Error),
-    MiniscriptError(miniscript::Error),
+    Parsing(bitcoin::hashes::hex::Error),
+    Encode(encode::Error),
+    Db(kv::Error),
+    ParseNum(std::num::ParseIntError),
+    Rustreexo(String),
+    Io(std::io::Error),
+    BlockValidation(BlockValidationErrors),
+    ScriptValidation(bitcoin::blockdata::script::Error),
+    Blockchain(BlockchainError),
+    SerdeJson(serde_json::Error),
+    TomlParsing(toml::de::Error),
+    WalletInput(slip132::Error),
+    AddressParsing(bitcoin::util::address::Error),
+    Miniscript(miniscript::Error),
 }
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Error::EncodeError(err) => write!(f, "Encode error: {err}"),
-            Error::ParsingError(err) => write!(f, "Parsing Error {err}"),
+            Error::Encode(err) => write!(f, "Encode error: {err}"),
+            Error::Parsing(err) => write!(f, "Parsing Error {err}"),
             #[cfg(feature = "cli-blockchain")]
             Error::UtreexodError(_) => write!(f, "UtreexodError"),
-            Error::DbError(err) => write!(f, "Database error {err}"),
-            Error::ParseNumError(err) => write!(f, "int parse error: {err}"),
-            Error::RustreexoError(err) => write!(f, "Rustreexo error: {err}"),
-            Error::IoError(err) => write!(f, "Io error {err}"),
-            Error::ScriptValidationError(err) => write!(f, "Error during script evaluation: {err}"),
-            Error::ChainError(err) => write!(f, "Error with our blockchain backend: {:?}", err),
-            Error::SerdeJsonError(err) => write!(f, "Error serializing object {err}"),
-            Error::WalletInputError(err) => write!(f, "Error while parsing user input {:?}", err),
-            Error::TomlParsingError(err) => write!(f, "Error deserializing toml file {err}"),
-            Error::AddressParsingError(err) => write!(f, "Invalid address {err}"),
-            Error::MiniscriptError(err) => write!(f, "Miniscript error: {err}"),
-            Error::BlockValidationError(err) => write!(f, "Error while validating block: {err:?}"),
+            Error::Db(err) => write!(f, "Database error {err}"),
+            Error::ParseNum(err) => write!(f, "int parse error: {err}"),
+            Error::Rustreexo(err) => write!(f, "Rustreexo error: {err}"),
+            Error::Io(err) => write!(f, "Io error {err}"),
+            Error::ScriptValidation(err) => write!(f, "Error during script evaluation: {err}"),
+            Error::Blockchain(err) => write!(f, "Error with our blockchain backend: {:?}", err),
+            Error::SerdeJson(err) => write!(f, "Error serializing object {err}"),
+            Error::WalletInput(err) => write!(f, "Error while parsing user input {:?}", err),
+            Error::TomlParsing(err) => write!(f, "Error deserializing toml file {err}"),
+            Error::AddressParsing(err) => write!(f, "Invalid address {err}"),
+            Error::Miniscript(err) => write!(f, "Miniscript error: {err}"),
+            Error::BlockValidation(err) => write!(f, "Error while validating block: {err:?}"),
         }
     }
 }
@@ -55,21 +55,21 @@ macro_rules! impl_from_error {
         }
     };
 }
-impl_from_error!(ParsingError, bitcoin::hashes::hex::Error);
+impl_from_error!(Parsing, bitcoin::hashes::hex::Error);
 #[cfg(feature = "cli-blockchain")]
 impl_from_error!(UtreexodError, UtreexodError);
-impl_from_error!(EncodeError, encode::Error);
-impl_from_error!(DbError, kv::Error);
-impl_from_error!(ParseNumError, std::num::ParseIntError);
-impl_from_error!(RustreexoError, String);
-impl_from_error!(IoError, std::io::Error);
-impl_from_error!(ScriptValidationError, bitcoin::blockdata::script::Error);
-impl_from_error!(ChainError, BlockchainError);
-impl_from_error!(SerdeJsonError, serde_json::Error);
-impl_from_error!(WalletInputError, slip132::Error);
-impl_from_error!(TomlParsingError, toml::de::Error);
-impl_from_error!(BlockValidationError, BlockValidationErrors);
-impl_from_error!(AddressParsingError, bitcoin::util::address::Error);
-impl_from_error!(MiniscriptError, miniscript::Error);
+impl_from_error!(Encode, encode::Error);
+impl_from_error!(Db, kv::Error);
+impl_from_error!(ParseNum, std::num::ParseIntError);
+impl_from_error!(Rustreexo, String);
+impl_from_error!(Io, std::io::Error);
+impl_from_error!(ScriptValidation, bitcoin::blockdata::script::Error);
+impl_from_error!(Blockchain, BlockchainError);
+impl_from_error!(SerdeJson, serde_json::Error);
+impl_from_error!(WalletInput, slip132::Error);
+impl_from_error!(TomlParsing, toml::de::Error);
+impl_from_error!(BlockValidation, BlockValidationErrors);
+impl_from_error!(AddressParsing, bitcoin::util::address::Error);
+impl_from_error!(Miniscript, miniscript::Error);
 
 impl std::error::Error for Error {}

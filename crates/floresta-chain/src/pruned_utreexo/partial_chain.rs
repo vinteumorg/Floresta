@@ -137,8 +137,7 @@ impl PartialChainState {
         del_hashes: Vec<bitcoin::hashes::sha256::Hash>,
     ) -> bool {
         let height = self.current_height + 1;
-        if let Err(BlockchainError::BlockValidationError(e)) =
-            self.validate_block(block, height, inputs)
+        if let Err(BlockchainError::BlockValidation(e)) = self.validate_block(block, height, inputs)
         {
             self.error = Some(e);
             return false;
@@ -175,25 +174,25 @@ impl PartialChainState {
         inputs: HashMap<bitcoin::OutPoint, bitcoin::TxOut>,
     ) -> Result<(), BlockchainError> {
         if !block.check_merkle_root() {
-            return Err(BlockchainError::BlockValidationError(
+            return Err(BlockchainError::BlockValidation(
                 BlockValidationErrors::BadMerkleRoot,
             ));
         }
         if height >= self.chain_params().bip34_activation_height
             && block.bip34_block_height() != Ok(height as u64)
         {
-            return Err(BlockchainError::BlockValidationError(
+            return Err(BlockchainError::BlockValidation(
                 BlockValidationErrors::BadBip34,
             ));
         }
         if !block.check_witness_commitment() {
-            return Err(BlockchainError::BlockValidationError(
+            return Err(BlockchainError::BlockValidation(
                 BlockValidationErrors::BadWitnessCommitment,
             ));
         }
         let prev_block = self.get_ancestor(height)?;
         if block.header.prev_blockhash != prev_block.block_hash() {
-            return Err(BlockchainError::BlockValidationError(
+            return Err(BlockchainError::BlockValidation(
                 BlockValidationErrors::BlockExtendsAnOrphanChain,
             ));
         }
@@ -212,7 +211,7 @@ impl PartialChainState {
             flags,
         )?;
         if !valid {
-            return Err(BlockchainError::BlockValidationError(
+            return Err(BlockchainError::BlockValidation(
                 BlockValidationErrors::InvalidTx(String::from("invalid block transactions")),
             ));
         }
