@@ -32,7 +32,7 @@ use async_std::{
     task::{self, block_on},
 };
 
-use bitcoin::Network;
+use bitcoin::{BlockHash, Network};
 use clap::Parser;
 use cli::{Cli, Commands};
 use config_file::ConfigFile;
@@ -48,6 +48,22 @@ use pretty_env_logger::env_logger::{Env, TimestampPrecision};
 
 use crate::wallet_input::InitialWalletSetup;
 
+/// Information needed to initialize and run florestad. We use this because there may
+/// be variations on how users call `florestad` from the command-line, so we gropu up
+/// all information needed and call a unique, generic function that does the actual
+/// heavy lifting.
+#[derive(Default, Clone)]
+struct Ctx {
+    data_dir: Option<String>,
+    assume_valid: Option<BlockHash>,
+    wallet_xpub: Option<Vec<String>>,
+    wallet_descriptor: Option<Vec<String>>,
+    rescan: Option<u32>,
+    config_file: Option<String>,
+    proxy: Option<String>,
+    network: cli::Network,
+}
+
 fn main() {
     // Setup global logger
     pretty_env_logger::env_logger::Builder::from_env(Env::default().default_filter_or("info"))
@@ -56,228 +72,157 @@ fn main() {
         .init();
 
     let params = Cli::parse();
-    let data = get_config_file(&params);
     match params.command {
-        #[cfg(not(feature = "experimental-p2p"))]
-        Commands::Run {
-            data_dir,
-            rpc_user,
-            rpc_password,
-            rpc_host,
-            batch_sync,
-            wallet_addresses,
-            use_batch_sync,
-            rpc_port,
-            wallet_xpub,
-            assume_valid,
-        } => {
-            // Catch user CTR + C for terminating our application
-            let shutdown = Arc::new(std::sync::atomic::AtomicBool::new(false));
-            signal_hook::flag::register(signal_hook::consts::SIGINT, Arc::clone(&shutdown))
-                .expect("Could no register for SIGTERM");
-            let data_dir = get_one_or_another(
-                data_dir,
-                dirs::home_dir().map(|x: PathBuf| {
-                    format!(
-                        "{}/{}/",
-                        x.to_str().unwrap_or_default().to_owned(),
-                        DIR_NAME,
-                    )
-                }),
-                "wallet".into(),
-            );
-            let data_dir = match params.network {
-                cli::Network::Bitcoin => data_dir,
-                cli::Network::Signet => data_dir + "/signet/",
-                cli::Network::Testnet => data_dir + "/testnet3/",
-                cli::Network::Regtest => data_dir + "/regtest/",
-            };
-
-            debug!("Loading wallet");
-            let mut wallet = load_wallet(&data_dir);
-            wallet.setup().expect("Could not initialize wallet");
-            debug!("Done loading wallet");
-            let result = setup_wallet(
-                get_both_vec(wallet_xpub, data.wallet.xpubs),
-                get_both_vec(None, data.wallet.descriptors),
-                get_both_vec(data.wallet.addresses, wallet_addresses),
-                &mut wallet,
-                params.network.clone(),
-            );
-            if let Err(e) = result {
-                log::error!("Something went wrong while setting wallet up: {e}");
-                return;
-            }
-            let rpc = create_rpc_connection(
-                &get_one_or_another(rpc_host, data.rpc.rpc_host, "localhost".into()),
-                get_one_or_another(rpc_port, data.rpc.rpc_port, 8332),
-                Some(get_one_or_another(rpc_user, data.rpc.rpc_user, "".into())),
-                Some(get_one_or_another(
-                    rpc_password,
-                    data.rpc.rpc_password,
-                    "".into(),
-                )),
-            );
-
-            #[cfg(not(feature = "experimental-p2p"))]
-            if !test_rpc(&rpc) {
-                info!("Unable to connect with rpc");
-                return;
-            }
-            info!("Starting sync worker, this might take a while!");
-
-            debug!("Loading database...");
-            let blockchain_state = Arc::new(load_chain_state(
-                &data_dir,
-                get_net(&params.network),
-                assume_valid,
-            ));
-
-            debug!("Done loading wallet");
-
-            let chain_provider = UtreexodBackend {
-                chainstate: blockchain_state.clone(),
-                rpc,
-                batch_sync_hostname: get_one_or_another(
-                    batch_sync,
-                    data.misc.batch_sync,
-                    "".into(),
-                ),
-                use_batch_sync,
-                term: shutdown,
-            };
-            info!("Starting server");
-            // Create a new electrum server, we need to block_on because `ElectrumServer::new` is `async`
-            // but our main isn't, so we can't `.await` on it.
-            let electrum_server = block_on(electrum::electrum_protocol::ElectrumServer::new(
-                "0.0.0.0:50001",
-                wallet,
-                blockchain_state,
-            ))
-            .unwrap();
-
-            task::spawn(electrum::electrum_protocol::accept_loop(
-                electrum_server.listener.clone().unwrap(),
-                electrum_server.notify_tx.clone(),
-            ));
-            task::spawn(electrum_server.main_loop());
-            info!("Server running on: 0.0.0.0:50001");
-            task::block_on(chain_provider.run());
-        }
         #[cfg(feature = "experimental-p2p")]
-        Commands::Run {
+        Some(Commands::Run {
             data_dir,
             assume_valid,
             wallet_xpub,
             wallet_descriptor,
             rescan,
             proxy,
-        } => {
-            let kill_signal = Arc::new(RwLock::new(false));
-
-            let data_dir = get_one_or_another(
+        }) => {
+            let ctx = Ctx {
                 data_dir,
-                dirs::home_dir().map(|x: PathBuf| {
-                    format!(
-                        "{}/{}/",
-                        x.to_str().unwrap_or_default().to_owned(),
-                        DIR_NAME,
-                    )
-                }),
-                "wallet".into(),
-            );
-            let data_dir = match params.network {
-                cli::Network::Bitcoin => data_dir,
-                cli::Network::Signet => data_dir + "/signet/",
-                cli::Network::Testnet => data_dir + "/testnet3/",
-                cli::Network::Regtest => data_dir + "/regtest/",
-            };
-            debug!("Loading wallet");
-            let mut wallet = load_wallet(&data_dir);
-            wallet.setup().expect("Could not initialize wallet");
-            debug!("Done loading wallet");
-            let result = setup_wallet(
-                get_both_vec(wallet_xpub, data.wallet.xpubs),
-                get_both_vec(wallet_descriptor, data.wallet.descriptors),
-                get_both_vec(data.wallet.addresses, None),
-                &mut wallet,
-                params.network.clone(),
-            );
-            if let Err(e) = result {
-                log::error!("Something went wrong while setting wallet up: {e}");
-                return;
-            }
-            info!("Starting sync worker, this might take a while!");
-
-            debug!("Loading database...");
-            let blockchain_state = Arc::new(load_chain_state(
-                &data_dir,
-                get_net(&params.network),
                 assume_valid,
-            ));
-            if let Some(height) = rescan {
-                blockchain_state
-                    .rescan(height)
-                    .expect("Fail while setting rescan");
-            }
-            debug!("Done loading database");
+                wallet_xpub,
+                wallet_descriptor,
+                rescan,
+                proxy,
+                config_file: params.config_file,
+                network: params.network,
+            };
+            run_with_ctx(ctx);
+        }
 
-            let chain_provider = UtreexoNode::new(
-                blockchain_state.clone(),
-                Arc::new(async_std::sync::RwLock::new(Mempool::new())),
-                get_net(&params.network).into(),
-                data_dir,
-                proxy.map(|x| x.parse().expect("Invalid proxy address")),
-            );
-            info!("Starting server");
-            let wallet = Arc::new(RwLock::new(wallet));
-            #[cfg(feature = "json-rpc")]
-            let _server = json_rpc::server::RpcImpl::create(
-                blockchain_state.clone(),
-                wallet.clone(),
-                &get_net(&params.network),
-                chain_provider.get_handle(),
-                kill_signal.clone(),
-                get_net(&params.network).into(),
-            );
-            // Create a new electrum server, we need to block_on because `ElectrumServer::new` is `async`
-            // but our main isn't, so we can't `.await` on it.
-            let electrum_server = block_on(ElectrumServer::new(
-                "0.0.0.0:50001",
-                wallet,
-                blockchain_state,
-            ))
-            .expect("Could not create an Electrum Server");
-
-            task::spawn(accept_loop(
-                electrum_server
-                    .listener
-                    .clone()
-                    .expect("Listener can't be none by this far"),
-                electrum_server.notify_tx.clone(),
-            ));
-            task::spawn(electrum_server.main_loop());
-            info!("Server running on: 0.0.0.0:50001");
-            let _kill_signal = kill_signal.clone();
-            ctrlc::set_handler(move || {
-                if *block_on(_kill_signal.write()) {
-                    info!("Already shutting down, please wait");
-                }
-                *block_on(_kill_signal.write()) = true;
-            })
-            .expect("Error setting Ctrl-C handler");
-            task::block_on(chain_provider.run(&kill_signal));
+        // We may have more commands here, like setup and dump wallet
+        None => {
+            let ctx = Ctx {
+                config_file: params.config_file,
+                network: params.network,
+                ..Default::default()
+            };
+            run_with_ctx(ctx);
         }
     }
 }
-/// Loads a config file from disk, returns default if some error happens
-fn get_config_file(params: &cli::Cli) -> ConfigFile {
-    let data = if let Some(file_name) = &params.config_file {
-        ConfigFile::from_file(file_name)
-    } else {
-        // File not passed in, use default
-        return ConfigFile::default();
+
+/// Actually runs florestad, spawning all modules and waiting util
+/// someone asks to stop.
+fn run_with_ctx(ctx: Ctx) {
+    let kill_signal = Arc::new(RwLock::new(false));
+
+    let data_dir = ctx
+        .data_dir
+        .or_else(|| {
+            dirs::home_dir().map(|x: PathBuf| {
+                format!(
+                    "{}/{}/",
+                    x.to_str().unwrap_or_default().to_owned(),
+                    DIR_NAME,
+                )
+            })
+        })
+        .unwrap_or("floresta".into());
+
+    let data_dir = match ctx.network {
+        cli::Network::Bitcoin => data_dir,
+        cli::Network::Signet => data_dir + "/signet/",
+        cli::Network::Testnet => data_dir + "/testnet3/",
+        cli::Network::Regtest => data_dir + "/regtest/",
     };
+
+    // The config file inside our datadir directory. Any datadir
+    // passed as argument will be used instead
+    let system_config_file = format!("{data_dir}/config.toml");
+    let config_file = match ctx.config_file {
+        Some(path) => get_config_file(&path),
+        None => get_config_file(&system_config_file),
+    };
+    // Load the watch-only wallet
+    debug!("Loading wallet");
+    let mut wallet = load_wallet(&data_dir);
+    wallet.setup().expect("Could not initialize wallet");
+    debug!("Done loading wallet");
+    // Try to add more wallets to watch if needed
+    let result = setup_wallet(
+        get_both_vec(ctx.wallet_xpub, config_file.wallet.xpubs),
+        get_both_vec(ctx.wallet_descriptor, config_file.wallet.descriptors),
+        get_both_vec(config_file.wallet.addresses, None),
+        &mut wallet,
+        ctx.network.clone(),
+    );
+    if let Err(e) = result {
+        log::error!("Something went wrong while setting wallet up: {e}");
+        return;
+    }
+    info!("Starting sync worker, this might take a while!");
+
+    debug!("Loading database...");
+    let blockchain_state = Arc::new(load_chain_state(
+        &data_dir,
+        get_net(&ctx.network),
+        ctx.assume_valid,
+    ));
+    if let Some(height) = ctx.rescan {
+        blockchain_state
+            .rescan(height)
+            .expect("Fail while setting rescan");
+    }
+    debug!("Done loading database");
+
+    let chain_provider = UtreexoNode::new(
+        blockchain_state.clone(),
+        Arc::new(async_std::sync::RwLock::new(Mempool::new())),
+        get_net(&ctx.network).into(),
+        data_dir,
+        ctx.proxy.map(|x| x.parse().expect("Invalid proxy address")),
+    );
+    info!("Starting server");
+    let wallet = Arc::new(RwLock::new(wallet));
+    // Setup the json-rpc if needed
+    #[cfg(feature = "json-rpc")]
+    let _server = json_rpc::server::RpcImpl::create(
+        blockchain_state.clone(),
+        wallet.clone(),
+        &get_net(&ctx.network),
+        chain_provider.get_handle(),
+        kill_signal.clone(),
+        get_net(&ctx.network).into(),
+    );
+    // Create a new electrum server, we need to block_on because `ElectrumServer::new` is `async`
+    // but our main isn't, so we can't `.await` on it.
+    let electrum_server = block_on(ElectrumServer::new(
+        "0.0.0.0:50001",
+        wallet,
+        blockchain_state,
+    ))
+    .expect("Could not create an Electrum Server");
+
+    task::spawn(accept_loop(
+        electrum_server
+            .listener
+            .clone()
+            .expect("Listener can't be none by this far"),
+        electrum_server.notify_tx.clone(),
+    ));
+    task::spawn(electrum_server.main_loop());
+    info!("Server running on: 0.0.0.0:50001");
+    let _kill_signal = kill_signal.clone();
+    ctrlc::set_handler(move || {
+        if *block_on(_kill_signal.write()) {
+            info!("Already shutting down, please wait");
+        }
+        *block_on(_kill_signal.write()) = true;
+    })
+    .expect("Error setting Ctrl-C handler");
+    task::block_on(chain_provider.run(&kill_signal));
+}
+
+/// Loads a config file from disk, returns default if some error happens
+fn get_config_file(path: &str) -> ConfigFile {
+    let data = ConfigFile::from_file(path);
+
     if let Ok(data) = data {
         data
     } else {
@@ -395,23 +340,6 @@ fn test_rpc(rpc: &BTCDClient) -> bool {
     }
     false
 }
-/// Returns the value that is defined, if a is defined, return a. If b is defined and
-/// a not, returns b. If a and b is defined, returns a, etc.
-fn get_one_or_another<A, B, Return>(a: Option<A>, b: Option<B>, default: Return) -> Return
-where
-    A: Into<Return>,
-    B: Into<Return>,
-{
-    if let Some(a) = a {
-        return a.into();
-    }
-    if let Some(b) = b {
-        return b.into();
-    }
-
-    default
-}
-
 fn get_both_vec<T>(a: Option<Vec<T>>, b: Option<Vec<T>>) -> Vec<T> {
     let mut result: Vec<T> = Vec::new();
     if let Some(a) = a {
