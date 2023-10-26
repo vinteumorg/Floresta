@@ -34,7 +34,7 @@ pub struct Cli {
     pub debug: u8,
 
     #[command(subcommand)]
-    pub command: Commands,
+    pub command: Option<Commands>,
 }
 
 #[derive(Subcommand)]
