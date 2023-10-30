@@ -51,6 +51,9 @@ pub struct BlockFilterBackend {
     whitelisted_outputs: u8,
     /// Whether we index inputs (if true, all outpoints being spent are added to the filter)
     index_inputs: bool,
+    /// Whether we index txids. If true, all txids are added to the filter. This is useful for
+    /// using floresta as a lightning node backend
+    index_txids: bool,
     /// A persistence engine for our filters
     storage: Box<dyn BlockFilterStore>,
     /// The first half of the siphash key
@@ -82,6 +85,7 @@ impl BlockFilterBackend {
         BlockFilterBackend {
             whitelisted_outputs: ALL_OUTPUTS,
             index_inputs: true,
+            index_txids: false,
             storage,
             k0: 0,
             k1: 0,
@@ -132,20 +136,25 @@ impl BlockFilterBackend {
         }
     }
 }
+
 /// Builds a block filter backend with an interactive builder.
 ///
 /// The only thing required is a database to save the filters.
+/// Fields have the same meaning as in the backend itself.
 #[derive(Default)]
 pub struct FilterBackendBuilder {
     storage: Option<Box<dyn BlockFilterStore>>,
     whitelisted_outputs: u8,
     index_input: bool,
+    index_txids: bool,
     k0: u64,
     k1: u64,
 }
 
 impl FilterBackendBuilder {
     /// Which storage we should use for our filters
+    ///
+    /// This is the only required field.
     pub fn use_storage(&mut self, s: Box<dyn BlockFilterStore>) -> &mut Self {
         self.storage.replace(s);
         self
@@ -164,15 +173,25 @@ impl FilterBackendBuilder {
         };
         self
     }
+    /// Whether we should index txids
+    ///
+    /// You can use this index to fetch arbitrary outpoints, like a lightning
+    /// channel. In general, this should be used in combination with index_input,
+    /// or you can't be sure whether the outpoint is spent or not.
+    pub fn index_txids(&mut self, index: bool) -> &mut Self {
+        self.index_txids = index;
+        self 
+    }
     /// Whether we index inputs
     ///
     /// If true, we add the prevout, but not the previous spk or scriptSig
-    pub fn index_output(&mut self, index: bool) -> &mut Self {
+    pub fn index_input(&mut self, index: bool) -> &mut Self {
         self.index_input = index;
         self
     }
     /// Builds the final backend
     ///
+    /// # Panics
     /// Panics if we don't have a storage
     pub fn build(self) -> BlockFilterBackend {
         BlockFilterBackend {
