@@ -1,3 +1,22 @@
+// SPDX-License-Identifier: MIT
+
+//! A module that uses BIP-158 block filters to sync our wallet
+
+//! BIP-158 client-side filters are a special probabilistic filter that can 
+//! quasi-succinctly represent a set of elements, determine whether an element 
+//! is present in the original set by querying the filter itself. 
+//!
+//! As a probabilistic filter, it has false-positives, i.e., elements that aren't in the set returning
+//! true. The false-positive rate can be tweaked and made manageable.
+//!
+//! This module doesn't use BIP-157 to download block filters from peers; instead, we build
+//! them locally, using the actual blocks. This gives us protection against malicious peers
+//! and control over what is indexed, reducing disk and CPU usage as required by our user.
+//!
+//! You can build a filter by calling `filter_block`, and query our blocks by calling
+//! `match_any`. The latter method returns a list of block heights where our filter queries 
+//! returned true; you should then download those blocks and check if there's something we  are interested in.
+
 use std::io::Write;
 
 use bitcoin::{
@@ -31,6 +50,10 @@ pub enum OutputTypes {
 
 /// This means we track all suported address types
 const ALL_OUTPUTS: u8 = 0x1f; // 00011111
+/// The `M` parameter from BIP-158
+const FILTER_M: u64 = 784931;
+/// The `P` parameter form BIP-158
+const FILTER_P: u8 = 19;
 
 impl BitAnd<u8> for OutputTypes {
     type Output = bool;
@@ -61,6 +84,9 @@ pub struct BlockFilterBackend {
     k0: u64,
     /// The second half of the siphash key
     k1: u64,
+    /// A block hash used to salt the siphash, we use a random hash instead of 
+    /// an actual block hash
+    key: BlockHash,
 }
 
 struct FilterBuilder<'a> {
@@ -82,19 +108,26 @@ impl<'a> FilterBuilder<'a> {
 }
 
 impl BlockFilterBackend {
-    pub fn new(storage: Box<dyn BlockFilterStore>) -> BlockFilterBackend {
+    pub fn new(storage: Box<dyn BlockFilterStore>, key: BlockHash) -> BlockFilterBackend {
+        let mut k0 = [0_u8; 8];
+        let mut k1 = [0_u8; 8];
+        
+        k0.copy_from_slice(&key[0..8]);
+        k1.copy_from_slice(&key[8..16]);
+
         BlockFilterBackend {
             whitelisted_outputs: ALL_OUTPUTS,
             index_inputs: true,
             index_txids: true,
             storage,
-            k0: 0,
-            k1: 0,
+            key,
+            k0: u64::from_le_bytes(k0),
+            k1: u64::from_le_bytes(k1),
         }
     }
     pub fn filter_block(&self, block: &Block, block_height: u64) -> Result<(), bip158::Error> {
         let mut writer = Vec::new();
-        let mut filter = FilterBuilder::new(&mut writer, 784931, 19, self.k0, self.k1);
+        let mut filter = FilterBuilder::new(&mut writer, FILTER_M, FILTER_P, self.k0, self.k1);
         if self.index_inputs {
             self.write_inputs(&block.txdata, &mut filter);
         }
@@ -112,7 +145,6 @@ impl BlockFilterBackend {
     }
     pub fn match_any(&self, start: u64, end: u64, query: &[QueryType]) -> Option<Vec<u64>> {
         let mut values = query.into_iter().map(|filter| &*filter.into_slice());
-        let key = BlockHash::from_inner([0; 32]);
 
         let mut blocks = Vec::new();
 
@@ -120,7 +152,7 @@ impl BlockFilterBackend {
             if self
                 .storage
                 .get_filter(i)?
-                .match_any(&key, &mut values)
+                .match_any(&self.key, &mut values)
                 .ok()?
             {
                 blocks.push(i);
@@ -146,20 +178,21 @@ impl BlockFilterBackend {
     }
     fn write_tx_outs(&self, tx: &Transaction, filter: &mut FilterBuilder) {
         for output in tx.output.iter() {
+            let hash = floresta_common::get_spk_hash(&output.script_pubkey);
             if OutputTypes::PKH & self.whitelisted_outputs && output.script_pubkey.is_p2pkh() {
-                filter.put(output.script_pubkey.as_bytes());
+                filter.put(hash.as_inner());
             }
             if OutputTypes::SH & self.whitelisted_outputs && output.script_pubkey.is_p2sh() {
-                filter.put(output.script_pubkey.as_bytes());
+                filter.put(hash.as_inner());
             }
             if OutputTypes::WPKH & self.whitelisted_outputs && output.script_pubkey.is_v0_p2wpkh() {
-                filter.put(output.script_pubkey.as_bytes());
+                filter.put(hash.as_inner());
             }
             if OutputTypes::WSH & self.whitelisted_outputs && output.script_pubkey.is_v0_p2wsh() {
-                filter.put(output.script_pubkey.as_bytes());
+                filter.put(hash.as_inner());
             }
             if OutputTypes::TR & self.whitelisted_outputs && output.script_pubkey.is_v1_p2tr() {
-                filter.put(output.script_pubkey.as_bytes());
+                filter.put(hash.as_inner());
             }
         }
     }
@@ -180,8 +213,7 @@ pub struct FilterBackendBuilder {
     whitelisted_outputs: u8,
     index_input: bool,
     index_txids: bool,
-    k0: u64,
-    k1: u64,
+    key: [u8; 32]    
 }
 
 impl FilterBackendBuilder {
@@ -222,22 +254,38 @@ impl FilterBackendBuilder {
         self.index_input = index;
         self
     }
+    /// A key used by siphash
+    ///
+    /// BIP-158 uses the block hash, but we use a fixed by here, so we don't 
+    /// need to access chaindata on query
+    pub fn key_hash(&mut self, key: [u8; 32]) -> &mut Self {
+        self.key = key;
+        self
+    }
     /// Builds the final backend
     ///
     /// # Panics
     /// Panics if we don't have a storage
     pub fn build(self) -> BlockFilterBackend {
+        let mut k0 = [0_u8; 8];
+        let mut k1 = [0_u8; 8];
+        
+        k0.copy_from_slice(&self.key[0..8]);
+        k1.copy_from_slice(&self.key[8..16]);
+        
         BlockFilterBackend {
+            key: BlockHash::from_inner(self.key),
             whitelisted_outputs: self.whitelisted_outputs,
             index_inputs: self.index_input,
             index_txids: self.index_txids,
-            storage: self.storage.unwrap(),
-            k0: self.k0,
-            k1: self.k1,
+            storage: self.storage.expect("No filter storage specified"),
+            k0: u64::from_le_bytes(k0),
+            k1: u64::from_le_bytes(k1),
         }
     }
 }
 
+/// A serialized output that can be queried against our filter
 pub struct QueriableOutpoint(pub(crate) [u8; 36]);
 
 impl From<OutPoint> for QueriableOutpoint {
@@ -249,18 +297,18 @@ impl From<OutPoint> for QueriableOutpoint {
     }
 }
 
-pub enum QueryType<'a> {
+pub enum QueryType {
     Input(QueriableOutpoint),
-    Script(&'a [u8]),
+    ScriptHash([u8; 32]),
     Txid(Txid),
 }
 
-impl<'a> QueryType<'a> {
+impl QueryType {
     pub(crate) fn into_slice(&self) -> &[u8] {
         match self {
             QueryType::Txid(txid) => txid.as_inner().as_slice(),
             QueryType::Input(outpoint) => &outpoint.0,
-            QueryType::Script(script) => script,
+            QueryType::ScriptHash(script) => script,
         }
     }
 }
@@ -290,7 +338,7 @@ mod tests {
         consensus::deserialize,
         hashes::{hex::FromHex, Hash},
         util::bip158,
-        Block, BlockHash, OutPoint, Txid,
+        Block, BlockHash, OutPoint, Txid, Script,
     };
 
     use crate::block_filter::QueryType;
@@ -324,7 +372,7 @@ mod tests {
 
         let block: Block = deserialize(&block).unwrap();
         let storage = MemoryBlockFilterStorage::default();
-        let backend = BlockFilterBackend::new(Box::new(storage));
+        let backend = BlockFilterBackend::new(Box::new(storage), block.block_hash());
 
         backend.filter_block(&block, 0).unwrap();
 
@@ -347,10 +395,14 @@ mod tests {
             }
             .into(),
         );
+        // One spk from this block 
+        let spck = Script::from_hex("0014fabea557d8541249533fe281aac45c37b2dbf342").unwrap();
+        let spck = QueryType::ScriptHash(floresta_common::get_spk_hash(&spck).into_inner());
 
         let expected = Some(vec![0]);
 
         assert_eq!(backend.match_any(0, 0, &[txid]), expected);
         assert_eq!(backend.match_any(0, 0, &[prevout]), expected);
+        assert_eq!(backend.match_any(0, 0, &[spck]), expected);
     }
 }
