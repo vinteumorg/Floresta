@@ -1,22 +1,3 @@
-// SPDX-License-Identifier: MIT
-
-//! A module that uses BIP-158 block filters to sync our wallet
-
-//! BIP-158 client-side filters are a special probabilistic filter that can 
-//! quasi-succinctly represent a set of elements, determine whether an element 
-//! is present in the original set by querying the filter itself. 
-//!
-//! As a probabilistic filter, it has false-positives, i.e., elements that aren't in the set returning
-//! true. The false-positive rate can be tweaked and made manageable.
-//!
-//! This module doesn't use BIP-157 to download block filters from peers; instead, we build
-//! them locally, using the actual blocks. This gives us protection against malicious peers
-//! and control over what is indexed, reducing disk and CPU usage as required by our user.
-//!
-//! You can build a filter by calling `filter_block`, and query our blocks by calling
-//! `match_any`. The latter method returns a list of block heights where our filter queries 
-//! returned true; you should then download those blocks and check if there's something we  are interested in.
-
 use std::io::Write;
 
 use bitcoin::{
@@ -84,7 +65,7 @@ pub struct BlockFilterBackend {
     k0: u64,
     /// The second half of the siphash key
     k1: u64,
-    /// A block hash used to salt the siphash, we use a random hash instead of 
+    /// A block hash used to salt the siphash, we use a random hash instead of
     /// an actual block hash
     key: BlockHash,
 }
@@ -111,7 +92,7 @@ impl BlockFilterBackend {
     pub fn new(storage: Box<dyn BlockFilterStore>, key: BlockHash) -> BlockFilterBackend {
         let mut k0 = [0_u8; 8];
         let mut k1 = [0_u8; 8];
-        
+
         k0.copy_from_slice(&key[0..8]);
         k1.copy_from_slice(&key[8..16]);
 
@@ -213,7 +194,7 @@ pub struct FilterBackendBuilder {
     whitelisted_outputs: u8,
     index_input: bool,
     index_txids: bool,
-    key: [u8; 32]    
+    key: [u8; 32],
 }
 
 impl FilterBackendBuilder {
@@ -256,7 +237,7 @@ impl FilterBackendBuilder {
     }
     /// A key used by siphash
     ///
-    /// BIP-158 uses the block hash, but we use a fixed by here, so we don't 
+    /// BIP-158 uses the block hash, but we use a fixed by here, so we don't
     /// need to access chaindata on query
     pub fn key_hash(&mut self, key: [u8; 32]) -> &mut Self {
         self.key = key;
@@ -269,10 +250,10 @@ impl FilterBackendBuilder {
     pub fn build(self) -> BlockFilterBackend {
         let mut k0 = [0_u8; 8];
         let mut k1 = [0_u8; 8];
-        
+
         k0.copy_from_slice(&self.key[0..8]);
         k1.copy_from_slice(&self.key[8..16]);
-        
+
         BlockFilterBackend {
             key: BlockHash::from_inner(self.key),
             whitelisted_outputs: self.whitelisted_outputs,
@@ -338,10 +319,10 @@ mod tests {
         consensus::deserialize,
         hashes::{hex::FromHex, Hash},
         util::bip158,
-        Block, BlockHash, OutPoint, Txid, Script,
+        Block, BlockHash, OutPoint, Script, Txid,
     };
 
-    use crate::block_filter::QueryType;
+    use crate::QueryType;
 
     use super::{BlockFilterBackend, FilterBuilder, MemoryBlockFilterStorage};
     #[test]
@@ -355,13 +336,19 @@ mod tests {
 
         let filter = bip158::BlockFilter::new(&writer);
         let res = filter
-            .match_any(&BlockHash::from_inner([0; 32]), &mut [value].into_iter())
+            .match_any(
+                &BlockHash::from_inner([0; 32]),
+                &mut [value].iter().copied(),
+            )
             .unwrap();
         assert_eq!(res, true);
 
         let value = [11_u8; 42].as_slice();
         let res = filter
-            .match_any(&BlockHash::from_inner([0; 32]), &mut [value].into_iter())
+            .match_any(
+                &BlockHash::from_inner([0; 32]),
+                &mut [value].iter().copied(),
+            )
             .unwrap();
         assert_eq!(res, false);
     }
@@ -395,7 +382,7 @@ mod tests {
             }
             .into(),
         );
-        // One spk from this block 
+        // One spk from this block
         let spck = Script::from_hex("0014fabea557d8541249533fe281aac45c37b2dbf342").unwrap();
         let spck = QueryType::ScriptHash(floresta_common::get_spk_hash(&spck).into_inner());
 

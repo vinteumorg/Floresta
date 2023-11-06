@@ -827,6 +827,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "floresta-compact-filters"
+version = "0.1.0"
+dependencies = [
+ "bitcoin 0.29.2",
+ "bitcoin_hashes 0.11.0",
+ "floresta-common",
+ "kv",
+]
+
+[[package]]
 name = "floresta-electrum"
 version = "0.1.0"
 dependencies = [

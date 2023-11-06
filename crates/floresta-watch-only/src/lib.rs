@@ -3,7 +3,6 @@ use core::{cmp::Ordering, fmt::Debug};
 
 use floresta_common::{get_spk_hash, parse_descriptors};
 
-pub mod block_filter;
 pub mod kv_database;
 #[cfg(any(test, feature = "memory-database"))]
 pub mod memory_database;
