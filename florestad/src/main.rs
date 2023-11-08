@@ -71,7 +71,6 @@ struct Ctx {
     #[cfg(feature = "zmq-server")]
     zmq_address: Option<String>,
 }
-
 fn main() {
     // Setup global logger
     pretty_env_logger::env_logger::Builder::from_env(Env::default().default_filter_or("info"))
@@ -159,6 +158,7 @@ fn run_with_ctx(ctx: Ctx) {
     let mut wallet = load_wallet(&data_dir);
     wallet.setup().expect("Could not initialize wallet");
     debug!("Done loading wallet");
+
     // Try to add more wallets to watch if needed
     let result = setup_wallet(
         get_both_vec(ctx.wallet_xpub, config_file.wallet.xpubs),

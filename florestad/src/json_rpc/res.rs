@@ -18,6 +18,7 @@ pub struct GetBlockchainInfoRes {
     pub progress: f32,
     pub difficulty: u64,
 }
+
 #[derive(Deserialize, Serialize)]
 pub struct RawTxJson {
     pub in_active_chain: bool,
@@ -36,12 +37,14 @@ pub struct RawTxJson {
     pub blocktime: u32,
     pub time: u32,
 }
+
 #[derive(Deserialize, Serialize)]
 pub struct TxOutJson {
     pub value: u64,
     pub n: u32,
     pub script_pub_key: ScriptPubKeyJson,
 }
+
 #[derive(Deserialize, Serialize)]
 pub struct ScriptPubKeyJson {
     pub asm: String,
@@ -51,6 +54,7 @@ pub struct ScriptPubKeyJson {
     pub type_: String,
     pub address: String,
 }
+
 #[derive(Deserialize, Serialize)]
 pub struct TxInJson {
     pub txid: String,
@@ -59,11 +63,13 @@ pub struct TxInJson {
     pub sequence: u32,
     pub witness: Vec<String>,
 }
+
 #[derive(Deserialize, Serialize)]
 pub struct ScriptSigJson {
     pub asm: String,
     pub hex: String,
 }
+
 #[derive(Deserialize, Serialize)]
 pub struct BlockJson {
     pub hash: String,
@@ -85,6 +91,7 @@ pub struct BlockJson {
     pub chainwork: String,
     pub n_tx: usize,
     pub previousblockhash: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub nextblockhash: Option<String>,
 }
 
@@ -96,7 +103,10 @@ pub enum Error {
     Chain,
     InvalidPort,
     InvalidAddress,
+    Node,
+    NoBlockFilters,
 }
+
 impl Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let msg = match self {
@@ -106,10 +116,13 @@ impl Display for Error {
             Error::Chain => "Chain error",
             Error::InvalidPort => "Invalid port",
             Error::InvalidAddress => "Invalid address",
+            Error::Node => "Node returned an error",
+            Error::NoBlockFilters => "You don't have block filters enabled, please start florestad with --cfilters to run this RPC"
         };
         write!(f, "{}", msg)
     }
 }
+
 impl From<Error> for i64 {
     fn from(val: Error) -> Self {
         match val {
@@ -119,9 +132,12 @@ impl From<Error> for i64 {
             Error::InvalidDescriptor => 4,
             Error::InvalidPort => 5,
             Error::InvalidAddress => 6,
+            Error::Node => 7,
+            Error::NoBlockFilters => 8,
         }
     }
 }
+
 impl From<Error> for ErrorCode {
     fn from(val: Error) -> Self {
         let code = val.into();

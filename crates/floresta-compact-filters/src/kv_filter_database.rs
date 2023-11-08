@@ -1,16 +1,17 @@
 use std::path::PathBuf;
 
 use bitcoin::util::bip158::BlockFilter;
-use kv::{Bucket, Integer, Config};
+use kv::{Bucket, Config, Integer};
 
 use crate::BlockFilterStore;
 
 /// Stores the block filters insinde a kv database
-pub struct KvFilterStore<'a> {
-    bucket: Bucket<'a, Integer, Vec<u8>>,
+#[derive(Clone)]
+pub struct KvFilterStore {
+    bucket: Bucket<'static, Integer, Vec<u8>>,
 }
 
-impl KvFilterStore<'_> {
+impl KvFilterStore {
     /// Creates a new [KvFilterStore] that stores it's content in `datadir`.
     ///
     /// If the path does't exist it'll be created. This store uses compression by default, if you
@@ -20,15 +21,15 @@ impl KvFilterStore<'_> {
         let store = kv::Store::new(kv::Config {
             path: datadir.to_owned(),
             temporary: false,
-            use_compression: true,
+            use_compression: false,
             flush_every_ms: None,
             cache_capacity: None,
             segment_size: None,
-        }).expect("Could not open store");
+        })
+        .expect("Could not open store");
 
         let bucket = store.bucket(Some("cfilters")).unwrap();
         KvFilterStore { bucket }
-
     }
     /// Creates a new [KvFilterStore] that stores it's content with a given config
     pub fn with_config(config: Config) -> Self {
@@ -38,7 +39,7 @@ impl KvFilterStore<'_> {
     }
 }
 
-impl BlockFilterStore for KvFilterStore<'_> {
+impl BlockFilterStore for KvFilterStore {
     fn get_filter(&self, block_height: u64) -> Option<bitcoin::util::bip158::BlockFilter> {
         let value = self
             .bucket

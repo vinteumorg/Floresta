@@ -1096,6 +1096,7 @@ where
         // Use this node state to Initial Block download
         let mut ibd = UtreexoNode(self.0, IBDNode::default());
         try_and_log!(UtreexoNode::<IBDNode, Chain>::run(&mut ibd, kill_signal).await);
+
         // Then take the final state and run the node
         self = UtreexoNode(ibd.0, self.1);
 
@@ -1107,7 +1108,8 @@ where
             .await;
 
         loop {
-            while let Ok(notification) = timeout(Duration::from_secs(1), self.node_rx.recv()).await
+            while let Ok(notification) =
+                timeout(Duration::from_millis(1), self.node_rx.recv()).await
             {
                 try_and_log!(self.handle_notification(notification).await);
             }
