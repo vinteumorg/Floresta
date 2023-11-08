@@ -1,3 +1,15 @@
+// SPDX-License-Identifier: MIT
+
+//! A library for building and querying BIP-158 compact block filters locally
+//!
+//! This lib implements BIP-158 client-side Galomb-Rice block filters, without
+//! relaying on p2p connections to retrieve them. We use this to speedup wallet
+//! resyncs and allow arbitrary UTXO retrieving for lightning nodes.
+//!
+//! This module should receive blocks as we download them, it'll create a filter
+//! for it. Therefore, you can't use this to speedup wallet sync **before** IBD,
+//! since we wouldn't have the filter for all blocks yet.
+//!
 use std::io::Write;
 
 use bitcoin::{
@@ -8,6 +20,7 @@ use bitcoin::{
 
 use core::{fmt::Debug, ops::BitAnd};
 
+/// A database that stores our compact filters
 pub trait BlockFilterStore {
     /// Fetches a block filter
     fn get_filter(&self, block_height: u64) -> Option<bip158::BlockFilter>;
@@ -15,6 +28,7 @@ pub trait BlockFilterStore {
     fn put_filter(&self, block_height: u64, block_filter: bip158::BlockFilter);
 }
 
+/// All standard outputs type define in the Bitcoin network
 #[derive(Debug, Hash)]
 pub enum OutputTypes {
     /// public key hash
@@ -67,9 +81,11 @@ pub struct BlockFilterBackend {
     k1: u64,
     /// A block hash used to salt the siphash, we use a random hash instead of
     /// an actual block hash
-    key: BlockHash,
+    key: [u8; 32],
 }
 
+/// Keeps track of a unfinnished BIP-158 block filter. We use this to add new elements
+/// to the filter, until there's nothing more to add
 struct FilterBuilder<'a> {
     writer: GCSFilterWriter<'a>,
 }
@@ -80,16 +96,30 @@ impl<'a> FilterBuilder<'a> {
         let writer = GCSFilterWriter::new(writer, k0, k1, M, P);
         FilterBuilder { writer }
     }
+    /// Add a new slice to the filter
     pub fn put(&mut self, el: &[u8]) {
         self.writer.add_element(el);
     }
+    /// Mark a filter as finished, writing the filter content into the internal buffer
+    ///
+    /// This method should be called only once, and no more elements should be added after
+    /// calling this method.
     pub fn finish(&mut self) -> Result<usize, bip158::Error> {
         Ok(self.writer.finish()?)
     }
 }
 
 impl BlockFilterBackend {
-    pub fn new(storage: Box<dyn BlockFilterStore>, key: BlockHash) -> BlockFilterBackend {
+    /// Creates a new [BlockFilterBackend].
+    ///
+    /// Storage is a database used for storing and retrieving filters. May be anything
+    /// that implements [BlockFilterStore].
+    /// Key is a 256-bytes element that'll be used as key for the siphash iside our filters.
+    /// BIP-158 defines this key as the hash of each block, since they need a public parameter,
+    /// and a fixed one may be exploited by bad actors trying to trick a wallet into having many
+    /// false-positives. Since we don' need a public parameter here, a once-initialized random
+    /// slice is enought.
+    pub fn new(storage: Box<dyn BlockFilterStore>, key: [u8; 32]) -> BlockFilterBackend {
         let mut k0 = [0_u8; 8];
         let mut k1 = [0_u8; 8];
 
@@ -106,6 +136,7 @@ impl BlockFilterBackend {
             k1: u64::from_le_bytes(k1),
         }
     }
+    /// Build and index a given block height
     pub fn filter_block(&self, block: &Block, block_height: u64) -> Result<(), bip158::Error> {
         let mut writer = Vec::new();
         let mut filter = FilterBuilder::new(&mut writer, FILTER_M, FILTER_P, self.k0, self.k1);
@@ -124,8 +155,13 @@ impl BlockFilterBackend {
 
         Ok(())
     }
+    /// Maches a set of filters against out current set of filters
+    ///
+    /// This function will run over each filter inside the range `[start, end]` and sees
+    /// if at least one query mathes. It'll return a vector of block heights where it matches.
+    /// you should download those blocks and see what if there's anything interesting.
     pub fn match_any(&self, start: u64, end: u64, query: &[QueryType]) -> Option<Vec<u64>> {
-        let mut values = query.into_iter().map(|filter| &*filter.into_slice());
+        let mut values = query.iter().map(|filter| filter.as_slice());
 
         let mut blocks = Vec::new();
 
@@ -133,7 +169,7 @@ impl BlockFilterBackend {
             if self
                 .storage
                 .get_filter(i)?
-                .match_any(&self.key, &mut values)
+                .match_any(&BlockHash::from_inner(self.key), &mut values)
                 .ok()?
             {
                 blocks.push(i);
@@ -179,7 +215,7 @@ impl BlockFilterBackend {
     }
     fn write_outputs(&self, txs: &Vec<Transaction>, filter: &mut FilterBuilder) {
         for tx in txs {
-            self.write_tx_outs(&tx, filter);
+            self.write_tx_outs(tx, filter);
         }
     }
 }
@@ -190,10 +226,15 @@ impl BlockFilterBackend {
 /// Fields have the same meaning as in the backend itself.
 #[derive(Default)]
 pub struct FilterBackendBuilder {
+    /// Were we should store our filter.
     storage: Option<Box<dyn BlockFilterStore>>,
+    /// What types of outputs should we store.
     whitelisted_outputs: u8,
+    /// Whether we should save outpoints being spent to the filter
     index_input: bool,
+    /// Whether we should save the id for transactions in this block
     index_txids: bool,
+    /// The siphash key we should use
     key: [u8; 32],
 }
 
@@ -255,7 +296,7 @@ impl FilterBackendBuilder {
         k1.copy_from_slice(&self.key[8..16]);
 
         BlockFilterBackend {
-            key: BlockHash::from_inner(self.key),
+            key: self.key,
             whitelisted_outputs: self.whitelisted_outputs,
             index_inputs: self.index_input,
             index_txids: self.index_txids,
@@ -278,14 +319,18 @@ impl From<OutPoint> for QueriableOutpoint {
     }
 }
 
+/// The type of value we are looking for in a filter.
 pub enum QueryType {
+    /// We are looking for a specific outpoint being spent
     Input(QueriableOutpoint),
+    /// We're looking for a script hash receiving money (not spending)
     ScriptHash([u8; 32]),
+    /// A transaction with a specific it
     Txid(Txid),
 }
 
 impl QueryType {
-    pub(crate) fn into_slice(&self) -> &[u8] {
+    pub(crate) fn as_slice(&self) -> &[u8] {
         match self {
             QueryType::Txid(txid) => txid.as_inner().as_slice(),
             QueryType::Input(outpoint) => &outpoint.0,
@@ -294,15 +339,19 @@ impl QueryType {
     }
 }
 
+#[doc(hidden)]
 #[cfg(test)]
 use std::cell::RefCell;
 
+/// A volatile block filters store used for tests
 #[cfg(test)]
+#[doc(hidden)]
 #[derive(Debug, Default)]
 pub struct MemoryBlockFilterStorage {
     filters: RefCell<Vec<bip158::BlockFilter>>,
 }
 
+#[doc(hidden)]
 #[cfg(test)]
 impl BlockFilterStore for MemoryBlockFilterStorage {
     fn get_filter(&self, block_height: u64) -> Option<bip158::BlockFilter> {
@@ -341,7 +390,7 @@ mod tests {
                 &mut [value].iter().copied(),
             )
             .unwrap();
-        assert_eq!(res, true);
+        assert!(res);
 
         let value = [11_u8; 42].as_slice();
         let res = filter
@@ -350,7 +399,7 @@ mod tests {
                 &mut [value].iter().copied(),
             )
             .unwrap();
-        assert_eq!(res, false);
+        assert!(!res);
     }
 
     #[test]
@@ -359,7 +408,7 @@ mod tests {
 
         let block: Block = deserialize(&block).unwrap();
         let storage = MemoryBlockFilterStorage::default();
-        let backend = BlockFilterBackend::new(Box::new(storage), block.block_hash());
+        let backend = BlockFilterBackend::new(Box::new(storage), block.block_hash().into_inner());
 
         backend.filter_block(&block, 0).unwrap();
 
