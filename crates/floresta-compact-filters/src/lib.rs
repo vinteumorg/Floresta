@@ -197,7 +197,7 @@ impl BlockFilterBackend {
                 ser_input[0..32].clone_from_slice(&input.previous_output.txid);
                 ser_input[32..].clone_from_slice(&input.previous_output.vout.to_be_bytes());
                 filter.put(&ser_input);
-            });
+            })
         }
     }
     fn write_tx_outs(&self, tx: &Transaction, filter: &mut FilterBuilder) {
