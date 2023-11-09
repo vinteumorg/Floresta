@@ -1,16 +1,18 @@
 extern crate alloc;
+#[cfg(not(feature = "no-std"))]
+extern crate std;
+
 use super::{
     chain_state_builder::ChainStateBuilder,
     chainparams::ChainParams,
     chainstore::{DiskBlockHeader, KvChainStore},
     consensus::Consensus,
     error::{BlockValidationErrors, BlockchainError},
-    BlockchainInterface, ChainStore, Notification, UpdatableChainstate,
+    BlockchainInterface, ChainStore, UpdatableChainstate,
 };
 use crate::prelude::*;
 use crate::{read_lock, write_lock, Network};
-use alloc::{borrow::ToOwned, fmt::format, string::ToString, vec::Vec};
-use async_std::channel::Sender;
+use alloc::{borrow::ToOwned, fmt::format, string::ToString, sync::Arc, vec::Vec};
 #[cfg(feature = "bitcoinconsensus")]
 use bitcoin::bitcoinconsensus;
 
@@ -23,10 +25,27 @@ use bitcoin::{
 };
 #[cfg(feature = "bitcoinconsensus")]
 use core::ffi::c_uint;
-use futures::executor::block_on;
+use floresta_common::Channel;
 use log::{info, trace};
 use rustreexo::accumulator::{node_hash::NodeHash, proof::Proof, stump::Stump};
 use spin::RwLock;
+
+pub trait BlockConsumer: Sync + Send + 'static {
+    fn consume_block(&self, block: &Block, height: u32);
+}
+
+impl BlockConsumer for Channel<(Block, u32)> {
+    fn consume_block(&self, block: &Block, height: u32) {
+        self.send((block.to_owned(), height));
+    }
+}
+
+#[cfg(not(feature = "no-std"))]
+impl BlockConsumer for std::sync::mpsc::Sender<(Block, u32)> {
+    fn consume_block(&self, block: &Block, height: u32) {
+        let _ = self.send((block.to_owned(), height));
+    }
+}
 
 pub struct ChainStateInner<PersistedState: ChainStore> {
     /// The acc we use for validation.
@@ -39,10 +58,13 @@ pub struct ChainStateInner<PersistedState: ChainStore> {
     /// writen to broadcast_queue, and the ChainStateBackend can use it's own logic to actually
     /// broadcast the tx.
     broadcast_queue: Vec<Transaction>,
-    /// We may have more than one consumer, that access our data through [BlockchainInterface],
-    /// they might need to be notified about new data coming in, like blocks. They do so by calling
-    /// `subscribe` and passing a [async_std::channel::Sender]. We save all Senders here.
-    subscribers: Vec<Sender<Notification>>,
+    /// We may have multiple mudules that needs to receive and process blocks as they come, to
+    /// be notified of new blocks, a module should implement the [BlockConsumer] trait, and
+    /// subscribe by passing an [Arc] of itself to chainstate.
+    /// When a new block is accepted (as valid) we call `consume_block` from [BlockConsumer].
+    /// If a mudule just wants pass in a channel, [Sender] implements [BlockConsumer], and can
+    /// be used during subscription (just keep the [Receiver] side.
+    subscribers: Vec<Arc<dyn BlockConsumer>>,
     /// Fee estimation for 1, 10 and 20 blocks
     fee_estimation: (f64, f64, f64),
     /// Are we in Initial Block Download?
@@ -418,12 +440,11 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         Ok(())
     }
     #[allow(clippy::await_holding_lock)]
-    async fn notify(&self, what: Notification) {
-        //TODO: Use async-std::RwLock not std::RwLock
+    fn notify(&self, block: &Block, height: u32) {
         let inner = self.inner.read();
         let subs = inner.subscribers.iter();
         for client in subs {
-            let _ = client.send(what.clone()).await;
+            client.consume_block(block, height);
         }
     }
 
@@ -763,7 +784,7 @@ impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedSta
         inner.best_block.rescan_index = Some(start_height);
         Ok(())
     }
-    fn subscribe(&self, tx: Sender<Notification>) {
+    fn subscribe(&self, tx: Arc<dyn BlockConsumer>) {
         let mut inner = self.inner.write();
         inner.subscribers.push(tx);
     }
@@ -846,7 +867,7 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
     fn process_rescan_block(&self, block: &Block) -> Result<(), BlockchainError> {
         let header = self.get_disk_block_header(&block.block_hash())?;
         let height = header.height().expect("Recaning in an invalid tip");
-        block_on(self.notify(Notification::NewBlock((block.to_owned(), height))));
+        self.notify(block, height);
         if self.get_height().unwrap() == height {
             info!("Rescan completed");
             write_lock!(self).best_block.rescan_index = None;
@@ -901,7 +922,7 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
         self.save_acc()?;
 
         // Notify others we have a new block
-        block_on(self.notify(Notification::NewBlock((block.to_owned(), height))));
+        self.notify(block, height);
         Ok(height)
     }
 

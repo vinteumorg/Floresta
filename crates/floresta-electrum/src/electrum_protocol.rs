@@ -2,11 +2,10 @@ use crate::request::Request;
 use crate::{get_arg, json_rpc_res};
 use bitcoin::hashes::hex::FromHex;
 use floresta_chain::pruned_utreexo::BlockchainInterface;
-use floresta_chain::Notification;
+use floresta_common::spsc::Channel;
 use floresta_common::{get_hash_from_u8, get_spk_hash};
 use floresta_watch_only::kv_database::KvDatabase;
 use floresta_watch_only::{AddressCache, CachedTransaction};
-use futures::{select, FutureExt};
 
 use async_std::sync::RwLock;
 use async_std::{
@@ -349,57 +348,57 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
     }
 
     pub async fn main_loop(mut self) -> Result<(), crate::error::Error> {
-        let (tx, mut rx) = unbounded::<Notification>();
-        self.chain.subscribe(tx);
-        loop {
-            select! {
-                notification = rx.next().fuse() => {
-                    if let Some(notification) = notification {
-                        self.handle_notification(notification).await;
-                    }
-                },
-                message = self.peer_accept.next().fuse() => {
-                    if let Some(message) = message {
-                        self.handle_message(message).await?;
-                    }
-                }
-            };
-        }
-    }
-    async fn handle_notification(&mut self, notification: Notification) {
-        match notification {
-            Notification::NewBlock((block, height)) => {
-                let result = json!({
-                    "jsonrpc": "2.0",
-                    "method": "blockchain.headers.subscribe",
-                    "params": [{
-                        "height": height,
-                        "hex": serialize(&block.header).to_hex()
-                    }]
-                });
-                if !self.chain.is_in_idb() || height % 1000 == 0 {
-                    let lock = self.address_cache.write().await;
-                    lock.bump_height(height);
-                }
-                if self.chain.get_height().unwrap() == height {
-                    for peer in &mut self.peers.values() {
-                        let res = peer
-                            .write(serde_json::to_string(&result).unwrap().as_bytes())
-                            .await;
-                        if res.is_err() {
-                            info!("Could not write to peer {:?}", peer);
-                        }
-                    }
-                }
-                let transactions = self
-                    .address_cache
-                    .write()
-                    .await
-                    .block_process(&block, height);
+        let blocks = Channel::new();
+        let blocks = Arc::new(blocks);
 
-                self.wallet_notify(&transactions).await;
+        self.chain.subscribe(blocks.clone());
+
+        loop {
+            for (block, height) in blocks.recv() {
+                self.handle_block(block, height).await;
+            }
+            let request = async_std::future::timeout(
+                std::time::Duration::from_secs(1),
+                self.peer_accept.recv(),
+            )
+            .await;
+
+            if let Ok(Ok(message)) = request {
+                self.handle_message(message).await?;
             }
         }
+    }
+
+    async fn handle_block(&mut self, block: bitcoin::Block, height: u32) {
+        let result = json!({
+            "jsonrpc": "2.0",
+            "method": "blockchain.headers.subscribe",
+            "params": [{
+                "height": height,
+                "hex": serialize(&block.header).to_hex()
+            }]
+        });
+        if !self.chain.is_in_idb() || height % 1000 == 0 {
+            let lock = self.address_cache.write().await;
+            lock.bump_height(height);
+        }
+        if self.chain.get_height().unwrap() == height {
+            for peer in &mut self.peers.values() {
+                let res = peer
+                    .write(serde_json::to_string(&result).unwrap().as_bytes())
+                    .await;
+                if res.is_err() {
+                    info!("Could not write to peer {:?}", peer);
+                }
+            }
+        }
+        let transactions = self
+            .address_cache
+            .write()
+            .await
+            .block_process(&block, height);
+
+        self.wallet_notify(&transactions).await;
     }
     async fn handle_message(&mut self, message: Message) -> Result<(), crate::error::Error> {
         match message {

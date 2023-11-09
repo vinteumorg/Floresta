@@ -7,6 +7,9 @@ use prelude::*;
 
 use sha2::Digest;
 pub mod constants;
+pub mod spsc;
+
+pub use spsc::Channel;
 
 pub fn get_hash_from_u8(data: &[u8]) -> sha256::Hash {
     let hash = sha2::Sha256::new().chain_update(data).finalize();
@@ -19,6 +22,7 @@ pub fn get_spk_hash(spk: &Script) -> sha256::Hash {
     hash.reverse();
     sha256::Hash::from_slice(hash.as_slice()).expect("Engines shouldn't be Err")
 }
+
 #[cfg(feature = "descriptors")]
 pub fn parse_descriptors(
     descriptors: &[String],
