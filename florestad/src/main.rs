@@ -24,13 +24,14 @@ mod error;
 #[cfg(feature = "json-rpc")]
 mod json_rpc;
 mod wallet_input;
-
-use std::{path::PathBuf, sync::Arc};
+#[cfg(feature = "zmq-server")]
+mod zmq;
 
 use async_std::{
     sync::RwLock,
     task::{self, block_on},
 };
+use std::{path::PathBuf, sync::Arc};
 
 use bitcoin::{BlockHash, Network};
 use clap::Parser;
@@ -45,6 +46,9 @@ use floresta_watch_only::{kv_database::KvDatabase, AddressCache, AddressCacheDat
 use floresta_wire::{mempool::Mempool, node::UtreexoNode};
 use log::{debug, error, info};
 use pretty_env_logger::env_logger::{Env, TimestampPrecision};
+
+#[cfg(feature = "zmq-server")]
+use zmq::ZMQServer;
 
 use crate::wallet_input::InitialWalletSetup;
 
@@ -62,6 +66,8 @@ struct Ctx {
     config_file: Option<String>,
     proxy: Option<String>,
     network: cli::Network,
+    #[cfg(feature = "zmq-server")]
+    zmq_address: Option<String>,
 }
 
 fn main() {
@@ -81,6 +87,7 @@ fn main() {
             wallet_descriptor,
             rescan,
             proxy,
+            zmq_address: _zmq_address,
         }) => {
             let ctx = Ctx {
                 data_dir,
@@ -91,6 +98,8 @@ fn main() {
                 proxy,
                 config_file: params.config_file,
                 network: params.network,
+                #[cfg(feature = "zmq-server")]
+                zmq_address: _zmq_address,
             };
             run_with_ctx(ctx);
         }
@@ -178,6 +187,20 @@ fn run_with_ctx(ctx: Ctx) {
         data_dir,
         ctx.proxy.map(|x| x.parse().expect("Invalid proxy address")),
     );
+
+    #[cfg(feature = "zmq-server")]
+    {
+        info!("Starting ZMQ server");
+        if let Ok(zserver) =
+            ZMQServer::new(&ctx.zmq_address.unwrap_or("tcp://127.0.0.1:5150".into()))
+        {
+            blockchain_state.subscribe(Arc::new(zserver));
+            info!("Done!");
+        } else {
+            error!("Could not create zmq server, skipping");
+        };
+    }
+
     info!("Starting server");
     let wallet = Arc::new(RwLock::new(wallet));
     // Setup the json-rpc if needed

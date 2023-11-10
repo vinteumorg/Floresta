@@ -92,5 +92,7 @@ pub enum Commands {
         /// Assume blocks before this one as having valid signatures, same with bitcoin core
         #[arg(long)]
         assume_valid: Option<BlockHash>,
+        #[arg(long, short)]
+        zmq_address: Option<String>,
     },
 }
