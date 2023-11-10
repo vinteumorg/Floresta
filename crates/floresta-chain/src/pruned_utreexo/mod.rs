@@ -1,4 +1,5 @@
 extern crate alloc;
+
 pub mod chain_state;
 pub mod chain_state_builder;
 pub mod chainparams;
@@ -8,8 +9,10 @@ pub mod error;
 pub mod partial_chain;
 pub mod udata;
 
-use crate::{prelude::*, BestChain, BlockchainError, DatabaseError, DiskBlockHeader};
-use async_std::channel::Sender;
+use crate::{
+    prelude::*, BestChain, BlockConsumer, BlockchainError, DatabaseError, DiskBlockHeader,
+};
+use alloc::sync::Arc;
 use bitcoin::{hashes::sha256, Block, BlockHash, BlockHeader, OutPoint, Transaction, TxOut};
 use rustreexo::accumulator::{node_hash::NodeHash, proof::Proof};
 
@@ -35,7 +38,10 @@ pub trait BlockchainInterface {
     fn get_block_header(&self, hash: &BlockHash) -> Result<BlockHeader, Self::Error>;
     /// Register for receiving notifications for some event. Right now it only works for
     /// new blocks, but may work with transactions in the future too.
-    fn subscribe(&self, tx: Sender<Notification>);
+    /// if a module performs some heavy-lifting on the block's data, it should pass in a
+    /// vector or a channel where data can be  transfered to the atual worker, otherwise
+    /// chainstate will be stuck for as long as you have work to do.
+    fn subscribe(&self, tx: Arc<dyn BlockConsumer>);
     /// Tells whether or not we are on ibd
     fn is_in_idb(&self) -> bool;
     /// Returns the list of unbroadcasted transactions.
