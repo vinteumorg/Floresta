@@ -1,6 +1,6 @@
 use async_std::sync::RwLock;
 use bitcoin::{
-    consensus::{deserialize, serialize},
+    consensus::{deserialize, serialize, Decodable},
     hashes::{
         hex::{FromHex, ToHex},
         Hash,
@@ -17,16 +17,32 @@ use futures::executor::block_on;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use jsonrpc_http_server::ServerBuilder;
+use log::{info, debug};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::sync::Arc;
+use std::{
+    io::{self, Cursor, Write},
+    sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use super::res::{
     BlockJson, Error, GetBlockchainInfoRes, RawTxJson, ScriptPubKeyJson, ScriptSigJson, TxInJson,
     TxOutJson,
 };
+#[derive(Serialize, Deserialize)]
+pub enum ExportFormats {
+    Json,
+    JsonCompact,
+    Packed,
+}
 
 #[rpc]
 pub trait Rpc {
+    #[rpc(name = "listtransactions")]
+    fn list_transactions(&self) -> Result<Vec<Txid>>;
+    #[rpc(name = "exportwallet")]
+    fn export_wallet(&self, format: ExportFormats) -> Result<serde_json::Value>;
     #[rpc(name = "getblockchaininfo")]
     fn get_blockchain_info(&self) -> Result<GetBlockchainInfoRes>;
     #[rpc(name = "getblockhash")]
@@ -59,6 +75,8 @@ pub trait Rpc {
     fn stop(&self) -> Result<bool>;
     #[rpc(name = "addnode")]
     fn add_node(&self, node: String) -> Result<bool>;
+    #[rpc(name = "importwallet")]
+    fn import_wallet(&self, dir: String, format: ExportFormats) -> Result<bool>;
 }
 
 pub struct RpcImpl {
@@ -71,6 +89,133 @@ pub struct RpcImpl {
 impl Rpc for RpcImpl {
     fn get_height(&self) -> Result<u32> {
         Ok(self.chain.get_best_block().unwrap().0)
+    }
+
+    fn list_transactions(&self) -> Result<Vec<Txid>> {
+        let wallet = block_on(self.wallet.read());
+        Ok(wallet.list_transactions().map_err(|_| Error::WalletError)?)
+    }
+
+    fn import_wallet(&self, dir: String, format: ExportFormats) -> Result<bool> {
+        let content = std::fs::read(dir).map_err(|_| Error::IoError)?;
+        let mut content = Cursor::new(content);
+        match format {
+            ExportFormats::Json => todo!(),
+            ExportFormats::Packed => {
+                let last_block = BlockHash::consensus_decode(&mut content).unwrap();
+                info!("Loading wallet state on block: {last_block}");
+                let Ok(Some(best_height)) = self.chain.get_block_height(&last_block) else {
+                    return Err(jsonrpc_core::Error {
+                        code: 9.into(),
+                        message: "This wallet is either from another chain or we got a reorg after it's creation".into(),
+                        data: None
+                    });
+                };
+                while let Some(height) = Self::get_uint(&mut content) {
+                    // Get the block hash
+                    let Ok(block) = self.chain.get_block_hash(height) else {
+                        return Err(jsonrpc_core::Error {
+                            code: 10.into(),
+                            message: format!("Could not get hash for block {height}"),
+                            data: None,
+                        });
+                    };
+
+                    debug!("wallet restore: downloading and filtering block {}", block);
+
+                    // Download the actual block and filter it
+                    self.node
+                        .get_block(block)
+                        .and_then(|block| {
+                            if let Some(block) = block {
+                                let mut wallet = block_on(self.wallet.write());
+                                wallet.block_process(&block, height);
+                            }
+                            Ok(())
+                        })
+                        .map_err(|_| Error::ChainError)?;
+                }
+                let wallet = block_on(self.wallet.read());
+                wallet.bump_height(best_height);
+            }
+            ExportFormats::JsonCompact => todo!(),
+        }
+
+        Ok(true)
+    }
+
+    fn export_wallet(&self, format: ExportFormats) -> Result<serde_json::Value> {
+        fn fetch<'a>(
+            wallet: &'a AddressCache<KvDatabase>,
+            txs: Vec<Txid>,
+        ) -> Vec<CachedTransaction> {
+            txs.into_iter()
+                .map(|txid| {
+                    wallet
+                        .get_transaction(&txid)
+                        .expect("We have the txid, we should have the tx as well")
+                })
+                .collect()
+        }
+
+        let wallet = block_on(self.wallet.read());
+        let mut transactions = wallet
+            .list_transactions()
+            .map(|txs| fetch(&*wallet, txs))
+            .map_err(|_| Error::WalletError)?;
+
+        if transactions.is_empty() {
+            return Ok(json!({}));
+        }
+
+        transactions.sort();
+
+        let older = transactions.iter().position(|tx| tx.height != 0);
+        let older = transactions[older.unwrap()].height;
+
+        let export = match format {
+            ExportFormats::Json => {
+                json!({
+                    "time": SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+                    "block": self.chain.get_best_block().unwrap().0,
+                    "blockhash": self.chain.get_best_block().unwrap().1,
+                    "walletversion": 1,
+                    "txdbversion": 1,
+                    "reindex": false,
+                    "birth": older,
+                    "transactions": transactions
+                })
+            }
+            ExportFormats::JsonCompact => {
+                let txids: Vec<_> = transactions.iter().map(|tx| tx.tx.txid()).collect();
+                json!({
+                    "time": SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+                    "block": self.chain.get_best_block().unwrap().0,
+                    "blockhash": self.chain.get_best_block().unwrap().1,
+                    "walletversion": 1,
+                    "txdbversion": 1,
+                    "reindex": false,
+                    "birth": older,
+                    "transactions": txids,
+                })
+            }
+            ExportFormats::Packed => {
+                let mut writer = Vec::new();
+                writer
+                    .write_all(&self.chain.get_best_block().unwrap().1)
+                    .map_err(|_| Error::IoError)?;
+
+                let mut prev_block = 0;
+                for tx in transactions {
+                    let block = tx.height - prev_block;
+                    prev_block = tx.height;
+                    Self::encode_uint(&mut writer, block).expect("In memory writers don't err");
+                }
+                json!({"res": writer.to_hex()})
+            }
+        };
+
+        Ok(export)
     }
 
     fn add_node(&self, node: String) -> Result<bool> {
@@ -239,7 +384,7 @@ impl Rpc for RpcImpl {
                     confirmations: (tip - height) + 1,
                     difficulty: block.header.difficulty(self.network),
                     hash: block.header.block_hash().to_string(),
-                    height: height,
+                    height,
                     merkleroot: block.header.merkle_root.to_string(),
                     nonce: block.header.nonce,
                     previousblockhash: block.header.prev_blockhash.to_string(),
@@ -303,7 +448,47 @@ impl Rpc for RpcImpl {
         Ok(true)
     }
 }
+#[allow(unused)]
 impl RpcImpl {
+    fn get_uint(reader: &mut impl std::io::Read) -> Option<u32> {
+        let mut buffer = [0; 1];
+        reader.read(&mut buffer).ok()?;
+        match buffer[0] {
+            height if height <= 0xfc => Some(height as u32),
+            height if height == 0xfd => {
+                let mut buffer = [0; 2];
+                reader.read(&mut buffer).ok()?;
+                Some(u16::from_be_bytes(buffer) as u32)
+            }
+            height if height == 0xfe => {
+                let mut buffer = [0; 4];
+                reader.read(&mut buffer).ok()?;
+                Some(u32::from_be_bytes(buffer))
+            }
+            _ => None,
+        }
+    }
+
+    fn encode_uint(writer: &mut impl Write, block: u32) -> io::Result<()> {
+        //
+        match block {
+            block if block <= 0xfc => {
+                let block = block as u8;
+                writer.write_all(&block.to_be_bytes())
+            }
+            block if block < 0xffff => {
+                let block = block as u16;
+                writer.write_all(&[0xfd])?;
+                writer.write_all(&block.to_be_bytes())
+            }
+            _ => {
+                let block = block as u32;
+                writer.write_all(&[0xfe])?;
+                writer.write_all(&block.to_be_bytes())
+            }
+        }
+    }
+
     fn make_vin(&self, input: TxIn) -> TxInJson {
         let txid = input.previous_output.txid.to_hex();
         let vout = input.previous_output.vout;
@@ -319,6 +504,7 @@ impl RpcImpl {
             sequence,
         }
     }
+
     fn get_script_type(script: Script) -> Option<&'static str> {
         if script.is_p2pkh() {
             return Some("p2pkh");
@@ -334,6 +520,7 @@ impl RpcImpl {
         }
         None
     }
+
     fn make_vout(&self, output: TxOut, n: u32) -> TxOutJson {
         let value = output.value;
         TxOutJson {
@@ -353,6 +540,7 @@ impl RpcImpl {
             },
         }
     }
+
     fn make_raw_transaction(&self, tx: CachedTransaction) -> RawTxJson {
         let raw_tx = tx.tx;
         let in_active_chain = tx.height != 0;
@@ -404,6 +592,7 @@ impl RpcImpl {
                 .unwrap_or(0),
         }
     }
+
     fn get_port(net: &Network) -> u16 {
         match net {
             Network::Bitcoin => 8332,
@@ -412,6 +601,7 @@ impl RpcImpl {
             Network::Regtest => 18442,
         }
     }
+
     pub fn create(
         chain: Arc<ChainState<KvChainStore>>,
         wallet: Arc<RwLock<AddressCache<KvDatabase>>>,
@@ -438,5 +628,26 @@ impl RpcImpl {
                     .unwrap(),
             )
             .unwrap()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Cursor;
+
+    use super::RpcImpl;
+
+    #[test]
+    fn test_int_rtt() {
+        for _ in 0..1000 {
+            let number = rand::random();
+            let mut wrt = Cursor::new(Vec::new());
+            RpcImpl::encode_uint(&mut wrt, number).unwrap();
+
+            wrt.set_position(0);
+            let number_p = RpcImpl::get_uint(&mut wrt);
+
+            assert_eq!(Some(number), number_p);
+        }
     }
 }

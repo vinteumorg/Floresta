@@ -47,4 +47,4 @@ json-rpc = [
     "jsonrpc-core",
     "jsonrpc-core-client",
 ]
-default = ["experimental-p2p"]
+default = ["experimental-p2p", "json-rpc"]

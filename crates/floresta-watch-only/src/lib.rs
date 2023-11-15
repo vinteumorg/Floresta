@@ -221,6 +221,11 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
         my_transactions
     }
 
+    /// Returns the txid for all transactions we have in cache
+    pub fn list_transactions(&self) -> Result<Vec<Txid>, <D as AddressCacheDatabase>::Error> {
+        self.database.list_transactions()
+    }
+
     fn get_stats(&self) -> Stats {
         self.database
             .get_stats()

@@ -96,6 +96,8 @@ pub enum Error {
     ChainError,
     InvalidPort,
     InvalidAddress,
+    WalletError,
+    IoError,
 }
 impl Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -106,6 +108,8 @@ impl Display for Error {
             Error::ChainError => "Chain error",
             Error::InvalidPort => "Invalid port",
             Error::InvalidAddress => "Invalid address",
+            Error::WalletError => "Wallet errror",
+            Error::IoError => "I/O Error",
         };
         write!(f, "{}", msg)
     }
@@ -119,9 +123,12 @@ impl From<Error> for i64 {
             Error::InvalidDescriptor => 4,
             Error::InvalidPort => 5,
             Error::InvalidAddress => 6,
+            Error::WalletError => 7,
+            Error::IoError => 8,
         }
     }
 }
+
 impl From<Error> for ErrorCode {
     fn from(val: Error) -> Self {
         let code = val.into();
@@ -136,5 +143,11 @@ impl From<Error> for jsonrpc_core::Error {
             code: value.into(),
             data: None,
         }
+    }
+}
+
+impl From<std::io::Error> for Error {
+    fn from(_value: std::io::Error) -> Self {
+        Error::IoError
     }
 }

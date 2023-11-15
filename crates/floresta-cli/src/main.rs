@@ -1,6 +1,7 @@
 use bitcoin::{BlockHash, Network, Txid};
 use clap::{Parser, Subcommand};
 use jsonrpc::{arg, simple_http::SimpleHttpTransport, Client, Request};
+use serde::{Deserialize, Serialize};
 use serde_json::{value::RawValue, Value};
 
 fn main() -> anyhow::Result<()> {
@@ -27,6 +28,7 @@ fn main() -> anyhow::Result<()> {
 
     anyhow::Ok(())
 }
+
 fn get_host(cmd: &Cli) -> String {
     if let Some(host) = cmd.rpc_host.clone() {
         return host;
@@ -53,9 +55,11 @@ fn get_req(cmd: &Cli) -> (Vec<Box<RawValue>>, String) {
         Methods::GetBlock { .. } => "getblock",
         Methods::GetPeerInfo => "getpeerinfo",
         Methods::FindUtxo { .. } => "findtxout",
-        Methods::ListTransactions => "gettransactions",
+        Methods::ListTransactions => "listtransactions",
         Methods::Stop => "stop",
         Methods::AddNode { .. } => "addnode",
+        Methods::ExportWallet { .. } => "exportwallet",
+        Methods::ImportWallet { .. } => "importwallet",
     };
     let params = match &cmd.methods {
         Methods::GetBlockchainInfo => Vec::new(),
@@ -91,6 +95,12 @@ fn get_req(cmd: &Cli) -> (Vec<Box<RawValue>>, String) {
         Methods::Stop => Vec::new(),
         Methods::AddNode { node } => {
             vec![arg(node)]
+        }
+        Methods::ExportWallet { format } => {
+            vec![arg(format.to_owned().unwrap_or_default())]
+        }
+        Methods::ImportWallet { dir, format } => {
+            vec![arg(dir), arg(format)]
         }
     };
 
@@ -167,7 +177,7 @@ pub enum Methods {
     /// Returns information about the peers we are connected to
     #[command(name = "getpeerinfo")]
     GetPeerInfo,
-    /// List all transactions we are watching
+    /// Returns the txid of all transaction we have in cache
     #[command(name = "listtransactions")]
     ListTransactions,
     /// Finds a TXO by its outpoint and block height. Since we don't have a UTXO set
@@ -182,4 +192,26 @@ pub enum Methods {
     /// Usage: addnode <ip:[port]>
     #[command(name = "addnode")]
     AddNode { node: String },
+    /// Exports the entire wallet history
+    #[command(name = "exportwallet")]
+    ExportWallet { format: Option<ExportFormats> },
+    #[command(name = "importwallet")]
+    ImportWallet { dir: String, format: ExportFormats },
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub enum ExportFormats {
+    #[default]
+    Json,
+    Packed,
+}
+
+impl From<&str> for ExportFormats {
+    fn from(value: &str) -> Self {
+        match value {
+            "json" => ExportFormats::Json,
+            "packed" => ExportFormats::Packed,
+            _ => panic!("Invalid format {value}"),
+        }
+    }
 }

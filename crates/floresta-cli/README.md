@@ -17,7 +17,7 @@ Available commands:
  - [getblockheader](#getblockheader)
  - [loaddescriptor](#loaddescriptor)
  - [getroots](#getroots)
-
+ - [exportwallet](#exportwallet)
 ### getblockchaininfo
 
 This command takes no params and returns some useful data about the current active network
@@ -210,3 +210,16 @@ Returns a list of peers connected to our node, and some useful information about
     `address`: This peer's network address
     `services`: The services this peer announces as supported
     `user_agent`: A string representing this peer's software
+
+# exportwallet
+
+Returns your wallet's history in many different formats. (right now we have JSON and packed implemented)
+
+> The packed format is a binary format made for efficient backup, that only works with floresta. It only  stores very basic data in a space-efficent way.
+
+**Args**
+`format`: The format you want the export to be, one of: packad or json
+
+** Returns**
+
+`content`: The actual export, depending on which format you chose.
