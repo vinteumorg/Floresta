@@ -93,7 +93,7 @@ pub enum Error {
     TxNotFound,
     InvalidDescriptor,
     BlockNotFound,
-    ChainError,
+    Chain,
     InvalidPort,
     InvalidAddress,
 }
@@ -103,7 +103,7 @@ impl Display for Error {
             Error::TxNotFound => "Transaction not found",
             Error::InvalidDescriptor => "Invalid descriptor",
             Error::BlockNotFound => "Block not found",
-            Error::ChainError => "Chain error",
+            Error::Chain => "Chain error",
             Error::InvalidPort => "Invalid port",
             Error::InvalidAddress => "Invalid address",
         };
@@ -114,7 +114,7 @@ impl From<Error> for i64 {
     fn from(val: Error) -> Self {
         match val {
             Error::BlockNotFound => 1,
-            Error::ChainError => 2,
+            Error::Chain => 2,
             Error::TxNotFound => 3,
             Error::InvalidDescriptor => 4,
             Error::InvalidPort => 5,

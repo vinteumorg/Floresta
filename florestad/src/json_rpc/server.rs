@@ -1,3 +1,7 @@
+use super::res::{
+    BlockJson, Error, GetBlockchainInfoRes, RawTxJson, ScriptPubKeyJson, ScriptSigJson, TxInJson,
+    TxOutJson,
+};
 use async_std::sync::RwLock;
 use bitcoin::{
     consensus::{deserialize, serialize},
@@ -11,6 +15,7 @@ use floresta_chain::{
     pruned_utreexo::{BlockchainInterface, UpdatableChainstate},
     ChainState, KvChainStore,
 };
+use floresta_compact_filters::BlockFilterBackend;
 use floresta_watch_only::{kv_database::KvDatabase, AddressCache, CachedTransaction};
 use floresta_wire::node_interface::{NodeInterface, NodeMethods, PeerInfo};
 use futures::executor::block_on;
@@ -20,13 +25,10 @@ use jsonrpc_http_server::ServerBuilder;
 use serde_json::{json, Value};
 use std::sync::Arc;
 
-use super::res::{
-    BlockJson, Error, GetBlockchainInfoRes, RawTxJson, ScriptPubKeyJson, ScriptSigJson, TxInJson,
-    TxOutJson,
-};
-
 #[rpc]
 pub trait Rpc {
+    #[rpc(name = "getblockfilter")]
+    fn get_block_filter(&self, heigth: u32) -> Result<String>;
     #[rpc(name = "getblockchaininfo")]
     fn get_blockchain_info(&self) -> Result<GetBlockchainInfoRes>;
     #[rpc(name = "getblockhash")]
@@ -62,6 +64,7 @@ pub trait Rpc {
 }
 
 pub struct RpcImpl {
+    block_filter_storage: Option<Arc<BlockFilterBackend>>,
     network: Network,
     chain: Arc<ChainState<KvChainStore>>,
     wallet: Arc<RwLock<AddressCache<KvDatabase>>>,
@@ -73,6 +76,16 @@ impl Rpc for RpcImpl {
         Ok(self.chain.get_best_block().unwrap().0)
     }
 
+    fn get_block_filter(&self, heigth: u32) -> Result<String> {
+        if let Some(ref cfilters) = self.block_filter_storage {
+            return Ok(cfilters
+                .get_filter(heigth)
+                .ok_or(Error::BlockNotFound)?
+                .content
+                .to_hex());
+        }
+        Err(jsonrpc_core::Error { code: 10.into(), message: String::from("You don't have block filters enabled in your node, change this by restarting with -cfilters"), data: None })
+    }
     fn add_node(&self, node: String) -> Result<bool> {
         let node = node.split(':').collect::<Vec<&str>>();
         let (ip, port) = if node.len() == 2 {
@@ -173,7 +186,7 @@ impl Rpc for RpcImpl {
     fn rescan(&self, rescan: u32) -> Result<bool> {
         let result = self.chain.rescan(rescan);
         if result.is_err() {
-            return Err(Error::ChainError.into());
+            return Err(Error::Chain.into());
         }
         Ok(true)
     }
@@ -192,7 +205,7 @@ impl Rpc for RpcImpl {
         if self.chain.broadcast(&tx).is_ok() {
             return Ok(tx.txid());
         }
-        Err(Error::ChainError.into())
+        Err(Error::Chain.into())
     }
 
     fn get_tx_out(&self, tx_id: Txid, outpoint: usize) -> Result<TxOut> {
@@ -214,14 +227,13 @@ impl Rpc for RpcImpl {
         let verbosity = verbosity.unwrap_or(1);
         if let Ok(Some(block)) = self.node.get_block(hash) {
             if verbosity == 1 {
-                let tip = self.chain.get_height().map_err(|_| Error::ChainError)?;
+                let tip = self.chain.get_height().map_err(|_| Error::Chain)?;
                 let height = self
                     .chain
                     .get_block_height(&hash)
-                    .map_err(|_| Error::ChainError)?
+                    .map_err(|_| Error::Chain)?
                     .unwrap();
                 let mut last_block_times: Vec<_> = ((height - 11)..height)
-                    .into_iter()
                     .map(|h| {
                         self.chain
                             .get_block_header(&self.chain.get_block_hash(h).unwrap())
@@ -239,7 +251,7 @@ impl Rpc for RpcImpl {
                     confirmations: (tip - height) + 1,
                     difficulty: block.header.difficulty(self.network),
                     hash: block.header.block_hash().to_string(),
-                    height: height,
+                    height,
                     merkleroot: block.header.merkle_root.to_string(),
                     nonce: block.header.nonce,
                     previousblockhash: block.header.prev_blockhash.to_string(),
@@ -274,7 +286,7 @@ impl Rpc for RpcImpl {
         let block_hash = self
             .chain
             .get_block_hash(block_height)
-            .map_err(|_| Error::ChainError)?;
+            .map_err(|_| Error::Chain)?;
         let block = self
             .node
             .get_block(block_hash)
@@ -347,8 +359,7 @@ impl RpcImpl {
                     .map(|a| a.to_string())
                     .unwrap(),
                 type_: Self::get_script_type(output.script_pubkey)
-                    .or(Some("nonstandard"))
-                    .unwrap()
+                    .unwrap_or("nonstandard")
                     .to_string(),
             },
         }
@@ -419,6 +430,7 @@ impl RpcImpl {
         node: Arc<NodeInterface>,
         kill_signal: Arc<RwLock<bool>>,
         network: Network,
+        block_filter_storage: Option<Arc<BlockFilterBackend>>,
     ) -> jsonrpc_http_server::Server {
         let mut io = jsonrpc_core::IoHandler::new();
         let rpc_impl = RpcImpl {
@@ -427,6 +439,7 @@ impl RpcImpl {
             wallet,
             node,
             kill_signal,
+            block_filter_storage,
         };
         io.extend_with(rpc_impl.to_delegate());
 

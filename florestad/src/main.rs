@@ -33,13 +33,13 @@ use async_std::{
 };
 use bitcoin::{BlockHash, Network};
 use clap::Parser;
-use cli::{Cli, Commands};
+use cli::{Cli, Commands, FilterType};
 use config_file::ConfigFile;
 use floresta_chain::{
     pruned_utreexo::BlockchainInterface, BlockchainError, ChainState, KvChainStore,
 };
 use floresta_common::constants::DIR_NAME;
-use floresta_compact_filters::{BlockFilterBackend, KvFiltersStore};
+use floresta_compact_filters::{FilterBackendBuilder, KvFiltersStore};
 use floresta_electrum::electrum_protocol::{accept_loop, ElectrumServer};
 use floresta_watch_only::{kv_database::KvDatabase, AddressCache, AddressCacheDatabase};
 use floresta_wire::{mempool::Mempool, node::UtreexoNode};
@@ -66,6 +66,8 @@ struct Ctx {
     config_file: Option<String>,
     proxy: Option<String>,
     network: cli::Network,
+    cfilters: bool,
+    cfilter_types: Vec<FilterType>,
     #[cfg(feature = "zmq-server")]
     zmq_address: Option<String>,
 }
@@ -88,6 +90,8 @@ fn main() {
             rescan,
             proxy,
             zmq_address: _zmq_address,
+            cfilters,
+            cfilter_types,
         }) => {
             let ctx = Ctx {
                 data_dir,
@@ -98,6 +102,8 @@ fn main() {
                 proxy,
                 config_file: params.config_file,
                 network: params.network,
+                cfilters,
+                cfilter_types: cfilter_types.unwrap_or_default(),
                 #[cfg(feature = "zmq-server")]
                 zmq_address: _zmq_address,
             };
@@ -178,23 +184,52 @@ fn run_with_ctx(ctx: Ctx) {
             .rescan(height)
             .expect("Fail while setting rescan");
     }
-    debug!("Done loading database");
+    let cfilters = if ctx.cfilters {
+        // Block Filters
+        let key = if let Ok(file) = std::fs::read(format!("{data_dir}/cfilters_key")) {
+            let mut key = [0_u8; 32];
+            key.copy_from_slice(&file[0..32]);
+            key
+        } else {
+            let key = rand::random::<[u8; 32]>();
+            std::fs::write(format!("{data_dir}/cfilters_key"), key)
+                .expect("couldn't write to datadir");
+            key
+        };
+        let filters_dir = format!("{data_dir}/cfilters");
+        let cfilters_db = KvFiltersStore::new(filters_dir);
 
-    // Block Filters
-    let key = if let Ok(file) = std::fs::read(format!("{data_dir}/cfilters_key")) {
-        let mut key = [0_u8; 32];
-        key.copy_from_slice(&file[0..32]);
-        key
+        let mut filters = FilterBackendBuilder::default()
+            .key_hash(key)
+            .use_storage(Box::new(cfilters_db));
+        for filter_type in ctx.cfilter_types {
+            filters = match filter_type {
+                FilterType::TxId => filters.index_txids(true),
+                FilterType::Inputs => filters.index_input(true),
+
+                FilterType::SpkPKH => {
+                    filters.add_address_type(floresta_compact_filters::OutputTypes::PKH)
+                }
+                FilterType::SpkPSH => {
+                    filters.add_address_type(floresta_compact_filters::OutputTypes::SH)
+                }
+                FilterType::SpkWPKH => {
+                    filters.add_address_type(floresta_compact_filters::OutputTypes::WPKH)
+                }
+                FilterType::SpkWSH => {
+                    filters.add_address_type(floresta_compact_filters::OutputTypes::WSH)
+                }
+                FilterType::SpkTR => {
+                    filters.add_address_type(floresta_compact_filters::OutputTypes::TR)
+                }
+            };
+        }
+        let cfilters = Arc::new(filters.build());
+        blockchain_state.subscribe(cfilters.clone());
+        Some(cfilters)
     } else {
-        let key = rand::random::<[u8; 32]>();
-        std::fs::write(format!("{data_dir}/cfilters_key"), &key)
-            .expect("couldn't write to datadir");
-        key
+        None
     };
-    let filters_dir = format!("{data_dir}/cfilters");
-    let cfilters_db = KvFiltersStore::new(filters_dir);
-    let filters = Arc::new(BlockFilterBackend::new(Box::new(cfilters_db), key));
-    blockchain_state.subscribe(filters);
 
     // Chain Provider (p2p)
     let chain_provider = UtreexoNode::new(
@@ -230,7 +265,8 @@ fn run_with_ctx(ctx: Ctx) {
         &get_net(&ctx.network),
         chain_provider.get_handle(),
         kill_signal.clone(),
-        get_net(&ctx.network).into(),
+        get_net(&ctx.network),
+        cfilters,
     );
 
     // Electrum

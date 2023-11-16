@@ -140,6 +140,9 @@ impl BlockFilterBackend {
             k1: u64::from_le_bytes(k1),
         }
     }
+    pub fn get_filter(&self, block_height: u32) -> Option<bip158::BlockFilter> {
+        self.storage.get_filter(block_height as u64)
+    }
     /// Build and index a given block height
     pub fn filter_block(&self, block: &Block, block_height: u64) -> Result<(), bip158::Error> {
         let mut writer = Vec::new();
@@ -253,7 +256,7 @@ impl FilterBackendBuilder {
     /// Which storage we should use for our filters
     ///
     /// This is the only required field.
-    pub fn use_storage(&mut self, s: Box<dyn BlockFilterStore>) -> &mut Self {
+    pub fn use_storage(mut self, s: Box<dyn BlockFilterStore>) -> Self {
         self.storage.replace(s);
         self
     }
@@ -261,7 +264,7 @@ impl FilterBackendBuilder {
     ///
     /// You can use whatever number of types, including all. But any new type
     /// makes the filter larger.
-    pub fn add_address_type(&mut self, out_type: OutputTypes) -> &mut Self {
+    pub fn add_address_type(mut self, out_type: OutputTypes) -> Self {
         match out_type {
             OutputTypes::PKH => self.whitelisted_outputs |= 1,
             OutputTypes::SH => self.whitelisted_outputs |= 2,
@@ -276,14 +279,14 @@ impl FilterBackendBuilder {
     /// You can use this index to fetch arbitrary outpoints, like a lightning
     /// channel. In general, this should be used in combination with index_input,
     /// or you can't be sure whether the outpoint is spent or not.
-    pub fn index_txids(&mut self, index: bool) -> &mut Self {
+    pub fn index_txids(mut self, index: bool) -> Self {
         self.index_txids = index;
         self
     }
     /// Whether we index inputs
     ///
     /// If true, we add the prevout, but not the previous spk or scriptSig
-    pub fn index_input(&mut self, index: bool) -> &mut Self {
+    pub fn index_input(mut self, index: bool) -> Self {
         self.index_input = index;
         self
     }
@@ -291,7 +294,7 @@ impl FilterBackendBuilder {
     ///
     /// BIP-158 uses the block hash, but we use a fixed by here, so we don't
     /// need to access chaindata on query
-    pub fn key_hash(&mut self, key: [u8; 32]) -> &mut Self {
+    pub fn key_hash(mut self, key: [u8; 32]) -> Self {
         self.key = key;
         self
     }

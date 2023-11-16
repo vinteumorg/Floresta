@@ -51,4 +51,4 @@ json-rpc = [
     "jsonrpc-core",
     "jsonrpc-core-client",
 ]
-default = ["experimental-p2p", "compact-filters"]
+default = ["experimental-p2p", "compact-filters", "json-rpc"]

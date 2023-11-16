@@ -56,6 +56,7 @@ fn get_req(cmd: &Cli) -> (Vec<Box<RawValue>>, String) {
         Methods::ListTransactions => "gettransactions",
         Methods::Stop => "stop",
         Methods::AddNode { .. } => "addnode",
+        Methods::GetFilters { .. } => "getblockfilter",
     };
     let params = match &cmd.methods {
         Methods::GetBlockchainInfo => Vec::new(),
@@ -91,6 +92,9 @@ fn get_req(cmd: &Cli) -> (Vec<Box<RawValue>>, String) {
         Methods::Stop => Vec::new(),
         Methods::AddNode { node } => {
             vec![arg(node)]
+        }
+        Methods::GetFilters { height } => {
+            vec![arg(height)]
         }
     };
 
@@ -182,4 +186,7 @@ pub enum Methods {
     /// Usage: addnode <ip:[port]>
     #[command(name = "addnode")]
     AddNode { node: String },
+    /// Returns the filters for a given block
+    #[command(name = "getfilter")]
+    GetFilters { height: u32 },
 }
