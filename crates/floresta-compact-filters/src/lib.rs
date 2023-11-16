@@ -10,15 +10,16 @@
 //! for it. Therefore, you can't use this to speedup wallet sync **before** IBD,
 //! since we wouldn't have the filter for all blocks yet.
 //!
-use std::io::Write;
-
 use bitcoin::{
     hashes::Hash,
     util::bip158::{self, BlockFilter, GCSFilterWriter},
     Block, BlockHash, OutPoint, Transaction, Txid,
 };
-
 use core::{fmt::Debug, ops::BitAnd};
+use floresta_chain::BlockConsumer;
+use kv::Integer;
+use log::error;
+use std::io::Write;
 
 /// A database that stores our compact filters
 pub trait BlockFilterStore {
@@ -83,6 +84,9 @@ pub struct BlockFilterBackend {
     /// an actual block hash
     key: [u8; 32],
 }
+
+unsafe impl Sync for BlockFilterBackend {}
+unsafe impl Send for BlockFilterBackend {}
 
 /// Keeps track of a unfinnished BIP-158 block filter. We use this to add new elements
 /// to the filter, until there's nothing more to add
@@ -220,6 +224,13 @@ impl BlockFilterBackend {
     }
 }
 
+impl BlockConsumer for BlockFilterBackend {
+    fn consume_block(&self, block: &Block, height: u32) {
+        if let Err(e) = self.filter_block(block, height as u64) {
+            error!("while creating filter for block {height}: {e}");
+        }
+    }
+}
 /// Builds a block filter backend with an interactive builder.
 ///
 /// The only thing required is a database to save the filters.
@@ -359,6 +370,42 @@ impl BlockFilterStore for MemoryBlockFilterStorage {
     }
     fn put_filter(&self, _block_height: u64, block_filter: bip158::BlockFilter) {
         self.filters.borrow_mut().push(block_filter);
+    }
+}
+
+pub struct KvFiltersStore<'a> {
+    _store: kv::Store,
+    bucket: kv::Bucket<'a, Integer, Vec<u8>>,
+}
+
+impl<'a> KvFiltersStore<'a> {
+    pub fn new(path: String) -> KvFiltersStore<'a> {
+        let _store = kv::Store::new(kv::Config {
+            temporary: false,
+            path: path.into(),
+            segment_size: None,
+            flush_every_ms: None,
+            cache_capacity: None,
+            use_compression: false,
+        })
+        .expect("could not open the filters database");
+        let bucket = _store
+            .bucket(Some("cfilters"))
+            .expect("could not open the filterrs bucket");
+        KvFiltersStore { _store, bucket }
+    }
+}
+
+impl BlockFilterStore for KvFiltersStore<'_> {
+    fn get_filter(&self, block_height: u64) -> Option<bip158::BlockFilter> {
+        self.bucket
+            .get(&block_height.into())
+            .ok()?
+            .map(|filter| bip158::BlockFilter::new(&filter))
+    }
+    fn put_filter(&self, block_height: u64, block_filter: bip158::BlockFilter) {
+        let inner = block_filter.content;
+        let _ = self.bucket.set(&block_height.into(), &inner);
     }
 }
 

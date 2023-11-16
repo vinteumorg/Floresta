@@ -14,4 +14,7 @@ description = """
 bitcoin_hashes = "0.11.0"
 bitcoin = "0.29"
 floresta-common = { path = "../floresta-common" }
+floresta-chain = { path = "../floresta-chain", default-features = false }
 kv = "0.24.0"
+log = "0.4.20"
+

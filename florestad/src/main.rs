@@ -31,8 +31,6 @@ use async_std::{
     sync::RwLock,
     task::{self, block_on},
 };
-use std::{path::PathBuf, sync::Arc};
-
 use bitcoin::{BlockHash, Network};
 use clap::Parser;
 use cli::{Cli, Commands};
@@ -41,11 +39,13 @@ use floresta_chain::{
     pruned_utreexo::BlockchainInterface, BlockchainError, ChainState, KvChainStore,
 };
 use floresta_common::constants::DIR_NAME;
+use floresta_compact_filters::{BlockFilterBackend, KvFiltersStore};
 use floresta_electrum::electrum_protocol::{accept_loop, ElectrumServer};
 use floresta_watch_only::{kv_database::KvDatabase, AddressCache, AddressCacheDatabase};
 use floresta_wire::{mempool::Mempool, node::UtreexoNode};
 use log::{debug, error, info};
 use pretty_env_logger::env_logger::{Env, TimestampPrecision};
+use std::{path::PathBuf, sync::Arc};
 
 #[cfg(feature = "zmq-server")]
 use zmq::ZMQServer;
@@ -180,6 +180,23 @@ fn run_with_ctx(ctx: Ctx) {
     }
     debug!("Done loading database");
 
+    // Block Filters
+    let key = if let Ok(file) = std::fs::read(format!("{data_dir}/cfilters_key")) {
+        let mut key = [0_u8; 32];
+        key.copy_from_slice(&file[0..32]);
+        key
+    } else {
+        let key = rand::random::<[u8; 32]>();
+        std::fs::write(format!("{data_dir}/cfilters_key"), &key)
+            .expect("couldn't write to datadir");
+        key
+    };
+    let filters_dir = format!("{data_dir}/cfilters");
+    let cfilters_db = KvFiltersStore::new(filters_dir);
+    let filters = Arc::new(BlockFilterBackend::new(Box::new(cfilters_db), key));
+    blockchain_state.subscribe(filters);
+
+    // Chain Provider (p2p)
     let chain_provider = UtreexoNode::new(
         blockchain_state.clone(),
         Arc::new(async_std::sync::RwLock::new(Mempool::new())),
@@ -188,6 +205,7 @@ fn run_with_ctx(ctx: Ctx) {
         ctx.proxy.map(|x| x.parse().expect("Invalid proxy address")),
     );
 
+    // ZMQ
     #[cfg(feature = "zmq-server")]
     {
         info!("Starting ZMQ server");
@@ -203,7 +221,8 @@ fn run_with_ctx(ctx: Ctx) {
 
     info!("Starting server");
     let wallet = Arc::new(RwLock::new(wallet));
-    // Setup the json-rpc if needed
+
+    // JSON-RPC
     #[cfg(feature = "json-rpc")]
     let _server = json_rpc::server::RpcImpl::create(
         blockchain_state.clone(),
@@ -213,8 +232,8 @@ fn run_with_ctx(ctx: Ctx) {
         kill_signal.clone(),
         get_net(&ctx.network).into(),
     );
-    // Create a new electrum server, we need to block_on because `ElectrumServer::new` is `async`
-    // but our main isn't, so we can't `.await` on it.
+
+    // Electrum
     let electrum_server = block_on(ElectrumServer::new(
         "0.0.0.0:50001",
         wallet,
@@ -222,6 +241,9 @@ fn run_with_ctx(ctx: Ctx) {
     ))
     .expect("Could not create an Electrum Server");
 
+    // Spawn all services
+
+    // Electrum accept loop
     task::spawn(accept_loop(
         electrum_server
             .listener
@@ -229,8 +251,10 @@ fn run_with_ctx(ctx: Ctx) {
             .expect("Listener can't be none by this far"),
         electrum_server.notify_tx.clone(),
     ));
+    // Electrum main loop
     task::spawn(electrum_server.main_loop());
     info!("Server running on: 0.0.0.0:50001");
+
     let _kill_signal = kill_signal.clone();
     ctrlc::set_handler(move || {
         if *block_on(_kill_signal.write()) {
@@ -239,6 +263,8 @@ fn run_with_ctx(ctx: Ctx) {
         *block_on(_kill_signal.write()) = true;
     })
     .expect("Error setting Ctrl-C handler");
+    // Chain provider
+    // If chain provider dies, we die too
     task::block_on(chain_provider.run(&kill_signal));
 }
 
