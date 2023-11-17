@@ -27,7 +27,7 @@ use bitcoin::{
     BlockHash, BlockHeader, Network, Transaction,
 };
 use futures::{AsyncRead, AsyncWrite, AsyncWriteExt, FutureExt};
-use log::{debug, error, info, warn};
+use log::{debug, error, warn};
 use std::{
     fmt::Debug,
     sync::Arc,
@@ -306,7 +306,10 @@ impl<T: Transport> Peer<T> {
                     .await;
                 }
                 _ => {
-                    info!("Unexpected message: {:?}", message.payload);
+                    warn!(
+                        "unexpected message: {:?} from peer {}",
+                        message.payload, self.id
+                    );
                     return Err(PeerError::UnexpectedMessage);
                 }
             },
@@ -322,8 +325,10 @@ impl<T: Transport> Peer<T> {
                 }
                 bitcoin::network::message::NetworkMessage::WtxidRelay => {}
                 _ => {
-                    info!("==>Unexpected message: {:?}", message.payload);
-
+                    warn!(
+                        "unexpected message: {:?} from peer {}",
+                        message.payload, self.id
+                    );
                     return Err(PeerError::UnexpectedMessage);
                 }
             },

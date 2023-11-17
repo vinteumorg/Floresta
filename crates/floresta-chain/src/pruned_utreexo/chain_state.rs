@@ -26,7 +26,7 @@ use bitcoin::{
 #[cfg(feature = "bitcoinconsensus")]
 use core::ffi::c_uint;
 use floresta_common::Channel;
-use log::{info, trace};
+use log::{info, trace, warn};
 use rustreexo::accumulator::{node_hash::NodeHash, proof::Proof, stump::Stump};
 use spin::RwLock;
 
@@ -523,21 +523,38 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
     /// point.
     fn reindex_chain(&self) -> BestChain {
         let inner = read_lock!(self);
+        warn!("reindexing our chain");
+        let mut headers = 0;
+        let mut fully_valid = inner
+            .chainstore
+            .get_block_hash(0)
+            .expect("No genesis block")
+            .unwrap();
 
-        let mut height = 0;
         let mut hash = inner
             .chainstore
             .get_block_hash(0)
             .expect("No genesis block")
             .unwrap();
-        while let Ok(Some(_hash)) = inner.chainstore.get_block_hash(height) {
-            height += 1;
+        while let Ok(Some(_hash)) = inner.chainstore.get_block_hash(headers) {
+            let header = self.get_disk_block_header(&_hash);
+            match &header {
+                Ok(DiskBlockHeader::FullyValid(header, heigth)) => {
+                    assert_eq!(*heigth, headers);
+                    headers += 1;
+                    fully_valid = header.block_hash();
+                }
+                Ok(DiskBlockHeader::HeadersOnly(_, _)) => {
+                    headers += 1;
+                }
+                _ => break,
+            }
             hash = _hash;
         }
         BestChain {
             best_block: hash,
-            depth: height,
-            validation_index: hash,
+            depth: headers - 1,
+            validation_index: fully_valid,
             rescan_index: None,
             alternative_tips: Vec::new(),
             assume_valid_index: 0,
@@ -575,10 +592,28 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             inner: RwLock::new(inner),
         };
         // Check the integrity of our chain
-        chainstate.reindex_chain();
+        chainstate.check_chain_integrity();
         Ok(chainstate)
     }
 
+    fn check_chain_integrity(&self) {
+        let best_height = self.get_best_block().expect("should have this loaded").0;
+        for height in 0..=best_height {
+            let Ok(hash) = self.get_block_hash(height) else {
+                self.reindex_chain();
+                return;
+            };
+            match self.get_disk_block_header(&hash) {
+                Ok(DiskBlockHeader::FullyValid(_, _)) => continue,
+                Ok(DiskBlockHeader::HeadersOnly(_, _)) => continue,
+
+                _ => {
+                    warn!("our chain is corrupted, reindexing");
+                    self.reindex_chain();
+                }
+            }
+        }
+    }
     fn load_acc<Storage: ChainStore>(data_storage: &Storage) -> Stump {
         let acc = data_storage
             .load_roots()
@@ -615,7 +650,6 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         inner
             .chainstore
             .update_block_index(height, block.block_hash())?;
-        inner.chainstore.save_height(&inner.best_block)?;
         // Updates our local view of the network
         inner.acc = acc;
         inner.best_block.valid_block(block.block_hash());
@@ -916,10 +950,11 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
                 "New tip! hash={} height={height} tx_count={}",
                 block.block_hash(),
                 block.txdata.len()
-            )
+            );
+            self.flush()?;
         }
+
         self.update_view(height, &block.header, acc)?;
-        self.save_acc()?;
 
         // Notify others we have a new block
         self.notify(block, height);
@@ -945,9 +980,12 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
             self.maybe_reindex(&_header?);
             return Ok(()); // We already have this header
         }
+        // The best block we know of
         let best_block = self.get_best_block()?;
+
         // Do validation in this header
         let block_hash = self.validate_header(&header)?;
+
         // Update our current tip
         if header.prev_blockhash == best_block.1 {
             let height = best_block.0 + 1;

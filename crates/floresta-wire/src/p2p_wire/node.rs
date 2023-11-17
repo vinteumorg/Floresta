@@ -772,10 +772,14 @@ where
         for header in headers {
             self.chain.accept_header(header)?;
         }
+        if self.inflight.contains_key(&InflightRequests::Headers) {
+            return Ok(());
+        }
         let locator = self.chain.get_block_locator()?;
         let peer = self
             .send_to_random_peer(NodeRequest::GetHeaders(locator), ServiceFlags::NONE)
             .await?;
+
         self.inflight
             .insert(InflightRequests::Headers, (peer, Instant::now()));
         Ok(())
@@ -796,22 +800,21 @@ where
     }
     pub async fn run(&mut self, stop_signal: &Arc<RwLock<bool>>) -> Result<(), WireError> {
         self.create_connection(false).await;
+        self.last_headers_request = Instant::now();
         loop {
             while let Ok(notification) =
                 timeout(Duration::from_millis(10), self.node_rx.recv()).await
             {
                 try_and_log!(self.handle_notification(notification).await);
             }
+
             if *stop_signal.read().await {
                 break;
             }
-            periodic_job!(
-                self.maybe_open_connection().await,
-                self.last_connection,
-                TRY_NEW_CONNECTION,
-                IBDNode
-            );
 
+            if self.state == NodeState::WaitingPeer {
+                try_and_log!(self.maybe_open_connection().await);
+            }
             self.last_tip_update = Instant::now();
 
             // If we don't have any peers, then we can't do anything
@@ -833,6 +836,7 @@ where
                     }
                 })?;
             }
+
             if !self.chain.is_in_idb() {
                 break;
             }
