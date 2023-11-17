@@ -40,13 +40,6 @@ impl BlockConsumer for Channel<(Block, u32)> {
     }
 }
 
-#[cfg(not(feature = "no-std"))]
-impl BlockConsumer for std::sync::mpsc::Sender<(Block, u32)> {
-    fn consume_block(&self, block: &Block, height: u32) {
-        let _ = self.send((block.to_owned(), height));
-    }
-}
-
 pub struct ChainStateInner<PersistedState: ChainStore> {
     /// The acc we use for validation.
     acc: Stump,
