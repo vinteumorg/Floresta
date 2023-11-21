@@ -5,6 +5,7 @@ members = [
     "crates/floresta-chain",
     "crates/floresta-cli",
     "crates/floresta-common",
+    "crates/floresta-compact-filters",
     "crates/floresta-electrum",
     "crates/floresta-watch-only",
     "crates/floresta-wire",
