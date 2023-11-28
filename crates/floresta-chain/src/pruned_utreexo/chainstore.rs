@@ -170,7 +170,6 @@ impl ChainStore for KvChainStore {
         // Flush the default bucket with meta-info
         let bucket = self.0.bucket::<&[u8], Vec<u8>>(None)?;
         bucket.flush()?;
-
         Ok(())
     }
     fn save_header(&self, header: &DiskBlockHeader) -> Result<(), Self::Error> {
