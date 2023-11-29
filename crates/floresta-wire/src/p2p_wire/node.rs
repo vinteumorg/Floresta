@@ -1111,6 +1111,7 @@ where
             {
                 try_and_log!(self.handle_notification(notification).await);
             }
+
             if *kill_signal.read().await {
                 self.shutdown().await;
                 break;
@@ -1322,6 +1323,14 @@ where
             );
             self.send_to_peer(peer, NodeRequest::Shutdown).await?;
             return Err(WireError::PeerMisbehaving);
+        }
+
+        let validation_index = self.chain.get_validation_index()?;
+        let validation_hash = self.chain.get_block_hash(validation_index)?;
+
+        // We've downloaded a block that's not the next we need, ignore it for now
+        if validation_hash != block.block.header.prev_blockhash {
+            return Ok(());
         }
 
         let (proof, del_hashes, inputs) = Self::process_proof(

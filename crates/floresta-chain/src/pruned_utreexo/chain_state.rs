@@ -927,6 +927,15 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
             | DiskBlockHeader::InvalidChain(_) => return Ok(0),
             DiskBlockHeader::HeadersOnly(_, height) => height,
         };
+
+        // Check if this block is the next one in our chain, if we try
+        // to add them out-of-order, we'll have consensus issues with our
+        // accumulator
+        let expected_height = self.get_validation_index()? + 1;
+        if height != expected_height {
+            return Ok(height);
+        }
+
         self.validate_block(block, height, inputs)?;
         let acc = Consensus::update_acc(&self.acc(), block, height, proof, del_hashes)?;
         let ibd = self.is_in_idb();
