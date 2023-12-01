@@ -308,9 +308,11 @@ impl Rpc for RpcImpl {
                     })
                     .collect();
                 last_block_times.sort();
-
-                let median_time_past = last_block_times[5];
-
+                let median_time_past = if last_block_times.len() > 5 {
+                    last_block_times[5]
+                } else {
+                    0
+                };
                 let block = BlockJson {
                     bits: block.header.bits.to_hex(),
                     chainwork: block.header.work().to_string(),
