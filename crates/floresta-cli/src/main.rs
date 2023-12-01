@@ -82,7 +82,7 @@ fn get_req(cmd: &Cli) -> (Vec<Box<RawValue>>, String) {
         Methods::RescanBlockchain { start_height } => vec![arg(start_height)],
         Methods::SendRawTransaction { tx } => vec![arg(tx)],
         Methods::GetRoots => Vec::new(),
-        Methods::GetBlock { hash } => vec![arg(hash)],
+        Methods::GetBlock { hash, verbosity } => vec![arg(hash), arg(verbosity)],
         Methods::GetPeerInfo => Vec::new(),
         Methods::ListTransactions => Vec::new(),
         Methods::Stop => Vec::new(),
@@ -159,7 +159,7 @@ pub enum Methods {
     GetRoots,
     /// Returns a block
     #[command(name = "getblock")]
-    GetBlock { hash: BlockHash },
+    GetBlock { hash: BlockHash, verbosity: u32 },
     /// Returns information about the peers we are connected to
     #[command(name = "getpeerinfo")]
     GetPeerInfo,
