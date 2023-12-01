@@ -52,7 +52,6 @@ fn get_req(cmd: &Cli) -> (Vec<Box<RawValue>>, String) {
         Methods::GetRoots => "getroots",
         Methods::GetBlock { .. } => "getblock",
         Methods::GetPeerInfo => "getpeerinfo",
-        Methods::FindUtxo { .. } => "findtxout",
         Methods::ListTransactions => "gettransactions",
         Methods::Stop => "stop",
         Methods::AddNode { .. } => "addnode",
@@ -86,9 +85,6 @@ fn get_req(cmd: &Cli) -> (Vec<Box<RawValue>>, String) {
         Methods::GetBlock { hash } => vec![arg(hash)],
         Methods::GetPeerInfo => Vec::new(),
         Methods::ListTransactions => Vec::new(),
-        Methods::FindUtxo { height, txid, vout } => {
-            vec![arg(height), arg(txid), arg(vout)]
-        }
         Methods::Stop => Vec::new(),
         Methods::AddNode { node } => {
             vec![arg(node)]
@@ -137,10 +133,6 @@ pub enum Methods {
     /// Returns the hash of the block associated with height
     #[command(name = "getblockhash")]
     GetBlockHash { height: u32 },
-    /// Returns information about a transaction output, assuming it is cached by our watch
-    /// only wallet
-    #[command(name = "gettxout")]
-    GetTxOut { txid: Txid, vout: u32 },
     /// Returns the proof that one or more transactions were included in a block
     #[command(name = "gettxproof")]
     GetTxProof {
@@ -174,11 +166,11 @@ pub enum Methods {
     /// List all transactions we are watching
     #[command(name = "listtransactions")]
     ListTransactions,
-    /// Finds a TXO by its outpoint and block height. Since we don't have a UTXO set
-    /// the block height is required to find the UTXO. Note that this command doesn't
-    /// check if the UTXO is spent or not.
-    #[command(name = "findutxo")]
-    FindUtxo { height: u32, txid: Txid, vout: u32 },
+    /// Returns the value associated with a UTXO, if it's still not spent.
+    /// This function only works properly if we have the compact block filters
+    /// feature enabled
+    #[command(name = "gettxout")]
+    GetTxOut { txid: Txid, vout: u32 },
     /// Stops the node
     #[command(name = "stop")]
     Stop,

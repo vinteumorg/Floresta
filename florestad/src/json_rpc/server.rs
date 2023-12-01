@@ -9,13 +9,13 @@ use bitcoin::{
         hex::{FromHex, ToHex},
         Hash,
     },
-    Address, BlockHash, BlockHeader, Network, Script, TxIn, TxOut, Txid,
+    Address, Block, BlockHash, BlockHeader, Network, OutPoint, Script, TxIn, TxOut, Txid,
 };
 use floresta_chain::{
     pruned_utreexo::{BlockchainInterface, UpdatableChainstate},
     ChainState, KvChainStore,
 };
-use floresta_compact_filters::BlockFilterBackend;
+use floresta_compact_filters::{BlockFilterBackend, QueryType};
 use floresta_watch_only::{kv_database::KvDatabase, AddressCache, CachedTransaction};
 use floresta_wire::node_interface::{NodeInterface, NodeMethods, PeerInfo};
 use futures::executor::block_on;
@@ -39,8 +39,6 @@ pub trait Rpc {
     fn get_transaction(&self, tx_id: Txid, verbosity: Option<bool>) -> Result<Value>;
     #[rpc(name = "gettxproof")]
     fn get_tx_proof(&self, tx_id: Txid) -> Result<Vec<String>>;
-    #[rpc(name = "gettxout")]
-    fn get_tx_out(&self, tx_id: Txid, outpoint: usize) -> Result<TxOut>;
     #[rpc(name = "loaddescriptor")]
     fn load_descriptor(&self, descriptor: String, rescan: Option<u32>) -> Result<()>;
     #[rpc(name = "rescan")]
@@ -55,8 +53,8 @@ pub trait Rpc {
     fn get_peer_info(&self) -> Result<Vec<PeerInfo>>;
     #[rpc(name = "getblock")]
     fn get_block(&self, hash: BlockHash, verbosity: Option<u8>) -> Result<Value>;
-    #[rpc(name = "findtxout")]
-    fn find_tx_out(&self, block_height: u32, tx_id: Txid, outpoint: usize) -> Result<TxOut>;
+    #[rpc(name = "gettxout", returns = "TxOut")]
+    fn get_tx_out(&self, tx_id: Txid, outpoint: u32) -> Result<Value>;
     #[rpc(name = "stop")]
     fn stop(&self) -> Result<bool>;
     #[rpc(name = "addnode")]
@@ -72,6 +70,78 @@ pub struct RpcImpl {
     kill_signal: Arc<RwLock<bool>>,
 }
 impl Rpc for RpcImpl {
+    fn get_tx_out(&self, tx_id: Txid, outpoint: u32) -> Result<Value> {
+        fn has_input(block: &Block, expected_input: OutPoint) -> bool {
+            block.txdata.iter().any(|tx| {
+                tx.input
+                    .iter()
+                    .any(|input| input.previous_output == expected_input)
+            })
+        }
+        // can't proceed without block filters
+        if self.block_filter_storage.is_none() {
+            return Err(jsonrpc_core::Error {
+                code: Error::NoBlockFilters.into(),
+                message: Error::NoBlockFilters.to_string(),
+                data: None,
+            });
+        }
+        // this variable will be set to the UTXO iff (i) it have been created
+        // (ii) it haven't been spent
+        let mut txout = None;
+        let tip = self.chain.get_height().unwrap();
+
+        if let Some(ref cfilters) = self.block_filter_storage {
+            let vout = OutPoint {
+                txid: tx_id,
+                vout: outpoint,
+            };
+
+            let filter_outpoint = QueryType::Input(vout.into());
+            let filter_txid = QueryType::Txid(tx_id);
+
+            let candidates = cfilters
+                .match_any(1, tip as u64, &[filter_outpoint, filter_txid])
+                .unwrap();
+
+            let candidates = candidates
+                .into_iter()
+                .flat_map(|height| self.chain.get_block_hash(height as u32))
+                .map(|hash| self.node.get_block(hash));
+
+            for candidate in candidates {
+                let candidate = match candidate {
+                    Err(e) => {
+                        return Err(jsonrpc_core::Error {
+                            code: Error::Node.into(),
+                            message: format!("error while downloading block {candidate:?}"),
+                            data: Some(jsonrpc_core::Value::String(e.to_string())),
+                        });
+                    }
+                    Ok(None) => {
+                        return Err(jsonrpc_core::Error {
+                            code: Error::Node.into(),
+                            message: format!("BUG: block {candidate:?} is a match in our filters, but we can't get it?"),
+                            data: None,
+                        });
+                    }
+                    Ok(Some(candidate)) => candidate,
+                };
+
+                if let Some(tx) = candidate.txdata.iter().position(|tx| tx.txid() == tx_id) {
+                    txout = candidate.txdata[tx].output.get(outpoint as usize).cloned();
+                }
+
+                if has_input(&candidate, vout) {
+                    txout = None;
+                }
+            }
+        }
+        match txout {
+            Some(txout) => Ok(json!({"txout": txout})),
+            None => Ok(json!({})),
+        }
+    }
     fn get_height(&self) -> Result<u32> {
         Ok(self.chain.get_best_block().unwrap().0)
     }
@@ -84,7 +154,11 @@ impl Rpc for RpcImpl {
                 .content
                 .to_hex());
         }
-        Err(jsonrpc_core::Error { code: 10.into(), message: String::from("You don't have block filters enabled in your node, change this by restarting with -cfilters"), data: None })
+        Err(jsonrpc_core::Error {
+            code: Error::NoBlockFilters.into(),
+            message: Error::NoBlockFilters.to_string(),
+            data: None,
+        })
     }
     fn add_node(&self, node: String) -> Result<bool> {
         let node = node.split(':').collect::<Vec<&str>>();
@@ -208,14 +282,6 @@ impl Rpc for RpcImpl {
         Err(Error::Chain.into())
     }
 
-    fn get_tx_out(&self, tx_id: Txid, outpoint: usize) -> Result<TxOut> {
-        let tx = block_on(self.wallet.read()).get_transaction(&tx_id);
-        if let Some(tx) = tx {
-            return Ok(tx.tx.output[outpoint].clone());
-        }
-        Err(Error::TxNotFound.into())
-    }
-
     fn get_tx_proof(&self, tx_id: Txid) -> Result<Vec<String>> {
         if let Some((proof, _)) = block_on(self.wallet.read()).get_merkle_proof(&tx_id) {
             return Ok(proof);
@@ -280,26 +346,6 @@ impl Rpc for RpcImpl {
             return Ok(json!(serialize(&block).to_hex()));
         }
         Err(Error::BlockNotFound.into())
-    }
-
-    fn find_tx_out(&self, block_height: u32, tx_id: Txid, outpoint: usize) -> Result<TxOut> {
-        let block_hash = self
-            .chain
-            .get_block_hash(block_height)
-            .map_err(|_| Error::Chain)?;
-        let block = self
-            .node
-            .get_block(block_hash)
-            .map_err(|_| jsonrpc_core::Error {
-                code: 5.into(),
-                message: "Block not found".into(),
-                data: None,
-            })?;
-        let tx = block.and_then(|block| block.txdata.iter().find(|tx| tx.txid() == tx_id).cloned());
-        if let Some(tx) = tx {
-            return Ok(tx.output[outpoint].clone());
-        }
-        Err(Error::TxNotFound.into())
     }
 
     fn get_peer_info(&self) -> Result<Vec<PeerInfo>> {

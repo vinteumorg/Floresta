@@ -22,7 +22,7 @@ use log::error;
 use std::io::Write;
 
 /// A database that stores our compact filters
-pub trait BlockFilterStore {
+pub trait BlockFilterStore: Send + Sync {
     /// Fetches a block filter
     fn get_filter(&self, block_height: u64) -> Option<bip158::BlockFilter>;
     /// Stores a new filter
@@ -140,16 +140,20 @@ impl BlockFilterBackend {
             k1: u64::from_le_bytes(k1),
         }
     }
+    /// Returns a given filter
     pub fn get_filter(&self, block_height: u32) -> Option<bip158::BlockFilter> {
         self.storage.get_filter(block_height as u64)
     }
+
     /// Build and index a given block height
     pub fn filter_block(&self, block: &Block, block_height: u64) -> Result<(), bip158::Error> {
         let mut writer = Vec::new();
         let mut filter = FilterBuilder::new(&mut writer, FILTER_M, FILTER_P, self.k0, self.k1);
+
         if self.index_inputs {
             self.write_inputs(&block.txdata, &mut filter);
         }
+
         if self.index_txids {
             self.write_txids(&block.txdata, &mut filter);
         }
@@ -158,38 +162,41 @@ impl BlockFilterBackend {
         filter.finish()?;
 
         let filter = BlockFilter::new(writer.as_slice());
-        self.storage.put_filter(block_height, filter);
 
+        self.storage.put_filter(block_height, filter);
         Ok(())
     }
+
     /// Maches a set of filters against out current set of filters
     ///
     /// This function will run over each filter inside the range `[start, end]` and sees
     /// if at least one query mathes. It'll return a vector of block heights where it matches.
     /// you should download those blocks and see what if there's anything interesting.
     pub fn match_any(&self, start: u64, end: u64, query: &[QueryType]) -> Option<Vec<u64>> {
-        let mut values = query.iter().map(|filter| filter.as_slice());
-
         let mut blocks = Vec::new();
+        let key = BlockHash::from_inner(self.key);
+        let values = query
+            .iter()
+            .map(|filter| filter.as_slice())
+            .collect::<Vec<_>>();
 
         for i in start..=end {
-            if self
-                .storage
-                .get_filter(i)?
-                .match_any(&BlockHash::from_inner(self.key), &mut values)
-                .ok()?
-            {
-                blocks.push(i);
+            if let Some(result) = self.storage.get_filter(i) {
+                let result = result.match_any(&key, &mut values.iter().copied()).ok()?;
+                if result {
+                    blocks.push(i);
+                }
             }
         }
-
         Some(blocks)
     }
+
     fn write_txids(&self, txs: &Vec<Transaction>, filter: &mut FilterBuilder) {
         for tx in txs {
             filter.put(tx.txid().as_inner());
         }
     }
+
     fn write_inputs(&self, txs: &Vec<Transaction>, filter: &mut FilterBuilder) {
         for tx in txs {
             tx.input.iter().for_each(|input| {
@@ -197,9 +204,10 @@ impl BlockFilterBackend {
                 ser_input[0..32].clone_from_slice(&input.previous_output.txid);
                 ser_input[32..].clone_from_slice(&input.previous_output.vout.to_be_bytes());
                 filter.put(&ser_input);
-            });
+            })
         }
     }
+
     fn write_tx_outs(&self, tx: &Transaction, filter: &mut FilterBuilder) {
         for output in tx.output.iter() {
             let hash = floresta_common::get_spk_hash(&output.script_pubkey);
@@ -220,6 +228,7 @@ impl BlockFilterBackend {
             }
         }
     }
+
     fn write_outputs(&self, txs: &Vec<Transaction>, filter: &mut FilterBuilder) {
         for tx in txs {
             self.write_tx_outs(tx, filter);
@@ -322,6 +331,7 @@ impl FilterBackendBuilder {
 }
 
 /// A serialized output that can be queried against our filter
+#[derive(Debug)]
 pub struct QueriableOutpoint(pub(crate) [u8; 36]);
 
 impl From<OutPoint> for QueriableOutpoint {
@@ -334,6 +344,7 @@ impl From<OutPoint> for QueriableOutpoint {
 }
 
 /// The type of value we are looking for in a filter.
+#[derive(Debug)]
 pub enum QueryType {
     /// We are looking for a specific outpoint being spent
     Input(QueriableOutpoint),
@@ -364,6 +375,10 @@ use std::cell::RefCell;
 pub struct MemoryBlockFilterStorage {
     filters: RefCell<Vec<bip158::BlockFilter>>,
 }
+
+#[cfg(test)]
+#[doc(hidden)]
+unsafe impl Sync for MemoryBlockFilterStorage {}
 
 #[doc(hidden)]
 #[cfg(test)]
@@ -399,7 +414,7 @@ impl<'a> KvFiltersStore<'a> {
     }
 }
 
-impl BlockFilterStore for KvFiltersStore<'_> {
+impl<'a> BlockFilterStore for KvFiltersStore<'a> {
     fn get_filter(&self, block_height: u64) -> Option<bip158::BlockFilter> {
         self.bucket
             .get(&block_height.into())
