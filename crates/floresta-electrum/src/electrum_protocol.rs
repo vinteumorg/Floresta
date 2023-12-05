@@ -27,32 +27,44 @@ use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+/// Type alias for u32 representing a PeerId
+type PeerId = u32;
+
 /// A client connected to the server
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct Peer {
+    peer_id: PeerId,
     _addresses: HashSet<Script>,
-    stream: Option<Arc<TcpStream>>,
+    stream: Arc<TcpStream>,
 }
 
 impl Peer {
     /// Send a message to the client, should be a serialized JSON
     pub async fn write(&self, data: &[u8]) -> Result<(), std::io::Error> {
-        if let Some(stream) = &self.stream {
-            let mut stream = &**stream;
-            let _ = stream.write(data).await;
-            let _ = stream.write('\n'.to_string().as_bytes()).await;
-        }
-
+        let mut stream = &*self.stream;
+        let _ = stream.write(data).await;
+        let _ = stream.write('\n'.to_string().as_bytes()).await;
         Ok(())
     }
     /// Create a new peer from a stream
-    pub fn new(stream: Arc<TcpStream>) -> Self {
+    pub fn new(peer_id: PeerId, stream: Arc<TcpStream>) -> Self {
         Peer {
+            peer_id,
             _addresses: HashSet::new(),
-            stream: Some(stream),
+            stream,
         }
     }
 }
+
+pub enum Message {
+    /// A new peer just connected to the server
+    NewPeer((PeerId, Arc<Peer>)),
+    /// Some peer just sent a message
+    Message((PeerId, String)),
+    /// A peer just disconnected
+    Disconnect(PeerId),
+}
+
 pub struct ElectrumServer<Blockchain: BlockchainInterface> {
     /// The blockchain backend we are using. This will be used to query
     /// blockchain information and broadcast transactions.
@@ -60,28 +72,20 @@ pub struct ElectrumServer<Blockchain: BlockchainInterface> {
     /// The address cache is used to store addresses and transactions, like a
     /// watch-only wallet, but it is adapted to the electrum protocol.
     pub address_cache: Arc<RwLock<AddressCache<KvDatabase>>>,
-    /// The listener is used to accept new connections to our server.
-    pub listener: Option<Arc<TcpListener>>,
+    /// The TCP listener is used to accept new connections to our server.
+    pub tcp_listener: Arc<TcpListener>,
     /// The peers are the clients connected to our server, we keep track of them
     /// using a unique id.
-    pub peers: HashMap<u32, Arc<Peer>>,
-    /// The peer_accept channel is used to send peer related message to the main
-    /// thread.
-    pub peer_accept: Receiver<Message>,
-    /// The notify_tx channel is used to send notifications to the main thread.
-    pub notify_tx: Sender<Message>,
+    pub peers: HashMap<PeerId, Arc<Peer>>,
+    /// The message_receiver is to receive messages to be handled.
+    pub message_receiver: Receiver<Message>,
+    /// The message_transmitter is used to send requests from peers or notifications
+    /// like new or dropped peers
+    pub message_transmitter: Sender<Message>,
     /// The peer_addresses is used to keep track of the addresses of each peer.
     /// We keep the script_hash and which peer has it, so we can notify the
     /// peers when a new transaction is received.
     pub peer_addresses: HashMap<sha256::Hash, Arc<Peer>>,
-}
-pub enum Message {
-    /// A new peer just connected to the server
-    NewPeer((u32, Arc<Peer>)),
-    /// Some peer just sent a message
-    Message((u32, String)),
-    /// A peer just disconnected
-    Disconnect(u32),
 }
 
 impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
@@ -99,10 +103,10 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
         Ok(ElectrumServer {
             chain,
             address_cache,
-            listener: Some(listener),
+            tcp_listener: listener,
             peers: HashMap::new(),
-            peer_accept: rx,
-            notify_tx: tx,
+            message_receiver: rx,
+            message_transmitter: tx,
             peer_addresses: HashMap::new(),
         })
     }
@@ -359,7 +363,7 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
             }
             let request = async_std::future::timeout(
                 std::time::Duration::from_secs(1),
-                self.peer_accept.recv(),
+                self.message_receiver.recv(),
             )
             .await;
 
@@ -400,11 +404,14 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
 
         self.wallet_notify(&transactions).await;
     }
+
+    /// Handles each kind of Message
     async fn handle_message(&mut self, message: Message) -> Result<(), crate::error::Error> {
         match message {
-            Message::NewPeer((id, stream)) => {
-                self.peers.insert(id, stream);
+            Message::NewPeer((id, peer)) => {
+                self.peers.insert(id, peer);
             }
+
             Message::Message((peer, msg)) => {
                 trace!("Message: {msg}");
                 if let Ok(req) = serde_json::from_str::<Request>(msg.as_str()) {
@@ -438,10 +445,12 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                     }
                 }
             }
+
             Message::Disconnect(id) => {
                 self.peers.remove(&id);
             }
         }
+
         Ok(())
     }
 
@@ -467,44 +476,51 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
         }
     }
 }
-/// Each peer get one reading loop
+
+/// Each peer gets one reading loop
 async fn peer_loop(
-    stream: Arc<TcpStream>,
-    id: u32,
-    notify_channel: Sender<Message>,
+    peer: Arc<Peer>,
+    message_transmitter: Sender<Message>,
 ) -> Result<(), std::io::Error> {
-    let mut _stream = &*stream;
+    let mut _stream = &*peer.stream;
     let mut lines = BufReader::new(_stream).lines();
+
     while let Some(Ok(line)) = lines.next().await {
-        notify_channel
-            .send(Message::Message((id, line)))
+        message_transmitter
+            .send(Message::Message((peer.peer_id, line)))
             .await
             .expect("Main loop is broken");
     }
+
     log!(Level::Info, "Lost a peer");
-    notify_channel
-        .send(Message::Disconnect(id))
+
+    message_transmitter
+        .send(Message::Disconnect(peer.peer_id))
         .await
         .expect("Main loop is broken");
+
     Ok(())
 }
 
-pub async fn accept_loop(listener: Arc<TcpListener>, notify_channel: Sender<Message>) {
+/// Listens to new TCP connections in a loop
+pub async fn peer_accept_loop(listener: Arc<TcpListener>, message_transmitter: Sender<Message>) {
     let mut id_count = 0;
     loop {
         if let Ok((stream, _addr)) = listener.accept().await {
             info!("New client connection");
             let stream = Arc::new(stream);
-            async_std::task::spawn(peer_loop(stream.clone(), id_count, notify_channel.clone()));
-            let peer = Arc::new(Peer::new(stream));
-            notify_channel
-                .send(Message::NewPeer((id_count, peer)))
+            let peer = Arc::new(Peer::new(id_count, stream));
+            async_std::task::spawn(peer_loop(peer.clone(), message_transmitter.clone()));
+
+            message_transmitter
+                .send(Message::NewPeer((peer.peer_id, peer)))
                 .await
                 .expect("Main loop is broken");
             id_count += 1;
         }
     }
 }
+
 /// As per electrum documentation:
 /// ### To calculate the status of a script hash (or address):
 ///
