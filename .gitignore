@@ -4,5 +4,5 @@ perf.*
 *.svg
 config.toml
 /builds
-/data
+data/
 Cargo.lock

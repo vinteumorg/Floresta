@@ -318,7 +318,7 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
             //blockchain.transaction.id_from_pos
             // TODO: Create an actual histogram
             "mempool.get_fee_histogram" => json_rpc_res!(request, []),
-            "server.add_client" => json_rpc_res!(request, true),
+            "server.add_peer" => json_rpc_res!(request, true),
             "server.banner" => json_rpc_res!(request, "Welcome to Floresta's Electrum Server."),
             "server.donation_address" => {
                 json_rpc_res!(request, "")
@@ -342,7 +342,7 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                 json_rpc_res!(request, res)
             }
             // TODO: Return clients?
-            "server.clients.subscribe" => json_rpc_res!(request, []),
+            "server.peers.subscribe" => json_rpc_res!(request, []),
             "server.ping" => json_rpc_res!(request, null),
             "server.version" => json_rpc_res!(
                 request,
