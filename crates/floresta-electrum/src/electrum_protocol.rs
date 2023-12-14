@@ -22,7 +22,7 @@ use bitcoin::{
 };
 use bitcoin::{Transaction, TxOut};
 
-use log::{info, log, trace, Level};
+use log::{error, info, trace};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -341,7 +341,7 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                 );
                 json_rpc_res!(request, res)
             }
-            // TODO: Return clients?
+
             "server.peers.subscribe" => json_rpc_res!(request, []),
             "server.ping" => json_rpc_res!(request, null),
             "server.version" => json_rpc_res!(
@@ -419,10 +419,7 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                 if let Ok(req) = serde_json::from_str::<Request>(msg.as_str()) {
                     let client = self.clients.get(&client);
                     if client.is_none() {
-                        log!(
-                            Level::Error,
-                            "Client sent a message but is not listed as client"
-                        );
+                        error!("Client sent a message but is not listed as client");
                         return Ok(());
                     }
                     let client = client.unwrap().to_owned();
@@ -474,15 +471,15 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                     .write(serde_json::to_string(&notify).unwrap().as_bytes())
                     .await
                 {
-                    log!(Level::Error, "{err}");
+                    error!("{err}");
                 }
             }
         }
     }
 }
 
-/// Each client gets one reading loop
-async fn client_loop(
+/// Each client gets one loop to deal with their requests
+async fn client_broker_loop(
     client: Arc<Client>,
     message_transmitter: Sender<Message>,
 ) -> Result<(), std::io::Error> {
@@ -496,7 +493,7 @@ async fn client_loop(
             .expect("Main loop is broken");
     }
 
-    log!(Level::Info, "Lost a client");
+    info!("Lost client with ID: {}", client.client_id);
 
     message_transmitter
         .send(Message::Disconnect(client.client_id))
@@ -514,7 +511,10 @@ pub async fn client_accept_loop(listener: Arc<TcpListener>, message_transmitter:
             info!("New client connection");
             let stream = Arc::new(stream);
             let client = Arc::new(Client::new(id_count, stream));
-            async_std::task::spawn(client_loop(client.clone(), message_transmitter.clone()));
+            async_std::task::spawn(client_broker_loop(
+                client.clone(),
+                message_transmitter.clone(),
+            ));
 
             message_transmitter
                 .send(Message::NewClient((client.client_id, client)))
