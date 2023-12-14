@@ -41,9 +41,10 @@ pub struct Client {
 impl Client {
     /// Send a message to the client, should be a serialized JSON
     pub async fn write(&self, data: &[u8]) -> Result<(), std::io::Error> {
-        let mut stream = &*self.stream;
+        let mut stream = self.stream.as_ref();
         let _ = stream.write(data).await;
         let _ = stream.write('\n'.to_string().as_bytes()).await;
+
         Ok(())
     }
     /// Create a new client from a stream
@@ -110,6 +111,7 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
             client_addresses: HashMap::new(),
         })
     }
+
     /// Handle a request from a client. All methods are defined in the electrum
     /// protocol.
     pub async fn handle_client_request(
