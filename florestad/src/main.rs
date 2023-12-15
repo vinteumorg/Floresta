@@ -40,7 +40,7 @@ use floresta_chain::{
 };
 use floresta_common::constants::DIR_NAME;
 use floresta_compact_filters::{FilterBackendBuilder, KvFiltersStore};
-use floresta_electrum::electrum_protocol::{accept_loop, ElectrumServer};
+use floresta_electrum::electrum_protocol::{client_accept_loop, ElectrumServer};
 use floresta_watch_only::{kv_database::KvDatabase, AddressCache, AddressCacheDatabase};
 use floresta_wire::{mempool::Mempool, node::UtreexoNode};
 use log::{debug, error, info};
@@ -280,12 +280,9 @@ fn run_with_ctx(ctx: Ctx) {
     // Spawn all services
 
     // Electrum accept loop
-    task::spawn(accept_loop(
-        electrum_server
-            .listener
-            .clone()
-            .expect("Listener can't be none by this far"),
-        electrum_server.notify_tx.clone(),
+    task::spawn(client_accept_loop(
+        electrum_server.tcp_listener.clone(),
+        electrum_server.message_transmitter.clone(),
     ));
     // Electrum main loop
     task::spawn(electrum_server.main_loop());

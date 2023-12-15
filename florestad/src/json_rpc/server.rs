@@ -138,7 +138,7 @@ impl Rpc for RpcImpl {
             }
         }
         match txout {
-            Some(txout) => Ok(json!({"txout": txout})),
+            Some(txout) => Ok(json!({ "txout": txout })),
             None => Ok(json!({})),
         }
     }
