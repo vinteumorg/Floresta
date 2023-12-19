@@ -12,19 +12,19 @@ use core::ffi::c_uint;
 
 #[cfg(feature = "bitcoinconsensus")]
 use bitcoin::bitcoinconsensus;
+use bitcoin::block::Header as BlockHeader;
 use bitcoin::blockdata::constants::genesis_block;
 use bitcoin::consensus::deserialize_partial;
 use bitcoin::consensus::Decodable;
 use bitcoin::consensus::Encodable;
-use bitcoin::hashes::hex::FromHex;
 use bitcoin::hashes::sha256;
-use bitcoin::util::uint::Uint256;
 use bitcoin::Block;
 use bitcoin::BlockHash;
-use bitcoin::BlockHeader;
 use bitcoin::OutPoint;
+use bitcoin::Target;
 use bitcoin::Transaction;
 use bitcoin::TxOut;
+use bitcoin::Work;
 use floresta_common::Channel;
 use log::info;
 use log::trace;
@@ -180,7 +180,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         }
 
         let block_hash = block_header
-            .validate_pow(&actual_target)
+            .validate_pow(actual_target)
             .map_err(|_| BlockchainError::BlockValidation(BlockValidationErrors::NotEnoughPow))?;
         Ok(block_hash)
     }
@@ -196,9 +196,9 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         self.get_disk_block_header(&header.prev_blockhash)
     }
     /// Returns the cumulative work in this branch
-    fn get_branch_work(&self, header: &BlockHeader) -> Result<Uint256, BlockchainError> {
+    fn get_branch_work(&self, header: &BlockHeader) -> Result<Work, BlockchainError> {
         let mut header = *header;
-        let mut work = Uint256::from_u64(0).unwrap();
+        let mut work = Work::from_be_bytes([0; 32]);
         while !self.is_genesis(&header) {
             work = work + header.work();
             header = *self.get_ancestor(&header)?;
@@ -502,7 +502,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
     }
     fn get_assume_valid_value(network: Network, arg: Option<BlockHash>) -> BlockHash {
         fn get_hash(hash: &str) -> BlockHash {
-            BlockHash::from_hex(hash).expect("hardcoded hash should not fail")
+            BlockHash::from_str(hash).expect("hardcoded hash should not fail")
         }
         if let Some(assume_valid_hash) = arg {
             assume_valid_hash
@@ -689,7 +689,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         last_block: &BlockHeader,
         next_height: u32,
         next_header: &BlockHeader,
-    ) -> Uint256 {
+    ) -> Target {
         let params: ChainParams = self.chain_params();
         // Special testnet rule, if a block takes more than 20 minutes to mine, we can
         // mine a block with diff 1
@@ -704,9 +704,8 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             let first_block = self.get_block_header_by_height(next_height - 2016);
             let last_block = self.get_block_header_by_height(next_height - 1);
 
-            let next_bits =
+            let target =
                 Consensus::calc_next_work_required(&last_block, &first_block, self.chain_params());
-            let target = BlockHeader::u256_from_compact_target(next_bits);
             if target < params.max_target {
                 return target;
             }
@@ -814,7 +813,7 @@ impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedSta
         Ok((inner.best_block.depth, inner.best_block.best_block))
     }
 
-    fn get_block_header(&self, hash: &BlockHash) -> Result<bitcoin::BlockHeader, Self::Error> {
+    fn get_block_header(&self, hash: &BlockHash) -> Result<bitcoin::block::Header, Self::Error> {
         let inner = read_lock!(self);
         if let Some(header) = inner.chainstore.get_header(hash)? {
             return Ok(*header);
@@ -1159,16 +1158,17 @@ impl Decodable for BestChain {
 #[cfg(test)]
 mod test {
     extern crate std;
+    use core::str::FromStr;
     use std::format;
     use std::io::Cursor;
     use std::vec::Vec;
 
+    use bitcoin::block::Header as BlockHeader;
     use bitcoin::consensus::deserialize;
     use bitcoin::consensus::Decodable;
     use bitcoin::hashes::hex::FromHex;
     use bitcoin::Block;
     use bitcoin::BlockHash;
-    use bitcoin::BlockHeader;
     use rustreexo::accumulator::proof::Proof;
 
     use super::BlockchainInterface;
@@ -1222,7 +1222,7 @@ mod test {
             ChainParams::from(Network::Bitcoin),
         );
 
-        assert_eq!(0x1e012fa7, next_target);
+        assert_eq!(0x1e012fa7, next_target.to_compact_lossy().to_consensus());
     }
     #[test]
     fn test_reorg() {
@@ -1244,7 +1244,7 @@ mod test {
             chain.get_best_block().unwrap(),
             (
                 10,
-                BlockHash::from_hex(
+                BlockHash::from_str(
                     "6e9c49a19038f7db8d13f6c2e70566385536ea11975528b557799e08a014e784"
                 )
                 .unwrap()
@@ -1261,7 +1261,7 @@ mod test {
             best_block,
             (
                 16,
-                BlockHash::from_hex(
+                BlockHash::from_str(
                     "4572ac401b94915dde6c4957b706abdb13b5824b000cad7f6065ebd9aea6dad1"
                 )
                 .unwrap()

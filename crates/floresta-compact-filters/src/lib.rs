@@ -14,17 +14,18 @@ use core::ops::BitAnd;
 use std::io::Write;
 
 use bitcoin::hashes::Hash;
-use bitcoin::util::bip158::BlockFilter;
-use bitcoin::util::bip158::GCSFilterWriter;
-use bitcoin::util::bip158::{self};
 use bitcoin::Block;
 use bitcoin::BlockHash;
 use bitcoin::OutPoint;
 use bitcoin::Transaction;
 use bitcoin::Txid;
 use floresta_chain::BlockConsumer;
-use kv::Integer;
 use log::error;
+
+mod bip158;
+pub mod kv_filter_database;
+
+use bip158::*;
 
 /// A database that stores our compact filters
 pub trait BlockFilterStore: Send + Sync {
@@ -179,7 +180,7 @@ impl BlockFilterBackend {
     /// you should download those blocks and see what if there's anything interesting.
     pub fn match_any(&self, start: u64, end: u64, query: &[QueryType]) -> Option<Vec<u64>> {
         let mut blocks = Vec::new();
-        let key = BlockHash::from_inner(self.key);
+        let key = BlockHash::from_byte_array(self.key);
         let values = query
             .iter()
             .map(|filter| filter.as_slice())
@@ -198,7 +199,7 @@ impl BlockFilterBackend {
 
     fn write_txids(&self, txs: &Vec<Transaction>, filter: &mut FilterBuilder) {
         for tx in txs {
-            filter.put(tx.txid().as_inner());
+            filter.put(tx.txid().as_byte_array());
         }
     }
 
@@ -206,7 +207,7 @@ impl BlockFilterBackend {
         for tx in txs {
             tx.input.iter().for_each(|input| {
                 let mut ser_input = [0; 36];
-                ser_input[0..32].clone_from_slice(&input.previous_output.txid);
+                ser_input[0..32].clone_from_slice(input.previous_output.txid.as_byte_array());
                 ser_input[32..].clone_from_slice(&input.previous_output.vout.to_be_bytes());
                 filter.put(&ser_input);
             })
@@ -217,19 +218,19 @@ impl BlockFilterBackend {
         for output in tx.output.iter() {
             let hash = floresta_common::get_spk_hash(&output.script_pubkey);
             if OutputTypes::PKH & self.whitelisted_outputs && output.script_pubkey.is_p2pkh() {
-                filter.put(hash.as_inner());
+                filter.put(hash.as_byte_array());
             }
             if OutputTypes::SH & self.whitelisted_outputs && output.script_pubkey.is_p2sh() {
-                filter.put(hash.as_inner());
+                filter.put(hash.as_byte_array());
             }
-            if OutputTypes::WPKH & self.whitelisted_outputs && output.script_pubkey.is_v0_p2wpkh() {
-                filter.put(hash.as_inner());
+            if OutputTypes::WPKH & self.whitelisted_outputs && output.script_pubkey.is_p2wpkh() {
+                filter.put(hash.as_byte_array());
             }
-            if OutputTypes::WSH & self.whitelisted_outputs && output.script_pubkey.is_v0_p2wsh() {
-                filter.put(hash.as_inner());
+            if OutputTypes::WSH & self.whitelisted_outputs && output.script_pubkey.is_p2wsh() {
+                filter.put(hash.as_byte_array());
             }
-            if OutputTypes::TR & self.whitelisted_outputs && output.script_pubkey.is_v1_p2tr() {
-                filter.put(hash.as_inner());
+            if OutputTypes::TR & self.whitelisted_outputs && output.script_pubkey.is_p2tr() {
+                filter.put(hash.as_byte_array());
             }
         }
     }
@@ -342,7 +343,7 @@ pub struct QueriableOutpoint(pub(crate) [u8; 36]);
 impl From<OutPoint> for QueriableOutpoint {
     fn from(value: OutPoint) -> Self {
         let mut ser_input = [0; 36];
-        ser_input[0..32].clone_from_slice(value.txid.as_inner());
+        ser_input[0..32].clone_from_slice(value.txid.as_byte_array());
         ser_input[32..].clone_from_slice(&value.vout.to_be_bytes());
         QueriableOutpoint(ser_input)
     }
@@ -362,7 +363,7 @@ pub enum QueryType {
 impl QueryType {
     pub(crate) fn as_slice(&self) -> &[u8] {
         match self {
-            QueryType::Txid(txid) => txid.as_inner().as_slice(),
+            QueryType::Txid(txid) => txid.as_byte_array().as_slice(),
             QueryType::Input(outpoint) => &outpoint.0,
             QueryType::ScriptHash(script) => script,
         }
@@ -396,57 +397,23 @@ impl BlockFilterStore for MemoryBlockFilterStorage {
     }
 }
 
-pub struct KvFiltersStore<'a> {
-    _store: kv::Store,
-    bucket: kv::Bucket<'a, Integer, Vec<u8>>,
-}
-
-impl<'a> KvFiltersStore<'a> {
-    pub fn new(path: String) -> KvFiltersStore<'a> {
-        let _store = kv::Store::new(kv::Config {
-            temporary: false,
-            path: path.into(),
-            segment_size: None,
-            flush_every_ms: None,
-            cache_capacity: None,
-            use_compression: false,
-        })
-        .expect("could not open the filters database");
-        let bucket = _store
-            .bucket(Some("cfilters"))
-            .expect("could not open the filterrs bucket");
-        KvFiltersStore { _store, bucket }
-    }
-}
-
-impl<'a> BlockFilterStore for KvFiltersStore<'a> {
-    fn get_filter(&self, block_height: u64) -> Option<bip158::BlockFilter> {
-        self.bucket
-            .get(&block_height.into())
-            .ok()?
-            .map(|filter| bip158::BlockFilter::new(&filter))
-    }
-    fn put_filter(&self, block_height: u64, block_filter: bip158::BlockFilter) {
-        let inner = block_filter.content;
-        let _ = self.bucket.set(&block_height.into(), &inner);
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use bitcoin::consensus::deserialize;
     use bitcoin::hashes::hex::FromHex;
     use bitcoin::hashes::Hash;
-    use bitcoin::util::bip158;
     use bitcoin::Block;
     use bitcoin::BlockHash;
     use bitcoin::OutPoint;
-    use bitcoin::Script;
+    use bitcoin::ScriptBuf;
     use bitcoin::Txid;
 
     use super::BlockFilterBackend;
     use super::FilterBuilder;
     use super::MemoryBlockFilterStorage;
+    use crate::bip158;
     use crate::QueryType;
     #[test]
     fn test_filter() {
@@ -460,7 +427,7 @@ mod tests {
         let filter = bip158::BlockFilter::new(&writer);
         let res = filter
             .match_any(
-                &BlockHash::from_inner([0; 32]),
+                &BlockHash::from_byte_array([0; 32]),
                 &mut [value].iter().copied(),
             )
             .unwrap();
@@ -469,7 +436,7 @@ mod tests {
         let value = [11_u8; 42].as_slice();
         let res = filter
             .match_any(
-                &BlockHash::from_inner([0; 32]),
+                &BlockHash::from_byte_array([0; 32]),
                 &mut [value].iter().copied(),
             )
             .unwrap();
@@ -482,19 +449,20 @@ mod tests {
 
         let block: Block = deserialize(&block).unwrap();
         let storage = MemoryBlockFilterStorage::default();
-        let backend = BlockFilterBackend::new(Box::new(storage), block.block_hash().into_inner());
+        let backend =
+            BlockFilterBackend::new(Box::new(storage), block.block_hash().to_byte_array());
 
         backend.filter_block(&block, 0).unwrap();
 
         // One txid from this block
         let txid =
-            Txid::from_hex("7e0ce903920704a79beb99beb05c6d5a01852907dccc0973f96eb295d1ad0557")
+            Txid::from_str("7e0ce903920704a79beb99beb05c6d5a01852907dccc0973f96eb295d1ad0557")
                 .unwrap();
         let txid = QueryType::Txid(txid);
 
         // One output being spent in this block
         let prev_txid =
-            Txid::from_hex("a8a022707995eae7bafd3d6ad4de00d96df2e320e068d21d56399a8da6545b12")
+            Txid::from_str("a8a022707995eae7bafd3d6ad4de00d96df2e320e068d21d56399a8da6545b12")
                 .unwrap();
         let prev_vout: u32 = 1;
 
@@ -506,8 +474,8 @@ mod tests {
             .into(),
         );
         // One spk from this block
-        let spck = Script::from_hex("0014fabea557d8541249533fe281aac45c37b2dbf342").unwrap();
-        let spck = QueryType::ScriptHash(floresta_common::get_spk_hash(&spck).into_inner());
+        let spck = ScriptBuf::from_hex("0014fabea557d8541249533fe281aac45c37b2dbf342").unwrap();
+        let spck = QueryType::ScriptHash(floresta_common::get_spk_hash(&spck).to_byte_array());
 
         let expected = Some(vec![0]);
 

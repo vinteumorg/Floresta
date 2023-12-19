@@ -4,7 +4,7 @@
 
 use bitcoin::consensus::deserialize;
 use bitcoin::hashes::hex::FromHex;
-use bitcoin::Script;
+use bitcoin::ScriptBuf;
 use floresta_common::get_spk_hash;
 use floresta_watch_only::memory_database::MemoryDatabase;
 use floresta_watch_only::AddressCache;
@@ -36,7 +36,7 @@ fn main() {
     // We can now add the descriptor to the wallet. This will generate the first 100 addresses
     // for us, and add them to the wallet.
     for i in 0..100 {
-        wallet.cache_address(bitcoin::Script::from(
+        wallet.cache_address(bitcoin::ScriptBuf::from(
             descriptor
                 .at_derivation_index(i)
                 .unwrap()
@@ -57,7 +57,7 @@ fn main() {
     // history, we need to know the hash of the address. We can get it using the `get_spk_hash`
     // function from the `floresta_common` crate. This hash is defined by the Electrum protocol.
     let hash =
-        get_spk_hash(&Script::from_hex("00148dae58668d0c15f7ed4f430925634c9a2c666b84").unwrap());
+        get_spk_hash(&ScriptBuf::from_hex("00148dae58668d0c15f7ed4f430925634c9a2c666b84").unwrap());
 
     // We can now query the wallet for the information we want.
 

@@ -4,16 +4,17 @@
 //! We use this to avoid code reuse among the different implementations of the chainstate.
 
 use core::ffi::c_uint;
+use core::ops::Mul;
 
-use bitcoin::blockdata::constants::COIN_VALUE;
+use bitcoin::block::Header as BlockHeader;
 use bitcoin::consensus::Encodable;
 use bitcoin::hashes::sha256;
 use bitcoin::hashes::Hash;
-use bitcoin::util::uint::Uint256;
+use bitcoin::pow::U256;
 use bitcoin::Block;
 use bitcoin::BlockHash;
-use bitcoin::BlockHeader;
 use bitcoin::OutPoint;
+use bitcoin::Target;
 use bitcoin::Transaction;
 use bitcoin::TxOut;
 use floresta_common::prelude::*;
@@ -26,6 +27,9 @@ use sha2::Sha512_256;
 use super::chainparams::ChainParams;
 use super::error::BlockValidationErrors;
 use super::error::BlockchainError;
+
+/// The value of a single coin in satoshis.
+pub const COIN_VALUE: u64 = 100_000_000;
 
 /// This struct contains all the information and methods needed to validate a block,
 /// it is used by the [ChainState] to validate blocks and transactions.
@@ -64,7 +68,7 @@ impl Consensus {
         let mut ser_utxo = Vec::new();
         let utxo = transaction.output.get(vout as usize).unwrap();
         utxo.consensus_encode(&mut ser_utxo).unwrap();
-        let header_code = if transaction.is_coin_base() {
+        let header_code = if transaction.is_coinbase() {
             header_code | 1
         } else {
             header_code
@@ -106,7 +110,7 @@ impl Consensus {
         // Skip the coinbase tx
         for (n, transaction) in transactions.iter().enumerate() {
             // We don't need to verify the coinbase inputs, as it spends newly generated coins
-            if transaction.is_coin_base() {
+            if transaction.is_coinbase() {
                 if n == 0 {
                     continue;
                 }
@@ -114,13 +118,17 @@ impl Consensus {
                 return Err(BlockValidationErrors::FirstTxIsnNotCoinbase.into());
             }
             // Amount of all outputs
-            let output_value = transaction.output.iter().fold(0, |acc, tx| acc + tx.value);
+            let output_value = transaction
+                .output
+                .iter()
+                .fold(0, |acc, tx| acc + tx.value.to_sat());
             // Amount of all inputs
             let in_value = transaction.input.iter().fold(0, |acc, input| {
                 acc + utxos
                     .get(&input.previous_output)
                     .expect("We have all prevouts here")
                     .value
+                    .to_sat()
             });
             // Value in should be greater or equal to value out. Otherwise, inflation.
             if output_value > in_value {
@@ -131,11 +139,11 @@ impl Consensus {
             // Verify the tx script
             #[cfg(feature = "bitcoinconsensus")]
             if verify_script {
-                transaction.verify_with_flags(|outpoint| utxos.remove(outpoint), flags)?;
+                transaction.verify_with_flags(|outpoint| utxos.remove(outpoint), flags);
             }
         }
         // In each block, the first transaction, and only the first, should be coinbase
-        if !transactions[0].is_coin_base() {
+        if !transactions[0].is_coinbase() {
             return Err(BlockValidationErrors::FirstTxIsnNotCoinbase.into());
         }
         // Checks if the miner isn't trying to create inflation
@@ -143,7 +151,7 @@ impl Consensus {
             < transactions[0]
                 .output
                 .iter()
-                .fold(0, |acc, out| acc + out.value)
+                .fold(0, |acc, out| acc + out.value.to_sat())
         {
             return Err(BlockValidationErrors::BadCoinbaseOutValue.into());
         }
@@ -155,11 +163,12 @@ impl Consensus {
         last_block: &BlockHeader,
         first_block: &BlockHeader,
         params: ChainParams,
-    ) -> u32 {
-        let cur_target = last_block.target();
+    ) -> Target {
+        let cur_target = last_block.target().0;
 
-        let expected_timespan = Uint256::from_u64(params.pow_target_timespan).unwrap();
+        let expected_timespan = U256::from(params.pow_target_timespan);
         let mut actual_timespan = last_block.time - first_block.time;
+
         // Difficulty adjustments are limited, to prevent large swings in difficulty
         // caused by malicious miners.
         if actual_timespan < params.pow_target_timespan as u32 / 4 {
@@ -168,10 +177,10 @@ impl Consensus {
         if actual_timespan > params.pow_target_timespan as u32 * 4 {
             actual_timespan = params.pow_target_timespan as u32 * 4;
         }
-        let new_target = cur_target.mul_u32(actual_timespan);
-        let new_target = new_target / expected_timespan;
 
-        BlockHeader::compact_target_from_u256(&new_target)
+        let new_target = cur_target.mul(actual_timespan.into());
+        let new_target = new_target / expected_timespan;
+        Target(new_target)
     }
     /// Updates our accumulator with the new block. This is done by calculating the new
     /// root hash of the accumulator, and then verifying the proof of inclusion of the
@@ -189,7 +198,7 @@ impl Consensus {
         let mut leaf_hashes = Vec::new();
         let del_hashes = del_hashes
             .iter()
-            .map(|hash| NodeHash::from(hash.into_inner()))
+            .map(|hash| NodeHash::from(hash.as_byte_array()))
             .collect::<Vec<_>>();
         // Verify the proof of inclusion of the deleted nodes
         if !acc.verify(&proof, &del_hashes)? {
@@ -221,7 +230,7 @@ impl Consensus {
         // Convert the leaf hashes to NodeHashes used in Rustreexo
         let hashes: Vec<NodeHash> = leaf_hashes
             .iter()
-            .map(|&hash| NodeHash::from(hash.into_inner()))
+            .map(|&hash| NodeHash::from(hash.as_byte_array()))
             .collect();
         // Update the accumulator
         let acc = acc.modify(&hashes, &del_hashes, &proof)?.0;

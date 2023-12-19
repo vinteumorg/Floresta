@@ -11,11 +11,10 @@ use async_std::net::TcpStream;
 use async_std::prelude::*;
 use async_std::sync::RwLock;
 use bitcoin::consensus::deserialize;
-use bitcoin::consensus::serialize;
+use bitcoin::consensus::encode::serialize_hex;
 use bitcoin::hashes::hex::FromHex;
-use bitcoin::hashes::hex::ToHex;
 use bitcoin::hashes::sha256;
-use bitcoin::Script;
+use bitcoin::ScriptBuf;
 use bitcoin::Transaction;
 use bitcoin::TxOut;
 use bitcoin::Txid;
@@ -43,7 +42,7 @@ type ClientId = u32;
 #[derive(Debug, Clone)]
 pub struct Client {
     client_id: ClientId,
-    _addresses: HashSet<Script>,
+    _addresses: HashSet<ScriptBuf>,
     stream: Arc<TcpStream>,
 }
 
@@ -140,7 +139,7 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                     .chain
                     .get_block_header(&hash)
                     .map_err(|e| super::error::Error::Blockchain(Box::new(e)))?;
-                let header = serialize(&header).to_hex();
+                let header = serialize_hex(&header);
                 json_rpc_res!(request, header)
             }
             "blockchain.block.headers" => {
@@ -158,7 +157,7 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                         .chain
                         .get_block_header(&hash)
                         .map_err(|e| super::error::Error::Blockchain(Box::new(e)))?;
-                    let header = serialize(&header).to_hex();
+                    let header = serialize_hex(&header);
                     headers.push_str(&header);
                 }
                 json_rpc_res!(request, {
@@ -179,7 +178,7 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                     .map_err(|e| super::error::Error::Blockchain(Box::new(e)))?;
                 let result = json!({
                     "height": height,
-                    "hex": serialize(&header).to_hex()
+                    "hex": serialize_hex(&header)
                 });
                 json_rpc_res!(request, result)
             }
@@ -209,13 +208,13 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                 for transaction in transactions {
                     let entry = if transaction.height == 0 {
                         json!({
-                            "tx_hash": transaction.hash.to_hex(),
+                            "tx_hash": transaction.hash,
                             "height": transaction.height,
                             "fee": 2000
                         })
                     } else {
                         json!({
-                            "tx_hash": transaction.hash.to_hex(),
+                            "tx_hash": transaction.hash,
                             "height": transaction.height,
                         })
                     };
@@ -350,7 +349,6 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                 );
                 json_rpc_res!(request, res)
             }
-
             "server.peers.subscribe" => json_rpc_res!(request, []),
             "server.ping" => json_rpc_res!(request, null),
             "server.version" => json_rpc_res!(
@@ -390,7 +388,7 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
             "method": "blockchain.headers.subscribe",
             "params": [{
                 "height": height,
-                "hex": serialize(&block.header).to_hex()
+                "hex": serialize_hex(&block.header)
             }]
         });
         if !self.chain.is_in_idb() || height % 1000 == 0 {

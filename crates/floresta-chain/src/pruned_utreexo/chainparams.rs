@@ -9,12 +9,10 @@ use bitcoin::bitcoinconsensus::VERIFY_P2SH;
 #[cfg(feature = "bitcoinconsensus")]
 use bitcoin::bitcoinconsensus::VERIFY_WITNESS;
 use bitcoin::blockdata::constants::genesis_block;
-use bitcoin::blockdata::constants::max_target;
 #[cfg(feature = "bitcoinconsensus")]
-use bitcoin::hashes::hex::FromHex;
-use bitcoin::util::uint::Uint256;
 use bitcoin::Block;
 use bitcoin::BlockHash;
+use bitcoin::Target;
 
 use crate::prelude::*;
 use crate::Network;
@@ -29,7 +27,7 @@ pub struct ChainParams {
     pub pow_allow_no_retarget: bool,
     /// This is the maximum possible target (i.e, minimum possible difficulty), and in mainnet
     /// it's defined as ~((uint256)0 >> 32).
-    pub max_target: Uint256,
+    pub max_target: Target,
     /// Interval of blocks until the block reward halves
     pub subsidy_halving_interval: u64,
     /// We expect blocks to take this many seconds to be found, on average
@@ -53,48 +51,35 @@ pub struct ChainParams {
     /// verification flags
     pub exceptions: HashMap<BlockHash, c_uint>,
 }
+
 impl ChainParams {
-    fn max_target(net: Network) -> Uint256 {
+    fn max_target(net: Network) -> Target {
         match net {
-            Network::Bitcoin => max_target(net.into()),
-            Network::Testnet => Uint256([
-                0x0000000000000000,
-                0x0000000000000000,
-                0x0000000000000000,
-                0x00000000ffff0000,
-            ]),
-            Network::Signet => Uint256([
-                0x0000000000000000,
-                0x0000000000000000,
-                0x0000000000000000,
-                0x00000377ae000000,
-            ]),
-            Network::Regtest => Uint256([
-                0xffffffffffffffff,
-                0xffffffffffffffff,
-                0xffffffffffffffff,
-                0x7fffffffffffffff,
-            ]),
+            Network::Bitcoin => Target::MAX_ATTAINABLE_MAINNET,
+            Network::Testnet => Target::MAX_ATTAINABLE_TESTNET,
+            Network::Signet => Target::MAX_ATTAINABLE_SIGNET,
+            Network::Regtest => Target::MAX_ATTAINABLE_REGTEST,
         }
     }
 }
+
 #[cfg(feature = "bitcoinconsensus")]
 fn get_exceptions() -> HashMap<BlockHash, c_uint> {
     // For some reason, some blocks in the mainnet and testnet have different rules than it should
     // be, so we need to keep a list of exceptions and treat them differently
     let mut exceptions = HashMap::new();
     exceptions.insert(
-        BlockHash::from_hex("00000000000002dc756eebf4f49723ed8d30cc28a5f108eb94b1ba88ac4f9c22")
+        BlockHash::from_str("00000000000002dc756eebf4f49723ed8d30cc28a5f108eb94b1ba88ac4f9c22")
             .unwrap(),
         VERIFY_NONE,
     ); // BIP16 exception on main net
     exceptions.insert(
-        BlockHash::from_hex("0000000000000000000f14c35b2d841e986ab5441de8c585d5ffe55ea1e395ad")
+        BlockHash::from_str("0000000000000000000f14c35b2d841e986ab5441de8c585d5ffe55ea1e395ad")
             .unwrap(),
         VERIFY_P2SH | VERIFY_WITNESS,
     ); // Taproot exception on main net
     exceptions.insert(
-        BlockHash::from_hex("00000000dd30457c001f4095d208cc1296b0eed002427aa599874af7a432b105")
+        BlockHash::from_str("00000000dd30457c001f4095d208cc1296b0eed002427aa599874af7a432b105")
             .unwrap(),
         VERIFY_NONE,
     ); // BIP16 exception on test net

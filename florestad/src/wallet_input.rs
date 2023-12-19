@@ -8,9 +8,11 @@ use miniscript::Descriptor;
 use miniscript::DescriptorPublicKey;
 
 pub mod extended_pub_key {
-    use bitcoin::util::bip32::ExtendedPubKey;
+    use bitcoin::bip32::Xpub;
 
-    pub fn from_str(s: &str) -> Result<ExtendedPubKey, slip132::Error> {
+    use crate::slip132;
+
+    pub fn from_str(s: &str) -> Result<Xpub, slip132::Error> {
         slip132::FromSlip132::from_slip132_str(s)
     }
 }
@@ -53,7 +55,13 @@ impl InitialWalletSetup {
         descriptors.dedup();
         let mut addresses = addresses
             .iter()
-            .map(|address| Address::from_str(address))
+            .flat_map(|address| match Address::from_str(address) {
+                Ok(address) => Ok(address.require_network(network)),
+                Err(e) => {
+                    log::error!("Invalid address provided: {address} \nReason: {e:?}");
+                    Err(e)
+                }
+            })
             .collect::<Result<Vec<_>, _>>()?;
         addresses.extend(descriptors.iter().flat_map(|descriptor| {
             (0..addresses_per_descriptor).map(|index| {
@@ -92,8 +100,8 @@ pub fn parse_descriptors(
 
 #[cfg(test)]
 pub mod test {
+    use bitcoin::bip32::ChildNumber;
     use bitcoin::secp256k1::Secp256k1;
-    use bitcoin::util::bip32::ChildNumber;
     use bitcoin::Address;
     use bitcoin::Network;
 
@@ -108,7 +116,7 @@ pub mod test {
 
         let secp = Secp256k1::new();
 
-        let xpub: bitcoin::util::bip32::ExtendedPubKey = super::extended_pub_key::from_str(XPUB)
+        let xpub: bitcoin::bip32::Xpub = super::extended_pub_key::from_str(XPUB)
             .expect("Parsing failed")
             .ckd_pub(&secp, ChildNumber::Normal { index: 0 })
             .and_then(|key| key.ckd_pub(&secp, ChildNumber::Normal { index: 0 }))

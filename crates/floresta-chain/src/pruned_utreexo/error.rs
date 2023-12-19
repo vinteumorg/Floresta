@@ -13,7 +13,7 @@ pub enum BlockchainError {
     #[cfg(feature = "cli-blockchain")]
     #[error("Json-Rpc error")]
     JsonRpcError(#[from] UtreexodError),
-    Parsing(bitcoin::hashes::hex::Error),
+    Parsing(String),
     BlockValidation(BlockValidationErrors),
     InvalidProof,
     UtreexoError(String),
@@ -84,7 +84,6 @@ impl_error_from!(
     ConsensusDecode
 );
 impl_error_from!(BlockchainError, BlockValidationErrors, BlockValidation);
-impl_error_from!(BlockchainError, bitcoin::hashes::hex::Error, Parsing);
 impl_error_from!(BlockchainError, String, UtreexoError);
 impl_error_from!(BlockchainError, script::Error, ScriptValidationFailed);
 

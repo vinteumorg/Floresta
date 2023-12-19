@@ -11,10 +11,10 @@ pub mod udata;
 
 use alloc::sync::Arc;
 
+use bitcoin::block::Header as BlockHeader;
 use bitcoin::hashes::sha256;
 use bitcoin::Block;
 use bitcoin::BlockHash;
-use bitcoin::BlockHeader;
 use bitcoin::OutPoint;
 use bitcoin::Transaction;
 use bitcoin::TxOut;

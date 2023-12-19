@@ -3,11 +3,12 @@ use bitcoin::consensus::encode;
 use btcd_rpc::error::UtreexodError;
 use floresta_chain::BlockValidationErrors;
 use floresta_chain::BlockchainError;
+
+use crate::slip132;
 #[derive(Debug)]
 pub enum Error {
     #[cfg(feature = "cli-blockchain")]
     UtreexodError(UtreexodError),
-    Parsing(bitcoin::hashes::hex::Error),
     Encode(encode::Error),
     Db(kv::Error),
     ParseNum(std::num::ParseIntError),
@@ -19,7 +20,8 @@ pub enum Error {
     SerdeJson(serde_json::Error),
     TomlParsing(toml::de::Error),
     WalletInput(slip132::Error),
-    AddressParsing(bitcoin::util::address::Error),
+    AddressParsing(bitcoin::address::ParseError),
+    Address(bitcoin::address::Error),
     Miniscript(miniscript::Error),
 }
 
@@ -27,7 +29,6 @@ impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Error::Encode(err) => write!(f, "Encode error: {err}"),
-            Error::Parsing(err) => write!(f, "Parsing Error {err}"),
             #[cfg(feature = "cli-blockchain")]
             Error::UtreexodError(_) => write!(f, "UtreexodError"),
             Error::Db(err) => write!(f, "Database error {err}"),
@@ -42,6 +43,7 @@ impl std::fmt::Display for Error {
             Error::AddressParsing(err) => write!(f, "Invalid address {err}"),
             Error::Miniscript(err) => write!(f, "Miniscript error: {err}"),
             Error::BlockValidation(err) => write!(f, "Error while validating block: {err:?}"),
+            Error::Address(err) => write!(f, "Error while validating address: {err}"),
         }
     }
 }
@@ -56,7 +58,7 @@ macro_rules! impl_from_error {
         }
     };
 }
-impl_from_error!(Parsing, bitcoin::hashes::hex::Error);
+// impl_from_error!(Parsing, bitcoin::hashes::hex::Error);
 #[cfg(feature = "cli-blockchain")]
 impl_from_error!(UtreexodError, UtreexodError);
 impl_from_error!(Encode, encode::Error);
@@ -70,7 +72,8 @@ impl_from_error!(SerdeJson, serde_json::Error);
 impl_from_error!(WalletInput, slip132::Error);
 impl_from_error!(TomlParsing, toml::de::Error);
 impl_from_error!(BlockValidation, BlockValidationErrors);
-impl_from_error!(AddressParsing, bitcoin::util::address::Error);
+impl_from_error!(AddressParsing, bitcoin::address::ParseError);
 impl_from_error!(Miniscript, miniscript::Error);
+impl_from_error!(Address, bitcoin::address::Error);
 
 impl std::error::Error for Error {}

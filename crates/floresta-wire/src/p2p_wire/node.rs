@@ -24,16 +24,16 @@ use async_std::future::timeout;
 use async_std::net::TcpStream;
 use async_std::sync::RwLock;
 use async_std::task::spawn;
+use bitcoin::block::Header as BlockHeader;
 use bitcoin::hashes::sha256;
 use bitcoin::hashes::Hash;
-use bitcoin::network::address::AddrV2;
-use bitcoin::network::address::AddrV2Message;
-use bitcoin::network::constants::ServiceFlags;
-use bitcoin::network::message_blockdata::Inventory;
-use bitcoin::network::utreexo::UData;
-use bitcoin::network::utreexo::UtreexoBlock;
+use bitcoin::p2p::address::AddrV2;
+use bitcoin::p2p::address::AddrV2Message;
+use bitcoin::p2p::message_blockdata::Inventory;
+use bitcoin::p2p::utreexo::UData;
+use bitcoin::p2p::utreexo::UtreexoBlock;
+use bitcoin::p2p::ServiceFlags;
 use bitcoin::BlockHash;
-use bitcoin::BlockHeader;
 use bitcoin::OutPoint;
 use bitcoin::Transaction;
 use bitcoin::TxOut;
@@ -312,7 +312,7 @@ where
             self.address_man
                 .update_set_state(version.address_id, AddressState::Connected)
                 .update_set_service_flag(version.address_id, version.services);
-            if version.services.has(ServiceFlags::NODE_UTREEXO) {
+            if version.services.has(ServiceFlags::from(1 << 24)) {
                 self.utreexo_peers.push(peer);
             }
             self.peer_ids.push(peer);
@@ -340,7 +340,7 @@ where
             .proof
             .hashes
             .iter()
-            .map(|hash| NodeHash::Some(hash.into_inner()))
+            .map(|hash| NodeHash::Some(hash.to_byte_array()))
             .collect();
         let proof = Proof::new(targets, hashes);
         let mut hashes = Vec::new();
@@ -456,7 +456,7 @@ where
             return Err(WireError::NoPeersAvailable);
         }
         for _ in 0..10 {
-            let idx = if required_services.has(ServiceFlags::NODE_UTREEXO) {
+            let idx = if required_services.has(ServiceFlags::from(1 << 24)) {
                 if self.utreexo_peers.is_empty() {
                     return Err(WireError::NoUtreexoPeersAvailable);
                 }
@@ -521,7 +521,7 @@ where
     }
     async fn handle_broadcast(&self) -> Result<(), WireError> {
         for (_, peer) in self.peers.iter() {
-            if peer.services.has(ServiceFlags::NODE_UTREEXO) {
+            if peer.services.has(ServiceFlags::from(1 << 24)) {
                 continue;
             }
 
@@ -596,7 +596,7 @@ where
         let peer = self
             .send_to_random_peer(
                 NodeRequest::GetBlock((blocks.clone(), true)),
-                ServiceFlags::NODE_UTREEXO,
+                ServiceFlags::from(1 << 24),
             )
             .await?;
         for block in blocks.iter() {
@@ -609,7 +609,7 @@ where
     async fn create_connection(&mut self, feeler: bool) -> Option<()> {
         // We should try to keep at least two utreexo connections
         let required_services = if self.utreexo_peers.len() < 2 {
-            ServiceFlags::NETWORK | ServiceFlags::WITNESS | ServiceFlags::NODE_UTREEXO
+            ServiceFlags::NETWORK | ServiceFlags::WITNESS | ServiceFlags::from(1 << 24)
         } else {
             ServiceFlags::NETWORK | ServiceFlags::WITNESS
         };
@@ -961,7 +961,7 @@ where
                 PeerMessages::Ready(version) => {
                     self.handle_peer_ready(peer, &version).await?;
 
-                    if version.services.has(ServiceFlags::NODE_UTREEXO)
+                    if version.services.has(ServiceFlags::from(1 << 24))
                         && matches!(self.state, NodeState::WaitingPeer)
                         && !self.inflight.contains_key(&InflightRequests::Headers)
                     {
@@ -1441,7 +1441,7 @@ where
                 }
                 PeerMessages::Ready(version) => {
                     self.handle_peer_ready(peer, &version).await?;
-                    if version.services.has(ServiceFlags::NODE_UTREEXO) {
+                    if version.services.has(ServiceFlags::from(1 << 24)) {
                         self.state = NodeState::Running;
                     }
                 }
