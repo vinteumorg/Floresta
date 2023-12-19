@@ -809,6 +809,7 @@ dependencies = [
  "floresta-wire",
  "miniscript 10.0.0",
  "rustreexo",
+ "tokio",
 ]
 
 [[package]]

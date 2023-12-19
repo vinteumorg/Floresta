@@ -15,7 +15,6 @@ use async_std::{
     net::{TcpListener, TcpStream},
 };
 use tokio::sync::mpsc::unbounded_channel;
-use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::RwLock;
 
@@ -78,15 +77,15 @@ pub struct ElectrumServer<Blockchain: BlockchainInterface> {
     /// watch-only wallet, but it is adapted to the electrum protocol.
     pub address_cache: Arc<RwLock<AddressCache<KvDatabase>>>,
     /// The TCP listener is used to accept new connections to our server.
-    pub tcp_listener: Arc<TcpListener>,
+    // pub tcp_listener: TcpListener,
     /// The clients are the clients connected to our server, we keep track of them
     /// using a unique id.
     pub clients: HashMap<ClientId, Arc<Client>>,
     /// The message_receiver receive messages and handles them.
-    pub message_receiver: UnboundedReceiver<Message>,
+    // pub message_receiver: UnboundedReceiver<Message>,
     /// The message_transmitter is used to send requests from clients or notifications
     /// like new or dropped clients
-    pub message_transmitter: UnboundedSender<Message>,
+    // pub message_transmitter: UnboundedSender<Message>,
     /// The client_addresses is used to keep track of the addresses of each client.
     /// We keep the script_hash and which client has it, so we can notify the
     /// clients when a new transaction is received.
@@ -95,12 +94,10 @@ pub struct ElectrumServer<Blockchain: BlockchainInterface> {
 
 impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
     pub async fn new(
-        address: &'static str,
         address_cache: Arc<RwLock<AddressCache<KvDatabase>>>,
         chain: Arc<Blockchain>,
     ) -> Result<ElectrumServer<Blockchain>, Box<dyn std::error::Error>> {
-        let listener = Arc::new(TcpListener::bind(address).await?);
-        let (tx, rx) = unbounded_channel();
+        // let (::tx, rx) = unbounded_channel::<Message>();
         let unconfirmed = address_cache.read().await.find_unconfirmed().unwrap();
         for tx in unconfirmed {
             chain.broadcast(&tx).expect("Invalid chain");
@@ -108,10 +105,9 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
         Ok(ElectrumServer {
             chain,
             address_cache,
-            tcp_listener: listener,
             clients: HashMap::new(),
-            message_receiver: rx,
-            message_transmitter: tx,
+            // message_receiver: rx,
+            // message_transmitter: tx,
             client_addresses: HashMap::new(),
         })
     }
@@ -357,7 +353,12 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
         }
     }
 
-    pub async fn main_loop(mut self) -> Result<(), crate::error::Error> {
+    pub async fn main_loop(mut self, address: &str) -> Result<(), crate::error::Error> {
+        let (tx, mut rx) = unbounded_channel::<Message>();
+        let tcp_listener = TcpListener::bind(address).await?;
+
+        tokio::spawn(client_accept_loop(tcp_listener, tx));
+
         let blocks = Channel::new();
         let blocks = Arc::new(blocks);
 
@@ -367,12 +368,9 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
             for (block, height) in blocks.recv() {
                 self.handle_block(block, height).await;
             }
-            let request = async_std::future::timeout(
-                std::time::Duration::from_secs(1),
-                self.message_receiver.recv(),
-            )
-            .await
-            .unwrap();
+            let request = async_std::future::timeout(std::time::Duration::from_secs(1), rx.recv())
+                .await
+                .unwrap();
 
             if let Some(message) = request {
                 self.handle_message(message).await?;
@@ -508,7 +506,7 @@ async fn client_broker_loop(
 
 /// Listens to new TCP connections in a loop
 pub async fn client_accept_loop(
-    listener: Arc<TcpListener>,
+    listener: TcpListener,
     message_transmitter: UnboundedSender<Message>,
 ) {
     let mut id_count = 0;

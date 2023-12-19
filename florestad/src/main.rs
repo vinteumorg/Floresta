@@ -37,7 +37,7 @@ use floresta_chain::{
 };
 use floresta_common::constants::DIR_NAME;
 use floresta_compact_filters::{FilterBackendBuilder, KvFiltersStore};
-use floresta_electrum::electrum_protocol::{client_accept_loop, ElectrumServer};
+use floresta_electrum::electrum_protocol::ElectrumServer;
 use floresta_watch_only::{kv_database::KvDatabase, AddressCache, AddressCacheDatabase};
 use floresta_wire::{mempool::Mempool, node::UtreexoNode};
 use log::{debug, error, info};
@@ -268,22 +268,18 @@ fn run_with_ctx(ctx: Ctx) {
     );
 
     // Electrum
-    let electrum_server = block_on(ElectrumServer::new(
-        "0.0.0.0:50001",
-        wallet,
-        blockchain_state,
-    ))
-    .expect("Could not create an Electrum Server");
+    let electrum_server = block_on(ElectrumServer::new(wallet, blockchain_state))
+        .expect("Could not create an Electrum Server");
 
     // Spawn all services
 
     // Electrum loop to accept new TCP clients
-    task::spawn(client_accept_loop(
-        electrum_server.tcp_listener.clone(),
-        electrum_server.message_transmitter.clone(),
-    ));
+    // task::spawn(client_accept_loop(
+    //     electrum_server.tcp_listener.clone(),
+    //     electrum_server.message_transmitter.clone(),
+    // ));
     // Electrum main loop
-    task::spawn(electrum_server.main_loop());
+    task::spawn(electrum_server.main_loop("0.0.0.0:50001"));
     info!("Server running on: 0.0.0.0:50001");
 
     let _kill_signal = kill_signal.clone();
