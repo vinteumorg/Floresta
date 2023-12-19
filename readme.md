@@ -7,6 +7,10 @@ a set of reusable components that can be used to build Bitcoin applications. `fl
 
 If you want to use `libfloresta` to build your own Bitcoin application, you can find the documentation [here](https://docs.rs/floresta/).
 
+### Comunity
+
+If you want to discuss this project, you can join our Discord server [here](https://discord.gg/5Wj8fjjS93).
+
 ### Building
 
 You'll need Rust and Cargo, refer to [this](https://www.rust-lang.org/) for more details. Minimum support version is rustc 1.64 and newer.
