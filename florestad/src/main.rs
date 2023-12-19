@@ -27,10 +27,7 @@ mod wallet_input;
 #[cfg(feature = "zmq-server")]
 mod zmq;
 
-use async_std::{
-    sync::RwLock,
-    task::{self, block_on},
-};
+use async_std::task::{self, block_on};
 use bitcoin::{BlockHash, Network};
 use clap::Parser;
 use cli::{Cli, Commands, FilterType};
@@ -46,6 +43,7 @@ use floresta_wire::{mempool::Mempool, node::UtreexoNode};
 use log::{debug, error, info};
 use pretty_env_logger::env_logger::{Env, TimestampPrecision};
 use std::{path::PathBuf, sync::Arc};
+use tokio::sync::RwLock;
 
 #[cfg(feature = "zmq-server")]
 use zmq::ZMQServer;
@@ -234,7 +232,7 @@ fn run_with_ctx(ctx: Ctx) {
     // Chain Provider (p2p)
     let chain_provider = UtreexoNode::new(
         blockchain_state.clone(),
-        Arc::new(async_std::sync::RwLock::new(Mempool::new())),
+        Arc::new(RwLock::new(Mempool::new())),
         get_net(&ctx.network).into(),
         data_dir,
         ctx.proxy.map(|x| x.parse().expect("Invalid proxy address")),
@@ -279,7 +277,7 @@ fn run_with_ctx(ctx: Ctx) {
 
     // Spawn all services
 
-    // Electrum accept loop
+    // Electrum loop to accept new TCP clients
     task::spawn(client_accept_loop(
         electrum_server.tcp_listener.clone(),
         electrum_server.message_transmitter.clone(),
