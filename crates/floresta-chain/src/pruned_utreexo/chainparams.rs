@@ -1,21 +1,23 @@
 extern crate alloc;
-use crate::prelude::*;
 use alloc::vec::Vec;
-
-use crate::Network;
+use core::ffi::c_uint;
 
 #[cfg(feature = "bitcoinconsensus")]
-use bitcoin::{
-    bitcoinconsensus::{VERIFY_NONE, VERIFY_P2SH, VERIFY_WITNESS},
-    hashes::hex::FromHex,
-};
+use bitcoin::bitcoinconsensus::VERIFY_NONE;
+#[cfg(feature = "bitcoinconsensus")]
+use bitcoin::bitcoinconsensus::VERIFY_P2SH;
+#[cfg(feature = "bitcoinconsensus")]
+use bitcoin::bitcoinconsensus::VERIFY_WITNESS;
+use bitcoin::blockdata::constants::genesis_block;
+use bitcoin::blockdata::constants::max_target;
+#[cfg(feature = "bitcoinconsensus")]
+use bitcoin::hashes::hex::FromHex;
+use bitcoin::util::uint::Uint256;
+use bitcoin::Block;
+use bitcoin::BlockHash;
 
-use bitcoin::{
-    blockdata::constants::{genesis_block, max_target},
-    util::uint::Uint256,
-    Block, BlockHash,
-};
-use core::ffi::c_uint;
+use crate::prelude::*;
+use crate::Network;
 #[derive(Clone, Debug)]
 pub struct ChainParams {
     /// The network's first block, also called genesis block.

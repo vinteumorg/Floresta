@@ -6,11 +6,16 @@
 //! this header. With payload size we can finally read the entire message and return a parsed
 //! structure.
 
-use super::peer::PeerError;
-use async_std::{channel::Sender, io::ReadExt};
-use bitcoin::consensus::{deserialize, deserialize_partial, Decodable};
-use futures::AsyncRead;
 use std::marker::PhantomData;
+
+use async_std::channel::Sender;
+use async_std::io::ReadExt;
+use bitcoin::consensus::deserialize;
+use bitcoin::consensus::deserialize_partial;
+use bitcoin::consensus::Decodable;
+use futures::AsyncRead;
+
+use super::peer::PeerError;
 
 /// A simple type that wraps a stream and returns T, if T is [Decodable].
 pub struct StreamReader<Source: Sync + Send + ReadExt + Unpin + AsyncRead, Item: Decodable> {

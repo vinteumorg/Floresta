@@ -2,8 +2,9 @@
 //! modules. This module don't use anything from the standard lib and can be easily used in no-std
 //! enviroments. We only use mem::take from [core].
 
-use crate::prelude::Vec;
 use core::mem::take;
+
+use crate::prelude::Vec;
 
 /// A (Send + Sync) single producer, single consumer channel to notify modules about things.
 /// The api is super minimalistic to reduce external dependecies, including from the std-lib

@@ -1,10 +1,11 @@
-use crate::prelude::*;
+use core::fmt::Debug;
 
 use bitcoin::blockdata::script;
 #[cfg(feature = "cli-blockchain")]
 use btcd_rpc::error::UtreexodError;
-use core::fmt::Debug;
 use floresta_common::impl_error_from;
+
+use crate::prelude::*;
 pub trait DatabaseError: Debug + Send + Sync + 'static {}
 #[derive(Debug)]
 pub enum BlockchainError {

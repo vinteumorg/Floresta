@@ -2,9 +2,8 @@ use floresta_chain::BlockchainError;
 use floresta_common::impl_error_from;
 use thiserror::Error;
 
-use crate::node::NodeRequest;
-
 use super::peer::PeerError;
+use crate::node::NodeRequest;
 
 #[derive(Error, Debug)]
 pub enum WireError {

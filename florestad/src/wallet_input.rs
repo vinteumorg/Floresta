@@ -1,11 +1,11 @@
 //!
 //! Handles different inputs, try to make sense out of it and store a sane descriptor at the end
-//!
 
 use std::str::FromStr;
 
 use bitcoin::Address;
-use miniscript::{Descriptor, DescriptorPublicKey};
+use miniscript::Descriptor;
+use miniscript::DescriptorPublicKey;
 
 pub mod extended_pub_key {
     use bitcoin::util::bip32::ExtendedPubKey;
@@ -92,9 +92,12 @@ pub fn parse_descriptors(
 
 #[cfg(test)]
 pub mod test {
+    use bitcoin::secp256k1::Secp256k1;
+    use bitcoin::util::bip32::ChildNumber;
+    use bitcoin::Address;
+    use bitcoin::Network;
+
     use super::*;
-    use bitcoin::{secp256k1::Secp256k1, util::bip32::ChildNumber};
-    use bitcoin::{Address, Network};
 
     #[test]
     fn test_xpub_parsing() {

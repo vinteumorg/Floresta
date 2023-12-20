@@ -3,10 +3,15 @@
 //! It's not meant to use in production, but for the integrated testing framework
 //!
 //! For actual databases that can be used for production code, see [KvDatabase].
-use super::{AddressCacheDatabase, CachedAddress, CachedTransaction, Stats};
-use bitcoin::{hashes::sha256, Txid};
+use bitcoin::hashes::sha256;
+use bitcoin::Txid;
 use floresta_common::prelude::sync::RwLock;
 use floresta_common::prelude::*;
+
+use super::AddressCacheDatabase;
+use super::CachedAddress;
+use super::CachedTransaction;
+use super::Stats;
 #[derive(Debug, Default)]
 struct Inner {
     addresses: HashMap<sha256::Hash, CachedAddress>,

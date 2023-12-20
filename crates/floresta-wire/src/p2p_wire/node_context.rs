@@ -1,8 +1,12 @@
-use std::{collections::HashMap, sync::Arc, time::Instant};
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::Instant;
 
-use bitcoin::{network::utreexo::UtreexoBlock, BlockHash};
+use bitcoin::network::utreexo::UtreexoBlock;
+use bitcoin::BlockHash;
 
-use super::{node::RescanStatus, node_interface::NodeInterface};
+use super::node::RescanStatus;
+use super::node_interface::NodeInterface;
 
 pub trait NodeContext {
     const REQUEST_TIMEOUT: u64;

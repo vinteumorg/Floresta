@@ -2,12 +2,13 @@
 //! A simple mempool that keeps our transactions in memory. It try to rebroadcast
 //! our transactions every 1 hour.
 //! Once our transaction is included in a block, we remove it from the mempool.
-use std::{
-    collections::HashMap,
-    time::{Duration, Instant},
-};
+use std::collections::HashMap;
+use std::time::Duration;
+use std::time::Instant;
 
-use bitcoin::{Block, Transaction, Txid};
+use bitcoin::Block;
+use bitcoin::Transaction;
+use bitcoin::Txid;
 /// Holds the transactions that we broadcasted and are still in the mempool.
 #[derive(Debug, Default)]
 pub struct Mempool(HashMap<Txid, (Transaction, Instant)>);

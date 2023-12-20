@@ -9,17 +9,22 @@
 //! This module should receive blocks as we download them, it'll create a filter
 //! for it. Therefore, you can't use this to speedup wallet sync **before** IBD,
 //! since we wouldn't have the filter for all blocks yet.
-//!
-use bitcoin::{
-    hashes::Hash,
-    util::bip158::{self, BlockFilter, GCSFilterWriter},
-    Block, BlockHash, OutPoint, Transaction, Txid,
-};
-use core::{fmt::Debug, ops::BitAnd};
+use core::fmt::Debug;
+use core::ops::BitAnd;
+use std::io::Write;
+
+use bitcoin::hashes::Hash;
+use bitcoin::util::bip158::BlockFilter;
+use bitcoin::util::bip158::GCSFilterWriter;
+use bitcoin::util::bip158::{self};
+use bitcoin::Block;
+use bitcoin::BlockHash;
+use bitcoin::OutPoint;
+use bitcoin::Transaction;
+use bitcoin::Txid;
 use floresta_chain::BlockConsumer;
 use kv::Integer;
 use log::error;
-use std::io::Write;
 
 /// A database that stores our compact filters
 pub trait BlockFilterStore: Send + Sync {
@@ -429,16 +434,20 @@ impl<'a> BlockFilterStore for KvFiltersStore<'a> {
 
 #[cfg(test)]
 mod tests {
-    use bitcoin::{
-        consensus::deserialize,
-        hashes::{hex::FromHex, Hash},
-        util::bip158,
-        Block, BlockHash, OutPoint, Script, Txid,
-    };
+    use bitcoin::consensus::deserialize;
+    use bitcoin::hashes::hex::FromHex;
+    use bitcoin::hashes::Hash;
+    use bitcoin::util::bip158;
+    use bitcoin::Block;
+    use bitcoin::BlockHash;
+    use bitcoin::OutPoint;
+    use bitcoin::Script;
+    use bitcoin::Txid;
 
+    use super::BlockFilterBackend;
+    use super::FilterBuilder;
+    use super::MemoryBlockFilterStorage;
     use crate::QueryType;
-
-    use super::{BlockFilterBackend, FilterBuilder, MemoryBlockFilterStorage};
     #[test]
     fn test_filter() {
         let mut writer = Vec::new();

@@ -1,7 +1,14 @@
-use std::{net::IpAddr, sync::Mutex, time::Instant};
+use std::net::IpAddr;
+use std::sync::Mutex;
+use std::time::Instant;
 
-use bitcoin::{network::utreexo::UtreexoBlock, Block, BlockHash, Transaction, Txid};
-use serde::{Deserialize, Serialize};
+use bitcoin::network::utreexo::UtreexoBlock;
+use bitcoin::Block;
+use bitcoin::BlockHash;
+use bitcoin::Transaction;
+use bitcoin::Txid;
+use serde::Deserialize;
+use serde::Serialize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum UserRequest {

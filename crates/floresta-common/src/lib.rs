@@ -1,10 +1,12 @@
 #![no_std]
-use bitcoin::hashes::{sha256, Hash};
+use bitcoin::hashes::sha256;
+use bitcoin::hashes::Hash;
 use bitcoin::Script;
 #[cfg(feature = "descriptors")]
-use miniscript::{Descriptor, DescriptorPublicKey};
+use miniscript::Descriptor;
+#[cfg(feature = "descriptors")]
+use miniscript::DescriptorPublicKey;
 use prelude::*;
-
 use sha2::Digest;
 pub mod constants;
 pub mod spsc;
@@ -43,44 +45,60 @@ pub fn parse_descriptors(
 #[cfg(feature = "no-std")]
 pub mod prelude {
     extern crate alloc;
-    pub use alloc::{borrow::ToOwned, boxed::Box, string::String, vec, vec::Vec};
-    pub use core::{
-        cmp, convert,
-        core::str::FromStr,
-        fmt,
-        fmt::Display,
-        iter, mem, ops,
-        ops::{Deref, DerefMut},
-        option, result, slice, str,
-    };
+    pub use alloc::borrow::ToOwned;
+    pub use alloc::boxed::Box;
+    pub use alloc::string::String;
+    pub use alloc::vec;
+    pub use alloc::vec::Vec;
+    pub use core::cmp;
+    pub use core::convert;
+    pub use core::core::str::FromStr;
+    pub use core::fmt;
+    pub use core::fmt::Display;
+    pub use core::iter;
+    pub use core::mem;
+    pub use core::ops;
+    pub use core::ops::Deref;
+    pub use core::ops::DerefMut;
+    pub use core::option;
+    pub use core::result;
+    pub use core::slice;
+    pub use core::str;
 
-    pub use core2::{
-        error::Error,
-        io::{Error as ioError, Read, Write},
-    };
-    pub use hashbrown::{HashMap, HashSet};
+    pub use core2::error::Error;
+    pub use core2::io::Error as ioError;
+    pub use core2::io::Read;
+    pub use core2::io::Write;
+    pub use hashbrown::HashMap;
+    pub use hashbrown::HashSet;
 }
 #[cfg(not(feature = "no-std"))]
 pub mod prelude {
     extern crate std;
     pub use std::borrow::ToOwned;
-    pub use std::{
-        boxed::Box,
-        collections::{hash_map::Entry, HashMap, HashSet},
-        error::Error,
-        fmt::{self, Display, Formatter},
-        io::{Error as ioError, Read, Write},
-        ops::{Deref, DerefMut},
-        result::Result,
-        str::FromStr,
-        string::String,
-        sync,
-        vec::{self, Vec},
-    };
+    pub use std::boxed::Box;
+    pub use std::collections::hash_map::Entry;
+    pub use std::collections::HashMap;
+    pub use std::collections::HashSet;
+    pub use std::error::Error;
+    pub use std::fmt::Display;
+    pub use std::fmt::Formatter;
+    pub use std::fmt::{self};
+    pub use std::io::Error as ioError;
+    pub use std::io::Read;
+    pub use std::io::Write;
+    pub use std::ops::Deref;
+    pub use std::ops::DerefMut;
+    pub use std::result::Result;
+    pub use std::str::FromStr;
+    pub use std::string::String;
+    pub use std::sync;
+    pub use std::vec::Vec;
+    pub use std::vec::{self};
 }
 #[macro_export]
 macro_rules! impl_error_from {
-    ($thing: ty, $from_thing: ty, $field: ident) => {
+    ($thing:ty, $from_thing:ty, $field:ident) => {
         impl From<$from_thing> for $thing {
             fn from(e: $from_thing) -> Self {
                 <$thing>::$field(e)

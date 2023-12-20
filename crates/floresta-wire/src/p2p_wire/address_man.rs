@@ -2,19 +2,21 @@
 //! metadata. This module is very important in keeping our node protected against targeted
 //! attacks, like eclipse attacks.
 
-use bitcoin::network::{
-    address::{AddrV2, AddrV2Message},
-    constants::ServiceFlags,
-};
+use std::collections::HashMap;
+use std::net::IpAddr;
+use std::net::Ipv4Addr;
+use std::net::Ipv6Addr;
+use std::str::FromStr;
+use std::time::SystemTime;
+use std::time::UNIX_EPOCH;
+
+use bitcoin::network::address::AddrV2;
+use bitcoin::network::address::AddrV2Message;
+use bitcoin::network::constants::ServiceFlags;
 use floresta_chain::Network;
 use log::info;
-use serde::{Deserialize, Serialize};
-use std::{
-    collections::HashMap,
-    net::{IpAddr, Ipv4Addr, Ipv6Addr},
-    str::FromStr,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use serde::Deserialize;
+use serde::Serialize;
 use thiserror::Error;
 const RETRY_TIME: u64 = 60 * 60; // 1 hour
 type AddressToSend = Vec<(AddrV2, u64, ServiceFlags, u16)>;

@@ -3,23 +3,29 @@
 //! assume anything about the chainstate, so it can be used in any context.
 //! We use this to avoid code reuse among the different implementations of the chainstate.
 
-use floresta_common::prelude::*;
-
-use bitcoin::{
-    blockdata::constants::COIN_VALUE,
-    consensus::Encodable,
-    hashes::{sha256, Hash},
-    util::uint::Uint256,
-    Block, BlockHash, BlockHeader, OutPoint, Transaction, TxOut,
-};
 use core::ffi::c_uint;
-use rustreexo::accumulator::{node_hash::NodeHash, proof::Proof, stump::Stump};
-use sha2::{Digest, Sha512_256};
 
-use super::{
-    chainparams::ChainParams,
-    error::{BlockValidationErrors, BlockchainError},
-};
+use bitcoin::blockdata::constants::COIN_VALUE;
+use bitcoin::consensus::Encodable;
+use bitcoin::hashes::sha256;
+use bitcoin::hashes::Hash;
+use bitcoin::util::uint::Uint256;
+use bitcoin::Block;
+use bitcoin::BlockHash;
+use bitcoin::BlockHeader;
+use bitcoin::OutPoint;
+use bitcoin::Transaction;
+use bitcoin::TxOut;
+use floresta_common::prelude::*;
+use rustreexo::accumulator::node_hash::NodeHash;
+use rustreexo::accumulator::proof::Proof;
+use rustreexo::accumulator::stump::Stump;
+use sha2::Digest;
+use sha2::Sha512_256;
+
+use super::chainparams::ChainParams;
+use super::error::BlockValidationErrors;
+use super::error::BlockchainError;
 
 /// This struct contains all the information and methods needed to validate a block,
 /// it is used by the [ChainState] to validate blocks and transactions.

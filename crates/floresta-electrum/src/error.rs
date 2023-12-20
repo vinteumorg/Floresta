@@ -1,6 +1,5 @@
 #[cfg(feature = "cli-blockchain")]
 use btcd_rpc::error::UtreexodError;
-
 use thiserror::Error;
 
 #[derive(Error, Debug)]

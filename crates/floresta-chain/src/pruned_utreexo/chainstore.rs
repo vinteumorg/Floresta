@@ -2,12 +2,14 @@
 
 //! This is a basic kv database that stores all metadata about our blockchain and utreexo
 //! state.
-use crate::prelude::*;
+use bitcoin::consensus::deserialize;
+use bitcoin::consensus::serialize;
+use bitcoin::consensus::Decodable;
+use bitcoin::consensus::Encodable;
+use bitcoin::BlockHash;
+use bitcoin::BlockHeader;
 
-use bitcoin::{
-    consensus::{deserialize, serialize, Decodable, Encodable},
-    BlockHash, BlockHeader,
-};
+use crate::prelude::*;
 #[derive(Debug)]
 pub enum DiskBlockHeader {
     FullyValid(BlockHeader, u32),
@@ -106,9 +108,12 @@ impl Encodable for DiskBlockHeader {
         Ok(len)
     }
 }
-use kv::{Config, Integer, Store};
+use kv::Config;
+use kv::Integer;
+use kv::Store;
 
-use super::{chain_state::BestChain, ChainStore};
+use super::chain_state::BestChain;
+use super::ChainStore;
 pub struct KvChainStore(Store);
 impl KvChainStore {
     pub fn new(datadir: String) -> Result<KvChainStore, kv::Error> {

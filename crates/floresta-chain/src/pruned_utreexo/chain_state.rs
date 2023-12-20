@@ -2,33 +2,52 @@ extern crate alloc;
 #[cfg(not(feature = "no-std"))]
 extern crate std;
 
-use super::{
-    chain_state_builder::ChainStateBuilder,
-    chainparams::ChainParams,
-    chainstore::{DiskBlockHeader, KvChainStore},
-    consensus::Consensus,
-    error::{BlockValidationErrors, BlockchainError},
-    BlockchainInterface, ChainStore, UpdatableChainstate,
-};
-use crate::prelude::*;
-use crate::{read_lock, write_lock, Network};
-use alloc::{borrow::ToOwned, fmt::format, string::ToString, sync::Arc, vec::Vec};
-#[cfg(feature = "bitcoinconsensus")]
-use bitcoin::bitcoinconsensus;
-
-use bitcoin::{
-    blockdata::constants::genesis_block,
-    consensus::{deserialize_partial, Decodable, Encodable},
-    hashes::{hex::FromHex, sha256},
-    util::uint::Uint256,
-    Block, BlockHash, BlockHeader, OutPoint, Transaction, TxOut,
-};
+use alloc::borrow::ToOwned;
+use alloc::fmt::format;
+use alloc::string::ToString;
+use alloc::sync::Arc;
+use alloc::vec::Vec;
 #[cfg(feature = "bitcoinconsensus")]
 use core::ffi::c_uint;
+
+#[cfg(feature = "bitcoinconsensus")]
+use bitcoin::bitcoinconsensus;
+use bitcoin::blockdata::constants::genesis_block;
+use bitcoin::consensus::deserialize_partial;
+use bitcoin::consensus::Decodable;
+use bitcoin::consensus::Encodable;
+use bitcoin::hashes::hex::FromHex;
+use bitcoin::hashes::sha256;
+use bitcoin::util::uint::Uint256;
+use bitcoin::Block;
+use bitcoin::BlockHash;
+use bitcoin::BlockHeader;
+use bitcoin::OutPoint;
+use bitcoin::Transaction;
+use bitcoin::TxOut;
 use floresta_common::Channel;
-use log::{info, trace, warn};
-use rustreexo::accumulator::{node_hash::NodeHash, proof::Proof, stump::Stump};
+use log::info;
+use log::trace;
+use log::warn;
+use rustreexo::accumulator::node_hash::NodeHash;
+use rustreexo::accumulator::proof::Proof;
+use rustreexo::accumulator::stump::Stump;
 use spin::RwLock;
+
+use super::chain_state_builder::ChainStateBuilder;
+use super::chainparams::ChainParams;
+use super::chainstore::DiskBlockHeader;
+use super::chainstore::KvChainStore;
+use super::consensus::Consensus;
+use super::error::BlockValidationErrors;
+use super::error::BlockchainError;
+use super::BlockchainInterface;
+use super::ChainStore;
+use super::UpdatableChainstate;
+use crate::prelude::*;
+use crate::read_lock;
+use crate::write_lock;
+use crate::Network;
 
 pub trait BlockConsumer: Sync + Send + 'static {
     fn consume_block(&self, block: &Block, height: u32);
@@ -623,7 +642,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             // Since we only expect hashes after the num_leaves, it should always align with 32 bytes
             assert_eq!(acc.len() % 32, 0);
             let root = acc.drain(0..32).collect::<Vec<u8>>();
-            let root = NodeHash::try_from(&*root).expect("Invalid hash");
+            let root = NodeHash::from(&*root);
             roots.push(root);
         }
         Stump { leaves, roots }
@@ -1041,14 +1060,14 @@ impl<T: ChainStore> From<ChainStateBuilder<T>> for ChainState<T> {
 #[macro_export]
 /// Grabs a RwLock for reading
 macro_rules! read_lock {
-    ($obj: ident) => {
+    ($obj:ident) => {
         $obj.inner.read()
     };
 }
 #[macro_export]
 /// Grabs a RwLock for writing
 macro_rules! write_lock {
-    ($obj: ident) => {
+    ($obj:ident) => {
         $obj.inner.write()
     };
 }
@@ -1140,20 +1159,27 @@ impl Decodable for BestChain {
 #[cfg(test)]
 mod test {
     extern crate std;
-    use crate::{prelude::HashMap, pruned_utreexo::consensus::Consensus};
-    use crate::{KvChainStore, Network};
-    use bitcoin::{
-        consensus::{deserialize, Decodable},
-        hashes::hex::FromHex,
-        Block, BlockHash, BlockHeader,
-    };
-    use rustreexo::accumulator::proof::Proof;
+    use std::format;
     use std::io::Cursor;
-    use std::{format, vec::Vec};
+    use std::vec::Vec;
 
-    use super::{BlockchainInterface, ChainParams, DiskBlockHeader, UpdatableChainstate};
+    use bitcoin::consensus::deserialize;
+    use bitcoin::consensus::Decodable;
+    use bitcoin::hashes::hex::FromHex;
+    use bitcoin::Block;
+    use bitcoin::BlockHash;
+    use bitcoin::BlockHeader;
+    use rustreexo::accumulator::proof::Proof;
 
+    use super::BlockchainInterface;
+    use super::ChainParams;
     use super::ChainState;
+    use super::DiskBlockHeader;
+    use super::UpdatableChainstate;
+    use crate::prelude::HashMap;
+    use crate::pruned_utreexo::consensus::Consensus;
+    use crate::KvChainStore;
+    use crate::Network;
     #[test]
     fn accept_mainnet_headers() {
         // Accepts the first 10235 mainnet headers
