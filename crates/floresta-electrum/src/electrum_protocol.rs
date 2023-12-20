@@ -353,7 +353,7 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
         }
     }
 
-    pub async fn main_loop(mut self, address: &str) -> Result<(), crate::error::Error> {
+    pub async fn main_loop(mut self, address: String) -> Result<(), crate::error::Error> {
         let (tx, mut rx) = unbounded_channel::<Message>();
         let tcp_listener = TcpListener::bind(address).await?;
 

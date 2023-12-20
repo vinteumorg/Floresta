@@ -68,6 +68,7 @@ struct Ctx {
     cfilter_types: Vec<FilterType>,
     #[cfg(feature = "zmq-server")]
     zmq_address: Option<String>,
+    electrum_host: String,
 }
 fn main() {
     // Setup global logger
@@ -89,6 +90,7 @@ fn main() {
             zmq_address: _zmq_address,
             cfilters,
             cfilter_types,
+            electrum_host,
         }) => {
             let ctx = Ctx {
                 data_dir,
@@ -103,6 +105,7 @@ fn main() {
                 cfilter_types: cfilter_types.unwrap_or_default(),
                 #[cfg(feature = "zmq-server")]
                 zmq_address: _zmq_address,
+                electrum_host,
             };
             run_with_ctx(ctx);
         }
@@ -279,8 +282,8 @@ fn run_with_ctx(ctx: Ctx) {
     //     electrum_server.message_transmitter.clone(),
     // ));
     // Electrum main loop
-    task::spawn(electrum_server.main_loop("0.0.0.0:50001"));
-    info!("Server running on: 0.0.0.0:50001");
+    task::spawn(electrum_server.main_loop(ctx.electrum_host.clone()));
+    info!("Server running on: {}", ctx.electrum_host);
 
     let _kill_signal = kill_signal.clone();
     ctrlc::set_handler(move || {
