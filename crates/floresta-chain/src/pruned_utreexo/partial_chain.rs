@@ -5,18 +5,19 @@
 
 use floresta_common::prelude::*;
 extern crate alloc;
-use super::{
-    chainparams::ChainParams,
-    consensus::Consensus,
-    error::{BlockValidationErrors, BlockchainError},
-};
+#[cfg(feature = "bitcoinconsensus")]
+use core::ffi::c_uint;
+
 #[cfg(feature = "bitcoinconsensus")]
 use bitcoin::bitcoinconsensus;
 use bitcoin::BlockHeader;
-#[cfg(feature = "bitcoinconsensus")]
-use core::ffi::c_uint;
 use log::info;
 use rustreexo::accumulator::stump::Stump;
+
+use super::chainparams::ChainParams;
+use super::consensus::Consensus;
+use super::error::BlockValidationErrors;
+use super::error::BlockchainError;
 
 /// A partial chain is a chain that only contains a subset of the blocks in the
 /// full chain. We use multiple partial chains to sync up with the full chain,
@@ -224,17 +225,17 @@ mod tests {
     use core::str::FromStr;
     use std::collections::HashMap;
 
-    use bitcoin::{consensus::deserialize, Block};
-    use rustreexo::accumulator::{node_hash::NodeHash, proof::Proof, stump::Stump};
-
-    use crate::{
-        pruned_utreexo::{
-            chainparams::ChainParams, consensus::Consensus, error::BlockValidationErrors,
-        },
-        Network,
-    };
+    use bitcoin::consensus::deserialize;
+    use bitcoin::Block;
+    use rustreexo::accumulator::node_hash::NodeHash;
+    use rustreexo::accumulator::proof::Proof;
+    use rustreexo::accumulator::stump::Stump;
 
     use super::PartialChainState;
+    use crate::pruned_utreexo::chainparams::ChainParams;
+    use crate::pruned_utreexo::consensus::Consensus;
+    use crate::pruned_utreexo::error::BlockValidationErrors;
+    use crate::Network;
     #[test]
     fn test_with_invalid_block() {
         fn run(block: &str, reason: BlockValidationErrors) {
@@ -386,7 +387,7 @@ mod tests {
             "350686755287afe78c33a27b187d83df1cd3c99ea93f4dd66781ecdedcc7d5b2",
         ]
         .iter()
-        .map(|x| NodeHash::try_from(hex::decode(x).unwrap().as_slice()).unwrap())
+        .map(|x| NodeHash::from(hex::decode(x).unwrap().as_slice()))
         .collect::<Vec<_>>();
 
         let expected_acc: Stump = Stump { leaves: 150, roots };

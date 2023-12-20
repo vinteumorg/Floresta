@@ -1,5 +1,9 @@
 use bitcoin::BlockHash;
-use clap::{arg, command, Parser, Subcommand, ValueEnum};
+use clap::arg;
+use clap::command;
+use clap::Parser;
+use clap::Subcommand;
+use clap::ValueEnum;
 
 #[derive(Clone, Debug, ValueEnum, Default)]
 pub enum Network {

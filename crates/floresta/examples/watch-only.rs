@@ -2,10 +2,14 @@
 
 //! This example shows how to create a watch-only wallet, and drive it.
 
-use bitcoin::{consensus::deserialize, hashes::hex::FromHex, Script};
+use bitcoin::consensus::deserialize;
+use bitcoin::hashes::hex::FromHex;
+use bitcoin::Script;
 use floresta_common::get_spk_hash;
-use floresta_watch_only::{memory_database::MemoryDatabase, AddressCache};
-use miniscript::{bitcoin::secp256k1::Secp256k1, Descriptor};
+use floresta_watch_only::memory_database::MemoryDatabase;
+use floresta_watch_only::AddressCache;
+use miniscript::bitcoin::secp256k1::Secp256k1;
+use miniscript::Descriptor;
 
 fn main() {
     // First, we need some place to store the wallet data. Here, we use an in-memory database,
@@ -32,18 +36,15 @@ fn main() {
     // We can now add the descriptor to the wallet. This will generate the first 100 addresses
     // for us, and add them to the wallet.
     for i in 0..100 {
-        wallet.cache_address(
-            bitcoin::Script::try_from(
-                descriptor
-                    .at_derivation_index(i)
-                    .unwrap()
-                    .explicit_script()
-                    .unwrap()
-                    .as_bytes()
-                    .to_vec(),
-            )
-            .unwrap(),
-        );
+        wallet.cache_address(bitcoin::Script::from(
+            descriptor
+                .at_derivation_index(i)
+                .unwrap()
+                .explicit_script()
+                .unwrap()
+                .as_bytes()
+                .to_vec(),
+        ));
     }
     // We can now process some blocks. Here, we process the first 11 blocks of a custom
     // regtest network. Each coinbase some of the addresses derived above.

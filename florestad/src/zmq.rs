@@ -21,7 +21,8 @@ use bitcoin::consensus::serialize;
 /// let block = socket.recv().unwrap();
 /// ```
 use floresta_chain::BlockConsumer;
-use zmq::{Context, Socket};
+use zmq::Context;
+use zmq::Socket;
 
 /// A 0MQ server that pushes blocks when we receive them
 pub struct ZMQServer {

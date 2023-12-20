@@ -1,10 +1,13 @@
-use bitcoin::{
-    consensus::{Decodable, Encodable},
-    hashes::{sha256d, Hash, HashEngine},
-    Block, Txid,
-};
+use bitcoin::consensus::Decodable;
+use bitcoin::consensus::Encodable;
+use bitcoin::hashes::sha256d;
+use bitcoin::hashes::Hash;
+use bitcoin::hashes::HashEngine;
+use bitcoin::Block;
+use bitcoin::Txid;
 use floresta_common::prelude::*;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 #[derive(Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MerkleProof {
     target: Txid,
@@ -162,12 +165,12 @@ impl Encodable for MerkleProof {
 }
 #[cfg(test)]
 mod test {
-    use super::MerkleProof;
-    use bitcoin::{
-        consensus::deserialize,
-        hashes::{hex::FromHex, sha256d},
-    };
+    use bitcoin::consensus::deserialize;
+    use bitcoin::hashes::hex::FromHex;
+    use bitcoin::hashes::sha256d;
     use floresta_common::prelude::*;
+
+    use super::MerkleProof;
     #[test]
     fn test_merkle_root() {
         let hashes = Vec::from([

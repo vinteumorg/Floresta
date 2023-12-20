@@ -1,13 +1,17 @@
 //! UData is the serialized data used for proof propagation in utreexo. It contains all
 //! data needed for validating some piece of information, like a transaction and a block.
 
+use bitcoin::consensus::Decodable;
+use bitcoin::consensus::Encodable;
+use bitcoin::hashes::sha256;
+use bitcoin::hashes::Hash;
+use bitcoin::BlockHash;
+use bitcoin::OutPoint;
+use bitcoin::TxOut;
+use sha2::Digest;
+use sha2::Sha512_256;
+
 use crate::prelude::*;
-use bitcoin::{
-    consensus::{Decodable, Encodable},
-    hashes::{sha256, Hash},
-    BlockHash, OutPoint, TxOut,
-};
-use sha2::{Digest, Sha512_256};
 /// Leaf data is the data that is hashed when adding to utreexo state. It contains validation
 /// data and some commitments to make it harder to attack an utreexo-only node.
 #[derive(Debug, PartialEq)]
@@ -67,10 +71,16 @@ impl Decodable for LeafData {
     }
 }
 pub mod proof_util {
-    use bitcoin::{
-        blockdata::script::Instruction, hashes::Hash, network::utreexo::CompactLeafData,
-        PubkeyHash, Script, ScriptHash, TxIn, TxOut, WPubkeyHash, WScriptHash,
-    };
+    use bitcoin::blockdata::script::Instruction;
+    use bitcoin::hashes::Hash;
+    use bitcoin::network::utreexo::CompactLeafData;
+    use bitcoin::PubkeyHash;
+    use bitcoin::Script;
+    use bitcoin::ScriptHash;
+    use bitcoin::TxIn;
+    use bitcoin::TxOut;
+    use bitcoin::WPubkeyHash;
+    use bitcoin::WScriptHash;
     #[derive(Debug)]
     pub enum Error {
         EmptyStack,
@@ -154,14 +164,26 @@ mod test {
     use std::str::FromStr;
     use std::vec::Vec;
 
-    use bitcoin::{
-        consensus::deserialize, hashes::hex::FromHex, network::utreexo::CompactLeafData, Amount,
-        BlockHash, Script, Transaction,
-    };
+    use bitcoin::consensus::deserialize;
+    use bitcoin::hashes::hex::FromHex;
+    use bitcoin::network::utreexo::CompactLeafData;
+    use bitcoin::Amount;
+    use bitcoin::BlockHash;
+    use bitcoin::Script;
+    use bitcoin::Transaction;
 
-    use super::{proof_util::reconstruct_leaf_data, LeafData};
+    use super::proof_util::reconstruct_leaf_data;
+    use super::LeafData;
     macro_rules! test_recover_spk {
-        ($tx_hex: literal, $height: literal, $index: literal, $amount: literal, $block_hash: literal, $spk_type: ident, $expected_spk: literal) => {
+        (
+            $tx_hex:literal,
+            $height:literal,
+            $index:literal,
+            $amount:literal,
+            $block_hash:literal,
+            $spk_type:ident,
+            $expected_spk:literal
+        ) => {
             let hex = Vec::from_hex($tx_hex).unwrap();
             let s: Transaction = deserialize(&hex).unwrap();
             let leaf = CompactLeafData {

@@ -1,38 +1,42 @@
-use self::peer_utils::make_pong;
-use super::{
-    mempool::Mempool,
-    node::{NodeNotification, NodeRequest},
-    stream_reader::StreamReader,
-};
+use std::fmt::Debug;
+use std::sync::Arc;
+use std::time::Duration;
+use std::time::Instant;
+
+use async_std::channel::unbounded;
+use async_std::channel::Receiver;
+use async_std::channel::Sender;
+use async_std::io::BufReader;
+use async_std::net::TcpStream;
+use async_std::net::ToSocketAddrs;
+use async_std::sync::RwLock;
+use async_std::task::spawn;
+use bitcoin::consensus::serialize;
+use bitcoin::hashes::Hash;
+use bitcoin::network::address::AddrV2Message;
+use bitcoin::network::constants::ServiceFlags;
+use bitcoin::network::message::NetworkMessage;
+use bitcoin::network::message::RawNetworkMessage;
+use bitcoin::network::message_blockdata::Inventory;
+use bitcoin::network::message_network::VersionMessage;
+use bitcoin::network::utreexo::UtreexoBlock;
+use bitcoin::BlockHash;
+use bitcoin::BlockHeader;
+use bitcoin::Network;
+use bitcoin::Transaction;
+use futures::AsyncRead;
+use futures::AsyncWrite;
+use futures::AsyncWriteExt;
+use futures::FutureExt;
+use log::error;
+use log::warn;
 use thiserror::Error;
 
-use async_std::{
-    channel::{unbounded, Receiver, Sender},
-    io::BufReader,
-    net::{TcpStream, ToSocketAddrs},
-    sync::RwLock,
-    task::spawn,
-};
-use bitcoin::{
-    consensus::serialize,
-    hashes::Hash,
-    network::{
-        address::AddrV2Message,
-        constants::ServiceFlags,
-        message::{NetworkMessage, RawNetworkMessage},
-        message_blockdata::Inventory,
-        message_network::VersionMessage,
-        utreexo::UtreexoBlock,
-    },
-    BlockHash, BlockHeader, Network, Transaction,
-};
-use futures::{AsyncRead, AsyncWrite, AsyncWriteExt, FutureExt};
-use log::{error, warn};
-use std::{
-    fmt::Debug,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use self::peer_utils::make_pong;
+use super::mempool::Mempool;
+use super::node::NodeNotification;
+use super::node::NodeRequest;
+use super::stream_reader::StreamReader;
 
 /// If we send a ping, and our peer takes more than PING_TIMEOUT to
 /// reply, disconnect.
@@ -505,17 +509,20 @@ impl<T: Transport> Peer<T> {
     }
 }
 pub(super) mod peer_utils {
-    use std::{
-        net::{IpAddr, Ipv4Addr, SocketAddr},
-        time::{SystemTime, UNIX_EPOCH},
-    };
+    use std::net::IpAddr;
+    use std::net::Ipv4Addr;
+    use std::net::SocketAddr;
+    use std::time::SystemTime;
+    use std::time::UNIX_EPOCH;
 
-    use bitcoin::network::{
-        address, constants,
-        message::{self, NetworkMessage},
-        message_network,
-    };
-    use floresta_common::constants::{FLORESTA_VERSION, RUSTREEXO_VERSION, RUST_BITCOIN_VERSION};
+    use bitcoin::network::address;
+    use bitcoin::network::constants;
+    use bitcoin::network::message::NetworkMessage;
+    use bitcoin::network::message::{self};
+    use bitcoin::network::message_network;
+    use floresta_common::constants::FLORESTA_VERSION;
+    use floresta_common::constants::RUSTREEXO_VERSION;
+    use floresta_common::constants::RUST_BITCOIN_VERSION;
 
     /// Protocol version we speak
     pub const PROTOCOL_VERSION: u32 = 70016;

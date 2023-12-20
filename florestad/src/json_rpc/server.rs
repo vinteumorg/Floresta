@@ -1,29 +1,48 @@
-use super::res::{
-    BlockJson, Error, GetBlockchainInfoRes, RawTxJson, ScriptPubKeyJson, ScriptSigJson, TxInJson,
-    TxOutJson,
-};
+use std::sync::Arc;
+
 use async_std::sync::RwLock;
-use bitcoin::{
-    consensus::{deserialize, serialize},
-    hashes::{
-        hex::{FromHex, ToHex},
-        Hash,
-    },
-    Address, Block, BlockHash, BlockHeader, Network, OutPoint, Script, TxIn, TxOut, Txid,
-};
-use floresta_chain::{
-    pruned_utreexo::{BlockchainInterface, UpdatableChainstate},
-    ChainState, KvChainStore,
-};
-use floresta_compact_filters::{BlockFilterBackend, QueryType};
-use floresta_watch_only::{kv_database::KvDatabase, AddressCache, CachedTransaction};
-use floresta_wire::node_interface::{NodeInterface, NodeMethods, PeerInfo};
+use bitcoin::consensus::deserialize;
+use bitcoin::consensus::serialize;
+use bitcoin::hashes::hex::FromHex;
+use bitcoin::hashes::hex::ToHex;
+use bitcoin::hashes::Hash;
+use bitcoin::Address;
+use bitcoin::Block;
+use bitcoin::BlockHash;
+use bitcoin::BlockHeader;
+use bitcoin::Network;
+use bitcoin::OutPoint;
+use bitcoin::Script;
+use bitcoin::TxIn;
+use bitcoin::TxOut;
+use bitcoin::Txid;
+use floresta_chain::pruned_utreexo::BlockchainInterface;
+use floresta_chain::pruned_utreexo::UpdatableChainstate;
+use floresta_chain::ChainState;
+use floresta_chain::KvChainStore;
+use floresta_compact_filters::BlockFilterBackend;
+use floresta_compact_filters::QueryType;
+use floresta_watch_only::kv_database::KvDatabase;
+use floresta_watch_only::AddressCache;
+use floresta_watch_only::CachedTransaction;
+use floresta_wire::node_interface::NodeInterface;
+use floresta_wire::node_interface::NodeMethods;
+use floresta_wire::node_interface::PeerInfo;
 use futures::executor::block_on;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use jsonrpc_http_server::ServerBuilder;
-use serde_json::{json, Value};
-use std::sync::Arc;
+use serde_json::json;
+use serde_json::Value;
+
+use super::res::BlockJson;
+use super::res::Error;
+use super::res::GetBlockchainInfoRes;
+use super::res::RawTxJson;
+use super::res::ScriptPubKeyJson;
+use super::res::ScriptSigJson;
+use super::res::TxInJson;
+use super::res::TxOutJson;
 
 #[rpc]
 pub trait Rpc {

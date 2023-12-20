@@ -27,26 +27,38 @@ mod wallet_input;
 #[cfg(feature = "zmq-server")]
 mod zmq;
 
-use async_std::{
-    sync::RwLock,
-    task::{self, block_on},
-};
-use bitcoin::{BlockHash, Network};
-use clap::Parser;
-use cli::{Cli, Commands, FilterType};
-use config_file::ConfigFile;
-use floresta_chain::{
-    pruned_utreexo::BlockchainInterface, BlockchainError, ChainState, KvChainStore,
-};
-use floresta_common::constants::DIR_NAME;
-use floresta_compact_filters::{FilterBackendBuilder, KvFiltersStore};
-use floresta_electrum::electrum_protocol::{client_accept_loop, ElectrumServer};
-use floresta_watch_only::{kv_database::KvDatabase, AddressCache, AddressCacheDatabase};
-use floresta_wire::{mempool::Mempool, node::UtreexoNode};
-use log::{debug, error, info};
-use pretty_env_logger::env_logger::{Env, TimestampPrecision};
-use std::{path::PathBuf, sync::Arc};
+use std::path::PathBuf;
+use std::sync::Arc;
 
+use async_std::sync::RwLock;
+use async_std::task::block_on;
+use async_std::task::{self};
+use bitcoin::BlockHash;
+use bitcoin::Network;
+use clap::Parser;
+use cli::Cli;
+use cli::Commands;
+use cli::FilterType;
+use config_file::ConfigFile;
+use floresta_chain::pruned_utreexo::BlockchainInterface;
+use floresta_chain::BlockchainError;
+use floresta_chain::ChainState;
+use floresta_chain::KvChainStore;
+use floresta_common::constants::DIR_NAME;
+use floresta_compact_filters::FilterBackendBuilder;
+use floresta_compact_filters::KvFiltersStore;
+use floresta_electrum::electrum_protocol::client_accept_loop;
+use floresta_electrum::electrum_protocol::ElectrumServer;
+use floresta_watch_only::kv_database::KvDatabase;
+use floresta_watch_only::AddressCache;
+use floresta_watch_only::AddressCacheDatabase;
+use floresta_wire::mempool::Mempool;
+use floresta_wire::node::UtreexoNode;
+use log::debug;
+use log::error;
+use log::info;
+use pretty_env_logger::env_logger::Env;
+use pretty_env_logger::env_logger::TimestampPrecision;
 #[cfg(feature = "zmq-server")]
 use zmq::ZMQServer;
 

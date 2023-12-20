@@ -5,15 +5,19 @@
 //! This will validate all blocks from genesis to the current tip, so it will take a while
 //! to sync.
 
+use std::str::FromStr;
+use std::sync::Arc;
+
 use async_std::sync::RwLock;
 use bitcoin::BlockHash;
-use floresta::chain::{pruned_utreexo::BlockchainInterface, ChainState, KvChainStore, Network};
+use floresta::chain::pruned_utreexo::BlockchainInterface;
+use floresta::chain::ChainState;
+use floresta::chain::KvChainStore;
+use floresta::chain::Network;
 use floresta::wire::mempool::Mempool;
 use floresta::wire::node::UtreexoNode;
 use floresta::wire::node_context::RunningNode;
 use floresta_wire::node_interface::NodeMethods;
-use std::str::FromStr;
-use std::sync::Arc;
 
 const DATA_DIR: &str = "./data";
 

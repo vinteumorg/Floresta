@@ -1,7 +1,8 @@
 use bitcoin::consensus::encode;
 #[cfg(feature = "cli-blockchain")]
 use btcd_rpc::error::UtreexodError;
-use floresta_chain::{BlockValidationErrors, BlockchainError};
+use floresta_chain::BlockValidationErrors;
+use floresta_chain::BlockchainError;
 #[derive(Debug)]
 pub enum Error {
     #[cfg(feature = "cli-blockchain")]
@@ -47,7 +48,7 @@ impl std::fmt::Display for Error {
 /// Implements `From<T>` where `T` is a possible error outcome in this crate, this macro only
 /// takes [T] and builds [Error] with the right variant.
 macro_rules! impl_from_error {
-    ($field: ident, $error: ty) => {
+    ($field:ident, $error:ty) => {
         impl From<$error> for Error {
             fn from(err: $error) -> Self {
                 Error::$field(err)

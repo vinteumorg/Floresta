@@ -8,8 +8,9 @@
 use bitcoin::blockdata::constants::genesis_block;
 use bitcoin::hashes::Hash;
 use bitcoin::BlockHash;
-use floresta::chain::{ChainState, KvChainStore, Network};
-
+use floresta::chain::ChainState;
+use floresta::chain::KvChainStore;
+use floresta::chain::Network;
 use floresta_chain::pruned_utreexo::chain_state_builder::ChainStateBuilder;
 use floresta_chain::ChainParams;
 use rustreexo::accumulator::stump::Stump;

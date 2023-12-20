@@ -1,12 +1,17 @@
-use super::{AddressCacheDatabase, Stats};
+use bitcoin::consensus::deserialize;
 use bitcoin::consensus::encode::Error;
-use bitcoin::{
-    consensus::{deserialize, serialize},
-    hashes::{hex::ToHex, Hash},
-    Txid,
-};
-use floresta_common::{impl_error_from, prelude::*};
-use kv::{Bucket, Config, Store};
+use bitcoin::consensus::serialize;
+use bitcoin::hashes::hex::ToHex;
+use bitcoin::hashes::Hash;
+use bitcoin::Txid;
+use floresta_common::impl_error_from;
+use floresta_common::prelude::*;
+use kv::Bucket;
+use kv::Config;
+use kv::Store;
+
+use super::AddressCacheDatabase;
+use super::Stats;
 
 pub struct KvDatabase(Store, Bucket<'static, String, Vec<u8>>);
 impl KvDatabase {

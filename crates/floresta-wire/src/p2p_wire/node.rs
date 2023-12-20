@@ -1,51 +1,77 @@
 //! Main file for this blockchain. A node is the central task that runs and handles important
 //! events, such as new blocks, peer connection/disconnection, new addresses, etc.
 //! A node should not care about peer-specific messages, peers'll handle things like pings.
-use super::{
-    address_man::{AddressMan, AddressState, LocalAddress},
-    error::WireError,
-    mempool::Mempool,
-    node_context::{IBDNode, NodeContext, RunningNode},
-    node_interface::{NodeInterface, NodeResponse, PeerInfo, UserRequest},
-    peer::{Peer, PeerMessages, Version},
-    socks::{Socks5Addr, Socks5Error, Socks5StreamBuilder},
-};
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::fmt::Debug;
+use std::net::IpAddr;
+use std::net::SocketAddr;
+use std::ops::Deref;
+use std::ops::DerefMut;
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::time::Duration;
+use std::time::Instant;
+use std::time::SystemTime;
+use std::time::UNIX_EPOCH;
 
-use async_std::{
-    channel::{self, bounded, Receiver, SendError, Sender},
-    future::timeout,
-    net::TcpStream,
-    sync::RwLock,
-    task::spawn,
-};
-use bitcoin::{
-    hashes::{sha256, Hash},
-    network::{
-        address::{AddrV2, AddrV2Message},
-        constants::ServiceFlags,
-        message_blockdata::Inventory,
-        utreexo::{UData, UtreexoBlock},
-    },
-    BlockHash, BlockHeader, OutPoint, Transaction, TxOut, Txid,
-};
-use floresta_chain::{
-    pruned_utreexo::{
-        chainparams::get_chain_dns_seeds, udata::proof_util, BlockchainInterface,
-        UpdatableChainstate,
-    },
-    BlockValidationErrors, BlockchainError, Network,
-};
+use async_std::channel::bounded;
+use async_std::channel::Receiver;
+use async_std::channel::SendError;
+use async_std::channel::Sender;
+use async_std::channel::{self};
+use async_std::future::timeout;
+use async_std::net::TcpStream;
+use async_std::sync::RwLock;
+use async_std::task::spawn;
+use bitcoin::hashes::sha256;
+use bitcoin::hashes::Hash;
+use bitcoin::network::address::AddrV2;
+use bitcoin::network::address::AddrV2Message;
+use bitcoin::network::constants::ServiceFlags;
+use bitcoin::network::message_blockdata::Inventory;
+use bitcoin::network::utreexo::UData;
+use bitcoin::network::utreexo::UtreexoBlock;
+use bitcoin::BlockHash;
+use bitcoin::BlockHeader;
+use bitcoin::OutPoint;
+use bitcoin::Transaction;
+use bitcoin::TxOut;
+use bitcoin::Txid;
+use floresta_chain::pruned_utreexo::chainparams::get_chain_dns_seeds;
+use floresta_chain::pruned_utreexo::udata::proof_util;
+use floresta_chain::pruned_utreexo::BlockchainInterface;
+use floresta_chain::pruned_utreexo::UpdatableChainstate;
+use floresta_chain::BlockValidationErrors;
+use floresta_chain::BlockchainError;
+use floresta_chain::Network;
 use futures::Future;
-use log::{debug, error, info, trace, warn};
-use rustreexo::accumulator::{node_hash::NodeHash, proof::Proof};
-use std::{
-    collections::{HashMap, HashSet},
-    fmt::Debug,
-    net::{IpAddr, SocketAddr},
-    ops::{Deref, DerefMut},
-    sync::{Arc, Mutex},
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
-};
+use log::debug;
+use log::error;
+use log::info;
+use log::trace;
+use log::warn;
+use rustreexo::accumulator::node_hash::NodeHash;
+use rustreexo::accumulator::proof::Proof;
+
+use super::address_man::AddressMan;
+use super::address_man::AddressState;
+use super::address_man::LocalAddress;
+use super::error::WireError;
+use super::mempool::Mempool;
+use super::node_context::IBDNode;
+use super::node_context::NodeContext;
+use super::node_context::RunningNode;
+use super::node_interface::NodeInterface;
+use super::node_interface::NodeResponse;
+use super::node_interface::PeerInfo;
+use super::node_interface::UserRequest;
+use super::peer::Peer;
+use super::peer::PeerMessages;
+use super::peer::Version;
+use super::socks::Socks5Addr;
+use super::socks::Socks5Error;
+use super::socks::Socks5StreamBuilder;
 
 /// Max number of simultaneous connections we initiates we are willing to hold
 const MAX_OUTGOING_PEERS: usize = 10;
@@ -1460,7 +1486,7 @@ where
 
 /// Run a task and log any errors that might occur.
 macro_rules! try_and_log {
-    ($what: expr) => {
+    ($what:expr) => {
         let result = $what;
 
         if let Err(error) = result {
@@ -1469,13 +1495,13 @@ macro_rules! try_and_log {
     };
 }
 macro_rules! periodic_job {
-    ($what: expr, $timer: expr, $interval: ident, $context: ty) => {
+    ($what:expr, $timer:expr, $interval:ident, $context:ty) => {
         if $timer.elapsed() > Duration::from_secs(<$context>::$interval) {
             try_and_log!($what);
             $timer = Instant::now();
         }
     };
-    ($what: expr, $timer: expr, $interval: ident, $context: ty, $no_log: literal) => {
+    ($what:expr, $timer:expr, $interval:ident, $context:ty, $no_log:literal) => {
         if $timer.elapsed() > Duration::from_secs(<$context>::$interval) {
             $what;
             $timer = Instant::now();

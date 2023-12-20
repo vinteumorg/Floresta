@@ -9,12 +9,24 @@ pub mod error;
 pub mod partial_chain;
 pub mod udata;
 
-use crate::{
-    prelude::*, BestChain, BlockConsumer, BlockchainError, DatabaseError, DiskBlockHeader,
-};
 use alloc::sync::Arc;
-use bitcoin::{hashes::sha256, Block, BlockHash, BlockHeader, OutPoint, Transaction, TxOut};
-use rustreexo::accumulator::{node_hash::NodeHash, proof::Proof};
+
+use bitcoin::hashes::sha256;
+use bitcoin::Block;
+use bitcoin::BlockHash;
+use bitcoin::BlockHeader;
+use bitcoin::OutPoint;
+use bitcoin::Transaction;
+use bitcoin::TxOut;
+use rustreexo::accumulator::node_hash::NodeHash;
+use rustreexo::accumulator::proof::Proof;
+
+use crate::prelude::*;
+use crate::BestChain;
+use crate::BlockConsumer;
+use crate::BlockchainError;
+use crate::DatabaseError;
+use crate::DiskBlockHeader;
 
 /// This trait is the main interface between our blockchain backend and other services.
 /// It'll be useful for transitioning from rpc to a p2p based node

@@ -6,9 +6,14 @@
 //! async runtime. This allows the caller to use this module with any async runtime
 //! they want.
 
-use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::net::Ipv4Addr;
+use std::net::Ipv6Addr;
+use std::net::SocketAddr;
 
-use futures::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use futures::AsyncRead;
+use futures::AsyncReadExt;
+use futures::AsyncWrite;
+use futures::AsyncWriteExt;
 
 #[derive(Clone, Debug)]
 pub struct Socks5StreamBuilder {

@@ -1,7 +1,8 @@
 use std::fmt::Display;
 
 use jsonrpc_core::ErrorCode;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 
 #[derive(Deserialize, Serialize)]
 pub struct GetBlockchainInfoRes {

@@ -1,31 +1,40 @@
-use crate::request::Request;
-use crate::{get_arg, json_rpc_res};
-use bitcoin::hashes::hex::FromHex;
-use floresta_chain::pruned_utreexo::BlockchainInterface;
-use floresta_common::spsc::Channel;
-use floresta_common::{get_hash_from_u8, get_spk_hash};
-use floresta_watch_only::kv_database::KvDatabase;
-use floresta_watch_only::{AddressCache, CachedTransaction};
-
-use async_std::sync::RwLock;
-use async_std::{
-    channel::{unbounded, Receiver, Sender},
-    io::BufReader,
-    net::{TcpListener, TcpStream},
-    prelude::*,
-};
-
-use bitcoin::hashes::{hex::ToHex, sha256};
-use bitcoin::{
-    consensus::{deserialize, serialize},
-    Script, Txid,
-};
-use bitcoin::{Transaction, TxOut};
-
-use log::{error, info, trace};
-use serde_json::{json, Value};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+use std::collections::HashSet;
 use std::sync::Arc;
+
+use async_std::channel::unbounded;
+use async_std::channel::Receiver;
+use async_std::channel::Sender;
+use async_std::io::BufReader;
+use async_std::net::TcpListener;
+use async_std::net::TcpStream;
+use async_std::prelude::*;
+use async_std::sync::RwLock;
+use bitcoin::consensus::deserialize;
+use bitcoin::consensus::serialize;
+use bitcoin::hashes::hex::FromHex;
+use bitcoin::hashes::hex::ToHex;
+use bitcoin::hashes::sha256;
+use bitcoin::Script;
+use bitcoin::Transaction;
+use bitcoin::TxOut;
+use bitcoin::Txid;
+use floresta_chain::pruned_utreexo::BlockchainInterface;
+use floresta_common::get_hash_from_u8;
+use floresta_common::get_spk_hash;
+use floresta_common::spsc::Channel;
+use floresta_watch_only::kv_database::KvDatabase;
+use floresta_watch_only::AddressCache;
+use floresta_watch_only::CachedTransaction;
+use log::error;
+use log::info;
+use log::trace;
+use serde_json::json;
+use serde_json::Value;
+
+use crate::get_arg;
+use crate::json_rpc_res;
+use crate::request::Request;
 
 /// Type alias for u32 representing a ClientId
 type ClientId = u32;
@@ -580,7 +589,7 @@ macro_rules! json_rpc_res {
 #[macro_export]
 /// Returns and parses a value from the request json or fails with [super::error::Error::InvalidParams].
 macro_rules! get_arg {
-    ($request: ident, $arg_type: ty, $idx: literal) => {
+    ($request:ident, $arg_type:ty, $idx:literal) => {
         if let Some(arg) = $request.params.get($idx) {
             serde_json::from_value::<$arg_type>(arg.clone())?
         } else {

@@ -1,28 +1,31 @@
 #![cfg_attr(feature = "no-std", no_std)]
-use core::{cmp::Ordering, fmt::Debug};
+use core::cmp::Ordering;
+use core::fmt::Debug;
 
-use floresta_common::{get_spk_hash, parse_descriptors};
+use floresta_common::get_spk_hash;
+use floresta_common::parse_descriptors;
 
 pub mod kv_database;
 #[cfg(any(test, feature = "memory-database"))]
 pub mod memory_database;
 pub mod merkle;
 
-use bitcoin::{
-    consensus::deserialize,
-    consensus::encode::serialize_hex,
-    hash_types::Txid,
-    hashes::{
-        hex::{FromHex, ToHex},
-        sha256::Hash,
-        Hash as HashTrait,
-    },
-    Block, OutPoint, Script, Transaction, TxOut,
-};
+use bitcoin::consensus::deserialize;
+use bitcoin::consensus::encode::serialize_hex;
+use bitcoin::hash_types::Txid;
+use bitcoin::hashes::hex::FromHex;
+use bitcoin::hashes::hex::ToHex;
+use bitcoin::hashes::sha256::Hash;
+use bitcoin::hashes::Hash as HashTrait;
+use bitcoin::Block;
+use bitcoin::OutPoint;
+use bitcoin::Script;
+use bitcoin::Transaction;
+use bitcoin::TxOut;
 use floresta_common::prelude::*;
-
 use merkle::MerkleProof;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 
 #[derive(Debug)]
 pub enum WatchOnlyError<DatabaseError: fmt::Debug> {
@@ -562,14 +565,14 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
 
 #[cfg(test)]
 mod test {
-    use bitcoin::{
-        consensus::{deserialize, Decodable},
-        hashes::{
-            hex::{FromHex, ToHex},
-            sha256,
-        },
-        Address, Script, Txid,
-    };
+    use bitcoin::consensus::deserialize;
+    use bitcoin::consensus::Decodable;
+    use bitcoin::hashes::hex::FromHex;
+    use bitcoin::hashes::hex::ToHex;
+    use bitcoin::hashes::sha256;
+    use bitcoin::Address;
+    use bitcoin::Script;
+    use bitcoin::Txid;
     use floresta_common::get_spk_hash;
     use floresta_common::prelude::*;
 
@@ -579,7 +582,8 @@ mod test {
         let hex = Vec::from_hex(thing).unwrap();
         deserialize(&hex).unwrap()
     }
-    use super::{memory_database::MemoryDatabase, AddressCache};
+    use super::memory_database::MemoryDatabase;
+    use super::AddressCache;
     fn get_test_cache() -> AddressCache<MemoryDatabase> {
         let database = MemoryDatabase::new();
         AddressCache::new(database)

@@ -50,8 +50,9 @@ impl From<Network> for bitcoin::network::constants::Network {
 
 #[cfg(test)]
 mod test {
-    use super::*;
     use bitcoin::network::constants::Network as BNetwork;
+
+    use super::*;
     #[test]
     fn test_network() {
         assert_eq!(Network::Bitcoin, BNetwork::Bitcoin.into());
