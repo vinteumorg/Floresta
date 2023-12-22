@@ -1,8 +1,8 @@
 import subprocess
 
 from threading import Thread
-from test_framework.mock_rpc import MockUtreexod
 
+from .mock_rpc import MockUtreexod
 
 class TestFramework:
     tests = []
@@ -28,7 +28,6 @@ class TestFramework:
         self.nodes[idx].wait()
 
     # Should be overrided by individual tests
-
     def run_test(self):
         raise NotImplemented
 

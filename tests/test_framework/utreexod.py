@@ -94,10 +94,3 @@ class UtreexoDaemon:
     def __del__(self):
         if self.utreexod:
             self.stop()
-
-if __name__ == "__main__":
-    daemon = UtreexoDaemon("./utreexo/", "/home/erik/Documents/utreexod/utreexod")
-    daemon.start()
-    daemon.generate_blocks(100)
-    print(daemon.get_balance())
-    daemon.stop()
