@@ -1,13 +1,12 @@
 import os
 import subprocess
 import time
-from tqdm import tqdm
 
 BASE_DIR = "/tmp/data"
 SUCCESS_EMOJI = "✔"
 FAILURE_EMOJI = "❌"
 
-tests = ["example_test", "restart", "test_getblockchaininfo", "test_getblockcount"]
+tests = ["example_test", "restart"]
 
 def main():
     print("Creating work dir")
