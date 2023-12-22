@@ -1,0 +1,16 @@
+# runs our functinal tests from tests/
+
+on:
+    push:
+      branches: [ "master" ]
+    pull_request:
+      branches: [ "master" ]
+
+jobs:
+    functinal:
+        runs-on: ubuntu-latest
+
+        steps:
+            - uses: actions/checkout@v3
+            - name: run functional tests
+              run: cargo build && python tests/run_tests.py
