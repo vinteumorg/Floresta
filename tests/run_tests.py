@@ -7,7 +7,6 @@ BASE_DIR = "/tmp/data"
 
 tests = ["example_test", "restart"]
 
-
 def main():
     print("Creating work dir")
     data_dir = BASE_DIR + f"run-{time.time()}/"
