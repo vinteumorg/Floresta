@@ -18,9 +18,9 @@ class ExampleTest(TestFramework):
         self.run_rpc()
         # Wait until the rpc is ready
         # Start a new node (this crate's binary)
-        node1 = self.run_node("./data/test1", "signet")
-        self.wait_for_rpc_connection()
+        node1 = self.run_node("./data/test1", "regtest")
         # Wait the node to start
+        self.wait_for_rpc_connection()
         # Create an instance of the Electrum Client, a small implementation of the electrum
         # protocol, to test our own electrum implementation
         electrum = ElectrumClient("localhost", 50001)
