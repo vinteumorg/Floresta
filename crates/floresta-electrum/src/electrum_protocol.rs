@@ -199,30 +199,23 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
             }
             "blockchain.scripthash.get_history" => {
                 let script_hash = get_arg!(request, sha256::Hash, 0);
-                let transactions = self
-                    .address_cache
+                self.address_cache
                     .read()
                     .await
-                    .get_address_history(&script_hash);
-                let mut res = Vec::new();
-                for transaction in transactions {
-                    let entry = if transaction.height == 0 {
-                        json!({
-                            "tx_hash": transaction.hash,
-                            "height": transaction.height,
-                            "fee": 2000
-                        })
-                    } else {
-                        json!({
-                            "tx_hash": transaction.hash,
-                            "height": transaction.height,
-                        })
-                    };
-
-                    res.push(entry);
-                }
-
-                json_rpc_res!(request, res)
+                    .get_address_history(&script_hash)
+                    .and_then(|transactions| {
+                        let res = Self::process_history(&transactions);
+                        Some::<Result<serde_json::Value, super::error::Error>>(json_rpc_res!(
+                            request, res
+                        ))
+                    })
+                    .unwrap_or_else(|| {
+                        Ok(json!({
+                            "jsonrpc": "2.0",
+                            "result": null,
+                            "id": request.id
+                        }))
+                    })
             }
             "blockchain.scripthash.get_mempool" => json_rpc_res!(request, []),
             "blockchain.scripthash.listunspent" => {
@@ -263,10 +256,10 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
 
                 let history = self.address_cache.read().await.get_address_history(&hash);
 
-                if history.is_empty() {
+                if history.is_none() {
                     return json_rpc_res!(request, null);
                 }
-                let status_hash = get_status(history);
+                let status_hash = get_status(history.unwrap());
                 json_rpc_res!(request, status_hash)
             }
             "blockchain.scripthash.unsubscribe" => {
@@ -381,7 +374,26 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
             }
         }
     }
+    fn process_history(transactions: &[CachedTransaction]) -> Vec<Value> {
+        let mut res = Vec::new();
+        for transaction in transactions {
+            let entry = if transaction.height == 0 {
+                json!({
+                    "tx_hash": transaction.hash,
+                    "height": transaction.height,
+                    "fee": 2000
+                })
+            } else {
+                json!({
+                    "tx_hash": transaction.hash,
+                    "height": transaction.height,
+                })
+            };
 
+            res.push(entry);
+        }
+        res
+    }
     async fn handle_block(&mut self, block: bitcoin::Block, height: u32) {
         let result = json!({
             "jsonrpc": "2.0",
@@ -468,7 +480,7 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
             if let Some(client) = self.client_addresses.get(&hash) {
                 let history = self.address_cache.read().await.get_address_history(&hash);
 
-                let status_hash = get_status(history);
+                let status_hash = get_status(history.unwrap());
                 let notify = json!({
                     "jsonrpc": "2.0",
                     "method": "blockchain.scripthash.subscribe",

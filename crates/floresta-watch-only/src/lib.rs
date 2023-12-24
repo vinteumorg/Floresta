@@ -273,22 +273,20 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
         self.database.get_transaction(txid).ok()
     }
     /// Returns all transactions this address has, both input and outputs
-    pub fn get_address_history(&self, script_hash: &Hash) -> Vec<CachedTransaction> {
-        if let Some(cached_script) = self.address_map.get(script_hash) {
-            let mut transactions: Vec<_> = cached_script
-                .transactions
-                .iter()
-                .filter_map(|txid| self.get_transaction(txid))
-                .collect();
-            let mut unconfirmed = transactions.clone();
+    pub fn get_address_history(&self, script_hash: &Hash) -> Option<Vec<CachedTransaction>> {
+        let cached_script = self.address_map.get(script_hash)?;
+        let mut transactions: Vec<_> = cached_script
+            .transactions
+            .iter()
+            .filter_map(|txid| self.get_transaction(txid))
+            .collect();
+        let mut unconfirmed = transactions.clone();
 
-            transactions.retain(|tx| tx.height != 0);
-            transactions.sort();
-            unconfirmed.retain(|tx| tx.height == 0);
-            transactions.extend(unconfirmed);
-            return transactions;
-        }
-        Vec::new()
+        transactions.retain(|tx| tx.height != 0);
+        transactions.sort();
+        unconfirmed.retain(|tx| tx.height == 0);
+        transactions.extend(unconfirmed);
+        Some(transactions)
     }
     /// Returns the balance of this address, debts (spends) are taken in account
     pub fn get_address_balance(&self, script_hash: &Hash) -> u64 {
@@ -607,7 +605,7 @@ mod test {
         // Assert we indeed have one cached address
         assert_eq!(cache.address_map.len(), 1);
         assert_eq!(cache.get_address_balance(&script_hash), 0);
-        assert_eq!(cache.get_address_history(&script_hash), Vec::new());
+        assert_eq!(cache.get_address_history(&script_hash), Some(Vec::new()));
     }
     #[test]
     fn test_cache_transaction() {
@@ -637,7 +635,7 @@ mod test {
         );
 
         let balance = cache.get_address_balance(&script_hash);
-        let history = cache.get_address_history(&script_hash);
+        let history = cache.get_address_history(&script_hash).unwrap();
         let cached_merkle_block = cache.get_merkle_proof(&transaction.txid()).unwrap();
         assert_eq!(balance, 999890);
         assert_eq!(
@@ -660,7 +658,7 @@ mod test {
         cache.block_process(&block, 118511);
 
         let balance = cache.get_address_balance(&script_hash);
-        let history = cache.get_address_history(&script_hash);
+        let history = cache.get_address_history(&script_hash).unwrap();
         let transaction_id =
             Txid::from_str("6bb0665122c7dcecc6e6c45b6384ee2bdce148aea097896e6f3e9e08070353ea")
                 .unwrap();
