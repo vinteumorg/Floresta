@@ -2,6 +2,7 @@
 use core::cmp::Ordering;
 use core::fmt::Debug;
 
+use bitcoin::hashes::sha256;
 use bitcoin::ScriptBuf;
 use floresta_common::get_spk_hash;
 use floresta_common::parse_descriptors;
@@ -102,7 +103,6 @@ pub struct CachedAddress {
     script_hash: Hash,
     balance: u64,
     transactions: Vec<Txid>,
-    script: ScriptBuf,
     utxos: Vec<OutPoint>,
 }
 
@@ -158,7 +158,7 @@ pub struct AddressCache<D: AddressCacheDatabase> {
     /// script hash
     address_map: HashMap<Hash, CachedAddress>,
     /// Holds all scripts we are interested in
-    script_set: HashSet<ScriptBuf>,
+    script_set: HashSet<sha256::Hash>,
     /// Keeps track of all utxos we own, and the script hash they belong to
     utxo_index: HashMap<OutPoint, Hash>,
 }
@@ -196,13 +196,14 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
                         position as u32,
                         vin,
                         true,
-                        &script.script,
+                        script.script_hash,
                     )
                 }
             }
             // Checks if one of our addresses is the recipient of this transaction
             for (vout, output) in transaction.output.iter().enumerate() {
-                if self.script_set.contains(&*output.script_pubkey) {
+                let hash = get_spk_hash(&output.script_pubkey);
+                if self.script_set.contains(&hash) {
                     my_transactions.push((transaction.clone(), output.clone()));
 
                     let merkle_block = MerkleProof::from_block(block, position as u64);
@@ -215,7 +216,7 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
                         position as u32,
                         vout,
                         false,
-                        &output.script_pubkey,
+                        hash,
                     );
                 }
             }
@@ -247,7 +248,7 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
             for utxo in address.utxos.iter() {
                 utxo_index.insert(*utxo, address.script_hash);
             }
-            script_set.insert(address.script.clone());
+            script_set.insert(address.script_hash);
             address_map.insert(address.script_hash, address);
         }
         AddressCache {
@@ -329,13 +330,12 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
             balance: 0,
             script_hash: hash,
             transactions: Vec::new(),
-            script: script_pk.clone(),
             utxos: Vec::new(),
         };
         self.database.save(&new_address);
 
         self.address_map.insert(hash, new_address);
-        self.script_set.insert(script_pk);
+        self.script_set.insert(hash);
     }
     /// Setup is the first command that should be executed. In a new cache. It sets our wallet's
     /// state, like the height we should start scanning and the wallet's descriptor.
@@ -420,12 +420,12 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
                 0,
                 *idx,
                 true,
-                &script.script,
+                script.script_hash,
             )
         }
         for (idx, out) in transaction.output.iter().enumerate() {
             let spk_hash = get_spk_hash(&out.script_pubkey);
-            if self.script_set.contains(&out.script_pubkey) {
+            if self.script_set.contains(&spk_hash) {
                 let script = self.address_map.get(&spk_hash).unwrap().to_owned();
                 coins.push((idx, out.clone()));
                 self.cache_transaction(
@@ -436,7 +436,7 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
                     0,
                     idx,
                     true,
-                    &script.script,
+                    script.script_hash,
                 )
             }
         }
@@ -509,7 +509,7 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
         position: u32,
         index: usize,
         is_spend: bool,
-        script: &ScriptBuf,
+        hash: sha256::Hash,
     ) {
         let transaction_to_cache = CachedTransaction {
             height,
@@ -522,7 +522,6 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
             .save_transaction(&transaction_to_cache)
             .expect("Database not working");
 
-        let hash = get_spk_hash(script);
         if let Entry::Vacant(e) = self.address_map.entry(hash) {
             // This means `cache_transaction` have been called with an address we don't
             // follow. This may be useful for caching new addresses without re-scanning.
@@ -532,7 +531,6 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
                 balance: transaction.output[index].value.to_sat(),
                 script_hash: hash,
                 transactions: Vec::from([transaction_to_cache.hash]),
-                script: script.to_owned(),
                 utxos: Vec::from([OutPoint {
                     txid: transaction.txid(),
                     vout: index as u32,
@@ -541,7 +539,7 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
             self.database.save(&new_address);
 
             e.insert(new_address);
-            self.script_set.insert(script.to_owned());
+            self.script_set.insert(hash);
         }
         self.maybe_derive_addresses();
         // Confirmed transaction
@@ -631,7 +629,7 @@ mod test {
             1,
             0,
             false,
-            &transaction.output[0].script_pubkey,
+            get_spk_hash(&transaction.output[0].script_pubkey),
         );
 
         let balance = cache.get_address_balance(&script_hash);
