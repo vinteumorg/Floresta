@@ -229,11 +229,19 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
             .get_stats()
             .expect("Could not get stats from database")
     }
+
     pub fn bump_height(&self, height: u32) {
         self.database
             .set_cache_height(height)
             .expect("Database is not working");
     }
+
+    pub fn get_cache_height(&self) -> u32 {
+        self.database
+            .get_cache_height()
+            .unwrap_or(0)
+    }
+
     pub fn new(database: D) -> AddressCache<D> {
         let scripts = database.load().expect("Could not load database");
         if database.get_stats().is_err() {
@@ -336,6 +344,21 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
 
         self.address_map.insert(hash, new_address);
         self.script_set.insert(hash);
+    }
+    pub fn cache_address_hash(&mut self, script_hash: Hash) {
+        if self.address_map.contains_key(&script_hash) {
+            return;
+        }
+        let new_address = CachedAddress {
+            balance: 0,
+            script_hash,
+            transactions: Vec::new(),
+            utxos: Vec::new(),
+        };
+        self.database.save(&new_address);
+
+        self.address_map.insert(script_hash, new_address);
+        self.script_set.insert(script_hash);
     }
     /// Setup is the first command that should be executed. In a new cache. It sets our wallet's
     /// state, like the height we should start scanning and the wallet's descriptor.

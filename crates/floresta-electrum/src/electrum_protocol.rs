@@ -14,6 +14,7 @@ use bitcoin::consensus::deserialize;
 use bitcoin::consensus::encode::serialize_hex;
 use bitcoin::hashes::hex::FromHex;
 use bitcoin::hashes::sha256;
+use bitcoin::hashes::Hash;
 use bitcoin::ScriptBuf;
 use bitcoin::Transaction;
 use bitcoin::TxOut;
@@ -22,9 +23,13 @@ use floresta_chain::pruned_utreexo::BlockchainInterface;
 use floresta_common::get_hash_from_u8;
 use floresta_common::get_spk_hash;
 use floresta_common::spsc::Channel;
+use floresta_compact_filters::BlockFilterBackend;
+use floresta_compact_filters::QueryType;
 use floresta_watch_only::kv_database::KvDatabase;
 use floresta_watch_only::AddressCache;
 use floresta_watch_only::CachedTransaction;
+use floresta_wire::node_interface::NodeInterface;
+use floresta_wire::node_interface::NodeMethods;
 use log::error;
 use log::info;
 use log::trace;
@@ -95,6 +100,12 @@ pub struct ElectrumServer<Blockchain: BlockchainInterface> {
     /// We keep the script_hash and which client has it, so we can notify the
     /// clients when a new transaction is received.
     pub client_addresses: HashMap<sha256::Hash, Arc<Client>>,
+    /// A Arc-ed copy of the block filters backend that we can use to check if a
+    /// block contains a transaction that we are interested in.
+    pub block_filters: Option<Arc<BlockFilterBackend>>,
+    /// An interface to a running node, used to broadcast transactions and request
+    /// blocks.
+    pub node_interface: Arc<NodeInterface>,
 }
 
 impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
@@ -102,6 +113,8 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
         address: &'static str,
         address_cache: Arc<RwLock<AddressCache<KvDatabase>>>,
         chain: Arc<Blockchain>,
+        block_filters: Option<Arc<BlockFilterBackend>>,
+        node_interface: Arc<NodeInterface>,
     ) -> Result<ElectrumServer<Blockchain>, Box<dyn std::error::Error>> {
         let listener = Arc::new(TcpListener::bind(address).await?);
         let (tx, rx) = unbounded();
@@ -112,6 +125,8 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
         Ok(ElectrumServer {
             chain,
             address_cache,
+            block_filters,
+            node_interface,
             tcp_listener: listener,
             clients: HashMap::new(),
             message_receiver: rx,
@@ -203,11 +218,9 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                     .read()
                     .await
                     .get_address_history(&script_hash)
-                    .and_then(|transactions| {
+                    .map(|transactions| {
                         let res = Self::process_history(&transactions);
-                        Some::<Result<serde_json::Value, super::error::Error>>(json_rpc_res!(
-                            request, res
-                        ))
+                        json_rpc_res!(request, res)
                     })
                     .unwrap_or_else(|| {
                         Ok(json!({
@@ -255,12 +268,26 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                 self.client_addresses.insert(hash, client);
 
                 let history = self.address_cache.read().await.get_address_history(&hash);
-
-                if history.is_none() {
-                    return json_rpc_res!(request, null);
+                match history {
+                    Some(transactions) if !transactions.is_empty() => {
+                        let res = get_status(transactions);
+                        json_rpc_res!(request, res)
+                    }
+                    Some(_) => {
+                        json_rpc_res!(request, null)
+                    }
+                    None => {
+                        async_std::task::block_on(async {
+                            self.address_cache.write().await.cache_address_hash(hash);
+                            let _ = self.rescan_for_address(hash).await;
+                        });
+                        Ok(json!({
+                            "jsonrpc": "2.0",
+                            "result": null,
+                            "id": request.id
+                        }))
+                    }
                 }
-                let status_hash = get_status(history.unwrap());
-                json_rpc_res!(request, status_hash)
             }
             "blockchain.scripthash.unsubscribe" => {
                 let address = get_arg!(request, sha256::Hash, 0);
@@ -374,6 +401,69 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
             }
         }
     }
+
+    /// If a user adds a new address that we didn't have cached, this method
+    /// will look for historical transactions for it.
+    ///
+    /// Usually, we'll relly on compact block filters to speed things up. If
+    /// we don't have compact block filters, we may rescan using the older,
+    /// more bandwidth-intensive method of actually downloading blocks.
+    async fn rescan_for_address(
+        &mut self,
+        address: sha256::Hash,
+    ) -> Result<(), super::error::Error> {
+        info!("Rescanning for address {}", address);
+
+        // If compact block filters are enabled, use them. Otherwise, fallback
+        // to the "old-school" rescaning.
+        match &self.block_filters {
+            Some(cfilters) => self.rescan_with_block_filters(cfilters, address).await,
+            None => self
+                .chain
+                .rescan(1)
+                .map_err(|e| super::error::Error::Blockchain(Box::new(e))),
+        }
+    }
+
+    /// If we have compact block filters enabled, this method will use them to
+    /// find blocks of interest and download for our wallet to learn about new
+    /// transactions, once a new address is added by subscription.
+    async fn rescan_with_block_filters(
+        &self,
+        cfilters: &BlockFilterBackend,
+        address: sha256::Hash,
+    ) -> Result<(), super::error::Error> {
+        // By default, we look from 1..tip
+        let height = self.chain.get_height().unwrap_or(0) as u64;
+
+        // TODO (Davidson): Let users select what the starting and end height is
+        let blocks: Vec<_> = cfilters
+            .match_any(1, height, &[QueryType::ScriptHash(address.to_byte_array())])
+            .unwrap_or_default()
+            .into_iter()
+            .flat_map(|height| {
+                self.chain
+                    .get_block_hash(height as u32)
+                    .into_iter()
+                    .zip(Some(height))
+            })
+            .flat_map(|(hash, height)| {
+                self.node_interface
+                    .get_block(hash)
+                    .ok()
+                    .flatten()
+                    .map(|block| (block, height))
+            })
+            .collect();
+
+        // Tells users about the transactions we found
+        for (block, height) in blocks {
+            self.handle_block(block, height as u32).await;
+        }
+
+        Ok(())
+    }
+
     fn process_history(transactions: &[CachedTransaction]) -> Vec<Value> {
         let mut res = Vec::new();
         for transaction in transactions {
@@ -394,7 +484,8 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
         }
         res
     }
-    async fn handle_block(&mut self, block: bitcoin::Block, height: u32) {
+
+    async fn handle_block(&self, block: bitcoin::Block, height: u32) {
         let result = json!({
             "jsonrpc": "2.0",
             "method": "blockchain.headers.subscribe",
@@ -403,10 +494,14 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                 "hex": serialize_hex(&block.header)
             }]
         });
-        if !self.chain.is_in_idb() || height % 1000 == 0 {
+
+        let current_height = self.address_cache.read().await.get_cache_height();
+
+        if (!self.chain.is_in_idb() || height % 1000 == 0) && (height > current_height) {
             let lock = self.address_cache.write().await;
             lock.bump_height(height);
         }
+
         if self.chain.get_height().unwrap() == height {
             for client in &mut self.clients.values() {
                 let res = client
@@ -417,6 +512,7 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                 }
             }
         }
+
         let transactions = self
             .address_cache
             .write()
@@ -596,6 +692,7 @@ macro_rules! json_rpc_res {
         }))
     }
 }
+
 #[macro_export]
 /// Returns and parses a value from the request json or fails with [super::error::Error::InvalidParams].
 macro_rules! get_arg {

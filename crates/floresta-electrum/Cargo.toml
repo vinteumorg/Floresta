@@ -18,6 +18,8 @@ categories = ["bitcoin", "blockchain", "node"]
 floresta-common = { path = "../floresta-common" }
 floresta-chain = { path = "../floresta-chain" }
 floresta-watch-only = { path = "../floresta-watch-only" }
+floresta-compact-filters = { path = "../floresta-compact-filters" }
+floresta-wire = { path = "../floresta-wire" }
 
 rustreexo = "0.1.0"
 sha2 = "^0.10.6"

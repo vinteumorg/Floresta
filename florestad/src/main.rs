@@ -283,7 +283,7 @@ fn run_with_ctx(ctx: Ctx) {
         chain_provider.get_handle(),
         kill_signal.clone(),
         get_net(&ctx.network),
-        cfilters,
+        cfilters.clone(),
     );
 
     // Electrum
@@ -291,6 +291,8 @@ fn run_with_ctx(ctx: Ctx) {
         "0.0.0.0:50001",
         wallet,
         blockchain_state,
+        cfilters,
+        chain_provider.get_handle(),
     ))
     .expect("Could not create an Electrum Server");
 
