@@ -1,8 +1,10 @@
 use std::path::PathBuf;
 
-use bitcoin::util::bip158::BlockFilter;
-use kv::{Bucket, Config, Integer};
+use kv::Bucket;
+use kv::Config;
+use kv::Integer;
 
+use crate::BlockFilter;
 use crate::BlockFilterStore;
 
 /// Stores the block filters insinde a kv database
@@ -40,7 +42,7 @@ impl KvFilterStore {
 }
 
 impl BlockFilterStore for KvFilterStore {
-    fn get_filter(&self, block_height: u64) -> Option<bitcoin::util::bip158::BlockFilter> {
+    fn get_filter(&self, block_height: u64) -> Option<BlockFilter> {
         let value = self
             .bucket
             .get(&Integer::from(block_height))
@@ -48,7 +50,7 @@ impl BlockFilterStore for KvFilterStore {
             .flatten()?;
         Some(BlockFilter::new(&value))
     }
-    fn put_filter(&self, block_height: u64, block_filter: bitcoin::util::bip158::BlockFilter) {
+    fn put_filter(&self, block_height: u64, block_filter: BlockFilter) {
         self.bucket
             .set(&Integer::from(block_height), &block_filter.content)
             .expect("Bucket should be open");

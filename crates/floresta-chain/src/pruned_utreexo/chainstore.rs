@@ -2,12 +2,12 @@
 
 //! This is a basic kv database that stores all metadata about our blockchain and utreexo
 //! state.
+use bitcoin::block::Header as BlockHeader;
 use bitcoin::consensus::deserialize;
 use bitcoin::consensus::serialize;
 use bitcoin::consensus::Decodable;
 use bitcoin::consensus::Encodable;
 use bitcoin::BlockHash;
-use bitcoin::BlockHeader;
 
 use crate::prelude::*;
 #[derive(Debug)]

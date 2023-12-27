@@ -1,7 +1,6 @@
 use bitcoin::consensus::deserialize;
 use bitcoin::consensus::encode::Error;
 use bitcoin::consensus::serialize;
-use bitcoin::hashes::hex::ToHex;
 use bitcoin::hashes::Hash;
 use bitcoin::Txid;
 use floresta_common::impl_error_from;
@@ -70,7 +69,7 @@ impl AddressCacheDatabase for KvDatabase {
         Ok(addresses)
     }
     fn save(&self, address: &super::CachedAddress) {
-        let key = address.script_hash.to_hex();
+        let key = address.script_hash.to_string();
         let value = serde_json::to_vec(&address).expect("Invalid object serialization");
 
         self.1
@@ -114,7 +113,7 @@ impl AddressCacheDatabase for KvDatabase {
 
     fn get_transaction(&self, txid: &bitcoin::Txid) -> Result<super::CachedTransaction> {
         let store = self.0.bucket::<&[u8], Vec<u8>>(Some("transactions"))?;
-        let res = store.get(&txid.to_vec().as_slice())?;
+        let res = store.get(&txid.as_byte_array().to_vec().as_slice())?;
         if let Some(res) = res {
             return Ok(serde_json::de::from_slice(&res)?);
         }
@@ -124,7 +123,7 @@ impl AddressCacheDatabase for KvDatabase {
     fn save_transaction(&self, tx: &super::CachedTransaction) -> Result<()> {
         let store = self.0.bucket::<&[u8], Vec<u8>>(Some("transactions"))?;
         let ser_tx = serde_json::to_vec(&tx)?;
-        store.set(&tx.tx.txid().to_vec().as_slice(), &ser_tx)?;
+        store.set(&tx.tx.txid().as_byte_array().to_vec().as_slice(), &ser_tx)?;
         self.1.flush()?;
 
         Ok(())

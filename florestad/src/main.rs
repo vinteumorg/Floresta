@@ -23,6 +23,7 @@ mod config_file;
 mod error;
 #[cfg(feature = "json-rpc")]
 mod json_rpc;
+mod slip132;
 mod wallet_input;
 #[cfg(feature = "zmq-server")]
 mod zmq;
@@ -45,8 +46,8 @@ use floresta_chain::BlockchainError;
 use floresta_chain::ChainState;
 use floresta_chain::KvChainStore;
 use floresta_common::constants::DIR_NAME;
+use floresta_compact_filters::kv_filter_database::KvFilterStore;
 use floresta_compact_filters::FilterBackendBuilder;
-use floresta_compact_filters::KvFiltersStore;
 use floresta_electrum::electrum_protocol::client_accept_loop;
 use floresta_electrum::electrum_protocol::ElectrumServer;
 use floresta_watch_only::kv_database::KvDatabase;
@@ -196,6 +197,7 @@ fn run_with_ctx(ctx: Ctx) {
             .rescan(height)
             .expect("Fail while setting rescan");
     }
+    #[cfg(feature = "compact-filters")]
     let cfilters = if ctx.cfilters {
         // Block Filters
         let key = if let Ok(file) = std::fs::read(format!("{data_dir}/cfilters_key")) {
@@ -209,7 +211,7 @@ fn run_with_ctx(ctx: Ctx) {
             key
         };
         let filters_dir = format!("{data_dir}/cfilters");
-        let cfilters_db = KvFiltersStore::new(filters_dir);
+        let cfilters_db = KvFilterStore::new(&filters_dir.into());
 
         let mut filters = FilterBackendBuilder::default()
             .key_hash(key)
@@ -242,6 +244,8 @@ fn run_with_ctx(ctx: Ctx) {
     } else {
         None
     };
+    #[cfg(not(feature = "compact-filters"))]
+    let cfilters = None;
 
     // Chain Provider (p2p)
     let chain_provider = UtreexoNode::new(

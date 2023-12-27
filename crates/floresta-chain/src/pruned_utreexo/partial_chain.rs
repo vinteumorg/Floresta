@@ -10,7 +10,7 @@ use core::ffi::c_uint;
 
 #[cfg(feature = "bitcoinconsensus")]
 use bitcoin::bitcoinconsensus;
-use bitcoin::BlockHeader;
+use bitcoin::block::Header as BlockHeader;
 use log::info;
 use rustreexo::accumulator::stump::Stump;
 
@@ -225,6 +225,7 @@ mod tests {
     use core::str::FromStr;
     use std::collections::HashMap;
 
+    use bitcoin::block::Header;
     use bitcoin::consensus::deserialize;
     use bitcoin::Block;
     use rustreexo::accumulator::node_hash::NodeHash;
@@ -255,7 +256,7 @@ mod tests {
         let block = hex::decode(hex).unwrap();
         deserialize(&block).unwrap()
     }
-    fn get_empty_pchain(blocks: Vec<bitcoin::BlockHeader>) -> PartialChainState {
+    fn get_empty_pchain(blocks: Vec<Header>) -> PartialChainState {
         PartialChainState {
             assume_valid: true,
             consensus: Consensus {

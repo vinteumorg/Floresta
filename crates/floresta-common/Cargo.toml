@@ -11,8 +11,8 @@ readme = "README.md"
 
 [dependencies]
 sha2 = "^0.10.6"
-bitcoin = "0.29.2"
-miniscript = { git = "https://github.com/douglaz/rust-miniscript.git", optional = true, branch = "master-2023-03-30" }
+bitcoin = "0.31"
+miniscript = { version = "11", optional = true }
 spin = "0.9.8"
 
 [features]

@@ -88,7 +88,7 @@ pub struct BlockJson {
     pub mediantime: u32,
     pub nonce: u32,
     pub bits: String,
-    pub difficulty: u64,
+    pub difficulty: u128,
     pub chainwork: String,
     pub n_tx: usize,
     pub previousblockhash: String,
@@ -106,6 +106,7 @@ pub enum Error {
     InvalidAddress,
     Node,
     NoBlockFilters,
+    InvalidNetwork,
 }
 
 impl Display for Error {
@@ -118,7 +119,8 @@ impl Display for Error {
             Error::InvalidPort => "Invalid port",
             Error::InvalidAddress => "Invalid address",
             Error::Node => "Node returned an error",
-            Error::NoBlockFilters => "You don't have block filters enabled, please start florestad with --cfilters to run this RPC"
+            Error::NoBlockFilters => "You don't have block filters enabled, please start florestad with --cfilters to run this RPC",
+            Error::InvalidNetwork => "Invalid network"
         };
         write!(f, "{}", msg)
     }
@@ -135,6 +137,7 @@ impl From<Error> for i64 {
             Error::InvalidAddress => 6,
             Error::Node => 7,
             Error::NoBlockFilters => 8,
+            Error::InvalidNetwork => 9,
         }
     }
 }

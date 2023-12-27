@@ -1,18 +1,19 @@
 use std::sync::Arc;
 
 use async_std::sync::RwLock;
+use bitcoin::block::Header as BlockHeader;
 use bitcoin::consensus::deserialize;
+use bitcoin::consensus::encode::serialize_hex;
 use bitcoin::consensus::serialize;
 use bitcoin::hashes::hex::FromHex;
-use bitcoin::hashes::hex::ToHex;
 use bitcoin::hashes::Hash;
+use bitcoin::hex::DisplayHex;
 use bitcoin::Address;
 use bitcoin::Block;
 use bitcoin::BlockHash;
-use bitcoin::BlockHeader;
 use bitcoin::Network;
 use bitcoin::OutPoint;
-use bitcoin::Script;
+use bitcoin::ScriptBuf;
 use bitcoin::TxIn;
 use bitcoin::TxOut;
 use bitcoin::Txid;
@@ -167,11 +168,12 @@ impl Rpc for RpcImpl {
 
     fn get_block_filter(&self, heigth: u32) -> Result<String> {
         if let Some(ref cfilters) = self.block_filter_storage {
-            return Ok(cfilters
-                .get_filter(heigth)
-                .ok_or(Error::BlockNotFound)?
-                .content
-                .to_hex());
+            return Ok(serialize_hex(
+                &cfilters
+                    .get_filter(heigth)
+                    .ok_or(Error::BlockNotFound)?
+                    .content,
+            ));
         }
         Err(jsonrpc_core::Error {
             code: Error::NoBlockFilters.into(),
@@ -189,6 +191,7 @@ impl Rpc for RpcImpl {
                 Network::Testnet => (node[0], 18333),
                 Network::Regtest => (node[0], 18444),
                 Network::Signet => (node[0], 38333),
+                _ => return Err(Error::InvalidNetwork.into()),
             }
         };
         let node = ip.parse().map_err(|_| Error::InvalidAddress)?;
@@ -224,7 +227,7 @@ impl Rpc for RpcImpl {
             root_count,
             root_hashes,
             chain: self.network.to_string(),
-            difficulty: latest_header.difficulty(self.network),
+            difficulty: latest_header.difficulty() as u64,
             progress: validated_blocks as f32 / height as f32,
         })
     }
@@ -333,25 +336,25 @@ impl Rpc for RpcImpl {
                     0
                 };
                 let block = BlockJson {
-                    bits: block.header.bits.to_hex(),
+                    bits: serialize_hex(&block.header.bits),
                     chainwork: block.header.work().to_string(),
                     confirmations: (tip - height) + 1,
-                    difficulty: block.header.difficulty(self.network),
+                    difficulty: block.header.difficulty(),
                     hash: block.header.block_hash().to_string(),
                     height,
                     merkleroot: block.header.merkle_root.to_string(),
                     nonce: block.header.nonce,
                     previousblockhash: block.header.prev_blockhash.to_string(),
-                    size: block.size(),
+                    size: block.total_size(),
                     time: block.header.time,
                     tx: block
                         .txdata
                         .iter()
                         .map(|tx| tx.txid().to_string())
                         .collect(),
-                    version: block.header.version,
-                    version_hex: format!("{:x}", block.header.version),
-                    weight: block.weight(),
+                    version: block.header.version.to_consensus(),
+                    version_hex: serialize_hex(&block.header.version),
+                    weight: block.weight().to_wu() as usize,
                     mediantime: median_time_past,
                     n_tx: block.txdata.len(),
                     nextblockhash: self
@@ -364,7 +367,7 @@ impl Rpc for RpcImpl {
 
                 return Ok(serde_json::to_value(block).unwrap());
             }
-            return Ok(json!(serialize(&block).to_hex()));
+            return Ok(json!(serialize(&block).to_vec()));
         }
         Err(Error::BlockNotFound.into())
     }
@@ -384,31 +387,35 @@ impl Rpc for RpcImpl {
 }
 impl RpcImpl {
     fn make_vin(&self, input: TxIn) -> TxInJson {
-        let txid = input.previous_output.txid.to_hex();
+        let txid = serialize_hex(&input.previous_output.txid);
         let vout = input.previous_output.vout;
         let sequence = input.sequence.0;
         TxInJson {
             txid,
             vout,
             script_sig: ScriptSigJson {
-                asm: input.script_sig.asm(),
-                hex: input.script_sig.to_hex(),
+                asm: input.script_sig.to_asm_string(),
+                hex: input.script_sig.to_hex_string(),
             },
-            witness: input.witness.iter().map(|w| w.to_hex()).collect(),
+            witness: input
+                .witness
+                .iter()
+                .map(|w| w.to_hex_string(bitcoin::hex::Case::Upper))
+                .collect(),
             sequence,
         }
     }
-    fn get_script_type(script: Script) -> Option<&'static str> {
+    fn get_script_type(script: ScriptBuf) -> Option<&'static str> {
         if script.is_p2pkh() {
             return Some("p2pkh");
         }
         if script.is_p2sh() {
             return Some("p2sh");
         }
-        if script.is_v0_p2wpkh() {
+        if script.is_p2wpkh() {
             return Some("v0_p2wpkh");
         }
-        if script.is_v0_p2wsh() {
+        if script.is_p2wsh() {
             return Some("v0_p2wsh");
         }
         None
@@ -416,11 +423,11 @@ impl RpcImpl {
     fn make_vout(&self, output: TxOut, n: u32) -> TxOutJson {
         let value = output.value;
         TxOutJson {
-            value,
+            value: value.to_sat(),
             n,
             script_pub_key: ScriptPubKeyJson {
-                asm: output.script_pubkey.asm(),
-                hex: output.script_pubkey.to_hex(),
+                asm: output.script_pubkey.to_asm_string(),
+                hex: output.script_pubkey.to_hex_string(),
                 req_sigs: 0, // This field is deprecated
                 address: Address::from_script(&output.script_pubkey, self.network)
                     .map(|a| a.to_string())
@@ -434,8 +441,8 @@ impl RpcImpl {
     fn make_raw_transaction(&self, tx: CachedTransaction) -> RawTxJson {
         let raw_tx = tx.tx;
         let in_active_chain = tx.height != 0;
-        let hex = serialize(&raw_tx).to_hex();
-        let txid = raw_tx.txid().to_hex();
+        let hex = serialize_hex(&raw_tx);
+        let txid = serialize_hex(&raw_tx.txid());
         let block_hash = self
             .chain
             .get_block_hash(tx.height)
@@ -451,12 +458,12 @@ impl RpcImpl {
             in_active_chain,
             hex,
             txid,
-            hash: raw_tx.wtxid().to_hex(),
-            size: raw_tx.size() as u32,
+            hash: serialize_hex(&raw_tx.wtxid()),
+            size: raw_tx.total_size() as u32,
             vsize: raw_tx.vsize() as u32,
-            weight: raw_tx.weight() as u32,
-            version: raw_tx.version as u32,
-            locktime: raw_tx.lock_time.0,
+            weight: raw_tx.weight().to_wu() as u32,
+            version: raw_tx.version.0 as u32,
+            locktime: raw_tx.lock_time.to_consensus_u32(),
             vin: raw_tx
                 .input
                 .iter()
@@ -468,7 +475,7 @@ impl RpcImpl {
                 .enumerate()
                 .map(|(i, output)| self.make_vout(output, i as u32))
                 .collect(),
-            blockhash: block_hash.to_hex(),
+            blockhash: serialize_hex(&block_hash),
             confirmations,
             blocktime: self
                 .chain
@@ -488,6 +495,7 @@ impl RpcImpl {
             Network::Testnet => 18332,
             Network::Signet => 38332,
             Network::Regtest => 18442,
+            _ => 8332,
         }
     }
     pub fn create(

@@ -33,13 +33,12 @@ floresta-electrum = { path = "../floresta-electrum", optional = true, version = 
 
 [dev-dependencies]
 rustreexo = "0.1.0"
-miniscript = "10.0.0"
+miniscript = "10"
 async-std = "1.12.0"
-bitcoin = { version = "0.29", features = [
+bitcoin = { version = "0.31", features = [
     "serde",
-    "no-std",
     "bitcoinconsensus",
-] }
+], default-features=false }
 
 floresta = { version = "0.1.0", path = "../floresta", features = [
     "bitcoinconsensus",

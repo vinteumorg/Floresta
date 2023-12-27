@@ -10,14 +10,15 @@ use std::str::FromStr;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
-use bitcoin::network::address::AddrV2;
-use bitcoin::network::address::AddrV2Message;
-use bitcoin::network::constants::ServiceFlags;
+use bitcoin::p2p::address::AddrV2;
+use bitcoin::p2p::address::AddrV2Message;
+use bitcoin::p2p::ServiceFlags;
 use floresta_chain::Network;
 use log::info;
 use serde::Deserialize;
 use serde::Serialize;
 use thiserror::Error;
+
 const RETRY_TIME: u64 = 60 * 60; // 1 hour
 type AddressToSend = Vec<(AddrV2, u64, ServiceFlags, u16)>;
 
@@ -165,7 +166,7 @@ impl AddressMan {
             if let std::collections::hash_map::Entry::Vacant(e) = self.addresses.entry(id) {
                 // For now we assume that all addresses are valid, until proven otherwise.
                 self.good_addresses.push(id);
-                if address.services.has(ServiceFlags::NODE_UTREEXO) {
+                if address.services.has(ServiceFlags::from(1 << 24)) {
                     self.utreexo_addresses.push(id);
                 }
                 e.insert(address.to_owned());
@@ -208,7 +209,7 @@ impl AddressMan {
             {
                 // This seed returns utreexo nodes
                 if utreexo_seed {
-                    ip.services |= ServiceFlags::NODE_UTREEXO;
+                    ip.services |= ServiceFlags::from(1 << 24);
                 }
                 addresses.push(ip);
             }
@@ -237,7 +238,7 @@ impl AddressMan {
                 return None;
             }
             (*peer, address)
-        } else if flags.has(ServiceFlags::NODE_UTREEXO) {
+        } else if flags.has(ServiceFlags::from(1 << 24)) {
             // if we don't have an utreexo address, we fallback to a normal good address
             self.get_random_utreexo_address()
                 .or_else(|| self.get_random_good_address())?

@@ -11,17 +11,17 @@ use async_std::net::TcpStream;
 use async_std::net::ToSocketAddrs;
 use async_std::sync::RwLock;
 use async_std::task::spawn;
+use bitcoin::block::Header as BlockHeader;
 use bitcoin::consensus::serialize;
 use bitcoin::hashes::Hash;
-use bitcoin::network::address::AddrV2Message;
-use bitcoin::network::constants::ServiceFlags;
-use bitcoin::network::message::NetworkMessage;
-use bitcoin::network::message::RawNetworkMessage;
-use bitcoin::network::message_blockdata::Inventory;
-use bitcoin::network::message_network::VersionMessage;
-use bitcoin::network::utreexo::UtreexoBlock;
+use bitcoin::p2p::address::AddrV2Message;
+use bitcoin::p2p::message::NetworkMessage;
+use bitcoin::p2p::message::RawNetworkMessage;
+use bitcoin::p2p::message_blockdata::Inventory;
+use bitcoin::p2p::message_network::VersionMessage;
+use bitcoin::p2p::utreexo::UtreexoBlock;
+use bitcoin::p2p::ServiceFlags;
 use bitcoin::BlockHash;
-use bitcoin::BlockHeader;
 use bitcoin::Network;
 use bitcoin::Transaction;
 use futures::AsyncRead;
@@ -131,8 +131,8 @@ impl<T: Transport> Peer<T> {
         self.state = State::SentVersion(Instant::now());
         let read_stream = BufReader::new(self.stream.clone());
         let (tx, rx) = unbounded();
-        let stream: StreamReader<_, RawNetworkMessage> =
-            StreamReader::new(read_stream, self.network.magic(), tx);
+        let magic = self.network.magic();
+        let stream: StreamReader<_, RawNetworkMessage> = StreamReader::new(read_stream, magic, tx);
         spawn(stream.read_loop());
         loop {
             futures::select! {
@@ -208,7 +208,7 @@ impl<T: Transport> Peer<T> {
             NodeRequest::GetHeaders(locator) => {
                 let _ = self
                     .write(NetworkMessage::GetHeaders(
-                        bitcoin::network::message_blockdata::GetHeadersMessage {
+                        bitcoin::p2p::message_blockdata::GetHeadersMessage {
                             version: 0,
                             locator_hashes: locator,
                             stop_hash: BlockHash::all_zeros(),
@@ -241,7 +241,7 @@ impl<T: Transport> Peer<T> {
         self.last_message = Instant::now();
 
         match self.state {
-            State::Connected => match message.payload {
+            State::Connected => match message.payload().to_owned() {
                 NetworkMessage::Inv(inv) => {
                     for inv_entry in inv {
                         match inv_entry {
@@ -331,8 +331,8 @@ impl<T: Transport> Peer<T> {
                 | NetworkMessage::MerkleBlock(_)
                 | NetworkMessage::SendCmpct(_) => {}
             },
-            State::None | State::SentVersion(_) => match message.payload {
-                bitcoin::network::message::NetworkMessage::Version(version) => {
+            State::None | State::SentVersion(_) => match message.payload().to_owned() {
+                bitcoin::p2p::message::NetworkMessage::Version(version) => {
                     self.handle_version(version).await?;
                     self.send_to_node(PeerMessages::Ready(Version {
                         user_agent: self.user_agent.clone(),
@@ -348,26 +348,28 @@ impl<T: Transport> Peer<T> {
                 _ => {
                     warn!(
                         "unexpected message: {:?} from peer {}",
-                        message.payload, self.id
+                        message.payload(),
+                        self.id
                     );
                     return Err(PeerError::UnexpectedMessage);
                 }
             },
-            State::SentVerack => match message.payload {
-                bitcoin::network::message::NetworkMessage::Verack => {
+            State::SentVerack => match message.payload() {
+                bitcoin::p2p::message::NetworkMessage::Verack => {
                     self.state = State::Connected;
                 }
-                bitcoin::network::message::NetworkMessage::SendAddrV2 => {
+                bitcoin::p2p::message::NetworkMessage::SendAddrV2 => {
                     self.wants_addrv2 = true;
                 }
-                bitcoin::network::message::NetworkMessage::SendHeaders => {
+                bitcoin::p2p::message::NetworkMessage::SendHeaders => {
                     self.send_headers = true;
                 }
-                bitcoin::network::message::NetworkMessage::WtxidRelay => {}
+                bitcoin::p2p::message::NetworkMessage::WtxidRelay => {}
                 _ => {
                     warn!(
                         "unexpected message: {:?} from peer {}",
-                        message.payload, self.id
+                        message.payload(),
+                        self.id
                     );
                     return Err(PeerError::UnexpectedMessage);
                 }
@@ -378,10 +380,7 @@ impl<T: Transport> Peer<T> {
 }
 impl<T: Transport> Peer<T> {
     pub async fn write(&mut self, msg: NetworkMessage) -> Result<()> {
-        let data = &mut RawNetworkMessage {
-            magic: self.network.magic(),
-            payload: msg,
-        };
+        let data = &mut RawNetworkMessage::new(self.network.magic(), msg);
         let data = serialize(&data);
         self.stream.write_all(data.as_slice()).await?;
         Ok(())
@@ -515,11 +514,10 @@ pub(super) mod peer_utils {
     use std::time::SystemTime;
     use std::time::UNIX_EPOCH;
 
-    use bitcoin::network::address;
-    use bitcoin::network::constants;
-    use bitcoin::network::message::NetworkMessage;
-    use bitcoin::network::message::{self};
-    use bitcoin::network::message_network;
+    use bitcoin::p2p::address;
+    use bitcoin::p2p::message::NetworkMessage;
+    use bitcoin::p2p::message::{self};
+    use bitcoin::p2p::message_network;
     use floresta_common::constants::FLORESTA_VERSION;
     use floresta_common::constants::RUSTREEXO_VERSION;
     use floresta_common::constants::RUST_BITCOIN_VERSION;
@@ -531,12 +529,12 @@ pub(super) mod peer_utils {
         NetworkMessage::Pong(nonce)
     }
     pub(super) fn build_version_message() -> message::NetworkMessage {
-        use bitcoin::network::constants::ServiceFlags;
+        use bitcoin::p2p::ServiceFlags;
         // Building version message, see https://en.bitcoin.it/wiki/Protocol_documentation#version
         let my_address = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 38332);
 
         // "bitfield of features to be enabled for this connection"
-        let services = ServiceFlags::NETWORK | ServiceFlags::NODE_UTREEXO | ServiceFlags::WITNESS;
+        let services = ServiceFlags::NETWORK | ServiceFlags::from(1 << 24) | ServiceFlags::WITNESS;
 
         // "standard UNIX timestamp in seconds"
         let timestamp = SystemTime::now()
@@ -545,10 +543,10 @@ pub(super) mod peer_utils {
             .as_secs();
 
         // "The network address of the node receiving this message"
-        let addr_recv = address::Address::new(&my_address, constants::ServiceFlags::NONE);
+        let addr_recv = address::Address::new(&my_address, ServiceFlags::NONE);
 
         // "The network address of the node emitting this message"
-        let addr_from = address::Address::new(&my_address, constants::ServiceFlags::NONE);
+        let addr_from = address::Address::new(&my_address, ServiceFlags::NONE);
 
         // "Node random nonce, randomly generated every time a version packet is sent. This nonce is used to detect connections to self."
         let nonce: u64 = 1;

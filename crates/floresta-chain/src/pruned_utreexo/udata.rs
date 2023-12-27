@@ -73,9 +73,10 @@ impl Decodable for LeafData {
 pub mod proof_util {
     use bitcoin::blockdata::script::Instruction;
     use bitcoin::hashes::Hash;
-    use bitcoin::network::utreexo::CompactLeafData;
+    use bitcoin::p2p::utreexo::CompactLeafData;
+    use bitcoin::Amount;
     use bitcoin::PubkeyHash;
-    use bitcoin::Script;
+    use bitcoin::ScriptBuf;
     use bitcoin::ScriptHash;
     use bitcoin::TxIn;
     use bitcoin::TxOut;
@@ -92,36 +93,37 @@ pub mod proof_util {
         block_hash: bitcoin::BlockHash,
     ) -> Result<LeafData, Error> {
         let spk = reconstruct_script_pubkey(leaf, input)?;
+
         Ok(LeafData {
             block_hash,
             header_code: leaf.header_code,
             prevout: input.previous_output,
             utxo: TxOut {
                 script_pubkey: spk,
-                value: leaf.amount,
+                value: Amount::from_sat(leaf.amount),
             },
         })
     }
-    fn reconstruct_script_pubkey(leaf: &CompactLeafData, input: &TxIn) -> Result<Script, Error> {
+    fn reconstruct_script_pubkey(leaf: &CompactLeafData, input: &TxIn) -> Result<ScriptBuf, Error> {
         match &leaf.spk_ty {
-            bitcoin::network::utreexo::ScriptPubkeyType::Other(spk) => {
-                Ok(Script::from(spk.clone().into_vec()))
+            bitcoin::p2p::utreexo::ScriptPubkeyType::Other(spk) => {
+                Ok(ScriptBuf::from(spk.clone().into_vec()))
             }
-            bitcoin::network::utreexo::ScriptPubkeyType::PubKeyHash => {
+            bitcoin::p2p::utreexo::ScriptPubkeyType::PubKeyHash => {
                 let pkhash = get_pk_hash(input)?;
-                Ok(Script::new_p2pkh(&pkhash))
+                Ok(ScriptBuf::new_p2pkh(&pkhash))
             }
-            bitcoin::network::utreexo::ScriptPubkeyType::WitnessV0PubKeyHash => {
+            bitcoin::p2p::utreexo::ScriptPubkeyType::WitnessV0PubKeyHash => {
                 let pk_hash = get_witness_pk_hash(input)?;
-                Ok(Script::new_v0_p2wpkh(&pk_hash))
+                Ok(ScriptBuf::new_p2wpkh(&pk_hash))
             }
-            bitcoin::network::utreexo::ScriptPubkeyType::ScriptHash => {
+            bitcoin::p2p::utreexo::ScriptPubkeyType::ScriptHash => {
                 let script_hash = get_script_hash(input)?;
-                Ok(Script::new_p2sh(&script_hash))
+                Ok(ScriptBuf::new_p2sh(&script_hash))
             }
-            bitcoin::network::utreexo::ScriptPubkeyType::WitnessV0ScriptHash => {
+            bitcoin::p2p::utreexo::ScriptPubkeyType::WitnessV0ScriptHash => {
                 let witness_program_hash = get_witness_script_hash(input)?;
-                Ok(Script::new_v0_p2wsh(&witness_program_hash))
+                Ok(ScriptBuf::new_p2wsh(&witness_program_hash))
             }
         }
     }
@@ -129,7 +131,7 @@ pub mod proof_util {
         let script_sig = &input.script_sig;
         let inst = script_sig.instructions().last();
         if let Some(Ok(bitcoin::blockdata::script::Instruction::PushBytes(bytes))) = inst {
-            return Ok(PubkeyHash::hash(bytes));
+            return Ok(PubkeyHash::hash(bytes.as_bytes()));
         }
         Err(Error::EmptyStack)
     }
@@ -137,7 +139,7 @@ pub mod proof_util {
         let script_sig = &input.script_sig;
         let inst = script_sig.instructions().last();
         if let Some(Ok(Instruction::PushBytes(bytes))) = inst {
-            return Ok(Script::from(bytes.to_vec()).script_hash());
+            return Ok(ScriptBuf::from_bytes(bytes.as_bytes().to_vec()).script_hash());
         }
         Err(Error::EmptyStack)
     }
@@ -166,10 +168,10 @@ mod test {
 
     use bitcoin::consensus::deserialize;
     use bitcoin::hashes::hex::FromHex;
-    use bitcoin::network::utreexo::CompactLeafData;
+    use bitcoin::p2p::utreexo::CompactLeafData;
     use bitcoin::Amount;
     use bitcoin::BlockHash;
-    use bitcoin::Script;
+    use bitcoin::ScriptBuf;
     use bitcoin::Transaction;
 
     use super::proof_util::reconstruct_leaf_data;
@@ -189,17 +191,17 @@ mod test {
             let leaf = CompactLeafData {
                 amount: Amount::from_btc($amount).unwrap().to_sat(),
                 header_code: $height,
-                spk_ty: bitcoin::network::utreexo::ScriptPubkeyType::$spk_type,
+                spk_ty: bitcoin::p2p::utreexo::ScriptPubkeyType::$spk_type,
             };
             let spk = super::proof_util::reconstruct_leaf_data(
                 &leaf,
                 &s.input[0],
-                BlockHash::from_hex($block_hash).unwrap(),
+                BlockHash::from_str($block_hash).unwrap(),
             )
             .unwrap();
             assert_eq!(
                 spk.utxo.script_pubkey,
-                Script::from_str($expected_spk).unwrap()
+                ScriptBuf::from_hex($expected_spk).unwrap()
             )
         };
     }
@@ -265,12 +267,12 @@ mod test {
         let compact = CompactLeafData {
             amount: Amount::from_btc(69373.68668596).unwrap().to_sat(),
             header_code: 262348,
-            spk_ty: bitcoin::network::utreexo::ScriptPubkeyType::WitnessV0PubKeyHash,
+            spk_ty: bitcoin::p2p::utreexo::ScriptPubkeyType::WitnessV0PubKeyHash,
         };
         let reconstructed = reconstruct_leaf_data(
             &compact,
             &spending_tx.input[0],
-            BlockHash::from_hex("000000de717aa52b6b6ffcf4e2372256a9d620f52b9b4420623c6ae9b9249ef9")
+            BlockHash::from_str("000000de717aa52b6b6ffcf4e2372256a9d620f52b9b4420623c6ae9b9249ef9")
                 .unwrap(),
         )
         .unwrap();

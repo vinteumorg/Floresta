@@ -1,6 +1,6 @@
+use bitcoin::block::Header as BlockHeader;
 use bitcoin::hashes::Hash;
 use bitcoin::BlockHash;
-use bitcoin::BlockHeader;
 use rustreexo::accumulator::stump::Stump;
 
 use super::chain_state::BestChain;

@@ -13,29 +13,30 @@ use async_std::io::ReadExt;
 use bitcoin::consensus::deserialize;
 use bitcoin::consensus::deserialize_partial;
 use bitcoin::consensus::Decodable;
+use bitcoin::p2p::Magic;
 use futures::AsyncRead;
 
 use super::peer::PeerError;
 
 /// A simple type that wraps a stream and returns T, if T is [Decodable].
-pub struct StreamReader<Source: Sync + Send + ReadExt + Unpin + AsyncRead, Item: Decodable> {
+pub struct StreamReader<Source: Sync + Send + ReadExt + Unpin + AsyncRead, Item: Decodable + Send> {
     /// Were we read bytes from, usually a TcpStream
     source: Source,
     /// Item is what we return, since we don't actually hold any concrete type, just use a
     /// phantom data to bind a type.
     phantom: PhantomData<Item>,
     /// Magic bits, we expect this at the beginning of all messages
-    magic: u32,
+    magic: Magic,
     /// Where should we send data
     sender: Sender<Result<Item, PeerError>>,
 }
 impl<Source, Item> StreamReader<Source, Item>
 where
-    Item: Decodable + Unpin,
+    Item: Decodable + Unpin + Send + 'static,
     Source: Sync + Send + ReadExt + Unpin + AsyncRead,
 {
     /// Creates a new reader from a given stream
-    pub fn new(stream: Source, magic: u32, sender: Sender<Result<Item, PeerError>>) -> Self {
+    pub fn new(stream: Source, magic: Magic, sender: Sender<Result<Item, PeerError>>) -> Self {
         StreamReader {
             source: stream,
             phantom: PhantomData,
@@ -77,7 +78,7 @@ where
 
 #[derive(Debug)]
 pub struct P2PMessageHeader {
-    magic: u32,
+    magic: Magic,
     _command: [u8; 12],
     length: u32,
     _checksum: u32,
@@ -86,7 +87,7 @@ impl Decodable for P2PMessageHeader {
     fn consensus_decode<R: std::io::Read + ?Sized>(
         reader: &mut R,
     ) -> Result<Self, bitcoin::consensus::encode::Error> {
-        let magic = u32::consensus_decode(reader)?;
+        let magic = Magic::consensus_decode(reader)?;
         let _command = <[u8; 12]>::consensus_decode(reader)?;
         let length = u32::consensus_decode(reader)?;
         let _checksum = u32::consensus_decode(reader)?;

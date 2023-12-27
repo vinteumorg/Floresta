@@ -2,7 +2,7 @@ use std::net::IpAddr;
 use std::sync::Mutex;
 use std::time::Instant;
 
-use bitcoin::network::utreexo::UtreexoBlock;
+use bitcoin::p2p::utreexo::UtreexoBlock;
 use bitcoin::Block;
 use bitcoin::BlockHash;
 use bitcoin::Transaction;

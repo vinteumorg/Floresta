@@ -1,7 +1,7 @@
 #![no_std]
 use bitcoin::hashes::sha256;
 use bitcoin::hashes::Hash;
-use bitcoin::Script;
+use bitcoin::ScriptBuf;
 #[cfg(feature = "descriptors")]
 use miniscript::Descriptor;
 #[cfg(feature = "descriptors")]
@@ -18,7 +18,7 @@ pub fn get_hash_from_u8(data: &[u8]) -> sha256::Hash {
     sha256::Hash::from_slice(hash.as_slice()).expect("Engines shouldn't be Err")
 }
 
-pub fn get_spk_hash(spk: &Script) -> sha256::Hash {
+pub fn get_spk_hash(spk: &ScriptBuf) -> sha256::Hash {
     let script_hash = spk.as_bytes();
     let mut hash = sha2::Sha256::new().chain_update(script_hash).finalize();
     hash.reverse();

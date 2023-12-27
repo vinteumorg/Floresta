@@ -47,20 +47,24 @@ impl MerkleProof {
     /// Same as [MerkleProof::from_block_hashes] but you give a block instead of a list of
     /// hashes.
     pub fn from_block(block: &Block, target: u64) -> Self {
-        let tx_list: Vec<_> = block.txdata.iter().map(|tx| tx.txid().as_hash()).collect();
+        let tx_list: Vec<_> = block
+            .txdata
+            .iter()
+            .map(|tx| tx.txid().to_raw_hash())
+            .collect();
         Self::from_block_hashes(tx_list, target)
     }
     #[allow(unused)]
     /// Verifies a proof by hashing up all nodes until reach a root, and compare `root` with
     /// computed root.
     pub fn verify(&self, root: sha256d::Hash) -> Result<bool, String> {
-        let mut computed = self.target.as_hash();
+        let mut computed = self.target.to_raw_hash();
         let mut placement = self.pos;
         for hash in self.hashes.iter() {
             if placement & 1 == 0 {
-                computed = Self::parent_hash(&computed, hash);
+                computed = Self::parent_hash(computed.as_ref(), hash.as_ref());
             } else {
-                computed = Self::parent_hash(hash, &computed);
+                computed = Self::parent_hash(hash.as_ref(), computed.as_ref());
             }
 
             placement >>= 1;
@@ -118,11 +122,18 @@ impl MerkleProof {
         } else {
             (node_count + 1) / 2
         };
+
         for idx in 0..pairs {
             if (2 * idx + 1) >= node_count {
-                new_nodes.push(Self::parent_hash(&nodes[2 * idx], &nodes[2 * idx]));
+                new_nodes.push(Self::parent_hash(
+                    nodes[2 * idx].as_ref(),
+                    nodes[2 * idx].as_ref(),
+                ));
             } else {
-                new_nodes.push(Self::parent_hash(&nodes[2 * idx], &nodes[2 * idx + 1]));
+                new_nodes.push(Self::parent_hash(
+                    nodes[2 * idx].as_ref(),
+                    nodes[2 * idx + 1].as_ref(),
+                ));
             }
         }
         Self::transverse(new_nodes, proof, Self::get_parent(target))
@@ -148,6 +159,7 @@ impl Decodable for MerkleProof {
         })
     }
 }
+
 impl Encodable for MerkleProof {
     fn consensus_encode<W: Write + ?Sized>(&self, writer: &mut W) -> Result<usize, ioError> {
         let mut len = 0;
@@ -163,6 +175,7 @@ impl Encodable for MerkleProof {
         Ok(len)
     }
 }
+
 #[cfg(test)]
 mod test {
     use bitcoin::consensus::deserialize;
@@ -229,6 +242,8 @@ mod test {
         let block = deserialize(&block_hex).unwrap();
         let merkle = MerkleProof::from_block(&block, 8);
 
-        assert!(merkle.verify(block.header.merkle_root.as_hash()).unwrap());
+        assert!(merkle
+            .verify(*block.header.merkle_root.as_raw_hash())
+            .unwrap());
     }
 }
