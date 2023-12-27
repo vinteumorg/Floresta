@@ -237,9 +237,7 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
     }
 
     pub fn get_cache_height(&self) -> u32 {
-        self.database
-            .get_cache_height()
-            .unwrap_or(0)
+        self.database.get_cache_height().unwrap_or(0)
     }
 
     pub fn new(database: D) -> AddressCache<D> {

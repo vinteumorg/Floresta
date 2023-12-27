@@ -105,6 +105,15 @@ fn main() {
             cfilters,
             cfilter_types,
         }) => {
+            // By default, we build filters for WPKH and TR outputs, as they are the newest.
+            // We also build the `inputs` filters to find spends
+            let cfilter_types = match cfilter_types {
+                Some(cfilters) if !cfilters.is_empty() => cfilters,
+                _ => {
+                    vec![FilterType::SpkWPKH, FilterType::SpkTR, FilterType::Inputs]
+                }
+            };
+
             let ctx = Ctx {
                 data_dir,
                 assume_valid,
@@ -115,7 +124,7 @@ fn main() {
                 config_file: params.config_file,
                 network: params.network,
                 cfilters,
-                cfilter_types: cfilter_types.unwrap_or_default(),
+                cfilter_types,
                 #[cfg(feature = "zmq-server")]
                 zmq_address: _zmq_address,
             };
@@ -124,9 +133,13 @@ fn main() {
 
         // We may have more commands here, like setup and dump wallet
         None => {
+            let cfilter_types = vec![FilterType::SpkWPKH, FilterType::SpkTR, FilterType::Inputs];
+
             let ctx = Ctx {
                 config_file: params.config_file,
                 network: params.network,
+                cfilters: true,
+                cfilter_types,
                 ..Default::default()
             };
             run_with_ctx(ctx);
@@ -166,6 +179,7 @@ fn run_with_ctx(ctx: Ctx) {
         Some(path) => get_config_file(&path),
         None => get_config_file(&system_config_file),
     };
+
     // Load the watch-only wallet
     debug!("Loading wallet");
     let mut wallet = load_wallet(&data_dir);
@@ -216,8 +230,18 @@ fn run_with_ctx(ctx: Ctx) {
         let mut filters = FilterBackendBuilder::default()
             .key_hash(key)
             .use_storage(Box::new(cfilters_db));
+
         for filter_type in ctx.cfilter_types {
             filters = match filter_type {
+                FilterType::All => filters
+                    .index_txids(true)
+                    .index_input(true)
+                    .add_address_type(floresta_compact_filters::OutputTypes::SH)
+                    .add_address_type(floresta_compact_filters::OutputTypes::PKH)
+                    .add_address_type(floresta_compact_filters::OutputTypes::WSH)
+                    .add_address_type(floresta_compact_filters::OutputTypes::WPKH)
+                    .add_address_type(floresta_compact_filters::OutputTypes::TR),
+
                 FilterType::TxId => filters.index_txids(true),
                 FilterType::Inputs => filters.index_input(true),
 
