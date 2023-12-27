@@ -114,12 +114,17 @@ impl Debug for Peer<TcpStream> {
         Ok(())
     }
 }
+
 type Result<T> = std::result::Result<T, PeerError>;
 
 impl<T: Transport> Peer<T> {
     pub async fn read_loop(mut self) -> Result<()> {
         let err = self.peer_loop_inner().await;
-        warn!("Peer connection loop closed: {err:?}");
+
+        if let Err(err) = err {
+            warn!("Peer {} connection loop closed: {err:?}", self.id);
+        }
+
         self.send_to_node(PeerMessages::Disconnected(self.address_id))
             .await;
         Ok(())
