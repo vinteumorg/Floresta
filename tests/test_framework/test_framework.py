@@ -14,6 +14,8 @@ class TestFramework:
         node = subprocess.Popen([
             "cargo",
             "run",
+            "--features",
+            "json-rpc",
             "--bin",
             "florestad",
             "--",
