@@ -1,8 +1,9 @@
 import subprocess
 
 from threading import Thread
-from test_framework.mock_rpc import MockUtreexod
 
+from .mock_rpc import MockUtreexod
+from .floresta_rpc import FlorestaRPC
 
 class TestFramework:
     tests = []
@@ -11,11 +12,21 @@ class TestFramework:
 
     def run_node(self, datadir: str, net: str):
         node = subprocess.Popen([
-            "cargo", "run", "--", "--network",
-            net, "run", "--rpc-host", "http://localhost:8080",
-            "--data-dir", datadir
-        ])
-        self.nodes.append(node)
+            "cargo",
+            "run",
+            "--features",
+            "json-rpc",
+            "--bin",
+            "florestad",
+            "--",
+            "--network",
+            net
+        ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.nodes.append(FlorestaRPC(node))
+
+    def wait_for_rpc_connection(self):
+        for node in self.nodes:
+            node.wait_for_rpc_connection()
 
     def run_rpc(self):
         # Run as a thread
@@ -24,13 +35,18 @@ class TestFramework:
         self.rpc.start()
 
     def stop_node(self, idx: int):
-        self.nodes[idx].send_signal(15)
-        self.nodes[idx].wait()
+        self.nodes[idx].kill()
+        self.nodes[idx].wait_to_stop()
 
     # Should be overrided by individual tests
-
     def run_test(self):
         raise NotImplemented
 
+    def stop(self):
+        for node in self.nodes:
+            node.kill()
+            node.wait_to_stop()
+
     def main(self):
         self.run_test()
+        self.stop()
