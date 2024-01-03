@@ -254,6 +254,7 @@ fn run_with_ctx(ctx: Ctx) {
         get_net(&ctx.network).into(),
         data_dir,
         ctx.proxy.map(|x| x.parse().expect("Invalid proxy address")),
+        None,
     );
 
     // ZMQ
