@@ -88,7 +88,7 @@ pub enum Commands {
         /// Those filters let you query for chain data after IBD, like wallet rescan,
         /// finding an utxo, finding specific tx_ids.
         /// Will cause more disk usage
-        #[arg(long = "cfilters", short = 'c', default_value_t = false)]
+        #[arg(long = "cfilters", short = 'c', default_value_t = true)]
         cfilters: bool,
         /// What types of filters we should build. Keep in mind that each filter
         /// type you add, will eat up more disk.
@@ -114,6 +114,7 @@ pub enum Commands {
 
 #[derive(Clone, Debug, ValueEnum)]
 pub enum FilterType {
+    All,
     Inputs,
     TxId,
     SpkPKH,

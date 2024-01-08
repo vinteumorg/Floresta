@@ -64,6 +64,7 @@ fn main() {
     // Fetch all txids that involve the address.
     let history = wallet
         .get_address_history(&hash)
+        .unwrap()
         .iter()
         .map(|tx| tx.hash)
         .collect::<Vec<_>>();
