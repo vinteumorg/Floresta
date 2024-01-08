@@ -106,6 +106,13 @@ pub struct ElectrumServer<Blockchain: BlockchainInterface> {
     /// An interface to a running node, used to broadcast transactions and request
     /// blocks.
     pub node_interface: Arc<NodeInterface>,
+    /// A list of addresses that we've just learned about and need to rescan for
+    /// transactions.
+    ///
+    /// We accumulate those addresses here and then periodically
+    /// scan, since a wallet will often send multiple addresses, but
+    /// in different requests.
+    pub addresses_to_scan: Vec<sha256::Hash>,
 }
 
 impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
@@ -132,6 +139,7 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
             message_receiver: rx,
             message_transmitter: tx,
             client_addresses: HashMap::new(),
+            addresses_to_scan: Vec::new(),
         })
     }
 
@@ -235,7 +243,7 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                 let hash = get_arg!(request, sha256::Hash, 0);
                 let utxos = self.address_cache.read().await.get_address_utxos(&hash);
                 if utxos.is_none() {
-                    return Err(crate::error::Error::InvalidParams);
+                    return json_rpc_res!(request, []);
                 }
                 let mut final_utxos = Vec::new();
                 for (utxo, prevout) in utxos.unwrap().into_iter() {
@@ -277,15 +285,8 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                         json_rpc_res!(request, null)
                     }
                     None => {
-                        async_std::task::block_on(async {
-                            self.address_cache.write().await.cache_address_hash(hash);
-                            let _ = self.rescan_for_address(hash).await;
-                        });
-                        Ok(json!({
-                            "jsonrpc": "2.0",
-                            "result": null,
-                            "id": request.id
-                        }))
+                        self.addresses_to_scan.push(hash);
+                        json_rpc_res!(request, null)
                     }
                 }
             }
@@ -390,14 +391,27 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
             for (block, height) in blocks.recv() {
                 self.handle_block(block, height).await;
             }
-            let request = async_std::future::timeout(
+
+            // handles client requests
+            while let Ok(request) = async_std::future::timeout(
                 std::time::Duration::from_secs(1),
                 self.message_receiver.recv(),
             )
-            .await;
+            .await
+            {
+                if let Ok(message) = request {
+                    self.handle_message(message).await?;
+                }
+            }
 
-            if let Ok(Ok(message)) = request {
-                self.handle_message(message).await?;
+            // rescan for new addresses, if any
+            if !self.addresses_to_scan.is_empty() {
+                info!("Catching up with addresses {:?}", self.addresses_to_scan);
+                let addresses: Vec<sha256::Hash> = self.addresses_to_scan.drain(..).collect();
+                for address in addresses.iter().copied() {
+                    self.address_cache.write().await.cache_address_hash(address);
+                }
+                self.rescan_for_addresses(addresses).await?;
             }
         }
     }
@@ -408,16 +422,14 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
     /// Usually, we'll relly on compact block filters to speed things up. If
     /// we don't have compact block filters, we may rescan using the older,
     /// more bandwidth-intensive method of actually downloading blocks.
-    async fn rescan_for_address(
+    async fn rescan_for_addresses(
         &mut self,
-        address: sha256::Hash,
+        addresses: Vec<sha256::Hash>,
     ) -> Result<(), super::error::Error> {
-        info!("Rescanning for address {}", address);
-
         // If compact block filters are enabled, use them. Otherwise, fallback
         // to the "old-school" rescaning.
         match &self.block_filters {
-            Some(cfilters) => self.rescan_with_block_filters(cfilters, address).await,
+            Some(cfilters) => self.rescan_with_block_filters(cfilters, addresses).await,
             None => self
                 .chain
                 .rescan(1)
@@ -431,14 +443,19 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
     async fn rescan_with_block_filters(
         &self,
         cfilters: &BlockFilterBackend,
-        address: sha256::Hash,
+        addresses: Vec<sha256::Hash>,
     ) -> Result<(), super::error::Error> {
         // By default, we look from 1..tip
         let height = self.chain.get_height().unwrap_or(0) as u64;
 
+        let addresses = addresses
+            .into_iter()
+            .map(|a| QueryType::ScriptHash(a.to_byte_array()))
+            .collect::<Vec<_>>();
+
         // TODO (Davidson): Let users select what the starting and end height is
         let blocks: Vec<_> = cfilters
-            .match_any(1, height, &[QueryType::ScriptHash(address.to_byte_array())])
+            .match_any(1, height, &addresses)
             .unwrap_or_default()
             .into_iter()
             .flat_map(|height| {
