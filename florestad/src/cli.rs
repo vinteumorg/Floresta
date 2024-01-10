@@ -109,6 +109,8 @@ pub enum Commands {
         assume_valid: Option<BlockHash>,
         #[arg(long, short)]
         zmq_address: Option<String>,
+        #[arg(long)]
+        connect: Option<String>,
     },
 }
 

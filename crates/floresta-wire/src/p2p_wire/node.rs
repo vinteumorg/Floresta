@@ -175,6 +175,7 @@ pub struct NodeCommon<Chain: BlockchainInterface + UpdatableChainstate> {
     address_man: AddressMan,
     max_banscore: u32,
     socks5: Option<Socks5StreamBuilder>,
+    fixed_peer: Option<LocalAddress>,
 }
 
 pub struct UtreexoNode<Context, Chain: BlockchainInterface + UpdatableChainstate>(
@@ -210,6 +211,7 @@ where
         datadir: String,
         proxy: Option<SocketAddr>,
         max_banscore: Option<u32>,
+        fixed_peer: Option<LocalAddress>,
     ) -> Self {
         let (node_tx, node_rx) = channel::unbounded();
         let socks5 = proxy.map(Socks5StreamBuilder::new);
@@ -238,6 +240,7 @@ where
                 datadir,
                 socks5,
                 max_banscore: max_banscore.unwrap_or(50),
+                fixed_peer,
             },
             T::default(),
         )
@@ -639,12 +642,21 @@ where
     }
 
     async fn maybe_open_connection(&mut self) -> Result<(), WireError> {
+        // If the user passes in a `--connect` cli argument, we only connect with
+        // that particular peer.
+        if self.fixed_peer.is_some() && !self.peers.is_empty() {
+            return Ok(());
+        }
         if self.peers.len() < MAX_OUTGOING_PEERS {
             self.create_connection(false).await;
         }
         Ok(())
     }
     async fn open_feeler_connection(&mut self) -> Result<(), WireError> {
+        // No feeler if `-connect` is set
+        if self.fixed_peer.is_some() {
+            return Ok(());
+        }
         self.create_connection(true).await;
         Ok(())
     }
@@ -679,11 +691,17 @@ where
         } else {
             ServiceFlags::NETWORK | ServiceFlags::WITNESS
         };
-        let (peer_id, address) = self
-            .address_man
-            .get_address_to_connect(required_services, feeler)?;
+
+        let (peer_id, address) = match &self.fixed_peer {
+            Some(address) => (0, address.clone()),
+            None => self
+                .address_man
+                .get_address_to_connect(required_services, feeler)?,
+        };
+
         self.address_man
             .update_set_state(peer_id, AddressState::Connected);
+
         // Don't connect to the same peer twice
         if self
             .0
@@ -759,6 +777,7 @@ where
         );
         Ok(())
     }
+
     /// Creates a new outgoing connection with `address`. Connection may or may not be feeler,
     /// a special connection type that is used to learn about good peers, but are not kept afer
     /// handshake.

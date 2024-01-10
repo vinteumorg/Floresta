@@ -29,6 +29,8 @@ mod wallet_input;
 mod zmq;
 
 use std::path::PathBuf;
+use std::process::exit;
+use std::str::FromStr;
 use std::sync::Arc;
 
 use async_std::sync::RwLock;
@@ -53,6 +55,7 @@ use floresta_electrum::electrum_protocol::ElectrumServer;
 use floresta_watch_only::kv_database::KvDatabase;
 use floresta_watch_only::AddressCache;
 use floresta_watch_only::AddressCacheDatabase;
+use floresta_wire::address_man::LocalAddress;
 use floresta_wire::mempool::Mempool;
 use floresta_wire::node::UtreexoNode;
 use log::debug;
@@ -83,6 +86,7 @@ struct Ctx {
     cfilter_types: Vec<FilterType>,
     #[cfg(feature = "zmq-server")]
     zmq_address: Option<String>,
+    connect: Option<String>,
 }
 fn main() {
     // Setup global logger
@@ -104,6 +108,7 @@ fn main() {
             zmq_address: _zmq_address,
             cfilters,
             cfilter_types,
+            connect,
         }) => {
             // By default, we build filters for WPKH and TR outputs, as they are the newest.
             // We also build the `inputs` filters to find spends
@@ -127,7 +132,9 @@ fn main() {
                 cfilter_types,
                 #[cfg(feature = "zmq-server")]
                 zmq_address: _zmq_address,
+                connect,
             };
+
             run_with_ctx(ctx);
         }
 
@@ -271,6 +278,19 @@ fn run_with_ctx(ctx: Ctx) {
     #[cfg(not(feature = "compact-filters"))]
     let cfilters = None;
 
+    // Handle the `-connect` cli option
+    let connect = match ctx.connect.map(|host| LocalAddress::from_str(&host)) {
+        Some(Ok(host)) => {
+            debug!("Connecting to {:?}", host);
+            Some(host)
+        }
+        Some(Err(e)) => {
+            error!("Invalid host: {}", e);
+            exit(-1);
+        }
+        None => None,
+    };
+
     // Chain Provider (p2p)
     let chain_provider = UtreexoNode::new(
         blockchain_state.clone(),
@@ -279,6 +299,7 @@ fn run_with_ctx(ctx: Ctx) {
         data_dir,
         ctx.proxy.map(|x| x.parse().expect("Invalid proxy address")),
         None,
+        connect,
     );
 
     // ZMQ
