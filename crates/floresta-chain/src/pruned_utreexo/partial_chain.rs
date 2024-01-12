@@ -345,9 +345,9 @@ mod tests {
         }
         // The state after 100 blocks, computed ahead of time.
         let roots = [
-            "52a2ca409852acda9e194fbf2d8d9b10159bb4cee56248b3f3affdceaa294865",
-            "87b871d9c268eca95114929d619cf23399371248d350dc88e91ca33074341faf",
-            "480563375e4013e5ac1238fe0d85f8d997d93f626a0772ad76be6900f85b66c3",
+            "a2f1e6db842e13c7480c8d80f29ca2db5f9b96e1b428ebfdbd389676d7619081",
+            "b21aae30bc74e9aef600a5d507ef27d799b9b6ba08e514656d34d717bdb569d2",
+            "bedb648c9a3c5741660f926c1552d83ebb4cb1842cca6855b6d1089bb4951ce1",
         ]
         .iter()
         .map(|hash| NodeHash::from_str(hash).unwrap())
@@ -382,10 +382,10 @@ mod tests {
         }
 
         let roots = [
-            "f5fbbfca687f84f363a790ac26953bbc541e8864987a788083511c5dd5adae87",
-            "062221add29798889f62519b8b1de3ffb19b1349baea730a07aec8c6eaacb4e9",
-            "9f5cc264618d85b719a1738cdf3169355aac7033ff24f56361db34dfb9e6bbfd",
-            "350686755287afe78c33a27b187d83df1cd3c99ea93f4dd66781ecdedcc7d5b2",
+            "e00b4ecc7c30865af0ac3b0c7c1b996015f51d6a6577ee6f52cc04b55933eb91",
+            "9bf9659f93e246e0431e228032cd4b3a4d8a13e57f3e08a221e61f3e0bae657f",
+            "e329a7ddcc888130bb6e4f82ce9f5cf5a712a7b0ae05a1aaf21b363866a9b05e",
+            "1864a4982532447dcb3d9a5d2fea9f8ed4e3b1e759d55b8a427fb599fed0c302",
         ]
         .iter()
         .map(|x| NodeHash::from(hex::decode(x).unwrap().as_slice()))

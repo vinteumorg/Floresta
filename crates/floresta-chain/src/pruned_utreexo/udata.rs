@@ -12,6 +12,7 @@ use sha2::Digest;
 use sha2::Sha512_256;
 
 use crate::prelude::*;
+use crate::pruned_utreexo::consensus::UTREEXO_TAG_V1;
 /// Leaf data is the data that is hashed when adding to utreexo state. It contains validation
 /// data and some commitments to make it harder to attack an utreexo-only node.
 #[derive(Debug, PartialEq)]
@@ -39,6 +40,8 @@ impl LeafData {
         let mut ser_utxo = Vec::new();
         let _ = self.utxo.consensus_encode(&mut ser_utxo);
         let leaf_hash = Sha512_256::new()
+            .chain_update(UTREEXO_TAG_V1)
+            .chain_update(UTREEXO_TAG_V1)
             .chain_update(self.block_hash)
             .chain_update(self.prevout.txid)
             .chain_update(self.prevout.vout.to_le_bytes())
