@@ -230,6 +230,15 @@ impl Consensus {
     ) -> Result<Stump, BlockchainError> {
         let block_hash = block.block_hash();
         let mut leaf_hashes = Vec::new();
+
+        // Check if there's any unspendable utxos attempted to be spent.
+        if del_hashes.iter().any(|hash| {
+            hash.to_byte_array() == UNSPENDABLE_BIP30_UTXO_91722
+                || hash.to_byte_array() == UNSPENDABLE_BIP30_UTXO_91812
+        }) {
+            return Err(BlockValidationErrors::UnspendableUTXO.into());
+        }
+
         let del_hashes = del_hashes
             .iter()
             .map(|hash| NodeHash::from(hash.as_byte_array()))

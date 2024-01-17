@@ -38,6 +38,7 @@ pub enum BlockValidationErrors {
     BlockExtendsAnOrphanChain,
     BadBip34,
     InvalidProof,
+    UnspendableUTXO,
 }
 impl Display for BlockValidationErrors {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -67,6 +68,9 @@ impl Display for BlockValidationErrors {
             }
             BlockValidationErrors::BadBip34 => write!(f, "BIP34 commitment mismatch"),
             BlockValidationErrors::InvalidProof => write!(f, "Invalid proof"),
+            BlockValidationErrors::UnspendableUTXO => {
+                write!(f, "Attempts to spend unspendable UTXO that was overwritten by the historical bip30 violation")
+            }
         }
     }
 }

@@ -1458,6 +1458,7 @@ where
                     | BlockValidationErrors::BadCoinbaseOutValue
                     | BlockValidationErrors::EmptyBlock
                     | BlockValidationErrors::BlockExtendsAnOrphanChain
+                    | BlockValidationErrors::UnspendableUTXO
                     | BlockValidationErrors::BadBip34 => {
                         self.send_to_peer(peer, NodeRequest::Shutdown).await?;
                         try_and_log!(self.chain.invalidate_block(block.block.block_hash()));
