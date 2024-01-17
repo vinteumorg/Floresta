@@ -8,12 +8,16 @@
 //! ready-to-use library for interacting with florestad's json-rpc interface in your rust
 //! application.
 
-mod rpc_types;
+pub mod rpc_types;
+
+#[cfg(feature = "with-reqwest")]
+pub mod reqwest_client;
 
 use bitcoin::block::Header as BlockHeader;
 use bitcoin::BlockHash;
 use bitcoin::Txid;
 use rpc_types::*;
+use serde_json::Number;
 use serde_json::Value;
 
 type Result<T> = std::result::Result<T, rpc_types::Error>;
@@ -112,4 +116,104 @@ pub trait FlorestaRPC {
     ///
     /// You can use this to connect with a given node, providing it's IP address and port.
     fn add_node(&self, node: String) -> Result<bool>;
+}
+
+/// Since the workflow for jsonrpc is the same for all methods, we can implement a trait
+/// that will let us call any method on the client, and then implement the methods on any
+/// client that implements this trait.
+pub trait JsonRPCClient: Sized {
+    /// Calls a method on the client
+    ///
+    /// This should call the appropriated rpc method and return a parsed response or error.
+    fn call<T: serde::de::DeserializeOwned>(&self, method: &str, params: &[Value]) -> Result<T>;
+}
+
+impl<T: JsonRPCClient> FlorestaRPC for T {
+    fn add_node(&self, node: String) -> Result<bool> {
+        self.call("addnode", &[Value::String(node)])
+    }
+
+    fn stop(&self) -> Result<bool> {
+        self.call("stop", &[])
+    }
+
+    fn rescan(&self, rescan: u32) -> Result<bool> {
+        self.call("rescanblockchain", &[Value::Number(Number::from(rescan))])
+    }
+
+    fn get_roots(&self) -> Result<Vec<String>> {
+        self.call("getroots", &[])
+    }
+
+    fn get_block(&self, hash: BlockHash, verbosity: Option<u8>) -> Result<Value> {
+        let verbosity = verbosity.unwrap_or(0);
+        self.call(
+            "getblock",
+            &[
+                Value::String(hash.to_string()),
+                Value::Number(Number::from(verbosity)),
+            ],
+        )
+    }
+
+    fn get_height(&self) -> Result<u32> {
+        self.call("getblockcount", &[])
+    }
+
+    fn get_tx_out(&self, tx_id: Txid, outpoint: u32) -> Result<Value> {
+        self.call(
+            "gettxout",
+            &[
+                Value::String(tx_id.to_string()),
+                Value::Number(Number::from(outpoint)),
+            ],
+        )
+    }
+
+    fn get_tx_proof(&self, tx_id: Txid) -> Result<Vec<String>> {
+        self.call("gettxoutproof", &[Value::String(tx_id.to_string())])
+    }
+
+    fn get_peer_info(&self) -> Result<Vec<PeerInfo>> {
+        self.call("getpeerinfo", &[])
+    }
+
+    fn get_block_hash(&self, height: u32) -> Result<BlockHash> {
+        self.call("getblockhash", &[Value::Number(Number::from(height))])
+    }
+
+    fn get_transaction(&self, tx_id: Txid, verbosity: Option<bool>) -> Result<Value> {
+        let verbosity = verbosity.unwrap_or(false);
+        self.call(
+            "getrawtransaction",
+            &[Value::String(tx_id.to_string()), Value::Bool(verbosity)],
+        )
+    }
+
+    fn load_descriptor(&self, descriptor: String, rescan: Option<u32>) -> Result<()> {
+        let rescan = rescan.unwrap_or(0);
+        self.call(
+            "importdescriptors",
+            &[
+                Value::String(descriptor),
+                Value::Number(Number::from(rescan)),
+            ],
+        )
+    }
+
+    fn get_block_filter(&self, heigth: u32) -> Result<String> {
+        self.call("getblockfilter", &[Value::Number(Number::from(heigth))])
+    }
+
+    fn get_block_header(&self, hash: BlockHash) -> Result<BlockHeader> {
+        self.call("getblockheader", &[Value::String(hash.to_string())])
+    }
+
+    fn get_blockchain_info(&self) -> Result<GetBlockchainInfoRes> {
+        self.call("getblockchaininfo", &[])
+    }
+
+    fn send_raw_transaction(&self, tx: String) -> Result<Txid> {
+        self.call("sendrawtransaction", &[Value::String(tx)])
+    }
 }
