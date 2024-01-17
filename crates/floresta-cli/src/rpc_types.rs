@@ -1,7 +1,7 @@
 use serde::Deserialize;
 use serde::Serialize;
 
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct GetBlockchainInfoRes {
     pub best_block: String,
     pub height: u32,
@@ -13,7 +13,7 @@ pub struct GetBlockchainInfoRes {
     pub root_count: u32,
     pub root_hashes: Vec<String>,
     pub chain: String,
-    pub progress: f32,
+    pub progress: Option<f32>,
     pub difficulty: u64,
 }
 
@@ -104,9 +104,26 @@ pub enum Error {
     Node,
     NoBlockFilters,
     InvalidNetwork,
+    Serde(serde_json::Error),
+    #[cfg(feature = "with-reqwest")]
+    Reqwest(reqwest::Error),
+    Api(serde_json::Value),
+    EmtpyResponse,
 }
 
-#[derive(Deserialize, Serialize)]
+impl From<serde_json::Error> for Error {
+    fn from(value: serde_json::Error) -> Self {
+        Error::Serde(value)
+    }
+}
+
+impl From<reqwest::Error> for Error {
+    fn from(value: reqwest::Error) -> Self {
+        Error::Reqwest(value)
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct PeerInfo {
     pub address: String,
     pub services: String,

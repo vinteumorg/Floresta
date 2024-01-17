@@ -22,7 +22,7 @@ jobs:
     # run all tests
     - uses: actions/checkout@v3
     - name: Run tests
-      run: cargo test --verbose
+      run: cargo build && cargo test --verbose
 
   linting:
 
@@ -54,4 +54,4 @@ jobs:
           toolchain: ${{ matrix.rust }}
 
       - name: Cross compile
-        run: cargo test --verbose
+        run: cargo build && cargo test --verbose

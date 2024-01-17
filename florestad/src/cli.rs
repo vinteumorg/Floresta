@@ -111,6 +111,10 @@ pub enum Commands {
         zmq_address: Option<String>,
         #[arg(long)]
         connect: Option<String>,
+        #[arg(long)]
+        rpc_address: Option<String>,
+        #[arg(long)]
+        electrum_address: Option<String>,
     },
 }
 

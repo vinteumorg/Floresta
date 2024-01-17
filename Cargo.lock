@@ -825,9 +825,11 @@ dependencies = [
  "bitcoin 0.31.0",
  "clap",
  "jsonrpc",
+ "rand 0.8.5",
  "reqwest",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]
