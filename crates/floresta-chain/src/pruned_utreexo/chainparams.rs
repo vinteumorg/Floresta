@@ -9,7 +9,6 @@ use bitcoin::bitcoinconsensus::VERIFY_P2SH;
 #[cfg(feature = "bitcoinconsensus")]
 use bitcoin::bitcoinconsensus::VERIFY_WITNESS;
 use bitcoin::blockdata::constants::genesis_block;
-#[cfg(feature = "bitcoinconsensus")]
 use bitcoin::Block;
 use bitcoin::BlockHash;
 use bitcoin::Target;

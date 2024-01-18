@@ -61,6 +61,7 @@ async fn main() {
         DATA_DIR.into(),
         None,
         None,
+        None,
     );
     // A handle is a simple way to interact with the node. It implements a queue of requests
     // that will be processed by the node.
