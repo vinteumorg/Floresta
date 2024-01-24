@@ -16,6 +16,7 @@ pub mod reqwest_client;
 use std::fmt::Debug;
 
 use bitcoin::block::Header as BlockHeader;
+use bitcoin::Block;
 use bitcoin::BlockHash;
 use bitcoin::Txid;
 use rpc_types::*;
@@ -103,7 +104,7 @@ pub trait FlorestaRPC {
     /// This method returns a block, given a block hash. If the verbosity flag is 0, the block
     /// is returned as a hexadecimal string. If the verbosity flag is 1, the block is returned
     /// as a json object.
-    fn get_block(&self, hash: BlockHash, verbosity: Option<u8>) -> Result<Value>;
+    fn get_block(&self, hash: BlockHash) -> Result<GetBlockRes>;
     /// Finds an specific utxo in the chain
     ///
     /// You can use this to look for a utxo. If it exists, it will return the amount and
@@ -149,8 +150,8 @@ impl<T: JsonRPCClient> FlorestaRPC for T {
         self.call("getroots", &[])
     }
 
-    fn get_block(&self, hash: BlockHash, verbosity: Option<u8>) -> Result<Value> {
-        let verbosity = verbosity.unwrap_or(0);
+    fn get_block(&self, hash: BlockHash) -> Result<GetBlockRes> {
+        let verbosity = 1; // Return the block in json format
         self.call(
             "getblock",
             &[
@@ -234,6 +235,7 @@ mod tests {
     use std::thread::sleep;
     use std::time::Duration;
 
+    use bitcoin::BlockHash;
     use bitcoin::Txid;
 
     use crate::reqwest_client::ReqwestClient;
@@ -340,6 +342,22 @@ mod tests {
     }
 
     #[test]
+    fn test_get_block() {
+        let (_proc, client) = start_florestad();
+
+        let block_hash: BlockHash =
+            "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206"
+                .parse()
+                .unwrap();
+        let block = client.get_block(block_hash).unwrap();
+
+        assert_eq!(
+            block.hash,
+            "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206".to_owned()
+        );
+    }
+
+    #[test]
     fn test_get_block_hash() {
         let (_proc, client) = start_florestad();
 
@@ -380,11 +398,9 @@ mod tests {
         let desc = "
             wsh(sortedmulti(1,[54ff5a12/48h/1h/0h/2h]tpubDDw6pwZA3hYxcSN32q7a5ynsKmWr4BbkBNHydHPKkM4BZwUfiK7tQ26h7USm8kA1E2FvCy7f7Er7QXKF8RNptATywydARtzgrxuPDwyYv4x/<0;1>/*,[bcf969c0/48h/1h/0h/2h]tpubDEFdgZdCPgQBTNtGj4h6AehK79Jm4LH54JrYBJjAtHMLEAth7LuY87awx9ZMiCURFzFWhxToRJK6xp39aqeJWrG5nuW3eBnXeMJcvDeDxfp/<0;1>/*))#fuw35j0q";
 
-        let res = client
-            .load_descriptor(desc.to_string(), Some(0))
-            .unwrap_err();
+        let res = client.load_descriptor(desc.to_string(), Some(0)).unwrap();
 
-        assert!(matches!(res, super::Error::EmtpyResponse))
+        assert!(res)
     }
 
     #[test]

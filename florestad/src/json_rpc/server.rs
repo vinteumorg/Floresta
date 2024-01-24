@@ -6,6 +6,7 @@ use bitcoin::block::Header as BlockHeader;
 use bitcoin::consensus::deserialize;
 use bitcoin::consensus::encode::serialize_hex;
 use bitcoin::consensus::serialize;
+use bitcoin::constants::genesis_block;
 use bitcoin::hashes::hex::FromHex;
 use bitcoin::hashes::Hash;
 use bitcoin::hex::DisplayHex;
@@ -314,7 +315,14 @@ impl Rpc for RpcImpl {
 
     fn get_block(&self, hash: BlockHash, verbosity: Option<u8>) -> Result<Value> {
         let verbosity = verbosity.unwrap_or(1);
-        if let Ok(Some(block)) = self.node.get_block(hash) {
+
+        let block = if self.chain.get_block_hash(0).unwrap().eq(&hash) {
+            Some(genesis_block(self.network))
+        } else {
+            self.node.get_block(hash).map_err(|_| Error::Chain)?
+        };
+
+        if let Some(block) = block {
             if verbosity == 1 {
                 let tip = self.chain.get_height().map_err(|_| Error::Chain)?;
                 let height = self
@@ -322,20 +330,22 @@ impl Rpc for RpcImpl {
                     .get_block_height(&hash)
                     .map_err(|_| Error::Chain)?
                     .unwrap();
-                let mut last_block_times: Vec<_> = ((height - 11)..height)
-                    .map(|h| {
-                        self.chain
-                            .get_block_header(&self.chain.get_block_hash(h).unwrap())
-                            .unwrap()
-                            .time
-                    })
-                    .collect();
-                last_block_times.sort();
-                let median_time_past = if last_block_times.len() > 5 {
+
+                let median_time_past = if height > 11 {
+                    let mut last_block_times: Vec<_> = ((height - 11)..height)
+                        .map(|h| {
+                            self.chain
+                                .get_block_header(&self.chain.get_block_hash(h).unwrap())
+                                .unwrap()
+                                .time
+                        })
+                        .collect();
+                    last_block_times.sort();
                     last_block_times[5]
                 } else {
-                    0
+                    block.header.time
                 };
+
                 let block = BlockJson {
                     bits: serialize_hex(&block.header.bits),
                     chainwork: block.header.work().to_string(),

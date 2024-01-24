@@ -77,11 +77,8 @@ impl ReqwestClient {
             req = req.basic_auth(user, Some(pass));
         }
 
-        let resp = req.send();
-        let resp = resp?.text();
-
-        let resp = serde_json::from_str::<JsonRpcResponse<Response>>(&resp?)?;
-
+        let resp = req.send()?;
+        let resp = serde_json::from_str::<JsonRpcResponse<Response>>(&resp.text()?)?;
         match resp.result {
             Some(resp) => Ok(resp),
             None if resp.error.is_some() => Err(crate::Error::Api(resp.error.unwrap())),
