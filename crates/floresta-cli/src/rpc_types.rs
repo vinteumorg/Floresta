@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -249,24 +251,6 @@ pub struct GetBlockRes {
 #[derive(Debug)]
 /// All possible errors returned by the jsonrpc
 pub enum Error {
-    /// This transaction doesn't exist in our watch-only wallet
-    TxNotFound,
-    /// The provided descriptor is invalid
-    InvalidDescriptor,
-    /// The requested block doesn't exist
-    BlockNotFound,
-    /// Our chainstate returned an error
-    Chain,
-    /// The provided network port is invalid
-    InvalidPort,
-    /// The provided network address is invalid
-    InvalidAddress,
-    /// Our node returned some error
-    Node,
-    /// We don't have compact block filters enabled, and tried to use an rpc that needs it
-    NoBlockFilters,
-    /// The informed network is invalid
-    InvalidNetwork,
     /// An error while deserializing our response
     Serde(serde_json::Error),
     #[cfg(feature = "with-reqwest")]
@@ -289,3 +273,16 @@ impl From<reqwest::Error> for Error {
         Error::Reqwest(value)
     }
 }
+
+impl Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Error::Reqwest(e) => write!(f, "reqwest returned an error {e}"),
+            Error::Api(e) => write!(f, "general jsonrpc error: {e}"),
+            Error::Serde(e) => write!(f, "error while deserializing the response: {e}"),
+            Error::EmtpyResponse => write!(f, "got an empty response from server"),
+        }
+    }
+}
+
+impl std::error::Error for Error {}

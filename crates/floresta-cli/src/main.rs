@@ -1,108 +1,79 @@
+use std::fmt::Debug;
+
+use anyhow::Ok;
 use bitcoin::BlockHash;
 use bitcoin::Network;
 use bitcoin::Txid;
 use clap::Parser;
 use clap::Subcommand;
-use jsonrpc::arg;
-use jsonrpc::simple_http::SimpleHttpTransport;
-use jsonrpc::Client;
-use jsonrpc::Request;
-use serde_json::value::RawValue;
-use serde_json::Value;
+use floresta_cli::reqwest_client::ReqwestClient;
+use floresta_cli::rpc::FlorestaRPC;
+
+mod reqwest_client;
+mod rpc;
+mod rpc_types;
 
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
-    let (params, method) = get_req(&cli);
 
-    let mut transport = SimpleHttpTransport::builder().url(&get_host(&cli))?;
-    if let Some(username) = cli.rpc_user {
-        transport = transport.auth(username, cli.rpc_password);
-    }
-    let transport = transport.build();
+    let client = ReqwestClient::new(get_host(&cli));
+    let res = do_request(&cli, client)?;
 
-    let client = Client::with_transport(transport);
-    let request = Request {
-        id: Value::from(0),
-        method: &method,
-        params: &params,
-        jsonrpc: Some("2.0"),
-    };
-    let response = client.send_request(request)?;
-
-    let response = response.result::<Value>()?;
-    println!("{}", ::serde_json::to_string_pretty(&response).unwrap());
+    println!("{}", res);
 
     anyhow::Ok(())
 }
+
 fn get_host(cmd: &Cli) -> String {
     if let Some(host) = cmd.rpc_host.clone() {
         return host;
     }
+
     match cmd.network {
-        Network::Bitcoin => "127.0.0.1:8332".into(),
-        Network::Testnet => "127.0.0.1:18332".into(),
-        Network::Signet => "127.0.0.1:38332".into(),
-        Network::Regtest => "127.0.0.1:18442".into(),
-        _ => "127.0.0.1:8332".into(),
+        Network::Bitcoin => "http://127.0.0.1:8332".into(),
+        Network::Testnet => "http://127.0.0.1:18332".into(),
+        Network::Signet => "http://127.0.0.1:38332".into(),
+        Network::Regtest => "http://127.0.0.1:18442".into(),
+        _ => "http://127.0.0.1:8332".into(),
     }
 }
-fn get_req(cmd: &Cli) -> (Vec<Box<RawValue>>, String) {
-    let method = match cmd.methods {
-        Methods::GetBlockchainInfo => "getblockchaininfo",
-        Methods::GetBlockHash { .. } => "getblockhash",
-        Methods::GetTxOut { .. } => "gettxout",
-        Methods::GetTxProof { .. } => "gettxproof",
-        Methods::GetRawTransaction { .. } => "gettransaction",
-        Methods::RescanBlockchain { .. } => "rescan",
-        Methods::SendRawTransaction { .. } => "sendrawtransaction",
-        Methods::GetBlockHeader { .. } => "getblockheader",
-        Methods::LoadDescriptor { .. } => "loaddescriptor",
-        Methods::GetRoots => "getroots",
-        Methods::GetBlock { .. } => "getblock",
-        Methods::GetPeerInfo => "getpeerinfo",
-        Methods::ListTransactions => "gettransactions",
-        Methods::Stop => "stop",
-        Methods::AddNode { .. } => "addnode",
-        Methods::GetFilters { .. } => "getblockfilter",
-    };
-    let params = match &cmd.methods {
-        Methods::GetBlockchainInfo => Vec::new(),
-        Methods::GetBlockHash { height } => vec![arg(height)],
-        Methods::GetTxOut { txid, vout } => vec![arg(txid), arg(vout)],
-        Methods::GetTxProof { txids, blockhash } => {
-            if let Some(blockhash) = blockhash {
-                vec![arg(txids), arg(blockhash)]
-            } else {
-                vec![arg(txids)]
-            }
+
+fn do_request(cmd: &Cli, client: ReqwestClient) -> anyhow::Result<String> {
+    Ok(match cmd.methods.clone() {
+        Methods::GetBlockchainInfo => serde_json::to_string_pretty(&client.get_blockchain_info()?)?,
+        Methods::GetBlockHash { height } => {
+            serde_json::to_string_pretty(&client.get_block_hash(height)?)?
+        }
+        Methods::GetTxOut { txid, vout } => {
+            serde_json::to_string_pretty(&client.get_tx_out(txid, vout)?)?
+        }
+        Methods::GetTxProof { txids, .. } => {
+            serde_json::to_string_pretty(&client.get_tx_proof(txids)?)?
         }
         Methods::GetRawTransaction { txid, .. } => {
-            vec![arg(txid)]
+            serde_json::to_string_pretty(&client.get_transaction(txid, Some(true))?)?
         }
-        Methods::GetBlockHeader { hash } => vec![arg(hash)],
-        Methods::LoadDescriptor { rescan, desc } => {
-            if let Some(rescan) = rescan {
-                vec![arg(desc), arg(rescan)]
-            } else {
-                vec![arg(desc)]
-            }
+        Methods::RescanBlockchain { start_height } => {
+            serde_json::to_string_pretty(&client.rescan(start_height)?)?
         }
-        Methods::RescanBlockchain { start_height } => vec![arg(start_height)],
-        Methods::SendRawTransaction { tx } => vec![arg(tx)],
-        Methods::GetRoots => Vec::new(),
-        Methods::GetBlock { hash, verbosity } => vec![arg(hash), arg(verbosity)],
-        Methods::GetPeerInfo => Vec::new(),
-        Methods::ListTransactions => Vec::new(),
-        Methods::Stop => Vec::new(),
-        Methods::AddNode { node } => {
-            vec![arg(node)]
+        Methods::SendRawTransaction { tx } => {
+            serde_json::to_string_pretty(&client.send_raw_transaction(tx)?)?
         }
+        Methods::GetBlockHeader { hash } => {
+            serde_json::to_string_pretty(&client.get_block_header(hash)?)?
+        }
+        Methods::LoadDescriptor { desc, rescan } => {
+            serde_json::to_string_pretty(&client.load_descriptor(desc, rescan)?)?
+        }
+        Methods::GetRoots => serde_json::to_string_pretty(&client.get_roots()?)?,
+        Methods::GetBlock { hash, .. } => serde_json::to_string_pretty(&client.get_block(hash)?)?,
+        Methods::GetPeerInfo => serde_json::to_string_pretty(&client.get_peer_info()?)?,
+        Methods::Stop => serde_json::to_string_pretty(&client.stop()?)?,
+        Methods::AddNode { node } => serde_json::to_string_pretty(&client.add_node(node)?)?,
         Methods::GetFilters { height } => {
-            vec![arg(height)]
+            serde_json::to_string_pretty(&client.get_block_filter(height)?)?
         }
-    };
-
-    (params, method.to_string())
+    })
 }
 
 #[derive(Debug, Parser)]
@@ -133,7 +104,7 @@ pub struct Cli {
     pub methods: Methods,
 }
 
-#[derive(Debug, Subcommand)]
+#[derive(Debug, Clone, Subcommand)]
 pub enum Methods {
     /// Returns information about the current state of the blockchain
     #[command(name = "getblockchaininfo")]
@@ -171,9 +142,6 @@ pub enum Methods {
     /// Returns information about the peers we are connected to
     #[command(name = "getpeerinfo")]
     GetPeerInfo,
-    /// List all transactions we are watching
-    #[command(name = "listtransactions")]
-    ListTransactions,
     /// Returns the value associated with a UTXO, if it's still not spent.
     /// This function only works properly if we have the compact block filters
     /// feature enabled

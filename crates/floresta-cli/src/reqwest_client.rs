@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use serde::Deserialize;
 use serde_json::json;
 
-use crate::JsonRPCClient;
+use crate::rpc::JsonRPCClient;
 
 #[derive(Debug, Default, Clone)]
 pub struct ReqwestClient {
@@ -55,7 +55,7 @@ impl ReqwestClient {
         &self,
         method: &str,
         params: &[serde_json::Value],
-    ) -> Result<Response, crate::Error>
+    ) -> Result<Response, crate::rpc_types::Error>
     where
         Response: for<'a> serde::de::Deserialize<'a> + Debug,
     {
@@ -81,8 +81,8 @@ impl ReqwestClient {
         let resp = serde_json::from_str::<JsonRpcResponse<Response>>(&resp.text()?)?;
         match resp.result {
             Some(resp) => Ok(resp),
-            None if resp.error.is_some() => Err(crate::Error::Api(resp.error.unwrap())),
-            None => Err(crate::Error::EmtpyResponse),
+            None if resp.error.is_some() => Err(crate::rpc_types::Error::Api(resp.error.unwrap())),
+            None => Err(crate::rpc_types::Error::EmtpyResponse),
         }
     }
 }
@@ -92,7 +92,7 @@ impl JsonRPCClient for ReqwestClient {
         &self,
         method: &str,
         params: &[serde_json::Value],
-    ) -> Result<T, crate::Error> {
+    ) -> Result<T, crate::rpc_types::Error> {
         self.rpc_call(method, params)
     }
 }
