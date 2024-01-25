@@ -87,6 +87,9 @@ struct Ctx {
     #[cfg(feature = "zmq-server")]
     zmq_address: Option<String>,
     connect: Option<String>,
+    #[cfg(feature = "json-rpc")]
+    json_rpc_address: Option<String>,
+    electrum_address: Option<String>,
 }
 fn main() {
     // Setup global logger
@@ -109,6 +112,8 @@ fn main() {
             cfilters,
             cfilter_types,
             connect,
+            rpc_address,
+            electrum_address,
         }) => {
             // By default, we build filters for WPKH and TR outputs, as they are the newest.
             // We also build the `inputs` filters to find spends
@@ -133,6 +138,9 @@ fn main() {
                 #[cfg(feature = "zmq-server")]
                 zmq_address: _zmq_address,
                 connect,
+                #[cfg(feature = "json-rpc")]
+                json_rpc_address: rpc_address,
+                electrum_address,
             };
 
             run_with_ctx(ctx);
@@ -329,11 +337,14 @@ fn run_with_ctx(ctx: Ctx) {
         kill_signal.clone(),
         get_net(&ctx.network),
         cfilters.clone(),
+        ctx.json_rpc_address
+            .map(|x| x.parse().expect("Invalid json rpc address")),
     );
 
     // Electrum
+    let electrum_address = ctx.electrum_address.unwrap_or("0.0.0.0:50001".into());
     let electrum_server = block_on(ElectrumServer::new(
-        "0.0.0.0:50001",
+        electrum_address,
         wallet,
         blockchain_state,
         cfilters,

@@ -117,7 +117,7 @@ pub struct ElectrumServer<Blockchain: BlockchainInterface> {
 
 impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
     pub async fn new(
-        address: &'static str,
+        address: String,
         address_cache: Arc<RwLock<AddressCache<KvDatabase>>>,
         chain: Arc<Blockchain>,
         block_filters: Option<Arc<BlockFilterBackend>>,

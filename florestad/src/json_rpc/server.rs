@@ -1,3 +1,4 @@
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use async_std::sync::RwLock;
@@ -5,6 +6,7 @@ use bitcoin::block::Header as BlockHeader;
 use bitcoin::consensus::deserialize;
 use bitcoin::consensus::encode::serialize_hex;
 use bitcoin::consensus::serialize;
+use bitcoin::constants::genesis_block;
 use bitcoin::hashes::hex::FromHex;
 use bitcoin::hashes::Hash;
 use bitcoin::hex::DisplayHex;
@@ -60,7 +62,7 @@ pub trait Rpc {
     #[rpc(name = "gettxproof")]
     fn get_tx_proof(&self, tx_id: Txid) -> Result<Vec<String>>;
     #[rpc(name = "loaddescriptor")]
-    fn load_descriptor(&self, descriptor: String, rescan: Option<u32>) -> Result<()>;
+    fn load_descriptor(&self, descriptor: String, rescan: Option<u32>) -> Result<bool>;
     #[rpc(name = "rescan")]
     fn rescan(&self, rescan: u32) -> Result<bool>;
     #[rpc(name = "getheight")]
@@ -265,7 +267,7 @@ impl Rpc for RpcImpl {
         Err(Error::TxNotFound.into())
     }
 
-    fn load_descriptor(&self, descriptor: String, rescan: Option<u32>) -> Result<()> {
+    fn load_descriptor(&self, descriptor: String, rescan: Option<u32>) -> Result<bool> {
         let wallet = block_on(self.wallet.write());
         let result = wallet.push_descriptor(&descriptor);
         if let Some(rescan) = rescan {
@@ -276,7 +278,7 @@ impl Rpc for RpcImpl {
         if result.is_err() {
             return Err(Error::InvalidDescriptor.into());
         }
-        Ok(())
+        Ok(true)
     }
 
     fn rescan(&self, rescan: u32) -> Result<bool> {
@@ -313,7 +315,14 @@ impl Rpc for RpcImpl {
 
     fn get_block(&self, hash: BlockHash, verbosity: Option<u8>) -> Result<Value> {
         let verbosity = verbosity.unwrap_or(1);
-        if let Ok(Some(block)) = self.node.get_block(hash) {
+
+        let block = if self.chain.get_block_hash(0).unwrap().eq(&hash) {
+            Some(genesis_block(self.network))
+        } else {
+            self.node.get_block(hash).map_err(|_| Error::Chain)?
+        };
+
+        if let Some(block) = block {
             if verbosity == 1 {
                 let tip = self.chain.get_height().map_err(|_| Error::Chain)?;
                 let height = self
@@ -321,20 +330,22 @@ impl Rpc for RpcImpl {
                     .get_block_height(&hash)
                     .map_err(|_| Error::Chain)?
                     .unwrap();
-                let mut last_block_times: Vec<_> = ((height - 11)..height)
-                    .map(|h| {
-                        self.chain
-                            .get_block_header(&self.chain.get_block_hash(h).unwrap())
-                            .unwrap()
-                            .time
-                    })
-                    .collect();
-                last_block_times.sort();
-                let median_time_past = if last_block_times.len() > 5 {
+
+                let median_time_past = if height > 11 {
+                    let mut last_block_times: Vec<_> = ((height - 11)..height)
+                        .map(|h| {
+                            self.chain
+                                .get_block_header(&self.chain.get_block_hash(h).unwrap())
+                                .unwrap()
+                                .time
+                        })
+                        .collect();
+                    last_block_times.sort();
                     last_block_times[5]
                 } else {
-                    0
+                    block.header.time
                 };
+
                 let block = BlockJson {
                     bits: serialize_hex(&block.header.bits),
                     chainwork: block.header.work().to_string(),
@@ -498,6 +509,8 @@ impl RpcImpl {
             _ => 8332,
         }
     }
+
+    #[allow(clippy::too_many_arguments)]
     pub fn create(
         chain: Arc<ChainState<KvChainStore>>,
         wallet: Arc<RwLock<AddressCache<KvDatabase>>>,
@@ -506,6 +519,7 @@ impl RpcImpl {
         kill_signal: Arc<RwLock<bool>>,
         network: Network,
         block_filter_storage: Option<Arc<BlockFilterBackend>>,
+        address: Option<SocketAddr>,
     ) -> jsonrpc_http_server::Server {
         let mut io = jsonrpc_core::IoHandler::new();
         let rpc_impl = RpcImpl {
@@ -517,14 +531,14 @@ impl RpcImpl {
             block_filter_storage,
         };
         io.extend_with(rpc_impl.to_delegate());
-
+        let address = address.unwrap_or_else(|| {
+            format!("127.0.0.1:{}", Self::get_port(net))
+                .parse()
+                .unwrap()
+        });
         ServerBuilder::new(io)
             .threads(1)
-            .start_http(
-                &format!("127.0.0.1:{}", Self::get_port(net))
-                    .parse()
-                    .unwrap(),
-            )
+            .start_http(&address)
             .unwrap()
     }
 }
