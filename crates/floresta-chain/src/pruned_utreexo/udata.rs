@@ -13,6 +13,7 @@ use sha2::Sha512_256;
 
 use crate::prelude::*;
 use crate::pruned_utreexo::consensus::UTREEXO_TAG_V1;
+
 /// Leaf data is the data that is hashed when adding to utreexo state. It contains validation
 /// data and some commitments to make it harder to attack an utreexo-only node.
 #[derive(Debug, PartialEq)]
@@ -35,6 +36,7 @@ pub struct LeafData {
     /// The actual utxo
     pub utxo: TxOut,
 }
+
 impl LeafData {
     pub fn _get_leaf_hashes(&self) -> sha256::Hash {
         let mut ser_utxo = Vec::new();
@@ -52,6 +54,7 @@ impl LeafData {
             .expect("parent_hash: Engines shouldn't be Err")
     }
 }
+
 impl Decodable for LeafData {
     fn consensus_decode<R: Read + ?Sized>(
         reader: &mut R,
@@ -73,23 +76,35 @@ impl Decodable for LeafData {
         })
     }
 }
+
 pub mod proof_util {
     use bitcoin::blockdata::script::Instruction;
+    use bitcoin::hashes::sha256;
     use bitcoin::hashes::Hash;
     use bitcoin::p2p::utreexo::CompactLeafData;
+    use bitcoin::p2p::utreexo::UData;
     use bitcoin::Amount;
+    use bitcoin::OutPoint;
     use bitcoin::PubkeyHash;
     use bitcoin::ScriptBuf;
     use bitcoin::ScriptHash;
+    use bitcoin::Transaction;
     use bitcoin::TxIn;
     use bitcoin::TxOut;
     use bitcoin::WPubkeyHash;
     use bitcoin::WScriptHash;
+    use rustreexo::accumulator::node_hash::NodeHash;
+    use rustreexo::accumulator::proof::Proof;
+
+    use super::LeafData;
+    use crate::prelude::*;
+    use crate::pruned_utreexo::BlockchainInterface;
+
     #[derive(Debug)]
     pub enum Error {
         EmptyStack,
     }
-    use super::LeafData;
+
     pub fn reconstruct_leaf_data(
         leaf: &CompactLeafData,
         input: &TxIn,
@@ -107,6 +122,57 @@ pub mod proof_util {
             },
         })
     }
+
+    #[allow(clippy::type_complexity)]
+    pub fn process_proof<Chain: BlockchainInterface>(
+        udata: &UData,
+        transactions: &[Transaction],
+        chain: &Chain,
+    ) -> Result<(Proof, Vec<sha256::Hash>, HashMap<OutPoint, TxOut>), Chain::Error> {
+        let targets = udata.proof.targets.iter().map(|target| target.0).collect();
+        let hashes = udata
+            .proof
+            .hashes
+            .iter()
+            .map(|hash| NodeHash::Some(*hash.as_byte_array()))
+            .collect();
+        let proof = Proof::new(targets, hashes);
+        let mut hashes = Vec::new();
+        let mut leaves_iter = udata.leaves.iter().cloned();
+        let mut tx_iter = transactions.iter();
+
+        let mut inputs = HashMap::new();
+        tx_iter.next(); // Skip coinbase
+
+        for tx in tx_iter {
+            let txid = tx.txid();
+            for (vout, out) in tx.output.iter().enumerate() {
+                inputs.insert(
+                    OutPoint {
+                        txid,
+                        vout: vout as u32,
+                    },
+                    out.clone(),
+                );
+            }
+
+            for input in tx.input.iter() {
+                if !inputs.contains_key(&input.previous_output) {
+                    if let Some(leaf) = leaves_iter.next() {
+                        let height = leaf.header_code >> 1;
+                        let hash = chain.get_block_hash(height)?;
+                        let leaf =
+                            reconstruct_leaf_data(&leaf, input, hash).expect("Invalid proof");
+                        hashes.push(leaf._get_leaf_hashes());
+                        inputs.insert(leaf.prevout, leaf.utxo);
+                    }
+                }
+            }
+        }
+
+        Ok((proof, hashes, inputs))
+    }
+
     fn reconstruct_script_pubkey(leaf: &CompactLeafData, input: &TxIn) -> Result<ScriptBuf, Error> {
         match &leaf.spk_ty {
             bitcoin::p2p::utreexo::ScriptPubkeyType::Other(spk) => {

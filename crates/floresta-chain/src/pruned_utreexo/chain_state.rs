@@ -7,6 +7,7 @@ use alloc::fmt::format;
 use alloc::string::ToString;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
+use core::cell::UnsafeCell;
 #[cfg(feature = "bitcoinconsensus")]
 use core::ffi::c_uint;
 
@@ -41,6 +42,8 @@ use super::chainstore::KvChainStore;
 use super::consensus::Consensus;
 use super::error::BlockValidationErrors;
 use super::error::BlockchainError;
+use super::partial_chain::PartialChainState;
+use super::partial_chain::PartialChainStateInner;
 use super::BlockchainInterface;
 use super::ChainStore;
 use super::UpdatableChainstate;
@@ -107,6 +110,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             _ => {}
         }
     }
+
     /// Just adds headers to the chainstate, without validating them.
     pub fn push_headers(
         &self,
@@ -1032,6 +1036,32 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
     fn get_root_hashes(&self) -> Vec<NodeHash> {
         let inner = read_lock!(self);
         inner.acc.roots.clone()
+    }
+
+    fn get_partial_chain(
+        &self,
+        initial_height: u32,
+        final_height: u32,
+        acc: Stump,
+    ) -> Result<super::partial_chain::PartialChainState, BlockchainError> {
+        let blocks = (initial_height..=final_height)
+            .map(|height| self.get_block_header_by_height(height))
+            .collect();
+
+        let inner = PartialChainStateInner {
+            error: None,
+            blocks,
+            consensus: Consensus {
+                parameters: self.chain_params(),
+            },
+            current_acc: acc,
+            final_height,
+            assume_valid: false,
+            initial_height,
+            current_height: initial_height,
+        };
+
+        Ok(PartialChainState(UnsafeCell::new(inner)))
     }
 }
 

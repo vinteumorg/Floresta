@@ -20,7 +20,9 @@ use bitcoin::Transaction;
 use bitcoin::TxOut;
 use rustreexo::accumulator::node_hash::NodeHash;
 use rustreexo::accumulator::proof::Proof;
+use rustreexo::accumulator::stump::Stump;
 
+use self::partial_chain::PartialChainState;
 use crate::prelude::*;
 use crate::BestChain;
 use crate::BlockConsumer;
@@ -102,6 +104,23 @@ pub trait UpdatableChainstate {
     fn process_rescan_block(&self, block: &Block) -> Result<(), BlockchainError>;
     /// Returns the root hashes of our utreexo forest
     fn get_root_hashes(&self) -> Vec<NodeHash>;
+    /// Returns a partial chainstate from a range of blocks.
+    ///
+    /// [PartialChainState] is a simplified version of `ChainState` that is used during IBD.
+    /// It doesn't suport reorgs, only hold headers for a subset of blocks and isn't [Sync].
+    /// The idea here is that you take a OS thread or some async task that will drive one
+    /// [PartialChainState] to completion by downloading blocks inside that chainstate's range.
+    /// If all goes right, it'll end without error, and you should mark blocks in this range as
+    /// valid.
+    ///
+    /// Since this chainstate may start from a height with an existing UTXO set, you need to
+    /// provide a [Stump] for that block.
+    fn get_partial_chain(
+        &self,
+        initial_height: u32,
+        final_height: u32,
+        acc: Stump,
+    ) -> Result<PartialChainState, BlockchainError>;
 }
 
 /// [ChainStore] is a trait defining how we interact with our chain database. This definitions

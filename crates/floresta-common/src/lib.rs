@@ -6,11 +6,11 @@ use bitcoin::ScriptBuf;
 use miniscript::Descriptor;
 #[cfg(feature = "descriptors")]
 use miniscript::DescriptorPublicKey;
-use prelude::*;
 use sha2::Digest;
 pub mod constants;
 pub mod spsc;
 
+use prelude::*;
 pub use spsc::Channel;
 
 pub fn get_hash_from_u8(data: &[u8]) -> sha256::Hash {
@@ -74,6 +74,7 @@ pub mod prelude {
 }
 #[cfg(not(feature = "no-std"))]
 pub mod prelude {
+    extern crate alloc;
     extern crate std;
     pub use std::borrow::ToOwned;
     pub use std::boxed::Box;
