@@ -3,8 +3,10 @@
 //! and then merge them together to get the full chain. This allows us to conduct
 //! the sync in parallel.
 
+use bitcoin::BlockHash;
 use floresta_common::prelude::*;
 extern crate alloc;
+
 #[cfg(feature = "bitcoinconsensus")]
 use core::ffi::c_uint;
 
@@ -18,6 +20,7 @@ use super::chainparams::ChainParams;
 use super::consensus::Consensus;
 use super::error::BlockValidationErrors;
 use super::error::BlockchainError;
+use super::BlockchainInterface;
 
 /// A partial chain is a chain that only contains a subset of the blocks in the
 /// full chain. We use multiple partial chains to sync up with the full chain,
@@ -27,31 +30,32 @@ use super::error::BlockchainError;
 pub struct PartialChainState {
     /// The current accumulator state, it starts with a hardcoded value and
     /// gets checked against the result of the previous partial chainstate.
-    current_acc: Stump,
+    pub(crate) current_acc: Stump,
     /// The block headers in this interval, we need this to verify the blocks
     /// and to build the accumulator. We assume this is sorted by height, and
     /// should contains all blocks in this interval.
-    blocks: Vec<BlockHeader>,
+    pub(crate) blocks: Vec<BlockHeader>,
     /// The height this interval starts at. This [initial_height, final_height), so
     /// if we break the interval at height 100, the first interval will be [0, 100)
     /// and the second interval will be [100, 200). And the initial height of the
     /// second interval will be 99.
-    initial_height: u32,
+    pub(crate) initial_height: u32,
     /// The height we are on right now, this is used to keep track of the progress
     /// of the sync.
-    current_height: u32,
+    pub(crate) current_height: u32,
     /// The height we are syncing up to, trying to push more blocks than this will
     /// result in an error.
-    final_height: u32,
+    pub(crate) final_height: u32,
     /// The error that occurred during validation, if any. It is here so we can
     /// pull that afterwords.
-    error: Option<BlockValidationErrors>,
+    pub(crate) error: Option<BlockValidationErrors>,
     /// The consensus parameters, we need this to validate the blocks.
-    consensus: Consensus,
+    pub(crate) consensus: Consensus,
     /// Whether we assume the signatures in this interval as valid, this is used to
     /// speed up syncing, by assuming signatures in old blocks are valid.
-    assume_valid: bool,
+    pub(crate) assume_valid: bool,
 }
+
 impl PartialChainState {
     /// Returns the height we started syncing from
     pub fn initial_height(&self) -> u32 {
@@ -217,6 +221,95 @@ impl PartialChainState {
             ));
         }
         Ok(())
+    }
+}
+
+#[allow(unused)]
+impl BlockchainInterface for PartialChainState {
+    type Error = BlockchainError;
+
+    fn get_height(&self) -> Result<u32, Self::Error> {
+        Ok(self.current_height)
+    }
+
+    fn get_block_hash(&self, height: u32) -> Result<bitcoin::BlockHash, BlockchainError> {
+        let height = height - self.initial_height;
+        self.blocks
+            .get(height as usize)
+            .map(|b| b.block_hash())
+            .ok_or(BlockchainError::BlockNotPresent)
+    }
+
+    fn get_best_block(&self) -> Result<(u32, bitcoin::BlockHash), Self::Error> {
+        Ok((
+            self.current_height,
+            self.get_block_hash(self.current_height)?,
+        ))
+    }
+
+    fn is_coinbase_mature(
+        &self,
+        height: u32,
+        block: bitcoin::BlockHash,
+    ) -> Result<bool, Self::Error> {
+        if height < self.chain_params().coinbase_maturity {
+            return Ok(false);
+        }
+        Ok(false)
+    }
+
+    // partial chain states are only used for IBD, so we don't need to implement these
+
+    fn get_block_header(&self, height: &BlockHash) -> Result<BlockHeader, Self::Error> {
+        unimplemented!("PartialChainState::get_block_header")
+    }
+
+    fn get_block(&self, hash: &bitcoin::BlockHash) -> Result<bitcoin::Block, Self::Error> {
+        unimplemented!("PartialChainState::get_block")
+    }
+
+    fn get_tx(&self, txid: &bitcoin::Txid) -> Result<Option<bitcoin::Transaction>, Self::Error> {
+        unimplemented!("get_tx")
+    }
+
+    fn rescan(&self, start_height: u32) -> Result<(), Self::Error> {
+        unimplemented!("rescan")
+    }
+
+    fn broadcast(&self, tx: &bitcoin::Transaction) -> Result<(), Self::Error> {
+        unimplemented!("broadcast")
+    }
+
+    fn subscribe(&self, tx: sync::Arc<dyn crate::BlockConsumer>) {
+        unimplemented!("subscribe")
+    }
+
+    fn is_in_idb(&self) -> bool {
+        unimplemented!("is_in_idb")
+    }
+
+    fn estimate_fee(&self, target: usize) -> Result<f64, Self::Error> {
+        unimplemented!("estimate_fee")
+    }
+
+    fn get_rescan_index(&self) -> Option<u32> {
+        unimplemented!("get_rescan_index")
+    }
+
+    fn get_block_height(&self, hash: &bitcoin::BlockHash) -> Result<Option<u32>, Self::Error> {
+        unimplemented!("get_block_height")
+    }
+
+    fn get_unbroadcasted(&self) -> Vec<bitcoin::Transaction> {
+        unimplemented!("get_unbroadcasted")
+    }
+
+    fn get_block_locator(&self) -> Result<Vec<bitcoin::BlockHash>, Self::Error> {
+        unimplemented!("get_block_locator")
+    }
+
+    fn get_validation_index(&self) -> Result<u32, Self::Error> {
+        unimplemented!("get_validation_index")
     }
 }
 
