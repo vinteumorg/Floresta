@@ -533,8 +533,10 @@ pub(super) mod peer_utils {
     pub(super) fn make_pong(nonce: u64) -> NetworkMessage {
         NetworkMessage::Pong(nonce)
     }
-    pub(super) fn build_version_message() -> message::NetworkMessage {
+
+    pub(crate) fn build_version_message() -> message::NetworkMessage {
         use bitcoin::p2p::ServiceFlags;
+
         // Building version message, see https://en.bitcoin.it/wiki/Protocol_documentation#version
         let my_address = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 38332);
 

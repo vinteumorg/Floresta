@@ -16,8 +16,8 @@ use floresta::chain::KvChainStore;
 use floresta::chain::Network;
 use floresta::wire::mempool::Mempool;
 use floresta::wire::node::UtreexoNode;
-use floresta::wire::node_context::RunningNode;
 use floresta_wire::node_interface::NodeMethods;
+use floresta_wire::running_node::RunningNode;
 
 const DATA_DIR: &str = "./data";
 

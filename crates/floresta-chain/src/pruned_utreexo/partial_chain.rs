@@ -101,21 +101,6 @@ pub struct PartialChainState(pub(crate) UnsafeCell<PartialChainStateInner>);
 unsafe impl Send for PartialChainState {}
 
 impl PartialChainStateInner {
-    /// Returns the height we started syncing from
-    pub fn initial_height(&self) -> u32 {
-        self.initial_height
-    }
-
-    /// Is this interval valid?
-    pub fn is_valid(&self) -> bool {
-        self.is_sync() && self.error.is_none()
-    }
-
-    /// Returns the validation error, if any
-    pub fn error(&self) -> Option<BlockValidationErrors> {
-        self.error.clone()
-    }
-
     /// Returns the height we have synced up to so far
     pub fn current_height(&self) -> u32 {
         self.current_height
@@ -221,11 +206,6 @@ impl PartialChainStateInner {
         self.update_state(height, acc);
 
         Ok(height)
-    }
-
-    /// Is the current accumulator what we expect?
-    pub fn is_expected(&self, acc: Stump) -> bool {
-        self.current_acc == acc
     }
 
     /// Check whether a block is valid
@@ -356,6 +336,10 @@ impl UpdatableChainstate for PartialChainState {
     fn process_rescan_block(&self, _block: &bitcoin::Block) -> Result<(), BlockchainError> {
         unimplemented!("we don't do rescan")
     }
+
+    fn mark_chain_as_valid(&self) -> Result<bool, BlockchainError> {
+        unimplemented!("no need to mark as valid")
+    }
 }
 
 impl BlockchainInterface for PartialChainState {
@@ -400,6 +384,13 @@ impl BlockchainInterface for PartialChainState {
 
     fn get_block_header(&self, _height: &BlockHash) -> Result<BlockHeader, Self::Error> {
         unimplemented!("PartialChainState::get_block_header")
+    }
+
+    fn get_block_locator_for_tip(
+        &self,
+        _tip: BlockHash,
+    ) -> Result<Vec<BlockHash>, BlockchainError> {
+        unimplemented!("PartialChainState::get_block_locator_for_tip")
     }
 
     fn get_block(&self, _hash: &bitcoin::BlockHash) -> Result<bitcoin::Block, Self::Error> {
@@ -547,7 +538,6 @@ mod tests {
                 .unwrap();
         }
         assert_eq!(chainstate.inner().current_height, 100);
-        assert!(chainstate.inner().is_valid());
     }
 
     #[test]
@@ -647,7 +637,5 @@ mod tests {
 
         assert_eq!(chainstate2.inner().current_height, 150);
         assert_eq!(chainstate2.inner().current_acc, expected_acc);
-
-        assert!(chainstate2.inner().is_valid());
     }
 }

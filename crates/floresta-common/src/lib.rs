@@ -48,6 +48,7 @@ pub mod prelude {
     pub use alloc::borrow::ToOwned;
     pub use alloc::boxed::Box;
     pub use alloc::string::String;
+    pub use alloc::string::ToString;
     pub use alloc::vec;
     pub use alloc::vec::Vec;
     pub use core::cmp;
@@ -76,6 +77,7 @@ pub mod prelude {
 pub mod prelude {
     extern crate alloc;
     extern crate std;
+    pub use alloc::string::ToString;
     pub use std::borrow::ToOwned;
     pub use std::boxed::Box;
     pub use std::collections::hash_map::Entry;
