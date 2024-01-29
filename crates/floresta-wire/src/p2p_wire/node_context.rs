@@ -1,9 +1,5 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
-
-use bitcoin::p2p::utreexo::UtreexoBlock;
-use bitcoin::BlockHash;
 
 use super::node::RescanStatus;
 use super::node_interface::NodeInterface;

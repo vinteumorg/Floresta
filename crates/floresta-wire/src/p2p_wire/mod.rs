@@ -10,4 +10,3 @@ pub mod node_interface;
 pub mod peer;
 pub mod socks;
 pub mod stream_reader;
-pub mod sync_peer;

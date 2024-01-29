@@ -42,7 +42,7 @@
 //! to avoid peers forcing us to download an verify an invalid proof, opening a resource exaustion
 //! DoS oportunity.
 
-use std::collections::HashMap;
+use std::io::Cursor;
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
@@ -50,10 +50,12 @@ use std::time::Instant;
 use async_std::future::timeout;
 use async_std::sync::RwLock;
 use bitcoin::block::Header;
+use bitcoin::hex::FromHex;
 use bitcoin::p2p::ServiceFlags;
 use floresta_chain::pruned_utreexo::BlockchainInterface;
 use floresta_chain::pruned_utreexo::UpdatableChainstate;
 use log::info;
+use rustreexo::accumulator::stump::Stump;
 
 use super::error::WireError;
 use super::peer::PeerMessages;
@@ -178,6 +180,9 @@ where
     pub async fn run(&mut self, stop_signal: &Arc<RwLock<bool>>) -> Result<(), WireError> {
         // Open our first connection to a random peer, we'll use this peer to find a
         // candidate chain.
+        let (height, _) = self.chain.get_best_block()?;
+        let first_run = height == 0;
+
         self.create_connection(false).await;
         info!("Starting ibd, selecting the best chain");
         loop {
@@ -195,20 +200,29 @@ where
             );
 
             if self.1.state == ChainSelectorState::CreatingConnections {
-                // If we have ten peers, try to download headers
+                // If we have enough peers, try to download headers
                 if self.peer_ids.len() >= 2 {
                     try_and_log!(self.request_headers().await);
                     self.1.state = ChainSelectorState::DownloadingHeaders;
                 }
             }
 
+            // We downloaded all headers in the most-pow chain. We're done!
             if self.1.state == ChainSelectorState::Done {
+                // Do a last check with our peers to find potential tips
                 self.check_tips().await?;
-                let best_block = self.chain.get_best_block()?;
-                info!(
-                    "best chain selected at block={} depth={}",
-                    best_block.1, best_block.0
-                );
+
+                if first_run {
+                    let best_block = self.chain.get_best_block()?;
+                    // To speed things up, we assume that a given height is valid and
+                    // start our chain from there.
+                    self.chain.mark_chain_as_valid(best_block.0, best_block.1)?;
+
+                    info!(
+                        "best chain selected at block={} depth={}",
+                        best_block.1, best_block.0
+                    );
+                }
                 break;
             }
 

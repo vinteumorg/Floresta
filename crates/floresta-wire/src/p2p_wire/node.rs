@@ -106,6 +106,7 @@ pub(crate) enum InflightRequests {
     UserRequest(UserRequest),
     Connect(u32),
 }
+
 #[derive(Debug, Clone)]
 pub struct LocalPeerView {
     state: PeerStatus,
@@ -356,7 +357,6 @@ where
             return Ok(());
         };
         peer.banscore += factor;
-
         // This peer is misbehaving too often, ban it
         if peer.banscore >= self.0.max_banscore {
             warn!("banning peer {} for misbehaving", peer_id);
@@ -752,6 +752,7 @@ where
         let best_block = self.chain.get_best_block()?.0;
         let validation_index = self.chain.get_validation_index()?;
 
+        println!("requesting blocks");
         if best_block == validation_index {
             return Ok(());
         }
@@ -921,7 +922,7 @@ where
 
         loop {
             while let Ok(notification) =
-                timeout(Duration::from_millis(1), self.node_rx.recv()).await
+                timeout(Duration::from_millis(100), self.node_rx.recv()).await
             {
                 try_and_log!(self.handle_notification(notification).await);
             }
@@ -930,7 +931,6 @@ where
                 self.shutdown().await;
                 break;
             }
-
             // Jobs that don't need a connected peer
 
             // Save our peers db

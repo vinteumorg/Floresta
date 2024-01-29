@@ -123,6 +123,11 @@ pub trait UpdatableChainstate {
         final_height: u32,
         acc: Stump,
     ) -> Result<PartialChainState, BlockchainError>;
+    /// Marks a chain as fully-valid
+    ///
+    /// This mimics the behavour of checking every block before this block, and continues
+    /// from this point
+    fn mark_chain_as_valid(&self, height: u32, hash: BlockHash) -> Result<bool, BlockchainError>;
 }
 
 /// [ChainStore] is a trait defining how we interact with our chain database. This definitions

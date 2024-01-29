@@ -760,6 +760,11 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             })?;
         Ok(())
     }
+
+    fn get_assumeutreexo_index(&self) -> (BlockHash, u32) {
+        let guard = read_lock!(self);
+        guard.consensus.parameters.assumeutreexo_index
+    }
 }
 
 impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedState> {
@@ -884,6 +889,48 @@ impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedSta
     }
 }
 impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedState> {
+    fn mark_chain_as_valid(&self, _height: u32, hash: BlockHash) -> Result<bool, BlockchainError> {
+        let (assume_utreexo_hash, _) = self.get_assumeutreexo_index();
+
+        let mut assumed_hash = hash;
+
+        // Walks the chain until finding our assumeutxo block.
+        // Since this block was passed in before starting florestad, this value should be
+        // lesser than or equal our current tip. If we don't find that block, it means the
+        // assumeutxo block was reorged out (or never was in the main chain). That's weird, but we
+        // should take precoution against it
+        while let Ok(header) = self.get_block_header(&assumed_hash) {
+            if header.block_hash() == assume_utreexo_hash {
+                break;
+            }
+            // We've reached genesis and didn't our block
+            if self.is_genesis(&header) {
+                break;
+            }
+            assumed_hash = self.get_ancestor(&header)?.block_hash();
+        }
+
+        // The assumeutreexo value passed is **not** in the main chain, start validaton from geneis
+        if assumed_hash != assume_utreexo_hash {
+            warn!("We are in a diffenrent chain than our defualt or provided assumeutreexo value. Restarting from genesis");
+
+            let mut guard = write_lock!(self);
+
+            guard.best_block.validation_index = assumed_hash; // Should be equal to genesis
+            guard.acc = Stump::new();
+
+            return Ok(false);
+        }
+
+        // The assumeutreexo value passed is inside our main chain, start from that point
+        let mut guard = write_lock!(self);
+        let acc = guard.consensus.parameters.network_roots.clone();
+        guard.best_block.validation_index = assumed_hash;
+        guard.acc = acc;
+
+        Ok(true)
+    }
+
     fn invalidate_block(&self, block: BlockHash) -> Result<(), BlockchainError> {
         let height = self.get_disk_block_header(&block)?.height();
         if height.is_none() {
