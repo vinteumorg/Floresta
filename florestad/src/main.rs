@@ -58,7 +58,7 @@ use floresta_watch_only::AddressCacheDatabase;
 use floresta_wire::address_man::LocalAddress;
 use floresta_wire::mempool::Mempool;
 use floresta_wire::node::UtreexoNode;
-use floresta_wire::node_context::RunningNode;
+use floresta_wire::running_node::RunningNode;
 use log::debug;
 use log::error;
 use log::info;

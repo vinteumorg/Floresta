@@ -8,5 +8,6 @@ pub mod node;
 pub mod node_context;
 pub mod node_interface;
 pub mod peer;
+pub mod running_node;
 pub mod socks;
 pub mod stream_reader;
