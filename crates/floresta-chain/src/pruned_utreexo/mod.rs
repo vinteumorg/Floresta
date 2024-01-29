@@ -90,7 +90,9 @@ pub trait UpdatableChainstate {
     /// Accepts a new header to our chain. This method is called before connect_block, and
     /// makes some basic checks on a header and saves it on disk. We only accept a block as
     /// valid after calling connect_block.
-    fn accept_header(&self, header: BlockHeader) -> Result<(), BlockchainError>;
+    ///
+    /// This function returns whether this block is on our best-known chain, or in a fork
+    fn accept_header(&self, header: BlockHeader) -> Result<bool, BlockchainError>;
     /// Not used for now, but in a future blockchain with mempool, we can process transactions
     /// that are not in a block yet.
     fn handle_transaction(&self) -> Result<(), BlockchainError>;

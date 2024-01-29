@@ -7,6 +7,7 @@ use bitcoin::BlockHash;
 
 use super::node::RescanStatus;
 use super::node_interface::NodeInterface;
+use crate::node::NodeState;
 
 pub trait NodeContext {
     const REQUEST_TIMEOUT: u64;
@@ -40,20 +41,16 @@ pub trait NodeContext {
 
 #[derive(Debug, Clone)]
 pub struct RunningNode {
-    pub last_rescan_request: RescanStatus,
-    pub last_feeler: Instant,
-    pub last_address_rearrange: Instant,
-    pub last_block_check: Instant,
-    pub user_requests: Arc<NodeInterface>,
+    pub(crate) last_rescan_request: RescanStatus,
+    pub(crate) last_feeler: Instant,
+    pub(crate) last_address_rearrange: Instant,
+    pub(crate) last_block_check: Instant,
+    pub(crate) user_requests: Arc<NodeInterface>,
+    pub(crate) state: NodeState,
 }
+
 impl NodeContext for RunningNode {
     const REQUEST_TIMEOUT: u64 = 30;
 }
 
-#[derive(Debug, Default, Clone)]
-pub struct IBDNode {
-    pub blocks: HashMap<BlockHash, UtreexoBlock>,
-}
-impl NodeContext for IBDNode {
-    const REQUEST_TIMEOUT: u64 = 30 * 60;
-}
+pub(crate) type PeerId = u32;

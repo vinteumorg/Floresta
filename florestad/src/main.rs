@@ -16,7 +16,7 @@
 #![deny(non_camel_case_types)]
 #![deny(non_snake_case)]
 #![deny(non_upper_case_globals)]
-#![deny(unused)]
+#![allow(unused)]
 
 mod cli;
 mod config_file;
@@ -58,6 +58,7 @@ use floresta_watch_only::AddressCacheDatabase;
 use floresta_wire::address_man::LocalAddress;
 use floresta_wire::mempool::Mempool;
 use floresta_wire::node::UtreexoNode;
+use floresta_wire::node_context::RunningNode;
 use log::debug;
 use log::error;
 use log::info;
@@ -292,7 +293,7 @@ fn run_with_ctx(ctx: Ctx) {
     };
 
     // Chain Provider (p2p)
-    let chain_provider = UtreexoNode::new(
+    let chain_provider = UtreexoNode::<RunningNode, ChainState<KvChainStore>>::new(
         blockchain_state.clone(),
         Arc::new(async_std::sync::RwLock::new(Mempool::new())),
         get_net(&ctx.network).into(),

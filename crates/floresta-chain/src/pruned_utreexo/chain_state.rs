@@ -995,12 +995,12 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
         Ok(())
     }
 
-    fn accept_header(&self, header: BlockHeader) -> Result<(), BlockchainError> {
+    fn accept_header(&self, header: BlockHeader) -> Result<bool, BlockchainError> {
         trace!("Accepting header {header:?}");
         let _header = self.get_disk_block_header(&header.block_hash());
         if _header.is_ok() {
             self.maybe_reindex(&_header?);
-            return Ok(()); // We already have this header
+            return Ok(true); // We already have this header
         }
         // The best block we know of
         let best_block = self.get_best_block()?;
@@ -1025,11 +1025,14 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
             if header.block_hash() == inner.assume_valid.0 {
                 inner.assume_valid.1 = height;
             }
+
+            Ok(true)
         } else {
             trace!("Header not in the best chain");
             self.maybe_reorg(header)?;
+
+            Ok(false)
         }
-        Ok(())
     }
     fn get_root_hashes(&self) -> Vec<NodeHash> {
         let inner = read_lock!(self);
@@ -1043,7 +1046,6 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
         acc: Stump,
     ) -> Result<super::partial_chain::PartialChainState, BlockchainError> {
         let blocks = (initial_height..=final_height)
-            .into_iter()
             .map(|height| self.get_block_header_by_height(height))
             .collect();
 
