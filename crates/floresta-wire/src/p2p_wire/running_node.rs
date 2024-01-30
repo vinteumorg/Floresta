@@ -18,6 +18,8 @@ use floresta_chain::pruned_utreexo::BlockchainInterface;
 use floresta_chain::pruned_utreexo::UpdatableChainstate;
 use floresta_chain::BlockValidationErrors;
 use floresta_chain::BlockchainError;
+use floresta_common::periodic_job;
+use floresta_common::try_and_log;
 use log::debug;
 use log::error;
 use log::trace;
@@ -27,8 +29,6 @@ use super::error::WireError;
 use super::peer::PeerMessages;
 use crate::address_man::AddressState;
 use crate::address_man::LocalAddress;
-use crate::node::periodic_job;
-use crate::node::try_and_log;
 use crate::node::InflightRequests;
 use crate::node::NodeNotification;
 use crate::node::NodeRequest;
@@ -194,6 +194,7 @@ where
             };
 
             // Punnishing this peer for taking too long to respond
+            debug!("peer {} timed request out: {:?}", peer, request);
             self.increase_banscore(peer, 2).await?;
 
             match request {
@@ -207,6 +208,7 @@ where
                     self.inflight
                         .insert(InflightRequests::Blocks(block), (peer, Instant::now()));
                 }
+
                 InflightRequests::RescanBlock(block) => {
                     let peer = self
                         .send_to_random_peer(
@@ -217,6 +219,7 @@ where
                     self.inflight
                         .insert(InflightRequests::RescanBlock(block), (peer, Instant::now()));
                 }
+
                 InflightRequests::Headers => {
                     let peer = self
                         .send_to_random_peer(NodeRequest::GetAddresses, ServiceFlags::NONE)
@@ -225,6 +228,7 @@ where
                     self.inflight
                         .insert(InflightRequests::Headers, (peer, Instant::now()));
                 }
+
                 InflightRequests::UserRequest(req) => match req {
                     UserRequest::Block(block) => {
                         let peer = self
@@ -236,6 +240,7 @@ where
                         self.inflight
                             .insert(InflightRequests::UserRequest(req), (peer, Instant::now()));
                     }
+
                     UserRequest::MempoolTransaction(txid) => {
                         let peer = self
                             .send_to_random_peer(
@@ -246,6 +251,7 @@ where
                         self.inflight
                             .insert(InflightRequests::UserRequest(req), (peer, Instant::now()));
                     }
+
                     UserRequest::UtreexoBlock(block) => {
                         let peer = self
                             .send_to_random_peer(
@@ -258,6 +264,7 @@ where
                     }
                     _ => {}
                 },
+
                 InflightRequests::Connect(peer) => {
                     self.send_to_peer(peer, NodeRequest::Shutdown).await?
                 }
@@ -295,6 +302,7 @@ where
                 self.shutdown().await;
                 break;
             }
+
             // Jobs that don't need a connected peer
 
             // Save our peers db
@@ -333,6 +341,7 @@ where
             if self.peer_ids.is_empty() {
                 continue;
             }
+
             // Check whether we are in a stale tip
             periodic_job!(
                 self.check_for_stale_tip().await,

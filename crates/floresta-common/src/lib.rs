@@ -97,6 +97,7 @@ pub mod prelude {
     pub use std::vec::Vec;
     pub use std::vec::{self};
 }
+
 #[macro_export]
 macro_rules! impl_error_from {
     ($thing:ty, $from_thing:ty, $field:ident) => {
@@ -104,6 +105,34 @@ macro_rules! impl_error_from {
             fn from(e: $from_thing) -> Self {
                 <$thing>::$field(e)
             }
+        }
+    };
+}
+
+/// Run a task and log any errors that might occur.
+#[macro_export]
+macro_rules! try_and_log {
+    ($what:expr) => {
+        let result = $what;
+
+        if let Err(error) = result {
+            log::error!("{}:{} - {:?}", line!(), file!(), error);
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! periodic_job {
+    ($what:expr, $timer:expr, $interval:ident, $context:ty) => {
+        if $timer.elapsed() > Duration::from_secs(<$context>::$interval) {
+            try_and_log!($what);
+            $timer = Instant::now();
+        }
+    };
+    ($what:expr, $timer:expr, $interval:ident, $context:ty, $no_log:literal) => {
+        if $timer.elapsed() > Duration::from_secs(<$context>::$interval) {
+            $what;
+            $timer = Instant::now();
         }
     };
 }

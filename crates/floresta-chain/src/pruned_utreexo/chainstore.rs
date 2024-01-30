@@ -142,7 +142,6 @@ impl ChainStore for KvChainStore {
     fn load_height(&self) -> Result<Option<BestChain>, Self::Error> {
         let bucket = self.0.bucket::<&str, Vec<u8>>(None)?;
         let height = bucket.get(&"height")?;
-
         if let Some(height) = height {
             return Ok(Some(deserialize(&height).unwrap()));
         }
@@ -152,7 +151,9 @@ impl ChainStore for KvChainStore {
     fn save_height(&self, height: &BestChain) -> Result<(), Self::Error> {
         let bucket = self.0.bucket::<&str, Vec<u8>>(None)?;
         let height = serialize(height);
+
         bucket.set(&"height", &height)?;
+
         Ok(())
     }
     fn get_header(&self, block_hash: &BlockHash) -> Result<Option<DiskBlockHeader>, Self::Error> {
@@ -163,6 +164,7 @@ impl ChainStore for KvChainStore {
         if let Some(header) = header {
             return Ok(Some(deserialize(&header).unwrap()));
         }
+
         Ok(None)
     }
     fn flush(&self) -> Result<(), Self::Error> {

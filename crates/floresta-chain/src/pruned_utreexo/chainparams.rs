@@ -68,19 +68,17 @@ impl ChainParams {
 
 fn get_signet_roots() -> Stump {
     let roots: Vec<NodeHash> = [
-        "8e6fcdcf05020fa1f7131a59a7050b33ca74852f5e82a5fbe236402bc4c8a928",
-        "f4c92949c71be7613699977eebf6d3bd5c8fd3e538a01380583e5aba14273425",
-        "d73ceb2748d342b14a269d7c0feb34aca1341a6367cc75cff6db8422eb01916d",
-        "a012e516784ccb7af26d7b356bf645e6a167cce5b48b9368c58c523acd25f6bf",
-        "e6e74ebc1d01ac47541c90afaac208c9b0f16226d2d046742032374e925a79ae",
-        "235b255558e994e6c5b6011469e891436cbf18107a939847e6e5df4cb939a96b",
-        "a9f45482564f0cb103067636c39fe30df1fa04b6b04d438c655530d991432761",
-        "d46716b7ccaf8d9eff11557527056f6100e016126df369eef95b9c9874467d40",
-        "7039b9053ef819d35c079eb4dcdd37029653a325bf416768e7de16bacf2c90af",
-        "f7a626339303030fc1b71d228e74aebdc2126cb7a2c5e01eb036225ea9dd41c2",
-        "b21123705cb4cef5a104705037ccd80ae7281789aa07cd468d5949c7e62df37b",
-        "ca931559f3ad9c91b9510f5dbfa42467e40ad8a0069d8f273de6079e9b115232",
-        "954ca698b58b6e6cdcc89948c841059d892578b7d67a249965fff83de5aaa7e3",
+        "e40250d1e2d3d3abded6e2446d1d1850bd2afc28df7d05a95ab2338f91e0ce0d",
+        "c1643b2a77926d8dd0a1b015c78582639d99a07dbd05be9b922e1ac4e46f2fa4",
+        "13147475bb573e7776d27b3291c02b42da34456780575541c3ec934f5fbcb850",
+        "5d99a864eb42840ad3377c2a988fa67fcc811953a76af38497d5a6c95fc3885e",
+        "4b7002041f561e83a41e6bc1eefca8c5a696430d1fdc9f3bc8f1bf0cd3867dd8",
+        "1e431cb227c1aaff04031f7699e4cb3f910bf1f50622b8e66f9d7a8a228c4cf9",
+        "1886863097b35c47912104770d07778e7f55d1f6561dd0250bbea63664c55215",
+        "99acbac755e23fad975beb23c032e2e3d602cabf579f3d9774e2b5489d928f56",
+        "0e5ebc2344bc8870065ea94c95ae779722ccfff8b7e3b178b1d70b69443a9ae8",
+        "c25021470a43774944c824c574d9e9d54c670782cc1df9276ac64f4608d4f959",
+        "667c2196ae872696f13be73410cd8b03b009290c3edd8bd310acb42782bddd44",
     ]
     .iter()
     .map(|hash| NodeHash::from_str(hash).unwrap())
@@ -88,7 +86,7 @@ fn get_signet_roots() -> Stump {
 
     Stump {
         roots,
-        leaves: 1477499,
+        leaves: 3852458,
     }
 }
 
@@ -180,10 +178,10 @@ impl From<Network> for ChainParams {
                 network_roots: get_signet_roots(),
                 assumeutreexo_index: (
                     BlockHash::from_str(
-                        "0000001321625245a27e0be82a640106d019e35e48a024a17df1ceeb9b1f2131",
+                        "000000976b44aa6a0998b2577babfeb74ab85596accd7a5bf5aac74ee8b25081",
                     )
                     .unwrap(),
-                    74551,
+                    180473,
                 ),
             },
             Network::Regtest => ChainParams {

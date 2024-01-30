@@ -599,7 +599,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             assume_valid: (Self::get_assume_valid_value(network, assume_valid_hash), 0),
         };
         info!(
-            "Chainstate loaded at height: {}, checking if we have all blocks",
+            "Chainstate loaded at block={}, checking if we have all blocks",
             inner.best_block.best_block
         );
         let chainstate = ChainState {
@@ -1037,8 +1037,9 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
     fn flush(&self) -> Result<(), BlockchainError> {
         self.save_acc()?;
         let inner = read_lock!(self);
-        inner.chainstore.flush()?;
+
         inner.chainstore.save_height(&inner.best_block)?;
+        inner.chainstore.flush()?;
         Ok(())
     }
 

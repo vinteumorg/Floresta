@@ -31,6 +31,7 @@ use floresta_chain::pruned_utreexo::chainparams::get_chain_dns_seeds;
 use floresta_chain::pruned_utreexo::BlockchainInterface;
 use floresta_chain::pruned_utreexo::UpdatableChainstate;
 use floresta_chain::Network;
+use floresta_common::try_and_log;
 use futures::Future;
 use log::info;
 use log::warn;
@@ -227,6 +228,7 @@ where
             initial_height: peer.height,
         })
     }
+
     pub(crate) fn handle_disconnection(&mut self, peer: u32, idx: usize) -> Result<(), WireError> {
         if let Some(p) = self.peers.remove(&peer) {
             p.channel.close();
@@ -248,6 +250,7 @@ where
         );
         Ok(())
     }
+
     pub(crate) async fn handle_peer_ready(
         &mut self,
         peer: u32,
@@ -347,6 +350,8 @@ where
                 peer.address_id as usize,
                 AddressState::Banned(RunningNode::BAN_TIME),
             );
+
+            self.inflight.retain(|_, (peer, _)| *peer != peer_id);
         }
 
         Ok(())
@@ -421,10 +426,12 @@ where
         try_and_log!(self.save_peers());
         try_and_log!(self.chain.flush());
     }
+
     pub(crate) async fn ask_block(&mut self) -> Result<(), WireError> {
         let blocks = self.get_blocks_to_download()?;
         self.request_blocks(blocks).await
     }
+
     pub(crate) async fn handle_broadcast(&self) -> Result<(), WireError> {
         for (_, peer) in self.peers.iter() {
             if peer.services.has(ServiceFlags::from(1 << 24)) {
@@ -451,17 +458,20 @@ where
         }
         Ok(())
     }
+
     pub(crate) async fn ask_for_addresses(&mut self) -> Result<(), WireError> {
         let _ = self
             .send_to_random_peer(NodeRequest::GetAddresses, ServiceFlags::NONE)
             .await?;
         Ok(())
     }
+
     pub(crate) fn save_peers(&self) -> Result<(), WireError> {
         self.address_man
             .dump_peers(&self.datadir)
             .map_err(WireError::Io)
     }
+
     pub(crate) fn get_blocks_to_download(&mut self) -> Result<Vec<BlockHash>, WireError> {
         let mut blocks = Vec::new();
         let tip = self.chain.get_height()?;
@@ -489,6 +499,7 @@ where
         }
         Ok(())
     }
+
     pub(crate) async fn open_feeler_connection(&mut self) -> Result<(), WireError> {
         // No feeler if `-connect` is set
         if self.fixed_peer.is_some() {
@@ -552,6 +563,7 @@ where
         self.open_connection(feeler, peer_id, address).await;
         Some(())
     }
+
     /// Opens a new connection that doesn't require a proxy.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn open_non_proxy_connection(
@@ -575,6 +587,7 @@ where
             feeler,
         )
     }
+
     /// Opens a connection through a socks5 interface
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn open_proxy_connection(
@@ -680,30 +693,3 @@ where
         self.peer_id_count += 1;
     }
 }
-
-/// Run a task and log any errors that might occur.
-macro_rules! try_and_log {
-    ($what:expr) => {
-        let result = $what;
-
-        if let Err(error) = result {
-            log::error!("{}:{} - {:?}", line!(), file!(), error);
-        }
-    };
-}
-macro_rules! periodic_job {
-    ($what:expr, $timer:expr, $interval:ident, $context:ty) => {
-        if $timer.elapsed() > Duration::from_secs(<$context>::$interval) {
-            try_and_log!($what);
-            $timer = Instant::now();
-        }
-    };
-    ($what:expr, $timer:expr, $interval:ident, $context:ty, $no_log:literal) => {
-        if $timer.elapsed() > Duration::from_secs(<$context>::$interval) {
-            $what;
-            $timer = Instant::now();
-        }
-    };
-}
-pub(crate) use periodic_job;
-pub(crate) use try_and_log;
