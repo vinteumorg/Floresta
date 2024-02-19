@@ -1018,6 +1018,7 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
 
         let mut guard = write_lock!(self);
         guard.best_block.validation_index = assumed_hash;
+        guard.best_block.rescan_index = None;
         info!("assuming chain with hash={assumed_hash}");
         guard.acc = acc;
 

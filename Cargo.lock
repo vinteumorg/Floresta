@@ -893,6 +893,7 @@ dependencies = [
  "floresta-electrum",
  "floresta-watch-only",
  "floresta-wire",
+ "futures 0.3.30",
  "miniscript 10.0.0",
  "rustreexo",
 ]
