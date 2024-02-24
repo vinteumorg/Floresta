@@ -385,11 +385,12 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         // If the new branch has less work, we just store it as an alternative branch
         // that might become the best chain in the future.
         self.push_alt_tip(&branch_tip)?;
-        let ancestor = self.get_ancestor(&branch_tip)?.height().unwrap();
+        let parent_height = self.get_ancestor(&branch_tip)?.height().unwrap();
         read_lock!(self)
             .chainstore
             .save_header(&super::chainstore::DiskBlockHeader::InFork(
-                branch_tip, ancestor,
+                branch_tip,
+                parent_height + 1,
             ))?;
         Ok(())
     }
@@ -534,39 +535,37 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
     /// pointing to an invalid block, we'll find out what blocks do we have, and start from this
     /// point.
     fn reindex_chain(&self) -> BestChain {
-        let inner = read_lock!(self);
-        warn!("reindexing our chain");
-        let mut headers = 0;
-        let mut fully_valid = inner
-            .chainstore
-            .get_block_hash(0)
-            .expect("No genesis block")
-            .unwrap();
+        let get_disk_block_hash =
+            |height: u32| -> Result<Option<BlockHash>, PersistedState::Error> {
+                read_lock!(self).chainstore.get_block_hash(height)
+            };
 
-        let mut hash = inner
-            .chainstore
-            .get_block_hash(0)
-            .expect("No genesis block")
-            .unwrap();
-        while let Ok(Some(_hash)) = inner.chainstore.get_block_hash(headers) {
-            let header = self.get_disk_block_header(&_hash);
-            match &header {
-                Ok(DiskBlockHeader::FullyValid(header, heigth)) => {
-                    assert_eq!(*heigth, headers);
-                    headers += 1;
-                    fully_valid = header.block_hash();
+        warn!("reindexing our chain");
+        let mut best_block = get_disk_block_hash(0).expect("No genesis block").unwrap();
+        let mut depth = 0;
+        let mut validation_index = best_block;
+        let mut next_height = depth + 1;
+
+        // Iteratively fetch the disk header given the next height
+        while let Ok(Some(block_hash)) = get_disk_block_hash(next_height) {
+            match self.get_disk_block_header(&block_hash) {
+                Ok(DiskBlockHeader::FullyValid(_, height)) => {
+                    assert_eq!(height, next_height);
+                    validation_index = block_hash;
                 }
-                Ok(DiskBlockHeader::HeadersOnly(_, _)) => {
-                    headers += 1;
+                Ok(DiskBlockHeader::HeadersOnly(_, height)) => {
+                    assert_eq!(height, next_height);
                 }
                 _ => break,
             }
-            hash = _hash;
+            best_block = block_hash;
+            depth = next_height;
+            next_height += 1;
         }
         BestChain {
-            best_block: hash,
-            depth: headers - 1,
-            validation_index: fully_valid,
+            best_block,
+            depth,
+            validation_index,
             rescan_index: None,
             alternative_tips: Vec::new(),
             assume_valid_index: 0,
@@ -719,12 +718,6 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         height: u32,
         inputs: HashMap<OutPoint, TxOut>,
     ) -> Result<(), BlockchainError> {
-        let prev_block = self.get_ancestor(&block.header)?;
-        if block.header.prev_blockhash != prev_block.block_hash() {
-            return Err(BlockchainError::BlockValidation(
-                BlockValidationErrors::BlockExtendsAnOrphanChain,
-            ));
-        }
         if !block.check_merkle_root() {
             return Err(BlockchainError::BlockValidation(
                 BlockValidationErrors::BadMerkleRoot,
@@ -861,12 +854,11 @@ impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedSta
         let inner = self.inner.read();
         let validation = inner.best_block.validation_index;
         let header = self.get_disk_block_header(&validation)?;
-        match header {
-            DiskBlockHeader::HeadersOnly(_, height) => Ok(height),
-            DiskBlockHeader::FullyValid(_, height) => Ok(height),
-            _ => unreachable!(
-                "Validation index is in an invalid state, you should re-index your node"
-            ),
+        // The last validated disk header can only be FullyValid
+        if let DiskBlockHeader::FullyValid(_, height) = header {
+            Ok(height)
+        } else {
+            unreachable!("Validation index is in an invalid state, you should re-index your node")
         }
     }
 
@@ -995,10 +987,21 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
 
     fn accept_header(&self, header: BlockHeader) -> Result<(), BlockchainError> {
         trace!("Accepting header {header:?}");
-        let _header = self.get_disk_block_header(&header.block_hash());
-        if _header.is_ok() {
-            self.maybe_reindex(&_header?);
-            return Ok(()); // We already have this header
+        let disk_header = self.get_disk_block_header(&header.block_hash());
+
+        match disk_header {
+            Err(BlockchainError::Database(_)) => {
+                // If there's a database error we don't know if we already
+                // have the header or not
+                return Err(disk_header.unwrap_err());
+            }
+            Ok(found) => {
+                // Possibly reindex to recompute the best_block field
+                self.maybe_reindex(&found);
+                // We already have this header
+                return Ok(());
+            }
+            _ => (),
         }
         // The best block we know of
         let best_block = self.get_best_block()?;
