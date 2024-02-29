@@ -38,7 +38,9 @@ pub enum BlockValidationErrors {
     BlockExtendsAnOrphanChain,
     BadBip34,
     InvalidProof,
+    CoinbaseNotMatured,
 }
+
 impl Display for BlockValidationErrors {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
@@ -67,6 +69,9 @@ impl Display for BlockValidationErrors {
             }
             BlockValidationErrors::BadBip34 => write!(f, "BIP34 commitment mismatch"),
             BlockValidationErrors::InvalidProof => write!(f, "Invalid proof"),
+            BlockValidationErrors::CoinbaseNotMatured => {
+                write!(f, "Coinbase not matured yet")
+            }
         }
     }
 }
