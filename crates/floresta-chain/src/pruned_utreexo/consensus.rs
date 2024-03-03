@@ -113,7 +113,7 @@ impl Consensus {
         subsidy: u64,
         verify_script: bool,
         flags: c_uint,
-    ) -> Result<bool, BlockchainError> {
+    ) -> Result<(), BlockchainError> {
         // Blocks must contain at least one transaction
         if transactions.is_empty() {
             return Err(BlockValidationErrors::EmptyBlock.into());
@@ -167,7 +167,7 @@ impl Consensus {
         {
             return Err(BlockValidationErrors::BadCoinbaseOutValue.into());
         }
-        Ok(true)
+        Ok(())
     }
     /// Calculates the next target for the proof of work algorithm, given the
     /// current target and the time it took to mine the last 2016 blocks.

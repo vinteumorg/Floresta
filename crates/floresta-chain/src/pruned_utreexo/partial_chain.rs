@@ -265,18 +265,7 @@ impl PartialChainStateInner {
         let flags = self.get_validation_flags(height);
         #[cfg(not(feature = "bitcoinconsensus"))]
         let flags = 0;
-        let valid = Consensus::verify_block_transactions(
-            inputs,
-            &block.txdata,
-            subsidy,
-            verify_script,
-            flags,
-        )?;
-        if !valid {
-            return Err(BlockchainError::BlockValidation(
-                BlockValidationErrors::InvalidTx(String::from("invalid block transactions")),
-            ));
-        }
+        Consensus::verify_block_transactions(inputs, &block.txdata, subsidy, verify_script, flags)?;
         Ok(())
     }
 }
