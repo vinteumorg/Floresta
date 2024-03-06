@@ -19,12 +19,9 @@ use std::fmt::Debug;
 use std::str::FromStr;
 
 use bitcoin::base58;
-use bitcoin::bip32::ChildNumber;
-use bitcoin::bip32::DerivationPath;
+use bitcoin::bip32;
 use bitcoin::bip32::Xpriv;
 use bitcoin::bip32::Xpub;
-use bitcoin::bip32::{self};
-use bitcoin::Network;
 
 /// Magical version bytes for xpub: bitcoin mainnet public key for P2PKH or P2SH
 pub const VERSION_MAGIC_XPUB: [u8; 4] = [0x04, 0x88, 0xB2, 0x1E];
@@ -182,72 +179,6 @@ impl strict_encoding::StrictDecode for KeyVersion {
     }
 }
 
-/// Trait which must be implemented by helpers which do construction,
-/// interpretation, verification and cross-conversion of extended public and
-/// private key version magic bytes from [`KeyVersion`]
-pub trait VersionResolver:
-    Copy + Clone + PartialEq + Eq + PartialOrd + Ord + std::hash::Hash + Debug
-{
-    /// Type that defines recognized network options
-    type Network;
-
-    /// Type that defines possible applications fro public and private keys
-    /// (types of scriptPubkey descriptors in which they can be used)
-    type Application;
-
-    /// Constructor for [`KeyVersion`] with given network, application scope and
-    /// key type (public or private)
-    fn resolve(
-        network: Self::Network,
-        applicable_for: Self::Application,
-        is_priv: bool,
-    ) -> KeyVersion;
-
-    /// Detects whether provided version corresponds to an extended public key.
-    /// Returns `None` if the version is not recognized/unknown to the resolver.
-    fn is_pub(_: &KeyVersion) -> Option<bool> {
-        None
-    }
-
-    /// Detects whether provided version corresponds to an extended private key.
-    /// Returns `None` if the version is not recognized/unknown to the resolver.
-    fn is_prv(_: &KeyVersion) -> Option<bool> {
-        None
-    }
-
-    /// Detects network used by the provided key version bytes.
-    /// Returns `None` if the version is not recognized/unknown to the resolver.
-    fn network(_: &KeyVersion) -> Option<Self::Network> {
-        None
-    }
-
-    /// Detects application scope defined by the provided key version bytes.
-    /// Application scope is a types of scriptPubkey descriptors in which given
-    /// extended public/private keys can be used.
-    /// Returns `None` if the version is not recognized/unknown to the resolver.
-    fn application(_: &KeyVersion) -> Option<Self::Application> {
-        None
-    }
-
-    /// Returns BIP 32 derivation path for the provided key version.
-    /// Returns `None` if the version is not recognized/unknown to the resolver.
-    fn derivation_path(_: &KeyVersion, _: Option<ChildNumber>) -> Option<DerivationPath> {
-        None
-    }
-
-    /// Converts version into version corresponding to an extended public key.
-    /// Returns `None` if the resolver does not know how to perform conversion.
-    fn make_pub(_: &KeyVersion) -> Option<KeyVersion> {
-        None
-    }
-
-    /// Converts version into version corresponding to an extended private key.
-    /// Returns `None` if the resolver does not know how to perform conversion.
-    fn make_prv(_: &KeyVersion) -> Option<KeyVersion> {
-        None
-    }
-}
-
 /// Default resolver knowing native [`bitcoin::network::constants::Network`]
 /// and BIP 32 and SLIP 132-defined key applications with [`KeyApplication`]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
@@ -305,52 +236,6 @@ impl FromStr for KeyApplication {
             "bip48-nested" => KeyApplication::NestedMultisig,
             _ => return Err(UnknownKeyApplicationError),
         })
-    }
-}
-
-impl VersionResolver for DefaultResolver {
-    type Network = Network;
-    type Application = KeyApplication;
-
-    fn resolve(
-        network: Self::Network,
-        applicable_for: Self::Application,
-        is_priv: bool,
-    ) -> KeyVersion {
-        match (network, applicable_for, is_priv) {
-            (Network::Bitcoin, KeyApplication::Hashed, false) => KeyVersion(VERSION_MAGIC_XPUB),
-            (Network::Bitcoin, KeyApplication::Hashed, true) => KeyVersion(VERSION_MAGIC_XPRV),
-            (Network::Bitcoin, KeyApplication::Nested, false) => KeyVersion(VERSION_MAGIC_YPUB),
-            (Network::Bitcoin, KeyApplication::Nested, true) => KeyVersion(VERSION_MAGIC_YPRV),
-            (Network::Bitcoin, KeyApplication::SegWit, false) => KeyVersion(VERSION_MAGIC_ZPUB),
-            (Network::Bitcoin, KeyApplication::SegWit, true) => KeyVersion(VERSION_MAGIC_ZPRV),
-            (Network::Bitcoin, KeyApplication::NestedMultisig, false) => {
-                KeyVersion(VERSION_MAGIC_YPUB_MULTISIG)
-            }
-            (Network::Bitcoin, KeyApplication::NestedMultisig, true) => {
-                KeyVersion(VERSION_MAGIC_YPRV_MULTISIG)
-            }
-            (Network::Bitcoin, KeyApplication::SegWitMultisig, false) => {
-                KeyVersion(VERSION_MAGIC_ZPUB_MULTISIG)
-            }
-            (Network::Bitcoin, KeyApplication::SegWitMultisig, true) => {
-                KeyVersion(VERSION_MAGIC_ZPRV_MULTISIG)
-            }
-            (_, KeyApplication::Hashed, false) => KeyVersion(VERSION_MAGIC_TPUB),
-            (_, KeyApplication::Hashed, true) => KeyVersion(VERSION_MAGIC_TPRV),
-            (_, KeyApplication::Nested, false) => KeyVersion(VERSION_MAGIC_UPUB),
-            (_, KeyApplication::Nested, true) => KeyVersion(VERSION_MAGIC_UPRV),
-            (_, KeyApplication::SegWit, false) => KeyVersion(VERSION_MAGIC_VPUB),
-            (_, KeyApplication::SegWit, true) => KeyVersion(VERSION_MAGIC_VPRV),
-            (_, KeyApplication::NestedMultisig, false) => KeyVersion(VERSION_MAGIC_UPUB_MULTISIG),
-            (_, KeyApplication::NestedMultisig, true) => KeyVersion(VERSION_MAGIC_UPRV_MULTISIG),
-            (_, KeyApplication::SegWitMultisig, false) => KeyVersion(VERSION_MAGIC_VPUB_MULTISIG),
-            (_, KeyApplication::SegWitMultisig, true) => KeyVersion(VERSION_MAGIC_VPRV_MULTISIG),
-        }
-    }
-
-    fn is_prv(kv: &KeyVersion) -> Option<bool> {
-        DefaultResolver::is_pub(kv).map(|v| !v)
     }
 }
 
@@ -418,11 +303,4 @@ impl FromSlip132 for Xpriv {
 
         Ok(xprv)
     }
-}
-
-/// Trait converting standard BIP32 extended keys into SLIP132 representation.
-pub trait ToSlip132 {
-    /// Creates SLIP132 key representation matching the provided application
-    /// and bitcoin network.
-    fn to_slip132_string(&self, key_application: KeyApplication, network: Network) -> String;
 }
