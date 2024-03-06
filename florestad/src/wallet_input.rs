@@ -102,7 +102,6 @@ pub fn parse_descriptors(
 pub mod test {
     use bitcoin::bip32::ChildNumber;
     use bitcoin::secp256k1::Secp256k1;
-    use bitcoin::Address;
     use bitcoin::Network;
 
     use super::*;
