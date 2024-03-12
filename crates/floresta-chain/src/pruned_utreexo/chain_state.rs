@@ -755,10 +755,52 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             })?;
         Ok(())
     }
+
+    fn get_assumeutreexo_index(&self) -> (BlockHash, u32) {
+        let guard = read_lock!(self);
+        guard.consensus.parameters.assumeutreexo_index
+    }
 }
 
 impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedState> {
     type Error = BlockchainError;
+
+    fn get_block_locator_for_tip(&self, tip: BlockHash) -> Result<Vec<BlockHash>, BlockchainError> {
+        let mut hashes = Vec::new();
+        let height = self
+            .get_disk_block_header(&tip)?
+            .height()
+            .ok_or(BlockchainError::BlockNotPresent)?;
+
+        let mut index = height;
+        let mut current_height = height;
+        let mut current_header = self.get_disk_block_header(&tip)?;
+        let mut step = 1;
+
+        while index > 0 {
+            while current_height > index {
+                current_header = self.get_ancestor(&current_header)?;
+                current_height -= 1;
+            }
+
+            if hashes.len() >= 10 {
+                step *= 2;
+            }
+
+            hashes.push(current_header.block_hash());
+
+            if index > step {
+                index -= step;
+            } else {
+                break;
+            }
+        }
+
+        // genesis
+        hashes.push(self.get_block_hash(0).unwrap());
+        Ok(hashes)
+    }
+
     fn is_in_idb(&self) -> bool {
         self.inner.read().ibd
     }
@@ -878,6 +920,68 @@ impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedSta
     }
 }
 impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedState> {
+    fn mark_chain_as_valid(&self) -> Result<bool, BlockchainError> {
+        let (assume_utreexo_hash, assume_utreexo_height) = self.get_assumeutreexo_index();
+        let curr_validation_index = self.get_validation_index()?;
+
+        // We already ran once
+        if curr_validation_index >= assume_utreexo_height {
+            return Ok(true);
+        }
+
+        let mut assumed_hash = self.get_best_block()?.1;
+        // Walks the chain until finding our assumeutxo block.
+        // Since this block was passed in before starting florestad, this value should be
+        // lesser than or equal our current tip. If we don't find that block, it means the
+        // assumeutxo block was reorged out (or never was in the main chain). That's weird, but we
+        // should take precoution against it
+        while let Ok(header) = self.get_block_header(&assumed_hash) {
+            if header.block_hash() == assume_utreexo_hash {
+                break;
+            }
+            // We've reached genesis and didn't our block
+            if self.is_genesis(&header) {
+                break;
+            }
+            assumed_hash = self.get_ancestor(&header)?.block_hash();
+        }
+
+        // The assumeutreexo value passed is **not** in the main chain, start validaton from geneis
+        if assumed_hash != assume_utreexo_hash {
+            warn!("We are in a diffenrent chain than our default or provided assumeutreexo value. Restarting from genesis");
+
+            let mut guard = write_lock!(self);
+
+            guard.best_block.validation_index = assumed_hash; // Should be equal to genesis
+            guard.acc = Stump::new();
+
+            return Ok(false);
+        }
+
+        let mut curr_header = self.get_block_header(&assumed_hash)?;
+
+        // The assumeutreexo value passed is inside our main chain, start from that point
+        while let Ok(header) = self.get_disk_block_header(&curr_header.block_hash()) {
+            // We've reached genesis and didn't our block
+            if self.is_genesis(&header) {
+                break;
+            }
+            self.update_header(&DiskBlockHeader::FullyValid(
+                *header,
+                header.height().unwrap(),
+            ))?;
+            curr_header = *self.get_ancestor(&header)?;
+        }
+
+        let mut guard = write_lock!(self);
+        let acc = guard.consensus.parameters.network_roots.clone();
+        guard.best_block.validation_index = assumed_hash;
+        info!("assuming chain with hash={assumed_hash}");
+        guard.acc = acc;
+
+        Ok(true)
+    }
+
     fn invalidate_block(&self, block: BlockHash) -> Result<(), BlockchainError> {
         let height = self.get_disk_block_header(&block)?.height();
         if height.is_none() {
@@ -961,13 +1065,22 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
             );
             self.flush()?;
         }
-        if !ibd {
-            info!(
-                "New tip! hash={} height={height} tx_count={}",
-                block.block_hash(),
-                block.txdata.len()
-            );
-            self.flush()?;
+
+        match ibd {
+            false => {
+                info!(
+                    "New tip! hash={} height={height} tx_count={}",
+                    block.block_hash(),
+                    block.txdata.len()
+                );
+                self.flush()?;
+            }
+            true => {
+                if block.block_hash() == self.get_best_block()?.1 {
+                    info!("Tip reached, toggle IBD off");
+                    self.toggle_ibd(false);
+                }
+            }
         }
 
         self.update_view(height, &block.header, acc)?;
@@ -984,8 +1097,8 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
     fn flush(&self) -> Result<(), BlockchainError> {
         self.save_acc()?;
         let inner = read_lock!(self);
-        inner.chainstore.flush()?;
         inner.chainstore.save_height(&inner.best_block)?;
+        inner.chainstore.flush()?;
         Ok(())
     }
 
@@ -1034,6 +1147,7 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
             trace!("Header not in the best chain");
             self.maybe_reorg(header)?;
         }
+
         Ok(())
     }
     fn get_root_hashes(&self) -> Vec<NodeHash> {

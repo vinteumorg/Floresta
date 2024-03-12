@@ -1,13 +1,26 @@
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::time::Instant;
+//! During the lifetime of a Bitcoin client, we have a couple of phases that are slightly different
+//! from each other, having to implement their own state-machines and logic for handing requests.
+//! While we could simply put everything in one struct and have a single `impl` block, that would
+//! create a massive amount of if's in the code, taking different paths depending on which state
+//! are we in. For that reason, we define the basics of a node, like code shared by all the
+//! states into one base struct called `UtreexoNode`, we then further refine this struct using
+//! fine-tunned `Contexts`, that should implement [NodeContext] and are passed-in as a generic
+//! parameter by the caller.
+//!
+//! The three flavors of node are:
+//!  - ChainSelector: This finds the best PoW chain, by downloding multiple candidates and taking
+//!                   the one with more PoW. It should do it's job quickly, as it blocks our main
+//!                   client and can't proceed without this information.
+//!  - SyncNode: Used to download and verify all blocks in a chain. This is computationally
+//!              expensive and may take a while to run. After this ends it's job, it gives us 100%
+//!              centanty that this chain is valid.
+//!  - Running Node: This is the one that users interacts with, and should be the one running most
+//!                  of the time. This node is started right after `ChainSelector` returns, and
+//!                  will handle new blocks (even if `SyncNode` haven't returned) and handle
+//!                  requests by users.
 
-use bitcoin::p2p::utreexo::UtreexoBlock;
-use bitcoin::BlockHash;
-
-use super::node::RescanStatus;
-use super::node_interface::NodeInterface;
-
+/// This trait mainly defines a bunch of constants that we need for the node, but we may tweak
+/// those values for each one. It's also an organized way of defining those constants anyway.
 pub trait NodeContext {
     const REQUEST_TIMEOUT: u64;
     /// Max number of simultaneous connections we initiates we are willing to hold
@@ -38,22 +51,4 @@ pub trait NodeContext {
     const SEND_ADDRESSES_INTERVAL: u64 = 60 * 60; // 1 hour
 }
 
-#[derive(Debug, Clone)]
-pub struct RunningNode {
-    pub last_rescan_request: RescanStatus,
-    pub last_feeler: Instant,
-    pub last_address_rearrange: Instant,
-    pub last_block_check: Instant,
-    pub user_requests: Arc<NodeInterface>,
-}
-impl NodeContext for RunningNode {
-    const REQUEST_TIMEOUT: u64 = 30;
-}
-
-#[derive(Debug, Default, Clone)]
-pub struct IBDNode {
-    pub blocks: HashMap<BlockHash, UtreexoBlock>,
-}
-impl NodeContext for IBDNode {
-    const REQUEST_TIMEOUT: u64 = 30 * 60;
-}
+pub(crate) type PeerId = u32;

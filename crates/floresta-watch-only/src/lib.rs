@@ -6,6 +6,7 @@ use bitcoin::hashes::sha256;
 use bitcoin::ScriptBuf;
 use floresta_common::get_spk_hash;
 use floresta_common::parse_descriptors;
+use floresta_common::prelude::ToString;
 
 pub mod kv_database;
 #[cfg(any(test, feature = "memory-database"))]

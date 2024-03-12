@@ -64,6 +64,10 @@ pub trait BlockchainInterface {
     fn is_coinbase_mature(&self, height: u32, block: BlockHash) -> Result<bool, Self::Error>;
     /// Returns a block locator
     fn get_block_locator(&self) -> Result<Vec<BlockHash>, Self::Error>;
+    /// Returns a block locator from a given tip
+    ///
+    /// This method may be used to get the locator from a tip that's not the best one
+    fn get_block_locator_for_tip(&self, tip: BlockHash) -> Result<Vec<BlockHash>, BlockchainError>;
     /// Returns the last block we validated
     fn get_validation_index(&self) -> Result<u32, Self::Error>;
     /// Triggers a rescan, downloading (but not validating) all blocks in [start_height:tip]
@@ -90,6 +94,8 @@ pub trait UpdatableChainstate {
     /// Accepts a new header to our chain. This method is called before connect_block, and
     /// makes some basic checks on a header and saves it on disk. We only accept a block as
     /// valid after calling connect_block.
+    ///
+    /// This function returns whether this block is on our best-known chain, or in a fork
     fn accept_header(&self, header: BlockHeader) -> Result<(), BlockchainError>;
     /// Not used for now, but in a future blockchain with mempool, we can process transactions
     /// that are not in a block yet.
@@ -121,6 +127,12 @@ pub trait UpdatableChainstate {
         final_height: u32,
         acc: Stump,
     ) -> Result<PartialChainState, BlockchainError>;
+
+    /// Marks a chain as fully-valid
+    ///
+    /// This mimics the behavour of checking every block before this block, and continues
+    /// from this point
+    fn mark_chain_as_valid(&self) -> Result<bool, BlockchainError>;
 }
 
 /// [ChainStore] is a trait defining how we interact with our chain database. This definitions
