@@ -3,6 +3,8 @@
 //! assume anything about the chainstate, so it can be used in any context.
 //! We use this to avoid code reuse among the different implementations of the chainstate.
 
+extern crate alloc;
+
 use core::ffi::c_uint;
 use core::ops::Mul;
 
@@ -151,7 +153,9 @@ impl Consensus {
             // Verify the tx script
             #[cfg(feature = "bitcoinconsensus")]
             if verify_script {
-                transaction.verify_with_flags(|outpoint| utxos.remove(outpoint), flags);
+                transaction
+                    .verify_with_flags(|outpoint| utxos.remove(outpoint), flags)
+                    .map_err(|err| BlockValidationErrors::InvalidTx(alloc::format!("{:?}", err)))?;
             }
         }
         // In each block, the first transaction, and only the first, should be coinbase
