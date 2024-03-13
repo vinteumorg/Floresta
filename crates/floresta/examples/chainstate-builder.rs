@@ -43,7 +43,7 @@ async fn main() {
     // to validate the blockchain. If you set the chain height, you should update
     // the accumulator to the state of the blockchain at that height too.
     let _chain: ChainState<KvChainStore> = ChainStateBuilder::new()
-        .with_assume_valid((BlockHash::all_zeros(), 0))
+        .with_assume_valid(BlockHash::all_zeros())
         .with_chain_params(ChainParams::from(Network::Bitcoin))
         .with_tip(
             (genesis_block(bitcoin::Network::Bitcoin).block_hash(), 0),

@@ -44,6 +44,7 @@ use cli::Commands;
 use cli::FilterType;
 use config_file::ConfigFile;
 use floresta_chain::pruned_utreexo::BlockchainInterface;
+use floresta_chain::AssumeValidArg;
 use floresta_chain::BlockchainError;
 use floresta_chain::ChainState;
 use floresta_chain::KvChainStore;
@@ -417,13 +418,16 @@ fn load_chain_state(
     assume_valid: Option<bitcoin::BlockHash>,
 ) -> ChainState<KvChainStore> {
     let db = KvChainStore::new(data_dir.to_string()).expect("Could not read db");
-    match ChainState::<KvChainStore>::load_chain_state(db, network.into(), assume_valid) {
+    let assume_valid_arg =
+        assume_valid.map_or(AssumeValidArg::Hardcoded, AssumeValidArg::UserInput);
+
+    match ChainState::<KvChainStore>::load_chain_state(db, network.into(), assume_valid_arg) {
         Ok(chainstate) => chainstate,
         Err(err) => match err {
             BlockchainError::ChainNotInitialized => {
                 let db = KvChainStore::new(data_dir.to_string()).expect("Could not read db");
 
-                ChainState::<KvChainStore>::new(db, network.into(), assume_valid)
+                ChainState::<KvChainStore>::new(db, network.into(), assume_valid_arg)
             }
             _ => unreachable!(),
         },
