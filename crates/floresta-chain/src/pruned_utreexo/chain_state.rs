@@ -89,10 +89,16 @@ pub struct ChainStateInner<PersistedState: ChainStore> {
     /// Assume valid is a Core-specific config that tells the node to not validate signatures
     /// in blocks before this one. Note that we only skip signature validation, everything else
     /// is still validated.
-    assume_valid: (BlockHash, u32),
+    assume_valid: Option<BlockHash>,
 }
 pub struct ChainState<PersistedState: ChainStore> {
     inner: RwLock<ChainStateInner<PersistedState>>,
+}
+#[derive(Debug, Copy, Clone)]
+pub enum AssumeValidArg {
+    Disabled,
+    Hardcoded,
+    UserInput(BlockHash),
 }
 
 impl<PersistedState: ChainStore> ChainState<PersistedState> {
@@ -468,7 +474,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
     pub fn new(
         chainstore: PersistedState,
         network: Network,
-        assume_valid: Option<BlockHash>,
+        assume_valid: AssumeValidArg,
     ) -> ChainState<PersistedState> {
         let genesis = genesis_block(network.into());
         chainstore
@@ -481,7 +487,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             .update_block_index(0, genesis.block_hash())
             .expect("Error updating index");
 
-        let assume_valid_hash = Self::get_assume_valid_value(network, assume_valid);
+        let assume_valid = Self::get_assume_valid_value(network, assume_valid);
         ChainState {
             inner: RwLock::new(ChainStateInner {
                 chainstore,
@@ -501,31 +507,35 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
                 consensus: Consensus {
                     parameters: network.into(),
                 },
-                assume_valid: (assume_valid_hash, 0),
+                assume_valid,
             }),
         }
     }
-    fn get_assume_valid_value(network: Network, arg: Option<BlockHash>) -> BlockHash {
+    fn get_assume_valid_value(network: Network, arg: AssumeValidArg) -> Option<BlockHash> {
         fn get_hash(hash: &str) -> BlockHash {
             BlockHash::from_str(hash).expect("hardcoded hash should not fail")
         }
-        if let Some(assume_valid_hash) = arg {
-            assume_valid_hash
-        } else {
-            match network {
+        match arg {
+            AssumeValidArg::Disabled => None,
+            AssumeValidArg::UserInput(hash) => Some(hash),
+            AssumeValidArg::Hardcoded => match network {
                 Network::Bitcoin => {
                     get_hash("00000000000000000009c97098b5295f7e5f183ac811fb5d1534040adb93cabd")
+                        .into()
                 }
                 Network::Testnet => {
                     get_hash("0000000000000004877fa2d36316398528de4f347df2f8a96f76613a298ce060")
+                        .into()
                 }
                 Network::Signet => {
                     get_hash("0000004f401bac79fe6cb3a10ef367b071e0fb51a1c9f4b3e8484e4dd03e1863")
+                        .into()
                 }
                 Network::Regtest => {
                     get_hash("0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206")
+                        .into()
                 }
-            }
+            },
         }
     }
     fn get_disk_block_header(&self, hash: &BlockHash) -> Result<DiskBlockHeader, BlockchainError> {
@@ -578,7 +588,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
     pub fn load_chain_state(
         chainstore: KvChainStore,
         network: Network,
-        assume_valid_hash: Option<BlockHash>,
+        assume_valid: AssumeValidArg,
     ) -> Result<ChainState<KvChainStore>, BlockchainError> {
         let acc = Self::load_acc(&chainstore);
 
@@ -597,7 +607,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             consensus: Consensus {
                 parameters: network.into(),
             },
-            assume_valid: (Self::get_assume_valid_value(network, assume_valid_hash), 0),
+            assume_valid: Self::get_assume_valid_value(network, assume_valid),
         };
         info!(
             "Chainstate loaded at height: {}, checking if we have all blocks",
@@ -668,9 +678,6 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         // Updates our local view of the network
         inner.acc = acc;
         inner.best_block.valid_block(block.block_hash());
-        if block.block_hash() == inner.assume_valid.0 {
-            inner.assume_valid.1 = height;
-        }
         Ok(())
     }
     fn update_tip(&self, best_block: BlockHash, height: u32) {
@@ -680,7 +687,16 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
     }
     fn verify_script(&self, height: u32) -> bool {
         let inner = self.inner.read();
-        inner.assume_valid.1 < height
+
+        inner.assume_valid.map_or(true, |hash| {
+            match inner.chainstore.get_header(&hash).unwrap() {
+                // If the assume-valid block is in the best chain, only verify scripts if we are higher
+                Some(DiskBlockHeader::HeadersOnly(_, assume_h))
+                | Some(DiskBlockHeader::FullyValid(_, assume_h)) => height > assume_h,
+                // Assume-valid is not in the best chain, so verify all the scripts
+                _ => true,
+            }
+        })
     }
     pub fn acc(&self) -> Stump {
         read_lock!(self).acc.to_owned()
@@ -1135,9 +1151,6 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
                 ))?;
 
             inner.chainstore.update_block_index(height, block_hash)?;
-            if header.block_hash() == inner.assume_valid.0 {
-                inner.assume_valid.1 = height;
-            }
         } else {
             trace!("Header not in the best chain");
             self.maybe_reorg(header)?;
@@ -1320,6 +1333,7 @@ mod test {
     use super::UpdatableChainstate;
     use crate::prelude::HashMap;
     use crate::pruned_utreexo::consensus::Consensus;
+    use crate::AssumeValidArg;
     use crate::KvChainStore;
     use crate::Network;
     #[test]
@@ -1331,7 +1345,11 @@ mod test {
 
         let test_id = rand::random::<u64>();
         let chainstore = KvChainStore::new(format!("./data/{test_id}/")).unwrap();
-        let chain = ChainState::<KvChainStore>::new(chainstore, Network::Bitcoin, None);
+        let chain = ChainState::<KvChainStore>::new(
+            chainstore,
+            Network::Bitcoin,
+            AssumeValidArg::Hardcoded,
+        );
         while let Ok(header) = BlockHeader::consensus_decode(&mut cursor) {
             chain.accept_header(header).unwrap();
         }
@@ -1345,7 +1363,8 @@ mod test {
 
         let test_id = rand::random::<u64>();
         let chainstore = KvChainStore::new(format!("./data/{test_id}/")).unwrap();
-        let chain = ChainState::<KvChainStore>::new(chainstore, Network::Signet, None);
+        let chain =
+            ChainState::<KvChainStore>::new(chainstore, Network::Signet, AssumeValidArg::Hardcoded);
         while let Ok(header) = BlockHeader::consensus_decode(&mut cursor) {
             chain.accept_header(header).unwrap();
         }
@@ -1370,7 +1389,11 @@ mod test {
     fn test_reorg() {
         let test_id = rand::random::<u64>();
         let chainstore = KvChainStore::new(format!("./data/{test_id}/")).unwrap();
-        let chain = ChainState::<KvChainStore>::new(chainstore, Network::Regtest, None);
+        let chain = ChainState::<KvChainStore>::new(
+            chainstore,
+            Network::Regtest,
+            AssumeValidArg::Hardcoded,
+        );
         let blocks = include_str!("./testdata/test_reorg.json");
         let blocks: Vec<Vec<&str>> = serde_json::from_str(blocks).unwrap();
 

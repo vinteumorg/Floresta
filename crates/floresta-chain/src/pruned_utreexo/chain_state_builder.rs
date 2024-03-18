@@ -19,7 +19,7 @@ pub struct ChainStateBuilder<PersistedState: ChainStore> {
     chainstore: Option<PersistedState>,
     ibd: bool,
     chain_params: Option<ChainParams>,
-    assume_valid: Option<(BlockHash, u32)>,
+    assume_valid: Option<BlockHash>,
     tip: Option<(BlockHash, u32)>,
     first: Option<BlockHeader>,
 }
@@ -73,7 +73,7 @@ impl<T: ChainStore> ChainStateBuilder<T> {
         self.chain_params = Some(chain_params);
         self
     }
-    pub fn with_assume_valid(mut self, assume_valid: (BlockHash, u32)) -> Self {
+    pub fn with_assume_valid(mut self, assume_valid: BlockHash) -> Self {
         self.assume_valid = Some(assume_valid);
         self
     }
@@ -102,7 +102,7 @@ impl<T: ChainStore> ChainStateBuilder<T> {
         let block = self.tip.unwrap_or((BlockHash::all_zeros(), 0));
         BestChain::from(block)
     }
-    pub fn assume_valid(&self) -> (BlockHash, u32) {
-        self.assume_valid.unwrap_or((BlockHash::all_zeros(), 0))
+    pub fn assume_valid(&self) -> Option<BlockHash> {
+        self.assume_valid
     }
 }

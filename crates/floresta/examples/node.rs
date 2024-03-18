@@ -16,6 +16,7 @@ use floresta::chain::KvChainStore;
 use floresta::chain::Network;
 use floresta::wire::mempool::Mempool;
 use floresta::wire::node::UtreexoNode;
+use floresta_chain::AssumeValidArg;
 use floresta_wire::node_interface::NodeMethods;
 use floresta_wire::running_node::RunningNode;
 
@@ -35,13 +36,13 @@ async fn main() {
     // and the headers chain. It will also validate new blocks and headers as we receive them.
     // The last parameter is the assume valid block. We assume that all blocks before this
     // one have valid signatures. This is a performance optimization, as we don't need to validate all
-    // signatures in the blockchain, just the ones after the assume valid block. We are givin a None
+    // signatures in the blockchain, just the ones after the assume valid block. We are giving a Disabled
     // value, so we will validate all signatures regardless.
     // We place the chain state in an Arc, so we can share it with other components.
     let chain = Arc::new(ChainState::<KvChainStore>::new(
         chain_store,
         Network::Bitcoin,
-        None,
+        AssumeValidArg::Disabled,
     ));
 
     // Create a new node. It will connect to the Bitcoin network and start downloading the blockchain.
