@@ -118,7 +118,6 @@ impl Default for RunningNode {
             user_requests: Arc::new(NodeInterface {
                 requests: Mutex::new(Vec::new()),
             }),
-            last_block_check: Instant::now(),
         }
     }
 }
@@ -377,7 +376,7 @@ where
             return Err(WireError::NoPeersAvailable);
         }
         for _ in 0..10 {
-            let idx = if required_services.has(ServiceFlags::from(1 << 24)) {
+            let idx = if required_services.has(ServiceFlags::UTREEXO) {
                 if self.utreexo_peers.is_empty() {
                     return Err(WireError::NoUtreexoPeersAvailable);
                 }

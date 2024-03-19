@@ -46,7 +46,6 @@ pub struct RunningNode {
     pub(crate) last_rescan_request: RescanStatus,
     pub(crate) last_feeler: Instant,
     pub(crate) last_address_rearrange: Instant,
-    pub(crate) last_block_check: Instant,
     pub(crate) user_requests: Arc<NodeInterface>,
 }
 
@@ -110,22 +109,6 @@ where
         );
     }
 
-    /// In some edge cases, we may get a block header, but not the block itself. This
-    /// function checks if we have the block, and if not, requests it.
-    async fn ask_missed_block(&mut self) -> Result<(), WireError> {
-        let best_block = self.chain.get_best_block()?.0;
-        let validation_index = self.chain.get_validation_index()?;
-
-        if best_block == validation_index {
-            return Ok(());
-        }
-        for block in validation_index..=best_block {
-            let block = self.0.chain.get_block_hash(block)?;
-            self.request_blocks(vec![block]).await?;
-        }
-        Ok(())
-    }
-
     async fn perform_user_request(&mut self, user_req: Vec<UserRequest>) {
         for user_req in user_req {
             let req = match user_req {
@@ -186,11 +169,16 @@ where
             let (_, time) = self.inflight.get(request).unwrap();
             if time.elapsed() > Duration::from_secs(RunningNode::REQUEST_TIMEOUT) {
                 timed_out.push(request.clone());
+                warn!("Request {:?} timed out", request);
             }
         }
 
         for request in timed_out {
             let Some((peer, _)) = self.inflight.remove(&request) else {
+                warn!(
+                    "POSSIBLE BUG: Request {:?} timed out, but it wasn't in the inflight list",
+                    request
+                );
                 continue;
             };
 
@@ -281,7 +269,7 @@ where
         // Then take the final state and run the node
         self = UtreexoNode(ibd.0, self.1);
         info!("starting running node...");
-
+        self.last_block_request = self.chain.get_validation_index().unwrap_or(0);
         loop {
             while let Ok(notification) =
                 timeout(Duration::from_millis(100), self.node_rx.recv()).await
@@ -377,13 +365,6 @@ where
             );
 
             // Check if we haven't missed any block
-            periodic_job!(
-                self.ask_missed_block().await,
-                self.1.last_block_check,
-                BLOCK_CHECK_INTERVAL,
-                RunningNode
-            );
-
             if self.inflight.len() < 10 {
                 try_and_log!(self.ask_block().await);
             }
@@ -522,9 +503,15 @@ where
         let validation_index = self.chain.get_validation_index()?;
         let mut next_block = self.chain.get_block_hash(validation_index + 1)?;
 
-        self.blocks.insert(block.block.block_hash(), (peer, block));
+        debug!(
+            "Block {} received, waiting for block {}",
+            block.block.block_hash(),
+            next_block
+        );
 
+        self.blocks.insert(block.block.block_hash(), (peer, block));
         while let Some((peer, block)) = self.blocks.remove(&next_block) {
+            debug!("processing block {}", block.block.block_hash(),);
             let (proof, del_hashes, inputs) = floresta_chain::proof_util::process_proof(
                 &block.udata.unwrap(),
                 &block.block.txdata,
@@ -586,6 +573,7 @@ where
                 Ok(_next_block) => next_block = _next_block,
                 Err(_) => break,
             }
+            debug!("accepted block {}", block.block.block_hash());
         }
 
         // Remove confirmed transactions from the mempool.
