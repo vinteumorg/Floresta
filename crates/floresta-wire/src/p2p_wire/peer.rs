@@ -210,6 +210,15 @@ impl<T: Transport> Peer<T> {
 
                 let _ = self.write(NetworkMessage::GetData(inv)).await;
             }
+            NodeRequest::GetUtreexoState((block_hash, height)) => {
+                let get_filter = bitcoin::p2p::message_filter::GetCFilters {
+                    filter_type: 1,
+                    start_height: height,
+                    stop_hash: block_hash,
+                };
+
+                let _ = self.write(NetworkMessage::GetCFilters(get_filter)).await;
+            }
             NodeRequest::GetHeaders(locator) => {
                 let _ = self
                     .write(NetworkMessage::GetHeaders(
@@ -312,6 +321,12 @@ impl<T: Transport> Peer<T> {
                 NetworkMessage::Unknown { command, payload } => {
                     warn!("Unknown message: {} {:?}", command, payload);
                 }
+                NetworkMessage::CFilter(filter_msg) => {
+                    if filter_msg.filter_type == 1 {
+                        self.send_to_node(PeerMessages::UtreexoState(filter_msg.filter))
+                            .await;
+                    }
+                }
                 // Explicitly ignore these messages, if something changes in the future
                 // this would cause a compile error.
                 NetworkMessage::Verack
@@ -322,7 +337,6 @@ impl<T: Transport> Peer<T> {
                 | NetworkMessage::BlockTxn(_)
                 | NetworkMessage::CFCheckpt(_)
                 | NetworkMessage::CFHeaders(_)
-                | NetworkMessage::CFilter(_)
                 | NetworkMessage::CmpctBlock(_)
                 | NetworkMessage::FilterAdd(_)
                 | NetworkMessage::FilterClear
@@ -612,4 +626,5 @@ pub enum PeerMessages {
     NotFound(Inventory),
     /// Remote peer sent us a transaction
     Transaction(Transaction),
+    UtreexoState(Vec<u8>),
 }

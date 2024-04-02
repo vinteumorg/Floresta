@@ -19,6 +19,7 @@ use bitcoin::consensus::deserialize_partial;
 use bitcoin::consensus::Decodable;
 use bitcoin::consensus::Encodable;
 use bitcoin::hashes::sha256;
+use bitcoin::p2p::utreexo::UtreexoBlock;
 use bitcoin::Block;
 use bitcoin::BlockHash;
 use bitcoin::OutPoint;
@@ -776,6 +777,17 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
 impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedState> {
     type Error = BlockchainError;
 
+    fn update_acc(
+        &self,
+        acc: Stump,
+        block: UtreexoBlock,
+        height: u32,
+        proof: Proof,
+        del_hashes: Vec<sha256::Hash>,
+    ) -> Result<Stump, Self::Error> {
+        Consensus::update_acc(&acc, &block.block, height, proof, del_hashes)
+    }
+
     fn get_block_locator_for_tip(&self, tip: BlockHash) -> Result<Vec<BlockHash>, BlockchainError> {
         let mut hashes = Vec::new();
         let height = self
@@ -931,43 +943,8 @@ impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedSta
     }
 }
 impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedState> {
-    fn mark_chain_as_valid(&self) -> Result<bool, BlockchainError> {
-        let (assume_utreexo_hash, assume_utreexo_height) = self.get_assumeutreexo_index();
-        let curr_validation_index = self.get_validation_index()?;
-
-        // We already ran once
-        if curr_validation_index >= assume_utreexo_height {
-            return Ok(true);
-        }
-
-        let mut assumed_hash = self.get_best_block()?.1;
-        // Walks the chain until finding our assumeutxo block.
-        // Since this block was passed in before starting florestad, this value should be
-        // lesser than or equal our current tip. If we don't find that block, it means the
-        // assumeutxo block was reorged out (or never was in the main chain). That's weird, but we
-        // should take precoution against it
-        while let Ok(header) = self.get_block_header(&assumed_hash) {
-            if header.block_hash() == assume_utreexo_hash {
-                break;
-            }
-            // We've reached genesis and didn't our block
-            if self.is_genesis(&header) {
-                break;
-            }
-            assumed_hash = self.get_ancestor(&header)?.block_hash();
-        }
-
-        // The assumeutreexo value passed is **not** in the main chain, start validaton from geneis
-        if assumed_hash != assume_utreexo_hash {
-            warn!("We are in a diffenrent chain than our default or provided assumeutreexo value. Restarting from genesis");
-
-            let mut guard = write_lock!(self);
-
-            guard.best_block.validation_index = assumed_hash; // Should be equal to genesis
-            guard.acc = Stump::new();
-
-            return Ok(false);
-        }
+    fn mark_chain_as_valid(&self, acc: Stump) -> Result<bool, BlockchainError> {
+        let assumed_hash = self.get_best_block()?.1;
 
         let mut curr_header = self.get_block_header(&assumed_hash)?;
 
@@ -985,7 +962,6 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
         }
 
         let mut guard = write_lock!(self);
-        let acc = guard.consensus.parameters.network_roots.clone();
         guard.best_block.validation_index = assumed_hash;
         info!("assuming chain with hash={assumed_hash}");
         guard.acc = acc;

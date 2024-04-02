@@ -375,7 +375,7 @@ fn run_with_ctx(ctx: Ctx) {
     .expect("Error setting Ctrl-C handler");
     // Chain provider
     // If chain provider dies, we die too
-    task::block_on(chain_provider.run(&kill_signal));
+    task::block_on(chain_provider.run(kill_signal));
 }
 
 /// Loads a config file from disk, returns default if some error happens

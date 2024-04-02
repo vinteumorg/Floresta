@@ -51,10 +51,16 @@ use std::time::Instant;
 use async_std::future::timeout;
 use async_std::sync::RwLock;
 use bitcoin::block::Header;
+use bitcoin::consensus::deserialize;
+use bitcoin::p2p::utreexo::UtreexoBlock;
+use bitcoin::p2p::ServiceFlags;
 use bitcoin::BlockHash;
 use floresta_chain::pruned_utreexo::BlockchainInterface;
 use floresta_chain::pruned_utreexo::UpdatableChainstate;
 use log::info;
+use log::warn;
+use rustreexo::accumulator::node_hash::NodeHash;
+use rustreexo::accumulator::stump::Stump;
 
 use super::error::WireError;
 use super::peer::PeerMessages;
@@ -81,6 +87,7 @@ pub struct ChainSelector {
     sync_peer: PeerId,
     /// Peers that already sent us a message we are waiting for
     done_peers: HashSet<PeerId>,
+    acc: Option<Stump>,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -98,9 +105,18 @@ pub enum ChainSelectorState {
     Done,
 }
 
+pub enum FindAccResult {
+    Found(Vec<u8>),
+    KeepLooking(Vec<(PeerId, Vec<u8>)>),
+}
+
 impl NodeContext for ChainSelector {
     const REQUEST_TIMEOUT: u64 = 10; // Ban peers stalling our IBD
     const TRY_NEW_CONNECTION: u64 = 10; // Try creating connections more aggressively
+
+    fn get_required_services(&self, _utreexo_peers: usize) -> ServiceFlags {
+        ServiceFlags::NETWORK | ServiceFlags::UTREEXO
+    }
 }
 
 impl<Chain> UtreexoNode<ChainSelector, Chain>
@@ -108,6 +124,11 @@ where
     WireError: From<<Chain as BlockchainInterface>::Error>,
     Chain: BlockchainInterface + UpdatableChainstate + 'static,
 {
+    /// This function is called every time we get a `Headers` message from a peer.
+    /// It will validate the headers and add them to our chain, if they are valid.
+    /// If we get an empty headers message, we'll check what to do next, depending on
+    /// our current state. We may poke our peers to see if they have an alternative tip,
+    /// or we may just finish the IBD, if no one have an alternative tip.
     async fn handle_headers(
         &mut self,
         peer: PeerId,
@@ -142,6 +163,275 @@ where
             .await
     }
 
+    /// Takes a serialized accumulator and parses it into a Stump
+    fn parse_acc(mut acc: Vec<u8>) -> Result<Stump, WireError> {
+        if acc.is_empty() {
+            return Ok(Stump::default());
+        }
+        let leaves = deserialize(acc.drain(0..8).as_slice()).unwrap_or(0);
+        let mut roots = Vec::new();
+        while !acc.is_empty() {
+            let slice = acc.drain(0..32);
+            let mut root = [0u8; 32];
+            root.copy_from_slice(&slice.collect::<Vec<u8>>());
+            roots.push(NodeHash::from(root));
+        }
+        Ok(Stump { leaves, roots })
+    }
+
+    /// Sends a request to two peers and wait for their response
+    ///
+    /// This function will send a `GetUtreexoState` request to two peers and wait for their
+    /// response. If both peers respond, it will return the accumulator from both peers.
+    /// If only one peer responds, it will return the accumulator from that peer and `None`
+    /// for the other. If no peer responds, it will return `None` for both.
+    /// We use this during the cut-and-choose protocol, to find where they disagree.
+    async fn grab_both_peers_version(
+        &mut self,
+        peer1: PeerId,
+        peer2: PeerId,
+        block_hash: BlockHash,
+        block_height: u32,
+    ) -> Result<(Option<Vec<u8>>, Option<Vec<u8>>), WireError> {
+        self.send_to_peer(
+            peer1,
+            NodeRequest::GetUtreexoState((block_hash, block_height)),
+        )
+        .await?;
+
+        self.send_to_peer(
+            peer2,
+            NodeRequest::GetUtreexoState((block_hash, block_height)),
+        )
+        .await?;
+
+        let mut peer1_version = None;
+        let mut peer2_version = None;
+        for _ in 0..2 {
+            if let Ok(Ok(message)) = timeout(Duration::from_secs(60), self.node_rx.recv()).await {
+                match message {
+                    NodeNotification::FromPeer(peer, message) => match message {
+                        PeerMessages::UtreexoState(state) => {
+                            if peer == peer1 {
+                                peer1_version = Some(state);
+                            } else if peer == peer2 {
+                                peer2_version = Some(state);
+                            }
+                        }
+                        _ => {}
+                    },
+                }
+            }
+        }
+
+        Ok((peer1_version, peer2_version))
+    }
+
+    /// Find which peer is lying about what the accumulator state is at given
+    ///
+    /// This function will ask peers their accumulator for a given block, and check whether
+    /// they agree or not. If they don't, we cut the search in half and keep looking for the
+    /// fork point. Once we find the fork point, we ask for the block that comes after the fork
+    /// download the block and proof, update the acc they agreed on, update the stump and see
+    /// who is lying.
+    async fn find_who_is_lying(
+        &mut self,
+        peer1: PeerId,
+        peer2: PeerId,
+    ) -> Result<Option<PeerId>, WireError> {
+        let (mut height, mut hash) = self.chain.get_best_block()?;
+        let mut prev_height = 0;
+        let agree = false;
+        // we first norrow down the possible fork point to a couple of blocks, looking
+        // for all blocks in a linear search would be too slow
+        loop {
+            // ask both peers for the utreexo state
+            self.send_to_peer(peer1, NodeRequest::GetUtreexoState((hash, height)))
+                .await?;
+            self.send_to_peer(peer2, NodeRequest::GetUtreexoState((hash, height)))
+                .await?;
+
+            let (peer1_acc, peer2_acc) = self
+                .grab_both_peers_version(peer1, peer2, hash, height)
+                .await?;
+
+            let (peer1_acc, peer2_acc) = match (peer1_acc, peer2_acc) {
+                (Some(acc1), Some(acc2)) => (acc1, acc2),
+                (None, Some(_)) => return Ok(Some(peer2)),
+                (Some(_), None) => return Ok(Some(peer1)),
+                (None, None) => return Ok(None),
+            };
+
+            // if we have different states, we need to keep looking until we find the
+            // fork point
+            let interval = height.abs_diff(prev_height);
+            prev_height = height;
+
+            if interval < 5 {
+                break;
+            }
+
+            if peer1_acc == peer2_acc {
+                // if they're equal, then the disagreement is in a newer block
+                height += interval / 2;
+            } else {
+                // if they're different, then the disagreement is in an older block
+                height -= interval / 2;
+            }
+
+            hash = self.chain.get_block_hash(height).unwrap();
+        }
+        info!("Fork point is arround height={height} hash={hash}");
+        // at the end, this variable should hold the last block where they agreed
+        let mut fork = 0;
+        loop {
+            // keep asking blocks until we find the fork point
+            let (peer1_acc, peer2_acc) = self
+                .grab_both_peers_version(peer1, peer2, hash, height)
+                .await?;
+
+            // as we go, we'll approach the fork from two possible sides: we came from the side
+            // they disagree, and therefore the point of inflection is the first block they agree.
+            // on the other hand, if are agreeing, and we find they disagreeing, the last block
+            // they've agreed on is the previous one (not the current one)
+            match agree {
+                true => {
+                    // they agreed in the last block, so the fork is in the next one
+                    if peer1_acc != peer2_acc {
+                        fork = height - 1;
+                    }
+                }
+
+                false => {
+                    // they disagreed in the last block and now agree, the last block is the fork
+                    if peer1_acc == peer2_acc {
+                        fork = height;
+                    }
+                }
+            }
+
+            if fork != 0 {
+                break;
+            }
+
+            // if we still don't know where the fork is, we need to keep looking
+            if agree {
+                // if they agree on this current block, we need to look in the next one
+                height += 1;
+            } else {
+                // if they disagree on this current block, we need to look in the previous one
+                height -= 1;
+            }
+        }
+
+        // now we know where the fork is, we need to check who is lying
+        let (Some(peer1_acc), Some(peer2_acc)) = self
+            .grab_both_peers_version(peer1, peer2, hash, fork + 1)
+            .await?
+        else {
+            return Ok(None);
+        };
+
+        let (aggreed, _) = self
+            .grab_both_peers_version(peer1, peer2, hash, fork)
+            .await?;
+
+        let agreed = match aggreed {
+            Some(acc) => Self::parse_acc(acc)?,
+            None => return Ok(None),
+        };
+
+        let block = self.chain.get_block_hash(fork + 1).unwrap();
+        self.send_to_peer(peer1, NodeRequest::GetBlock((vec![block], true)))
+            .await?;
+
+        let NodeNotification::FromPeer(_, PeerMessages::Block(block)) =
+            self.node_rx.recv().await.unwrap()
+        else {
+            return Ok(None);
+        };
+
+        let acc1 = self.update_acc(agreed, block, fork + 1)?;
+        let peer1_acc = Self::parse_acc(peer1_acc)?;
+        let peer2_acc = Self::parse_acc(peer2_acc)?;
+
+        if peer1_acc != acc1 && peer2_acc != acc1 {
+            return Ok(None);
+        }
+
+        if peer1_acc != acc1 {
+            return Ok(Some(peer1));
+        }
+
+        Ok(Some(peer2))
+    }
+
+    /// Updates a Stump, with the data from a Utreexo block
+    fn update_acc(&self, acc: Stump, block: UtreexoBlock, height: u32) -> Result<Stump, WireError> {
+        let (proof, del_hashes, _) = floresta_chain::proof_util::process_proof(
+            block.udata.as_ref().unwrap(),
+            &block.block.txdata,
+            &*self.chain,
+        )?;
+
+        Ok(self
+            .chain
+            .update_acc(acc, block, height, proof, del_hashes)?)
+    }
+
+    /// Finds the accumulator for one block
+    ///
+    /// This method will find what the accumulator looks like for a block with (height, hash).
+    /// Check-out [this](https://blog.dlsouza.lol/2023/09/28/pow-fraud-proof.html) post
+    /// to learn how the cut-and-choose protocol works
+    async fn find_accumulator_for_block(
+        &mut self,
+        height: u32,
+        hash: BlockHash,
+    ) -> Result<Stump, WireError> {
+        let mut candidate_accs = Vec::new();
+
+        match self.find_accumulator_for_block_step(hash, height).await {
+            Ok(FindAccResult::Found(acc)) => {
+                // everyone agrees. Just parse the accumulator and finish-up
+                let acc = Self::parse_acc(acc)?;
+                return Ok(acc);
+            }
+            Ok(FindAccResult::KeepLooking(mut accs)) => {
+                accs.sort();
+                accs.dedup();
+                candidate_accs = accs;
+            }
+            _ => {}
+        }
+
+        let mut invalid_accs = HashSet::new();
+        for peer in candidate_accs.windows(2) {
+            if invalid_accs.contains(&peer[0].1) || invalid_accs.contains(&peer[1].1) {
+                continue;
+            }
+            let (peer1, peer2) = (peer[0].0, peer[1].0);
+            match self.find_who_is_lying(peer1, peer2).await? {
+                Some(liar) => {
+                    // if we found a liar, we need to ban them
+                    self.send_to_peer(liar, NodeRequest::Shutdown).await?;
+                    if liar == peer1 {
+                        invalid_accs.insert(peer[0].1.clone());
+                    } else {
+                        invalid_accs.insert(peer[1].1.clone());
+                    }
+                }
+                None => {}
+            }
+        }
+        //filter out the invalid accs
+        candidate_accs.retain(|acc| !invalid_accs.contains(&acc.1));
+        //we should have only one candidate left
+        assert_eq!(candidate_accs.len(), 1);
+
+        Self::parse_acc(candidate_accs.pop().unwrap().1)
+    }
+
     /// If we get an empty `haders` message, our next action depends on which state are
     /// we in:
     ///   - If we are downloading headers for the first time, this means we've just
@@ -160,10 +450,29 @@ where
                 for peer in self.0.peer_ids.iter() {
                     // at least one peer haven't finished
                     if !self.1.done_peers.contains(peer) {
-                        break;
+                        return Ok(());
                     }
                 }
-                self.1.state = ChainSelectorState::Done;
+                let (height, _) = self.chain.get_best_block()?;
+                let validation_index = self.chain.get_validation_index()?;
+                if (validation_index + 100) < height {
+                    let (height, hash) = self.chain.get_best_block()?;
+                    let acc = self.find_accumulator_for_block(height, hash).await?;
+
+                    self.1.acc = Some(acc);
+                    self.1.state = ChainSelectorState::Done;
+                    info!(
+                        "Assuming chain with {} blocks",
+                        self.chain.get_best_block()?.0
+                    );
+                    self.chain
+                        .mark_chain_as_valid(self.1.acc.clone().unwrap_or_default())
+                        .unwrap();
+                    self.chain.toggle_ibd(false);
+                } else {
+                    info!("chain close enough to tip, not asking for utreexo state");
+                    self.1.state = ChainSelectorState::Done;
+                }
             }
             _ => {}
         }
@@ -228,7 +537,7 @@ where
         Ok(())
     }
 
-    pub async fn run(&mut self, stop_signal: &Arc<RwLock<bool>>) -> Result<(), WireError> {
+    pub async fn run(&mut self, stop_signal: Arc<RwLock<bool>>) -> Result<(), WireError> {
         self.create_connection(false).await;
 
         info!("Starting ibd, selecting the best chain");
@@ -249,7 +558,7 @@ where
 
             if self.1.state == ChainSelectorState::CreatingConnections {
                 // If we have enough peers, try to download headers
-                if self.peer_ids.len() >= 2 {
+                if !self.peer_ids.is_empty() {
                     let new_sync_peer = rand::random::<usize>() % self.peer_ids.len();
                     self.1.sync_peer = *self.peer_ids.get(new_sync_peer).unwrap();
 
@@ -262,7 +571,6 @@ where
             // We downloaded all headers in the most-pow chain, and all our peers agree
             // this is the most-pow chain, we're done!
             if self.1.state == ChainSelectorState::Done {
-                self.chain.mark_chain_as_valid()?;
                 break;
             }
 
@@ -274,6 +582,74 @@ where
         }
 
         Ok(())
+    }
+
+    async fn find_accumulator_for_block_step(
+        &mut self,
+        block: BlockHash,
+        height: u32,
+    ) -> Result<FindAccResult, WireError> {
+        for peer_id in self.0.peer_ids.iter() {
+            let peer = self.peers.get(peer_id).unwrap();
+            if peer.services.has(ServiceFlags::from(1 << 25)) {
+                self.send_to_peer(*peer_id, NodeRequest::GetUtreexoState((block, height)))
+                    .await?;
+                self.0.inflight.insert(
+                    InflightRequests::UtreexoState(*peer_id),
+                    (*peer_id, Instant::now()),
+                );
+            }
+        }
+
+        if self.inflight.is_empty() {
+            return Err(WireError::NoPeersAvailable);
+        }
+
+        let mut peer_accs = Vec::new();
+        loop {
+            // wait for all peers to respond or timeout after 1 minute
+            if self.inflight.is_empty() {
+                break;
+            }
+
+            if let Ok(Ok(message)) = timeout(Duration::from_secs(60), self.node_rx.recv()).await {
+                match message {
+                    NodeNotification::FromPeer(peer, message) => match message {
+                        PeerMessages::UtreexoState(state) => {
+                            self.inflight.remove(&InflightRequests::UtreexoState(peer));
+                            info!("got state {state:?}");
+                            peer_accs.push((peer, state));
+                        }
+                        _ => {}
+                    },
+                }
+            }
+
+            for inflight in self.inflight.clone().iter() {
+                if inflight.1 .1.elapsed().as_secs() > 60 {
+                    self.inflight.remove(inflight.0);
+                }
+            }
+        }
+
+        if peer_accs.len() == 1 {
+            warn!("Only one peers with the UTREEXO_FILTER service flag");
+            return Ok(FindAccResult::Found(peer_accs.pop().unwrap().1));
+        }
+
+        let mut accs = HashSet::new();
+        for (_, acc) in peer_accs.iter() {
+            accs.insert(acc);
+        }
+
+        // if all peers have the same state, we can assume it's the correct one
+        if accs.len() == 1 {
+            return Ok(FindAccResult::Found(peer_accs.pop().unwrap().1));
+        }
+
+        // if we have different states, we need to keep looking until we find the
+        // fork point
+        Ok(FindAccResult::KeepLooking(peer_accs))
     }
 
     async fn handle_notification(

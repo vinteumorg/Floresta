@@ -13,6 +13,7 @@ use alloc::sync::Arc;
 
 use bitcoin::block::Header as BlockHeader;
 use bitcoin::hashes::sha256;
+use bitcoin::p2p::utreexo::UtreexoBlock;
 use bitcoin::Block;
 use bitcoin::BlockHash;
 use bitcoin::OutPoint;
@@ -76,6 +77,14 @@ pub trait BlockchainInterface {
     fn get_rescan_index(&self) -> Option<u32>;
     /// Returns the height of a block, given it's hash
     fn get_block_height(&self, hash: &BlockHash) -> Result<Option<u32>, Self::Error>;
+    fn update_acc(
+        &self,
+        acc: Stump,
+        block: UtreexoBlock,
+        height: u32,
+        proof: Proof,
+        del_hashes: Vec<sha256::Hash>,
+    ) -> Result<Stump, Self::Error>;
 }
 /// [UpdatableChainstate] is a contract that a is expected from a chainstate
 /// implementation, that wishes to be updated. Using those methods, a backend like the p2p-node,
@@ -127,12 +136,11 @@ pub trait UpdatableChainstate {
         final_height: u32,
         acc: Stump,
     ) -> Result<PartialChainState, BlockchainError>;
-
     /// Marks a chain as fully-valid
     ///
     /// This mimics the behavour of checking every block before this block, and continues
     /// from this point
-    fn mark_chain_as_valid(&self) -> Result<bool, BlockchainError>;
+    fn mark_chain_as_valid(&self, acc: Stump) -> Result<bool, BlockchainError>;
 }
 
 /// [ChainStore] is a trait defining how we interact with our chain database. This definitions

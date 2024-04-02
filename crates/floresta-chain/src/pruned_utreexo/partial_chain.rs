@@ -337,7 +337,7 @@ impl UpdatableChainstate for PartialChainState {
         unimplemented!("we don't do rescan")
     }
 
-    fn mark_chain_as_valid(&self) -> Result<bool, BlockchainError> {
+    fn mark_chain_as_valid(&self, _acc: Stump) -> Result<bool, BlockchainError> {
         unimplemented!("no need to mark as valid")
     }
 }
@@ -384,6 +384,17 @@ impl BlockchainInterface for PartialChainState {
 
     fn get_block_header(&self, _height: &BlockHash) -> Result<BlockHeader, Self::Error> {
         unimplemented!("PartialChainState::get_block_header")
+    }
+
+    fn update_acc(
+        &self,
+        _acc: Stump,
+        _block: bitcoin::p2p::utreexo::UtreexoBlock,
+        _height: u32,
+        _proof: rustreexo::accumulator::proof::Proof,
+        _del_hashes: Vec<bitcoin::hashes::sha256::Hash>,
+    ) -> Result<Stump, Self::Error> {
+        unimplemented!("PartialChainState::update_acc")
     }
 
     fn get_block_locator_for_tip(
