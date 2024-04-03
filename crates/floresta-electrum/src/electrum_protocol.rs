@@ -576,6 +576,36 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                             .write(serde_json::to_string(&res).unwrap().as_bytes())
                             .await?;
                     }
+                } else if let Ok(requests) = serde_json::from_str::<Vec<Request>>(&msg) {
+                    for req in requests {
+                        let client = self.clients.get(&client);
+                        if client.is_none() {
+                            error!("Client sent a message but is not listed as client");
+                            return Ok(());
+                        }
+                        let client = client.unwrap().to_owned();
+                        let id = req.id.to_owned();
+                        let res = self.handle_client_request(client.clone(), req).await;
+
+                        if let Ok(res) = res {
+                            client
+                                .write(serde_json::to_string(&res).unwrap().as_bytes())
+                                .await?;
+                        } else {
+                            let res = json!({
+                                "jsonrpc": "2.0",
+                                "error": {
+                                    "code": -32000,
+                                    "message": "Internal JSON-RPC error.",
+                                    "data": null
+                                },
+                                "id": id
+                            });
+                            client
+                                .write(serde_json::to_string(&res).unwrap().as_bytes())
+                                .await?;
+                        }
+                    }
                 }
             }
 
