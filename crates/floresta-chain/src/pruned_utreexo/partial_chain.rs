@@ -316,6 +316,10 @@ impl UpdatableChainstate for PartialChainState {
         unimplemented!("partialChainState shouldn't be used to accept new headers")
     }
 
+    fn switch_chain(&self, _new_tip: BlockHash) -> Result<(), BlockchainError> {
+        unimplemented!("partialChainState shouldn't be used to switch chains")
+    }
+
     fn get_partial_chain(
         &self,
         _initial_height: u32,
@@ -384,6 +388,25 @@ impl BlockchainInterface for PartialChainState {
 
     fn get_block_header(&self, _height: &BlockHash) -> Result<BlockHeader, Self::Error> {
         unimplemented!("PartialChainState::get_block_header")
+    }
+
+    fn get_chain_tips(&self) -> Result<Vec<BlockHash>, Self::Error> {
+        unimplemented!("PartialChainState::get_chain_tips")
+    }
+
+    fn validate_block(
+        &self,
+        _block: &bitcoin::Block,
+        _proof: rustreexo::accumulator::proof::Proof,
+        _inputs: HashMap<bitcoin::OutPoint, bitcoin::TxOut>,
+        _del_hashes: Vec<bitcoin::hashes::sha256::Hash>,
+        _acc: Stump,
+    ) -> Result<(), Self::Error> {
+        unimplemented!("PartialChainState::validate_block")
+    }
+
+    fn get_fork_point(&self, _block: BlockHash) -> Result<BlockHash, Self::Error> {
+        unimplemented!("PartialChainState::get_fork_point")
     }
 
     fn update_acc(

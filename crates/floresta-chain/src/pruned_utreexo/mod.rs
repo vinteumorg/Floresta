@@ -85,14 +85,28 @@ pub trait BlockchainInterface {
         proof: Proof,
         del_hashes: Vec<sha256::Hash>,
     ) -> Result<Stump, Self::Error>;
+
+    fn get_chain_tips(&self) -> Result<Vec<BlockHash>, Self::Error>;
+
+    fn validate_block(
+        &self,
+        block: &Block,
+        proof: Proof,
+        inputs: HashMap<OutPoint, TxOut>,
+        del_hashes: Vec<sha256::Hash>,
+        acc: Stump,
+    ) -> Result<(), Self::Error>;
+
+    fn get_fork_point(&self, block: BlockHash) -> Result<BlockHash, Self::Error>;
 }
 /// [UpdatableChainstate] is a contract that a is expected from a chainstate
 /// implementation, that wishes to be updated. Using those methods, a backend like the p2p-node,
 /// can notify new blocks and transactions to a chainstate, allowing it to update it's state.
 pub trait UpdatableChainstate {
-    /// This is one of the most important methods for a ChainState, it gets a block and some utreexo data,
-    /// validates this block and connects to our chain of blocks. This function is meant to
-    /// be atomic and prone of running in parallel.
+    /// This is one of the most important methods for a ChainState,
+    /// it gets a block and some utreexo data, validates this block and
+    /// connects to our chain of blocks. This function is meant to be atomic
+    /// and prone of running in parallel.
     fn connect_block(
         &self,
         block: &Block,
@@ -100,6 +114,8 @@ pub trait UpdatableChainstate {
         inputs: HashMap<OutPoint, TxOut>,
         del_hashes: Vec<sha256::Hash>,
     ) -> Result<u32, BlockchainError>;
+
+    fn switch_chain(&self, new_tip: BlockHash) -> Result<(), BlockchainError>;
     /// Accepts a new header to our chain. This method is called before connect_block, and
     /// makes some basic checks on a header and saves it on disk. We only accept a block as
     /// valid after calling connect_block.

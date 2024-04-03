@@ -453,26 +453,8 @@ where
                         return Ok(());
                     }
                 }
-                let (height, _) = self.chain.get_best_block()?;
-                let validation_index = self.chain.get_validation_index()?;
-                if (validation_index + 100) < height {
-                    let (height, hash) = self.chain.get_best_block()?;
-                    let acc = self.find_accumulator_for_block(height, hash).await?;
 
-                    self.1.acc = Some(acc);
-                    self.1.state = ChainSelectorState::Done;
-                    info!(
-                        "Assuming chain with {} blocks",
-                        self.chain.get_best_block()?.0
-                    );
-                    self.chain
-                        .mark_chain_as_valid(self.1.acc.clone().unwrap_or_default())
-                        .unwrap();
-                    self.chain.toggle_ibd(false);
-                } else {
-                    info!("chain close enough to tip, not asking for utreexo state");
-                    self.1.state = ChainSelectorState::Done;
-                }
+                self.check_tips().await?;
             }
             _ => {}
         }
@@ -480,6 +462,79 @@ where
         Ok(())
     }
 
+    async fn is_our_chain_invalid(&mut self, other_tip: BlockHash) -> Result<(), WireError> {
+        let fork = self.chain.get_fork_point(other_tip)?;
+        self.send_to_random_peer(
+            NodeRequest::GetBlock((vec![fork], true)),
+            ServiceFlags::UTREEXO,
+        )
+        .await?;
+
+        let block = loop {
+            let Ok(NodeNotification::FromPeer(_, PeerMessages::Block(block))) =
+                self.node_rx.recv().await
+            else {
+                continue;
+            };
+            break block;
+        };
+
+        let (proof, del_hashes, inputs) = floresta_chain::proof_util::process_proof(
+            block.udata.as_ref().unwrap(),
+            &block.block.txdata,
+            &*self.chain,
+        )?;
+
+        let fork_height = self.chain.get_block_height(&fork)?.unwrap_or(0);
+        let acc = self.find_accumulator_for_block(fork_height, fork).await?;
+        let is_valid = self
+            .chain
+            .validate_block(&block.block, proof, inputs, del_hashes, acc);
+
+        if !is_valid.is_ok() {
+            self.chain.switch_chain(other_tip)?;
+            self.chain.invalidate_block(fork)?;
+        }
+
+        Ok(())
+    }
+
+    async fn check_tips(&mut self) -> Result<(), WireError> {
+        let (height, _) = self.chain.get_best_block()?;
+        let validation_index = self.chain.get_validation_index()?;
+        if (validation_index + 100) < height {
+            let mut tips = self.chain.get_chain_tips()?;
+            let (height, hash) = self.chain.get_best_block()?;
+            let acc = self.find_accumulator_for_block(height, hash).await?;
+            info!("tips: {tips:?}");
+            if tips.len() == 1 {
+                warn!("We have more than one tip, we should rescan the blockchain");
+                self.chain.toggle_ibd(true);
+                self.chain.rescan(validation_index)?;
+                self.1.acc = Some(acc);
+                self.1.state = ChainSelectorState::Done;
+
+                info!(
+                    "Assuming chain with {} blocks",
+                    self.chain.get_best_block()?.0
+                );
+
+                self.chain
+                    .mark_chain_as_valid(self.1.acc.clone().unwrap_or_default())
+                    .unwrap();
+                self.chain.toggle_ibd(false);
+            }
+            tips.remove(0); // no need to check our best one
+            for tip in tips {
+                self.is_our_chain_invalid(tip).await?;
+            }
+        } else {
+            info!("chain close enough to tip, not asking for utreexo state");
+            self.1.state = ChainSelectorState::Done;
+        }
+
+        Ok(())
+    }
     /// Ask for headers, given a tip
     ///
     /// This function will send a `getheaders` request to our peers, assuming this

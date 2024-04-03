@@ -19,6 +19,7 @@ use bitcoin::consensus::deserialize_partial;
 use bitcoin::consensus::Decodable;
 use bitcoin::consensus::Encodable;
 use bitcoin::hashes::sha256;
+use bitcoin::hashes::Hash;
 use bitcoin::p2p::utreexo::UtreexoBlock;
 use bitcoin::Block;
 use bitcoin::BlockHash;
@@ -767,15 +768,15 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         Consensus::verify_block_transactions(inputs, &block.txdata, subsidy, verify_script, flags)?;
         Ok(())
     }
-
-    fn get_assumeutreexo_index(&self) -> (BlockHash, u32) {
-        let guard = read_lock!(self);
-        guard.consensus.parameters.assumeutreexo_index
-    }
 }
 
 impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedState> {
     type Error = BlockchainError;
+
+    fn get_fork_point(&self, block: BlockHash) -> Result<BlockHash, Self::Error> {
+        let fork_point = self.find_fork_point(&self.get_block_header(&block)?)?;
+        Ok(fork_point.block_hash())
+    }
 
     fn update_acc(
         &self,
@@ -786,6 +787,41 @@ impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedSta
         del_hashes: Vec<sha256::Hash>,
     ) -> Result<Stump, Self::Error> {
         Consensus::update_acc(&acc, &block.block, height, proof, del_hashes)
+    }
+
+    fn get_chain_tips(&self) -> Result<Vec<BlockHash>, Self::Error> {
+        let inner = read_lock!(self);
+        let mut tips = Vec::new();
+
+        tips.push(inner.best_block.best_block);
+        tips.extend(inner.best_block.alternative_tips.iter());
+
+        Ok(tips)
+    }
+
+    fn validate_block(
+        &self,
+        block: &Block,
+        proof: Proof,
+        inputs: HashMap<OutPoint, TxOut>,
+        del_hashes: Vec<sha256::Hash>,
+        acc: Stump,
+    ) -> Result<(), Self::Error> {
+        // verify the proof
+        let del_hashes = del_hashes
+            .iter()
+            .map(|hash| NodeHash::from(hash.as_byte_array()))
+            .collect::<Vec<_>>();
+
+        if !acc.verify(&proof, &del_hashes)? {
+            return Err(BlockValidationErrors::InvalidProof.into());
+        }
+
+        let height = self
+            .get_block_height(&block.block_hash())?
+            .ok_or(BlockchainError::BlockNotPresent)?;
+
+        self.validate_block(block, height, inputs)
     }
 
     fn get_block_locator_for_tip(&self, tip: BlockHash) -> Result<Vec<BlockHash>, BlockchainError> {
@@ -827,6 +863,7 @@ impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedSta
     fn is_in_idb(&self) -> bool {
         self.inner.read().ibd
     }
+
     fn get_block_height(&self, hash: &BlockHash) -> Result<Option<u32>, Self::Error> {
         self.get_disk_block_header(hash)
             .map(|header| header.height())
@@ -937,12 +974,18 @@ impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedSta
 
         Ok(height + chain_params.coinbase_maturity <= current_height)
     }
+
     fn get_unbroadcasted(&self) -> Vec<Transaction> {
         let mut inner = write_lock!(self);
         inner.broadcast_queue.drain(..).collect()
     }
 }
 impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedState> {
+    fn switch_chain(&self, new_tip: BlockHash) -> Result<(), BlockchainError> {
+        let new_tip = self.get_block_header(&new_tip)?;
+        self.reorg(new_tip)
+    }
+
     fn mark_chain_as_valid(&self, acc: Stump) -> Result<bool, BlockchainError> {
         let assumed_hash = self.get_best_block()?.1;
 
@@ -992,10 +1035,12 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
         );
         Ok(())
     }
+
     fn toggle_ibd(&self, is_ibd: bool) {
         let mut inner = write_lock!(self);
         inner.ibd = is_ibd;
     }
+
     fn process_rescan_block(&self, block: &Block) -> Result<(), BlockchainError> {
         let header = self.get_disk_block_header(&block.block_hash())?;
         let height = header.height().expect("Recaning in an invalid tip");
