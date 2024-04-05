@@ -577,6 +577,7 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                             .await?;
                     }
                 } else if let Ok(requests) = serde_json::from_str::<Vec<Request>>(&msg) {
+                    let mut results = Vec::new();
                     for req in requests {
                         let client = self.clients.get(&client);
                         if client.is_none() {
@@ -588,9 +589,7 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                         let res = self.handle_client_request(client.clone(), req).await;
 
                         if let Ok(res) = res {
-                            client
-                                .write(serde_json::to_string(&res).unwrap().as_bytes())
-                                .await?;
+                            results.push(res);
                         } else {
                             let res = json!({
                                 "jsonrpc": "2.0",
@@ -601,10 +600,13 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                                 },
                                 "id": id
                             });
-                            client
-                                .write(serde_json::to_string(&res).unwrap().as_bytes())
-                                .await?;
+                            results.push(res);
                         }
+                    }
+                    if let Some(client) = self.clients.get(&client) {
+                        client
+                            .write(serde_json::to_string(&results).unwrap().as_bytes())
+                            .await?;
                     }
                 }
             }
