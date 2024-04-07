@@ -28,6 +28,7 @@ mod wallet_input;
 #[cfg(feature = "zmq-server")]
 mod zmq;
 
+use std::fmt::Arguments;
 use std::path::PathBuf;
 use std::process::exit;
 use std::str::FromStr;
@@ -60,11 +61,12 @@ use floresta_wire::address_man::LocalAddress;
 use floresta_wire::mempool::Mempool;
 use floresta_wire::node::UtreexoNode;
 use floresta_wire::running_node::RunningNode;
-use log::debug;
 use log::error;
 use log::info;
-use pretty_env_logger::env_logger::Env;
-use pretty_env_logger::env_logger::TimestampPrecision;
+use log::{debug, Record};
+
+use fern::colors::{Color, ColoredLevelConfig};
+use fern::FormatCallback;
 #[cfg(feature = "zmq-server")]
 use zmq::ZMQServer;
 
@@ -93,12 +95,52 @@ struct Ctx {
     json_rpc_address: Option<String>,
     electrum_address: Option<String>,
 }
+
+fn setup_logger() -> Result<(), fern::InitError> {
+    let colors = ColoredLevelConfig::new()
+        .error(Color::Red)
+        .warn(Color::Yellow)
+        .info(Color::Green)
+        .debug(Color::Blue)
+        .trace(Color::BrightBlack);
+
+    let formatter = |use_colors: bool| {
+        move |out: FormatCallback, message: &Arguments, record: &Record| {
+            out.finish(format_args!(
+                "[{} {} {}] {}",
+                chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+                if use_colors {
+                    colors.color(record.level()).to_string()
+                } else {
+                    record.level().to_string()
+                },
+                record.target(),
+                message
+            ))
+        }
+    };
+
+    let file_dispatcher = fern::Dispatch::new()
+        .format(formatter(false))
+        .level(log::LevelFilter::Info)
+        .chain(fern::log_file("output.log")?);
+
+    let stdout_dispatcher = fern::Dispatch::new()
+        .format(formatter(true))
+        .level(log::LevelFilter::Info)
+        .chain(std::io::stdout());
+
+    fern::Dispatch::new()
+        .chain(stdout_dispatcher)
+        .chain(file_dispatcher)
+        .apply()?;
+
+    Ok(())
+}
+
 fn main() {
-    // Setup global logger
-    pretty_env_logger::env_logger::Builder::from_env(Env::default().default_filter_or("info"))
-        .format_timestamp(Some(TimestampPrecision::Seconds))
-        .format_module_path(true)
-        .init();
+    // call the setup_logger function
+    setup_logger().expect("Failed to initialize logger");
 
     let params = Cli::parse();
     match params.command {
