@@ -1,17 +1,6 @@
 [
     {
         "address": {
-            "V4": "127.0.0.1"
-        },
-        "last_connected": 1678986166,
-        "state": {
-            "Tried": 0
-        },
-        "services": 50331648,
-        "port": 8333
-    },
-    {
-        "address": {
             "V4": "61.98.172.232"
         },
         "last_connected": 1678986166,
@@ -29,7 +18,7 @@
         "state": {
             "Tried": 0
         },
-        "services": 16778317,
+        "services": 50331648,
         "port": 38333
     },
     {
