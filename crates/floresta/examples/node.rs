@@ -19,6 +19,7 @@ use floresta::wire::node::UtreexoNode;
 use floresta_chain::AssumeValidArg;
 use floresta_wire::node_interface::NodeMethods;
 use floresta_wire::running_node::RunningNode;
+use floresta_wire::UtreexoNodeConfig;
 
 const DATA_DIR: &str = "./data";
 
@@ -55,15 +56,9 @@ async fn main() {
     // If you want a node to IBD only, you can use the IBDNode context.
     // Finally, we are using the chain state created above, the node will use it to determine
     // what blocks and headers to download, and hand them to it to validate.
-    let p2p: UtreexoNode<RunningNode, ChainState<KvChainStore>> = UtreexoNode::new(
-        chain.clone(),
-        Arc::new(RwLock::new(Mempool::new())),
-        Network::Bitcoin,
-        DATA_DIR.into(),
-        None,
-        None,
-        None,
-    );
+    let config = UtreexoNodeConfig::default();
+    let p2p: UtreexoNode<RunningNode, ChainState<KvChainStore>> =
+        UtreexoNode::new(config, chain.clone(), Arc::new(RwLock::new(Mempool::new())));
     // A handle is a simple way to interact with the node. It implements a queue of requests
     // that will be processed by the node.
     let handle = p2p.get_handle();

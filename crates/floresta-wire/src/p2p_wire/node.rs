@@ -52,6 +52,7 @@ use super::running_node::RunningNode;
 use super::socks::Socks5Addr;
 use super::socks::Socks5Error;
 use super::socks::Socks5StreamBuilder;
+use super::UtreexoNodeConfig;
 use crate::node_context::PeerId;
 
 #[derive(Debug)]
@@ -149,6 +150,7 @@ pub struct NodeCommon<Chain: BlockchainInterface + UpdatableChainstate> {
     pub(crate) max_banscore: u32,
     pub(crate) socks5: Option<Socks5StreamBuilder>,
     pub(crate) fixed_peer: Option<LocalAddress>,
+    pub(crate) config: UtreexoNodeConfig,
 }
 
 pub struct UtreexoNode<Context, Chain: BlockchainInterface + UpdatableChainstate>(
@@ -182,16 +184,12 @@ where
     Chain: BlockchainInterface + UpdatableChainstate + 'static,
 {
     pub fn new(
+        config: UtreexoNodeConfig,
         chain: Arc<Chain>,
         mempool: Arc<RwLock<Mempool>>,
-        network: Network,
-        datadir: String,
-        proxy: Option<SocketAddr>,
-        max_banscore: Option<u32>,
-        fixed_peer: Option<LocalAddress>,
     ) -> Self {
         let (node_tx, node_rx) = channel::unbounded();
-        let socks5 = proxy.map(Socks5StreamBuilder::new);
+        let socks5 = config.proxy.map(Socks5StreamBuilder::new);
         UtreexoNode(
             NodeCommon {
                 inflight: HashMap::new(),
@@ -202,7 +200,7 @@ where
                 peer_ids: Vec::new(),
                 utreexo_peers: Vec::new(),
                 mempool,
-                network,
+                network: config.network.into(),
                 node_rx,
                 node_tx,
                 address_man: AddressMan::default(),
@@ -214,10 +212,11 @@ where
                 blocks: HashMap::new(),
                 last_get_address_request: Instant::now(),
                 last_send_addresses: Instant::now(),
-                datadir,
+                datadir: config.datadir.clone(),
                 socks5,
-                max_banscore: max_banscore.unwrap_or(50),
-                fixed_peer,
+                max_banscore: config.max_banscore,
+                fixed_peer: config.fixed_peer.clone(),
+                config,
             },
             T::default(),
         )

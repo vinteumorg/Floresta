@@ -50,7 +50,7 @@ pub struct RunningNode {
 }
 
 impl NodeContext for RunningNode {
-    const REQUEST_TIMEOUT: u64 = 60;
+    const REQUEST_TIMEOUT: u64 = 60 * 2;
     fn get_required_services(&self, _utreexo_peers: usize) -> ServiceFlags {
         if _utreexo_peers <= 2 {
             ServiceFlags::UTREEXO | ServiceFlags::NETWORK | ServiceFlags::WITNESS
@@ -436,11 +436,13 @@ where
         if self.inflight.contains_key(&InflightRequests::Headers) {
             return Ok(());
         }
+
         let locator = self.0.chain.get_block_locator().unwrap();
 
         let peer = self
             .send_to_random_peer(NodeRequest::GetHeaders(locator), ServiceFlags::NONE)
             .await?;
+
         self.inflight
             .insert(InflightRequests::Headers, (peer, Instant::now()));
 
@@ -614,8 +616,10 @@ where
                         self.chain.accept_header(*header)?;
                     }
 
-                    let blocks = headers.iter().map(|header| header.block_hash()).collect();
-                    self.request_blocks(blocks).await?;
+                    if self.chain.is_in_idb() {
+                        let blocks = headers.iter().map(|header| header.block_hash()).collect();
+                        self.request_blocks(blocks).await?;
+                    }
                 }
                 PeerMessages::Ready(version) => {
                     self.handle_peer_ready(peer, &version).await?;

@@ -454,7 +454,11 @@ where
                     }
                 }
 
-                self.check_tips().await?;
+                if self.config.pow_fraud_proofs {
+                    self.check_tips().await?;
+                }
+
+                self.1.state = ChainSelectorState::Done;
             }
             _ => {}
         }

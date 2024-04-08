@@ -60,6 +60,7 @@ use floresta_wire::address_man::LocalAddress;
 use floresta_wire::mempool::Mempool;
 use floresta_wire::node::UtreexoNode;
 use floresta_wire::running_node::RunningNode;
+use floresta_wire::UtreexoNodeConfig;
 use log::debug;
 use log::error;
 use log::info;
@@ -302,14 +303,20 @@ fn run_with_ctx(ctx: Ctx) {
     };
 
     // Chain Provider (p2p)
+
+    let config = UtreexoNodeConfig {
+        network: get_net(&ctx.network),
+        compact_filters: ctx.cfilters,
+        datadir: data_dir.clone(),
+        proxy: ctx.proxy.map(|x| x.parse().expect("Invalid proxy address")),
+        fixed_peer: connect,
+        ..Default::default()
+    };
+
     let chain_provider = UtreexoNode::<RunningNode, ChainState<KvChainStore>>::new(
+        config,
         blockchain_state.clone(),
         Arc::new(async_std::sync::RwLock::new(Mempool::new())),
-        get_net(&ctx.network).into(),
-        data_dir,
-        ctx.proxy.map(|x| x.parse().expect("Invalid proxy address")),
-        None,
-        connect,
     );
 
     // ZMQ
