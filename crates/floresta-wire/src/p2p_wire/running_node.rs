@@ -613,6 +613,9 @@ where
                     for header in headers.iter() {
                         self.chain.accept_header(*header)?;
                     }
+
+                    let blocks = headers.iter().map(|header| header.block_hash()).collect();
+                    self.request_blocks(blocks).await?;
                 }
                 PeerMessages::Ready(version) => {
                     self.handle_peer_ready(peer, &version).await?;
