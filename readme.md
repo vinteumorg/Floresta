@@ -31,8 +31,8 @@ and build with cargo build
 
 ```bash
 cargo build --release --bin florestad
-# Optionally, you can install it with
-cargo install --path .
+# Optionally, you can add florestad to the path with
+cargo install --path ./florestad
 ```
 
 ### Running
