@@ -608,6 +608,21 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                             .write(serde_json::to_string(&results).unwrap().as_bytes())
                             .await?;
                     }
+                } else {
+                    let res = json!({
+                        "jsonrpc": "2.0",
+                        "error": {
+                            "code": -32700,
+                            "message": "Parse error. Invalid JSON was received by the server.",
+                            "data": null
+                        },
+                        "id": null
+                    });
+                    if let Some(client) = self.clients.get(&client) {
+                        client
+                            .write(serde_json::to_string(&res).unwrap().as_bytes())
+                            .await?;
+                    }
                 }
             }
 
