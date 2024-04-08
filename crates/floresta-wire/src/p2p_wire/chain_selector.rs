@@ -209,17 +209,13 @@ where
         let mut peer2_version = None;
         for _ in 0..2 {
             if let Ok(Ok(message)) = timeout(Duration::from_secs(60), self.node_rx.recv()).await {
-                match message {
-                    NodeNotification::FromPeer(peer, message) => match message {
-                        PeerMessages::UtreexoState(state) => {
-                            if peer == peer1 {
-                                peer1_version = Some(state);
-                            } else if peer == peer2 {
-                                peer2_version = Some(state);
-                            }
-                        }
-                        _ => {}
-                    },
+                if let NodeNotification::FromPeer(peer, PeerMessages::UtreexoState(state)) = message
+                {
+                    if peer == peer1 {
+                        peer1_version = Some(state);
+                    } else if peer == peer2 {
+                        peer2_version = Some(state);
+                    }
                 }
             }
         }
@@ -411,17 +407,15 @@ where
                 continue;
             }
             let (peer1, peer2) = (peer[0].0, peer[1].0);
-            match self.find_who_is_lying(peer1, peer2).await? {
-                Some(liar) => {
-                    // if we found a liar, we need to ban them
-                    self.send_to_peer(liar, NodeRequest::Shutdown).await?;
-                    if liar == peer1 {
-                        invalid_accs.insert(peer[0].1.clone());
-                    } else {
-                        invalid_accs.insert(peer[1].1.clone());
-                    }
+
+            if let Some(liar) = self.find_who_is_lying(peer1, peer2).await? {
+                // if we found a liar, we need to ban them
+                self.send_to_peer(liar, NodeRequest::Shutdown).await?;
+                if liar == peer1 {
+                    invalid_accs.insert(peer[0].1.clone());
+                } else {
+                    invalid_accs.insert(peer[1].1.clone());
                 }
-                None => {}
             }
         }
         //filter out the invalid accs
@@ -495,7 +489,7 @@ where
             .chain
             .validate_block(&block.block, proof, inputs, del_hashes, acc);
 
-        if !is_valid.is_ok() {
+        if is_valid.is_err() {
             self.chain.switch_chain(other_tip)?;
             self.chain.invalidate_block(fork)?;
         }
