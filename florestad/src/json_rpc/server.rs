@@ -197,15 +197,31 @@ impl Rpc for RpcImpl {
             }
         };
         let node = ip.parse().map_err(|_| Error::InvalidAddress)?;
-        self.node.connect(node, port).unwrap();
-        Ok(true)
+
+        match self.node.connect(node, port) {
+            Ok(_) => return Ok(true),
+            Err(_) => return Err(Error::Node.into()),
+        }
     }
 
     fn get_blockchain_info(&self) -> Result<GetBlockchainInfoRes> {
-        let (height, hash) = self.chain.get_best_block().unwrap();
-        let validated = self.chain.get_validation_index().unwrap();
+        let (height, hash) = match self.chain.get_best_block() {
+            Ok((height, hash)) => (height, hash),
+            Err(_) => return Err(Error::BlockNotFound.into()),
+        };
+
+        let validated = match self.chain.get_validation_index() {
+            Ok(height) => height,
+            Err(_) => return Err(Error::BlockNotFound.into()),
+        };
+
         let ibd = self.chain.is_in_idb();
-        let latest_header = self.chain.get_block_header(&hash).unwrap();
+
+        let latest_header = match self.chain.get_block_header(&hash) {
+            Ok(header) => header,
+            Err(_) => return Err(Error::BlockNotFound.into()),
+        };
+
         let latest_work = latest_header.work();
         let latest_block_time = latest_header.time;
         let leaf_count = self.chain.acc().leaves as u32;
@@ -217,7 +233,12 @@ impl Rpc for RpcImpl {
             .into_iter()
             .map(|r| r.to_string())
             .collect();
-        let validated_blocks = self.chain.get_validation_index().unwrap();
+
+        let validated_blocks = match self.chain.get_validation_index() {
+            Ok(height) => height,
+            Err(_) => return Err(Error::BlockNotFound.into()),
+        };
+
         Ok(GetBlockchainInfoRes {
             best_block: hash.to_string(),
             height,
