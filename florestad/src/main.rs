@@ -96,7 +96,7 @@ struct Ctx {
     electrum_address: Option<String>,
 }
 
-fn setup_logger() -> Result<(), fern::InitError> {
+fn setup_logger(data_dir: &String, log_file: bool) -> Result<(), fern::InitError> {
     let colors = ColoredLevelConfig::new()
         .error(Color::Red)
         .warn(Color::Yellow)
@@ -119,29 +119,27 @@ fn setup_logger() -> Result<(), fern::InitError> {
             ))
         }
     };
-
-    let file_dispatcher = fern::Dispatch::new()
-        .format(formatter(false))
-        .level(log::LevelFilter::Info)
-        .chain(fern::log_file("output.log")?);
-
     let stdout_dispatcher = fern::Dispatch::new()
         .format(formatter(true))
         .level(log::LevelFilter::Info)
         .chain(std::io::stdout());
 
-    fern::Dispatch::new()
-        .chain(stdout_dispatcher)
-        .chain(file_dispatcher)
-        .apply()?;
-
+    if log_file {
+        let file_dispatcher = fern::Dispatch::new()
+            .format(formatter(false))
+            .level(log::LevelFilter::Info)
+            .chain(fern::log_file(format!("{}/output.log", data_dir))?);
+        fern::Dispatch::new()
+            .chain(stdout_dispatcher)
+            .chain(file_dispatcher)
+            .apply()?;
+    } else {
+        fern::Dispatch::new().chain(stdout_dispatcher).apply()?;
+    }
     Ok(())
 }
 
 fn main() {
-    // call the setup_logger function
-    setup_logger().expect("Failed to initialize logger");
-
     let params = Cli::parse();
     match params.command {
         #[cfg(feature = "experimental-p2p")]
@@ -186,7 +184,17 @@ fn main() {
                 json_rpc_address: rpc_address,
                 electrum_address,
             };
-
+            let data_dir = &ctx
+                .data_dir
+                .clone()
+                .or_else(|| Some(".".to_string()))
+                .unwrap();
+            // Setup logger
+            if params.log_file {
+                setup_logger(data_dir, true).expect("Could not setup logger");
+            } else {
+                setup_logger(data_dir, false).expect("Could not setup logger");
+            }
             run_with_ctx(ctx);
         }
 
