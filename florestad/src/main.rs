@@ -44,6 +44,9 @@ use cli::Cli;
 use cli::Commands;
 use cli::FilterType;
 use config_file::ConfigFile;
+use fern::colors::Color;
+use fern::colors::ColoredLevelConfig;
+use fern::FormatCallback;
 use floresta_chain::pruned_utreexo::BlockchainInterface;
 use floresta_chain::AssumeValidArg;
 use floresta_chain::BlockchainError;
@@ -61,12 +64,10 @@ use floresta_wire::address_man::LocalAddress;
 use floresta_wire::mempool::Mempool;
 use floresta_wire::node::UtreexoNode;
 use floresta_wire::running_node::RunningNode;
+use log::debug;
 use log::error;
 use log::info;
-use log::{debug, Record};
-
-use fern::colors::{Color, ColoredLevelConfig};
-use fern::FormatCallback;
+use log::Record;
 #[cfg(feature = "zmq-server")]
 use zmq::ZMQServer;
 
@@ -109,10 +110,9 @@ fn setup_logger(data_dir: &String, log_file: bool) -> Result<(), fern::InitError
             out.finish(format_args!(
                 "[{} {} {}] {}",
                 chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
-                if use_colors {
-                    colors.color(record.level()).to_string()
-                } else {
-                    record.level().to_string()
+                match use_colors {
+                    true => colors.color(record.level()).to_string(),
+                    false => record.level().to_string(),
                 },
                 record.target(),
                 message
@@ -124,18 +124,22 @@ fn setup_logger(data_dir: &String, log_file: bool) -> Result<(), fern::InitError
         .level(log::LevelFilter::Info)
         .chain(std::io::stdout());
 
-    if log_file {
-        let file_dispatcher = fern::Dispatch::new()
-            .format(formatter(false))
-            .level(log::LevelFilter::Info)
-            .chain(fern::log_file(format!("{}/output.log", data_dir))?);
-        fern::Dispatch::new()
-            .chain(stdout_dispatcher)
-            .chain(file_dispatcher)
-            .apply()?;
-    } else {
-        fern::Dispatch::new().chain(stdout_dispatcher).apply()?;
+    match log_file {
+        true => {
+            let file_dispatcher = fern::Dispatch::new()
+                .format(formatter(false))
+                .level(log::LevelFilter::Info)
+                .chain(fern::log_file(format!("{}/output.log", data_dir))?);
+            fern::Dispatch::new()
+                .chain(stdout_dispatcher)
+                .chain(file_dispatcher)
+                .apply()?;
+        }
+        false => {
+            fern::Dispatch::new().chain(stdout_dispatcher).apply()?;
+        }
     }
+
     Ok(())
 }
 
@@ -190,10 +194,13 @@ fn main() {
                 .or_else(|| Some(".".to_string()))
                 .unwrap();
             // Setup logger
-            if params.log_file {
-                setup_logger(data_dir, true).expect("Could not setup logger");
-            } else {
-                setup_logger(data_dir, false).expect("Could not setup logger");
+            match params.log_file {
+                true => {
+                    setup_logger(data_dir, true).expect("Could not setup logger");
+                }
+                false => {
+                    setup_logger(data_dir, false).expect("Could not setup logger");
+                }
             }
             run_with_ctx(ctx);
         }

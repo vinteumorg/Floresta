@@ -38,7 +38,7 @@ pub struct Cli {
     pub debug: u8,
 
     /// option for saving log into data_Dir
-    /// if set, log will be saved into dataDir/log.txt
+    /// if set, log will be saved into dataDir/output.log
     #[arg(long)]
     pub log_file: bool,
 
