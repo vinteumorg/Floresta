@@ -199,8 +199,8 @@ impl Rpc for RpcImpl {
         let node = ip.parse().map_err(|_| Error::InvalidAddress)?;
 
         match self.node.connect(node, port) {
-            Ok(_) => return Ok(true),
-            Err(_) => return Err(Error::Node.into()),
+            Ok(_) => Ok(true),
+            Err(_) => Err(Error::Node.into()),
         }
     }
 

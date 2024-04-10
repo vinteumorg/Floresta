@@ -129,6 +129,8 @@ mod tests {
 
         let gbi = client.get_blockchain_info().expect("rpc not working");
 
+        println!("{}", gbi.leaf_count);
+
         assert_eq!(gbi.root_hashes, Vec::<String>::new());
     }
 
