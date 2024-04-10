@@ -586,6 +586,53 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                             .write(serde_json::to_string(&res).unwrap().as_bytes())
                             .await?;
                     }
+                } else if let Ok(requests) = serde_json::from_str::<Vec<Request>>(&msg) {
+                    let mut results = Vec::new();
+                    for req in requests {
+                        let client = self.clients.get(&client);
+                        if client.is_none() {
+                            error!("Client sent a message but is not listed as client");
+                            return Ok(());
+                        }
+                        let client = client.unwrap().to_owned();
+                        let id = req.id.to_owned();
+                        let res = self.handle_client_request(client.clone(), req).await;
+
+                        if let Ok(res) = res {
+                            results.push(res);
+                        } else {
+                            let res = json!({
+                                "jsonrpc": "2.0",
+                                "error": {
+                                    "code": -32000,
+                                    "message": "Internal JSON-RPC error.",
+                                    "data": null
+                                },
+                                "id": id
+                            });
+                            results.push(res);
+                        }
+                    }
+                    if let Some(client) = self.clients.get(&client) {
+                        client
+                            .write(serde_json::to_string(&results).unwrap().as_bytes())
+                            .await?;
+                    }
+                } else {
+                    let res = json!({
+                        "jsonrpc": "2.0",
+                        "error": {
+                            "code": -32700,
+                            "message": "Parse error. Invalid JSON was received by the server.",
+                            "data": null
+                        },
+                        "id": null
+                    });
+                    if let Some(client) = self.clients.get(&client) {
+                        client
+                            .write(serde_json::to_string(&res).unwrap().as_bytes())
+                            .await?;
+                    }
                 }
             }
 
