@@ -32,6 +32,7 @@ floresta-chain = { path = "../floresta-chain" }
 thiserror = "1.0"
 floresta-common = { path = "../floresta-common" }
 oneshot = "0.1.5"
+mockall = "0.12.1"
 
 [features]
 default = []

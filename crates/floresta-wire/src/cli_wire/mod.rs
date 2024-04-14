@@ -1,3 +1,5 @@
+pub mod test;
+
 use std::{
     collections::HashMap,
     io::BufReader,
