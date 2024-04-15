@@ -52,6 +52,7 @@ use super::running_node::RunningNode;
 use super::socks::Socks5Addr;
 use super::socks::Socks5Error;
 use super::socks::Socks5StreamBuilder;
+use super::UtreexoNodeConfig;
 use crate::node_context::PeerId;
 
 #[derive(Debug)]
@@ -76,11 +77,13 @@ pub enum NodeRequest {
     MempoolTransaction(Txid),
     /// Sends know addresses to our peers
     SendAddresses(Vec<AddrV2Message>),
+    GetUtreexoState((BlockHash, u32)),
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone)]
 pub(crate) enum InflightRequests {
     Headers,
+    UtreexoState(PeerId),
     Blocks(BlockHash),
     RescanBlock(BlockHash),
     UserRequest(UserRequest),
@@ -89,17 +92,17 @@ pub(crate) enum InflightRequests {
 
 #[derive(Debug, Clone)]
 pub struct LocalPeerView {
-    state: PeerStatus,
+    pub(crate) state: PeerStatus,
     pub(crate) address_id: u32,
-    channel: Sender<NodeRequest>,
-    services: ServiceFlags,
-    user_agent: String,
-    address: IpAddr,
-    port: u16,
-    _last_message: Instant,
-    feeler: bool,
-    height: u32,
-    banscore: u32,
+    pub(crate) channel: Sender<NodeRequest>,
+    pub(crate) services: ServiceFlags,
+    pub(crate) user_agent: String,
+    pub(crate) address: IpAddr,
+    pub(crate) port: u16,
+    pub(crate) _last_message: Instant,
+    pub(crate) feeler: bool,
+    pub(crate) height: u32,
+    pub(crate) banscore: u32,
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -147,6 +150,7 @@ pub struct NodeCommon<Chain: BlockchainInterface + UpdatableChainstate> {
     pub(crate) max_banscore: u32,
     pub(crate) socks5: Option<Socks5StreamBuilder>,
     pub(crate) fixed_peer: Option<LocalAddress>,
+    pub(crate) config: UtreexoNodeConfig,
 }
 
 pub struct UtreexoNode<Context, Chain: BlockchainInterface + UpdatableChainstate>(
@@ -168,7 +172,7 @@ impl<T, Chain: BlockchainInterface + UpdatableChainstate> DerefMut for UtreexoNo
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
-enum PeerStatus {
+pub(crate) enum PeerStatus {
     Awaiting,
     Ready,
 }
@@ -180,16 +184,12 @@ where
     Chain: BlockchainInterface + UpdatableChainstate + 'static,
 {
     pub fn new(
+        config: UtreexoNodeConfig,
         chain: Arc<Chain>,
         mempool: Arc<RwLock<Mempool>>,
-        network: Network,
-        datadir: String,
-        proxy: Option<SocketAddr>,
-        max_banscore: Option<u32>,
-        fixed_peer: Option<LocalAddress>,
     ) -> Self {
         let (node_tx, node_rx) = channel::unbounded();
-        let socks5 = proxy.map(Socks5StreamBuilder::new);
+        let socks5 = config.proxy.map(Socks5StreamBuilder::new);
         UtreexoNode(
             NodeCommon {
                 inflight: HashMap::new(),
@@ -200,7 +200,7 @@ where
                 peer_ids: Vec::new(),
                 utreexo_peers: Vec::new(),
                 mempool,
-                network,
+                network: config.network.into(),
                 node_rx,
                 node_tx,
                 address_man: AddressMan::default(),
@@ -212,10 +212,11 @@ where
                 blocks: HashMap::new(),
                 last_get_address_request: Instant::now(),
                 last_send_addresses: Instant::now(),
-                datadir,
+                datadir: config.datadir.clone(),
                 socks5,
-                max_banscore: max_banscore.unwrap_or(50),
-                fixed_peer,
+                max_banscore: config.max_banscore,
+                fixed_peer: config.fixed_peer.clone(),
+                config,
             },
             T::default(),
         )
@@ -503,6 +504,7 @@ where
         }
         Ok(())
     }
+
     pub(crate) async fn open_feeler_connection(&mut self) -> Result<(), WireError> {
         // No feeler if `-connect` is set
         if self.fixed_peer.is_some() {
@@ -539,11 +541,7 @@ where
 
     pub(crate) async fn create_connection(&mut self, feeler: bool) -> Option<()> {
         // We should try to keep at least two utreexo connections
-        let required_services = if self.utreexo_peers.len() < 2 {
-            ServiceFlags::NETWORK | ServiceFlags::WITNESS | ServiceFlags::from(1 << 24)
-        } else {
-            ServiceFlags::NETWORK | ServiceFlags::WITNESS
-        };
+        let required_services = self.1.get_required_services(self.utreexo_peers.len());
 
         let (peer_id, address) = match &self.fixed_peer {
             Some(address) => (0, address.clone()),
@@ -568,6 +566,7 @@ where
         self.open_connection(feeler, peer_id, address).await;
         Some(())
     }
+
     /// Opens a new connection that doesn't require a proxy.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn open_non_proxy_connection(

@@ -50,7 +50,14 @@ pub struct RunningNode {
 }
 
 impl NodeContext for RunningNode {
-    const REQUEST_TIMEOUT: u64 = 60;
+    const REQUEST_TIMEOUT: u64 = 60 * 2;
+    fn get_required_services(&self, _utreexo_peers: usize) -> ServiceFlags {
+        if _utreexo_peers <= 2 {
+            ServiceFlags::UTREEXO | ServiceFlags::NETWORK | ServiceFlags::WITNESS
+        } else {
+            ServiceFlags::NETWORK | ServiceFlags::WITNESS
+        }
+    }
 }
 
 impl<Chain> UtreexoNode<RunningNode, Chain>
@@ -186,6 +193,7 @@ where
             self.increase_banscore(peer, 2).await?;
 
             match request {
+                InflightRequests::UtreexoState(_) => {}
                 InflightRequests::Blocks(block) => {
                     if self.utreexo_peers.is_empty() {
                         continue;
@@ -259,17 +267,18 @@ where
         Ok(())
     }
 
-    pub async fn run(mut self, kill_signal: &Arc<RwLock<bool>>) {
+    pub async fn run(mut self, kill_signal: Arc<RwLock<bool>>) {
         try_and_log!(self.init_peers().await);
 
         // Use this node state to Initial Block download
         let mut ibd = UtreexoNode(self.0, ChainSelector::default());
-        try_and_log!(UtreexoNode::<ChainSelector, Chain>::run(&mut ibd, kill_signal).await);
+        try_and_log!(UtreexoNode::<ChainSelector, Chain>::run(&mut ibd, kill_signal.clone()).await);
 
         // Then take the final state and run the node
         self = UtreexoNode(ibd.0, self.1);
         info!("starting running node...");
         self.last_block_request = self.chain.get_validation_index().unwrap_or(0);
+
         loop {
             while let Ok(notification) =
                 timeout(Duration::from_millis(100), self.node_rx.recv()).await
@@ -427,11 +436,13 @@ where
         if self.inflight.contains_key(&InflightRequests::Headers) {
             return Ok(());
         }
+
         let locator = self.0.chain.get_block_locator().unwrap();
 
         let peer = self
             .send_to_random_peer(NodeRequest::GetHeaders(locator), ServiceFlags::NONE)
             .await?;
+
         self.inflight
             .insert(InflightRequests::Headers, (peer, Instant::now()));
 
@@ -604,6 +615,11 @@ where
                     for header in headers.iter() {
                         self.chain.accept_header(*header)?;
                     }
+
+                    if self.chain.is_in_idb() {
+                        let blocks = headers.iter().map(|header| header.block_hash()).collect();
+                        self.request_blocks(blocks).await?;
+                    }
                 }
                 PeerMessages::Ready(version) => {
                     self.handle_peer_ready(peer, &version).await?;
@@ -640,6 +656,13 @@ where
                         UserRequest::MempoolTransaction(tx.txid()),
                         Some(NodeResponse::MempoolTransaction(tx)),
                     );
+                }
+                PeerMessages::UtreexoState(_) => {
+                    warn!(
+                        "Utreexo state received from peer {}, but we didn't ask",
+                        peer
+                    );
+                    self.increase_banscore(peer, 5).await?;
                 }
             },
         }

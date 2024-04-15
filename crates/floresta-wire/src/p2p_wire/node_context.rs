@@ -19,6 +19,8 @@
 //!                  will handle new blocks (even if `SyncNode` haven't returned) and handle
 //!                  requests by users.
 
+use bitcoin::p2p::ServiceFlags;
+
 /// This trait mainly defines a bunch of constants that we need for the node, but we may tweak
 /// those values for each one. It's also an organized way of defining those constants anyway.
 pub trait NodeContext {
@@ -49,6 +51,9 @@ pub trait NodeContext {
     const BLOCK_CHECK_INTERVAL: u64 = 60 * 5; // 5 minutes
     /// How often we send our addresses to our peers
     const SEND_ADDRESSES_INTERVAL: u64 = 60 * 60; // 1 hour
+    fn get_required_services(&self, _utreexo_peers: usize) -> ServiceFlags {
+        ServiceFlags::NETWORK
+    }
 }
 
 pub(crate) type PeerId = u32;
