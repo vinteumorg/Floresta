@@ -188,21 +188,8 @@ fn main() {
                 json_rpc_address: rpc_address,
                 electrum_address,
             };
-            let data_dir = &ctx
-                .data_dir
-                .clone()
-                .or_else(|| Some(".".to_string()))
-                .unwrap();
-            // Setup logger
-            match params.log_file {
-                true => {
-                    setup_logger(data_dir, true).expect("Could not setup logger");
-                }
-                false => {
-                    setup_logger(data_dir, false).expect("Could not setup logger");
-                }
-            }
-            run_with_ctx(ctx);
+
+            run_with_ctx(ctx, params.log_file);
         }
 
         // We may have more commands here, like setup and dump wallet
@@ -216,14 +203,14 @@ fn main() {
                 cfilter_types,
                 ..Default::default()
             };
-            run_with_ctx(ctx);
+            run_with_ctx(ctx, params.log_file);
         }
     }
 }
 
 /// Actually runs florestad, spawning all modules and waiting util
 /// someone asks to stop.
-fn run_with_ctx(ctx: Ctx) {
+fn run_with_ctx(ctx: Ctx, log_file: bool) {
     let kill_signal = Arc::new(RwLock::new(false));
 
     let data_dir = ctx
@@ -238,6 +225,18 @@ fn run_with_ctx(ctx: Ctx) {
             })
         })
         .unwrap_or("floresta".into());
+
+    // setup logger
+    match log_file {
+        true => {
+            setup_logger(&data_dir, true).expect("Could not setup logger");
+        }
+        false => {
+            println!("hello this is false");
+
+            setup_logger(&data_dir, false).expect("Could not setup logger");
+        }
+    }
 
     let data_dir = match ctx.network {
         cli::Network::Bitcoin => data_dir,
