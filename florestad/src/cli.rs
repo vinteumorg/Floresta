@@ -37,6 +37,11 @@ pub struct Cli {
     #[arg(short, long, action = clap::ArgAction::Count)]
     pub debug: u8,
 
+    /// option for saving log into data_Dir
+    /// if set, log will be saved into dataDir/output.log
+    #[arg(long)]
+    pub log_file: bool,
+
     #[command(subcommand)]
     pub command: Option<Commands>,
 }

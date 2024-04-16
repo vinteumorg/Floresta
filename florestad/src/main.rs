@@ -28,6 +28,7 @@ mod wallet_input;
 #[cfg(feature = "zmq-server")]
 mod zmq;
 
+use std::fmt::Arguments;
 use std::path::PathBuf;
 use std::process::exit;
 use std::str::FromStr;
@@ -43,6 +44,9 @@ use cli::Cli;
 use cli::Commands;
 use cli::FilterType;
 use config_file::ConfigFile;
+use fern::colors::Color;
+use fern::colors::ColoredLevelConfig;
+use fern::FormatCallback;
 use floresta_chain::pruned_utreexo::BlockchainInterface;
 use floresta_chain::AssumeValidArg;
 use floresta_chain::BlockchainError;
@@ -64,8 +68,7 @@ use floresta_wire::UtreexoNodeConfig;
 use log::debug;
 use log::error;
 use log::info;
-use pretty_env_logger::env_logger::Env;
-use pretty_env_logger::env_logger::TimestampPrecision;
+use log::Record;
 #[cfg(feature = "zmq-server")]
 use zmq::ZMQServer;
 
@@ -94,13 +97,54 @@ struct Ctx {
     json_rpc_address: Option<String>,
     electrum_address: Option<String>,
 }
-fn main() {
-    // Setup global logger
-    pretty_env_logger::env_logger::Builder::from_env(Env::default().default_filter_or("info"))
-        .format_timestamp(Some(TimestampPrecision::Seconds))
-        .format_module_path(true)
-        .init();
 
+fn setup_logger(data_dir: &String, log_file: bool) -> Result<(), fern::InitError> {
+    let colors = ColoredLevelConfig::new()
+        .error(Color::Red)
+        .warn(Color::Yellow)
+        .info(Color::Green)
+        .debug(Color::Blue)
+        .trace(Color::BrightBlack);
+
+    let formatter = |use_colors: bool| {
+        move |out: FormatCallback, message: &Arguments, record: &Record| {
+            out.finish(format_args!(
+                "[{} {} {}] {}",
+                chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+                match use_colors {
+                    true => colors.color(record.level()).to_string(),
+                    false => record.level().to_string(),
+                },
+                record.target(),
+                message
+            ))
+        }
+    };
+    let stdout_dispatcher = fern::Dispatch::new()
+        .format(formatter(true))
+        .level(log::LevelFilter::Info)
+        .chain(std::io::stdout());
+
+    match log_file {
+        true => {
+            let file_dispatcher = fern::Dispatch::new()
+                .format(formatter(false))
+                .level(log::LevelFilter::Info)
+                .chain(fern::log_file(format!("{}/output.log", data_dir))?);
+            fern::Dispatch::new()
+                .chain(stdout_dispatcher)
+                .chain(file_dispatcher)
+                .apply()?;
+        }
+        false => {
+            fern::Dispatch::new().chain(stdout_dispatcher).apply()?;
+        }
+    }
+
+    Ok(())
+}
+
+fn main() {
     let params = Cli::parse();
     match params.command {
         #[cfg(feature = "experimental-p2p")]
@@ -146,7 +190,7 @@ fn main() {
                 electrum_address,
             };
 
-            run_with_ctx(ctx);
+            run_with_ctx(ctx, params.log_file);
         }
 
         // We may have more commands here, like setup and dump wallet
@@ -160,14 +204,14 @@ fn main() {
                 cfilter_types,
                 ..Default::default()
             };
-            run_with_ctx(ctx);
+            run_with_ctx(ctx, params.log_file);
         }
     }
 }
 
 /// Actually runs florestad, spawning all modules and waiting util
 /// someone asks to stop.
-fn run_with_ctx(ctx: Ctx) {
+fn run_with_ctx(ctx: Ctx, log_file: bool) {
     let kill_signal = Arc::new(RwLock::new(false));
 
     let data_dir = ctx
@@ -182,6 +226,16 @@ fn run_with_ctx(ctx: Ctx) {
             })
         })
         .unwrap_or("floresta".into());
+
+    // setup logger
+    match log_file {
+        true => {
+            setup_logger(&data_dir, true).expect("Could not setup logger");
+        }
+        false => {
+            setup_logger(&data_dir, false).expect("Could not setup logger");
+        }
+    }
 
     let data_dir = match ctx.network {
         cli::Network::Bitcoin => data_dir,
