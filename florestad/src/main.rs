@@ -232,8 +232,6 @@ fn run_with_ctx(ctx: Ctx, log_file: bool) {
             setup_logger(&data_dir, true).expect("Could not setup logger");
         }
         false => {
-            println!("hello this is false");
-
             setup_logger(&data_dir, false).expect("Could not setup logger");
         }
     }
