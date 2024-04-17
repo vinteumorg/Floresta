@@ -201,3 +201,166 @@ pub trait ChainStore {
 pub enum Notification {
     NewBlock((Block, u32)),
 }
+
+impl<T: UpdatableChainstate> UpdatableChainstate for Arc<T> {
+    fn flush(&self) -> Result<(), BlockchainError> {
+        T::flush(self)
+    }
+
+    fn toggle_ibd(&self, is_ibd: bool) {
+        T::toggle_ibd(self, is_ibd)
+    }
+
+    fn connect_block(
+        &self,
+        block: &Block,
+        proof: Proof,
+        inputs: HashMap<OutPoint, TxOut>,
+        del_hashes: Vec<sha256::Hash>,
+    ) -> Result<u32, BlockchainError> {
+        T::connect_block(self, block, proof, inputs, del_hashes)
+    }
+
+    fn accept_header(&self, header: BlockHeader) -> Result<(), BlockchainError> {
+        T::accept_header(self, header)
+    }
+
+    fn get_root_hashes(&self) -> Vec<NodeHash> {
+        T::get_root_hashes(self)
+    }
+
+    fn invalidate_block(&self, block: BlockHash) -> Result<(), BlockchainError> {
+        T::invalidate_block(self, block)
+    }
+
+    fn get_partial_chain(
+        &self,
+        initial_height: u32,
+        final_height: u32,
+        acc: Stump,
+    ) -> Result<PartialChainState, BlockchainError> {
+        T::get_partial_chain(self, initial_height, final_height, acc)
+    }
+
+    fn handle_transaction(&self) -> Result<(), BlockchainError> {
+        T::handle_transaction(self)
+    }
+
+    fn mark_chain_as_valid(&self, acc: Stump) -> Result<bool, BlockchainError> {
+        T::mark_chain_as_valid(self, acc)
+    }
+
+    fn switch_chain(&self, new_tip: BlockHash) -> Result<(), BlockchainError> {
+        T::switch_chain(self, new_tip)
+    }
+
+    fn process_rescan_block(&self, block: &Block) -> Result<(), BlockchainError> {
+        T::process_rescan_block(self, block)
+    }
+}
+
+impl<T: BlockchainInterface> BlockchainInterface for Arc<T> {
+    type Error = <T as BlockchainInterface>::Error;
+
+    fn get_tx(&self, txid: &bitcoin::Txid) -> Result<Option<bitcoin::Transaction>, Self::Error> {
+        T::get_tx(self, txid)
+    }
+
+    fn rescan(&self, start_height: u32) -> Result<(), Self::Error> {
+        T::rescan(self, start_height)
+    }
+
+    fn broadcast(&self, tx: &bitcoin::Transaction) -> Result<(), Self::Error> {
+        T::broadcast(self, tx)
+    }
+
+    fn get_block(&self, hash: &BlockHash) -> Result<Block, Self::Error> {
+        T::get_block(self, hash)
+    }
+
+    fn subscribe(&self, tx: Arc<dyn BlockConsumer>) {
+        T::subscribe(self, tx)
+    }
+
+    fn is_in_idb(&self) -> bool {
+        T::is_in_idb(self)
+    }
+
+    fn get_height(&self) -> Result<u32, Self::Error> {
+        T::get_height(self)
+    }
+
+    fn estimate_fee(&self, target: usize) -> Result<f64, Self::Error> {
+        T::estimate_fee(self, target)
+    }
+
+    fn get_block_hash(&self, height: u32) -> Result<bitcoin::BlockHash, Self::Error> {
+        T::get_block_hash(self, height)
+    }
+
+    fn get_best_block(&self) -> Result<(u32, BlockHash), Self::Error> {
+        T::get_best_block(self)
+    }
+
+    fn get_block_header(&self, hash: &BlockHash) -> Result<BlockHeader, Self::Error> {
+        T::get_block_header(self, hash)
+    }
+
+    fn get_rescan_index(&self) -> Option<u32> {
+        T::get_rescan_index(self)
+    }
+
+    fn get_block_height(&self, hash: &BlockHash) -> Result<Option<u32>, Self::Error> {
+        T::get_block_height(self, hash)
+    }
+
+    fn get_unbroadcasted(&self) -> Vec<Transaction> {
+        T::get_unbroadcasted(self)
+    }
+
+    fn get_block_locator(&self) -> Result<Vec<BlockHash>, Self::Error> {
+        T::get_block_locator(self)
+    }
+
+    fn is_coinbase_mature(&self, height: u32, block: BlockHash) -> Result<bool, Self::Error> {
+        T::is_coinbase_mature(self, height, block)
+    }
+
+    fn get_validation_index(&self) -> Result<u32, Self::Error> {
+        T::get_validation_index(self)
+    }
+
+    fn get_block_locator_for_tip(&self, tip: BlockHash) -> Result<Vec<BlockHash>, BlockchainError> {
+        T::get_block_locator_for_tip(self, tip)
+    }
+
+    fn update_acc(
+        &self,
+        acc: Stump,
+        block: UtreexoBlock,
+        height: u32,
+        proof: Proof,
+        del_hashes: Vec<sha256::Hash>,
+    ) -> Result<Stump, Self::Error> {
+        T::update_acc(self, acc, block, height, proof, del_hashes)
+    }
+
+    fn get_chain_tips(&self) -> Result<Vec<BlockHash>, Self::Error> {
+        T::get_chain_tips(self)
+    }
+
+    fn validate_block(
+        &self,
+        block: &Block,
+        proof: Proof,
+        inputs: HashMap<OutPoint, TxOut>,
+        del_hashes: Vec<sha256::Hash>,
+        acc: Stump,
+    ) -> Result<(), Self::Error> {
+        T::validate_block(self, block, proof, inputs, del_hashes, acc)
+    }
+
+    fn get_fork_point(&self, block: BlockHash) -> Result<BlockHash, Self::Error> {
+        T::get_fork_point(self, block)
+    }
+}

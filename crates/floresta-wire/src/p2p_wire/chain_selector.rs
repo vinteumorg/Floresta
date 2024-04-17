@@ -87,7 +87,6 @@ pub struct ChainSelector {
     sync_peer: PeerId,
     /// Peers that already sent us a message we are waiting for
     done_peers: HashSet<PeerId>,
-    acc: Option<Stump>,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -208,14 +207,13 @@ where
         let mut peer1_version = None;
         let mut peer2_version = None;
         for _ in 0..2 {
-            if let Ok(Ok(message)) = timeout(Duration::from_secs(60), self.node_rx.recv()).await {
-                if let NodeNotification::FromPeer(peer, PeerMessages::UtreexoState(state)) = message
-                {
-                    if peer == peer1 {
-                        peer1_version = Some(state);
-                    } else if peer == peer2 {
-                        peer2_version = Some(state);
-                    }
+            if let Ok(Ok(NodeNotification::FromPeer(peer, PeerMessages::UtreexoState(state)))) =
+                timeout(Duration::from_secs(60), self.node_rx.recv()).await
+            {
+                if peer == peer1 {
+                    peer1_version = Some(state);
+                } else if peer == peer2 {
+                    peer2_version = Some(state);
                 }
             }
         }
@@ -367,7 +365,7 @@ where
         let (proof, del_hashes, _) = floresta_chain::proof_util::process_proof(
             block.udata.as_ref().unwrap(),
             &block.block.txdata,
-            &*self.chain,
+            &self.chain,
         )?;
 
         Ok(self
@@ -448,6 +446,14 @@ where
                     }
                 }
 
+                if let Some(assume_utreexo) = self.config.assume_utreexo.as_ref() {
+                    let acc = Stump {
+                        leaves: assume_utreexo.leaves,
+                        roots: assume_utreexo.roots.clone(),
+                    };
+                    self.chain.mark_chain_as_valid(acc)?;
+                }
+
                 if self.config.pow_fraud_proofs {
                     self.check_tips().await?;
                 }
@@ -480,7 +486,7 @@ where
         let (proof, del_hashes, inputs) = floresta_chain::proof_util::process_proof(
             block.udata.as_ref().unwrap(),
             &block.block.txdata,
-            &*self.chain,
+            &self.chain,
         )?;
 
         let fork_height = self.chain.get_block_height(&fork)?.unwrap_or(0);
@@ -504,35 +510,32 @@ where
             let mut tips = self.chain.get_chain_tips()?;
             let (height, hash) = self.chain.get_best_block()?;
             let acc = self.find_accumulator_for_block(height, hash).await?;
-            info!("tips: {tips:?}");
-            if tips.len() == 1 {
-                warn!("We have more than one tip, we should rescan the blockchain");
-                self.chain.toggle_ibd(true);
-                self.chain.rescan(validation_index)?;
-                self.1.acc = Some(acc);
-                self.1.state = ChainSelectorState::Done;
 
+            // only one tip, our peers are following the same chain
+            if tips.len() == 1 {
                 info!(
                     "Assuming chain with {} blocks",
                     self.chain.get_best_block()?.0
                 );
 
-                self.chain
-                    .mark_chain_as_valid(self.1.acc.clone().unwrap_or_default())
-                    .unwrap();
+                self.1.state = ChainSelectorState::Done;
+                self.chain.mark_chain_as_valid(acc).unwrap();
                 self.chain.toggle_ibd(false);
             }
+            // if we have more than one tip, we need to check if our best chain has an invalid block
             tips.remove(0); // no need to check our best one
             for tip in tips {
                 self.is_our_chain_invalid(tip).await?;
             }
-        } else {
-            info!("chain close enough to tip, not asking for utreexo state");
-            self.1.state = ChainSelectorState::Done;
+
+            return Ok(());
         }
 
+        info!("chain close enough to tip, not asking for utreexo state");
+        self.1.state = ChainSelectorState::Done;
         Ok(())
     }
+
     /// Ask for headers, given a tip
     ///
     /// This function will send a `getheaders` request to our peers, assuming this
@@ -667,14 +670,13 @@ where
 
             if let Ok(Ok(message)) = timeout(Duration::from_secs(60), self.node_rx.recv()).await {
                 match message {
-                    NodeNotification::FromPeer(peer, message) => match message {
-                        PeerMessages::UtreexoState(state) => {
+                    NodeNotification::FromPeer(peer, message) => {
+                        if let PeerMessages::UtreexoState(state) = message {
                             self.inflight.remove(&InflightRequests::UtreexoState(peer));
                             info!("got state {state:?}");
                             peer_accs.push((peer, state));
                         }
-                        _ => {}
-                    },
+                    }
                 }
             }
 

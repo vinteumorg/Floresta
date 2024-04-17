@@ -358,16 +358,26 @@ fn run_with_ctx(ctx: Ctx, log_file: bool) {
 
     // Chain Provider (p2p)
 
+    // For now, we only have compatible bridges on signet, so you can't
+    // use this on mainnet or testnet
+    let pow_fraud_proofs = match ctx.network {
+        cli::Network::Bitcoin => false,
+        cli::Network::Signet => true,
+        cli::Network::Testnet => false,
+        cli::Network::Regtest => false,
+    };
+
     let config = UtreexoNodeConfig {
         network: get_net(&ctx.network),
         compact_filters: ctx.cfilters,
         datadir: data_dir.clone(),
         proxy: ctx.proxy.map(|x| x.parse().expect("Invalid proxy address")),
         fixed_peer: connect,
+        pow_fraud_proofs,
         ..Default::default()
     };
 
-    let chain_provider = UtreexoNode::<RunningNode, ChainState<KvChainStore>>::new(
+    let chain_provider = UtreexoNode::<RunningNode, Arc<ChainState<KvChainStore>>>::new(
         config,
         blockchain_state.clone(),
         Arc::new(async_std::sync::RwLock::new(Mempool::new())),

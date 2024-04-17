@@ -380,6 +380,10 @@ impl BlockchainInterface for PartialChainState {
         Ok(height + coinbase_maturity > current_height)
     }
 
+    fn get_validation_index(&self) -> Result<u32, Self::Error> {
+        Ok(self.inner().current_height)
+    }
+
     fn is_in_idb(&self) -> bool {
         !self.inner().is_sync()
     }
@@ -465,10 +469,6 @@ impl BlockchainInterface for PartialChainState {
 
     fn get_block_locator(&self) -> Result<Vec<bitcoin::BlockHash>, Self::Error> {
         unimplemented!("partialChainState::get_block_locator")
-    }
-
-    fn get_validation_index(&self) -> Result<u32, Self::Error> {
-        unimplemented!("partialChainState::get_validation_index")
     }
 }
 
