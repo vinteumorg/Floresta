@@ -14,6 +14,7 @@ use bitcoin::p2p::address::AddrV2Message;
 use bitcoin::p2p::message_blockdata::Inventory;
 use bitcoin::p2p::utreexo::UtreexoBlock;
 use bitcoin::p2p::ServiceFlags;
+use floresta_chain::pruned_utreexo::partial_chain::PartialChainState;
 use floresta_chain::pruned_utreexo::BlockchainInterface;
 use floresta_chain::pruned_utreexo::UpdatableChainstate;
 use floresta_chain::BlockValidationErrors;
@@ -21,8 +22,8 @@ use floresta_chain::BlockchainError;
 use log::debug;
 use log::error;
 use log::info;
-use log::trace;
 use log::warn;
+use rustreexo::accumulator::stump::Stump;
 
 use super::error::WireError;
 use super::peer::PeerMessages;
@@ -40,6 +41,7 @@ use crate::node_interface::NodeInterface;
 use crate::node_interface::NodeResponse;
 use crate::node_interface::UserRequest;
 use crate::p2p_wire::chain_selector::ChainSelector;
+use crate::p2p_wire::sync_node::SyncNode;
 
 #[derive(Debug, Clone)]
 pub struct RunningNode {
@@ -50,9 +52,9 @@ pub struct RunningNode {
 }
 
 impl NodeContext for RunningNode {
-    const REQUEST_TIMEOUT: u64 = 60 * 2;
-    fn get_required_services(&self, _utreexo_peers: usize) -> ServiceFlags {
-        if _utreexo_peers <= 2 {
+    const REQUEST_TIMEOUT: u64 = 30;
+    fn get_required_services(&self, utreexo_peers: usize) -> ServiceFlags {
+        if utreexo_peers <= 2 {
             ServiceFlags::UTREEXO | ServiceFlags::NETWORK | ServiceFlags::WITNESS
         } else {
             ServiceFlags::NETWORK | ServiceFlags::WITNESS
@@ -176,7 +178,7 @@ where
             let (_, time) = self.inflight.get(request).unwrap();
             if time.elapsed() > Duration::from_secs(RunningNode::REQUEST_TIMEOUT) {
                 timed_out.push(request.clone());
-                warn!("Request {:?} timed out", request);
+                debug!("Request {:?} timed out", request);
             }
         }
 
@@ -269,16 +271,57 @@ where
 
     pub async fn run(mut self, kill_signal: Arc<RwLock<bool>>) {
         try_and_log!(self.init_peers().await);
+        let startup_tip = self.chain.get_height().unwrap();
 
         // Use this node state to Initial Block download
         let mut ibd = UtreexoNode(self.0, ChainSelector::default());
         try_and_log!(UtreexoNode::<ChainSelector, Chain>::run(&mut ibd, kill_signal.clone()).await);
 
-        // Then take the final state and run the node
+        if *kill_signal.read().await {
+            self = UtreexoNode(ibd.0, self.1);
+            self.shutdown().await;
+            return;
+        }
+
         self = UtreexoNode(ibd.0, self.1);
-        info!("starting running node...");
+
+        // download all blocks from the network
+        if self.config.backfill && startup_tip == 0 {
+            let end = self.0.chain.get_validation_index().unwrap();
+            let chain = self
+                .chain
+                .get_partial_chain(startup_tip, end, Stump::default())
+                .unwrap();
+
+            let mut backfill = UtreexoNode::<SyncNode, PartialChainState>::new(
+                self.config.clone(),
+                chain,
+                self.mempool.clone(),
+            );
+
+            UtreexoNode::<SyncNode, PartialChainState>::run(
+                &mut backfill,
+                kill_signal.clone(),
+                |chain: &PartialChainState| {
+                    if chain.has_invalid_blocks() {
+                        panic!(
+                            "We assumed a chain with invalid blocks, something went really wrong"
+                        );
+                    }
+
+                    for block in chain.list_valid_blocks() {
+                        self.chain
+                            .mark_block_as_valid(block.block_hash())
+                            .expect("Failed to mark block as valid");
+                    }
+                },
+            )
+            .await;
+        }
+
         self.last_block_request = self.chain.get_validation_index().unwrap_or(0);
 
+        info!("starting running node...");
         loop {
             while let Ok(notification) =
                 timeout(Duration::from_millis(100), self.node_rx.recv()).await
@@ -360,11 +403,6 @@ where
 
             try_and_log!(self.request_rescan_block().await);
 
-            // requests that need a utreexo peer
-            if self.utreexo_peers.is_empty() {
-                continue;
-            }
-
             // Check whether we are in a stale tip
             periodic_job!(
                 self.check_for_stale_tip().await,
@@ -373,11 +411,47 @@ where
                 RunningNode
             );
 
+            // requests that need a utreexo peer
+            if self.utreexo_peers.is_empty() {
+                continue;
+            }
+
             // Check if we haven't missed any block
             if self.inflight.len() < 10 {
-                try_and_log!(self.ask_block().await);
+                try_and_log!(self.ask_missed_block().await);
             }
         }
+    }
+
+    async fn ask_missed_block(&mut self) -> Result<(), WireError> {
+        let tip = self.chain.get_height().unwrap();
+        let next = self.chain.get_validation_index().unwrap();
+        if tip == next {
+            return Ok(());
+        }
+
+        let mut blocks = Vec::new();
+        for i in (next + 1)..=tip {
+            let hash = self.chain.get_block_hash(i)?;
+            // already requested
+            if self.inflight.contains_key(&InflightRequests::Blocks(hash)) {
+                continue;
+            }
+
+            // already downloaded
+            if self.blocks.contains_key(&hash) {
+                continue;
+            }
+
+            blocks.push(hash);
+        }
+
+        if blocks.is_empty() {
+            return Ok(());
+        }
+
+        self.request_blocks(blocks).await?;
+        Ok(())
     }
 
     async fn request_rescan_block(&mut self) -> Result<(), WireError> {
@@ -423,6 +497,14 @@ where
     /// been more than 15 minutes, try to update it.
     async fn check_for_stale_tip(&mut self) -> Result<(), WireError> {
         warn!("Potential stale tip detected, trying extra peers");
+
+        // this catches an edge-case where all our utreexo peers are gone, and the GetData
+        // times-out. That yields an error, but doesn't ask the block again. Our last_block_request
+        // will be pointing to a block that will never arrive, so we basically deadlock.
+        self.last_block_request = self.chain.get_validation_index().unwrap();
+        // update this or we'll get this warning every second after 15 minutes without a block,
+        // until we get a new block.
+        self.last_tip_update = Instant::now();
         self.create_connection(false).await;
         self.send_to_random_peer(
             NodeRequest::GetHeaders(self.chain.get_block_locator().unwrap()),
@@ -526,7 +608,7 @@ where
             let (proof, del_hashes, inputs) = floresta_chain::proof_util::process_proof(
                 &block.udata.unwrap(),
                 &block.block.txdata,
-                &*self.chain,
+                &self.chain,
             )?;
 
             if let Err(e) = self
@@ -600,17 +682,21 @@ where
         match notification? {
             NodeNotification::FromPeer(peer, message) => match message {
                 PeerMessages::NewBlock(block) => {
-                    trace!("We got an inv with block {block} requesting it");
+                    debug!("We got an inv with block {block} requesting it");
                     self.handle_new_block().await?;
                 }
                 PeerMessages::Block(block) => {
-                    trace!(
+                    debug!(
                         "Got data for block {} from peer {peer}",
                         block.block.block_hash()
                     );
                     self.handle_block_data(block, peer).await?;
                 }
                 PeerMessages::Headers(headers) => {
+                    debug!(
+                        "Got headers from peer {peer} with {} headers",
+                        headers.len()
+                    );
                     self.inflight.remove(&InflightRequests::Headers);
                     for header in headers.iter() {
                         self.chain.accept_header(*header)?;
@@ -622,12 +708,14 @@ where
                     }
                 }
                 PeerMessages::Ready(version) => {
+                    debug!("handshake with peer={peer} succeeded");
                     self.handle_peer_ready(peer, &version).await?;
                 }
                 PeerMessages::Disconnected(idx) => {
                     self.handle_disconnection(peer, idx)?;
                 }
                 PeerMessages::Addr(addresses) => {
+                    debug!("Got {} addresses from peer {}", addresses.len(), peer);
                     let addresses: Vec<_> =
                         addresses.iter().cloned().map(|addr| addr.into()).collect();
                     self.address_man.push_addresses(&addresses);
@@ -652,6 +740,7 @@ where
                     _ => {}
                 },
                 PeerMessages::Transaction(tx) => {
+                    debug!("saw a mempool transaction with txid={}", tx.txid());
                     self.1.user_requests.send_answer(
                         UserRequest::MempoolTransaction(tx.txid()),
                         Some(NodeResponse::MempoolTransaction(tx)),

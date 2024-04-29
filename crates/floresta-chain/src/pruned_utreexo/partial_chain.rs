@@ -281,6 +281,25 @@ impl PartialChainState {
     fn inner_mut(&self) -> &mut PartialChainStateInner {
         unsafe { self.0.get().as_mut().expect("this pointer is valid") }
     }
+
+    /// Returns all blocks in this partial chain
+    pub fn list_blocks(&self) -> &[BlockHeader] {
+        &self.inner().blocks
+    }
+
+    /// Returns all block we have validated so far in this chain
+    pub fn list_valid_blocks(&self) -> Vec<&BlockHeader> {
+        self.inner()
+            .blocks
+            .iter()
+            .take(self.inner().current_height as usize)
+            .collect()
+    }
+
+    /// Returns whether any block inside this interval is invalid
+    pub fn has_invalid_blocks(&self) -> bool {
+        self.inner().error.is_some()
+    }
 }
 
 impl UpdatableChainstate for PartialChainState {
@@ -341,7 +360,11 @@ impl UpdatableChainstate for PartialChainState {
         unimplemented!("we don't do rescan")
     }
 
-    fn mark_chain_as_valid(&self, _acc: Stump) -> Result<bool, BlockchainError> {
+    fn mark_chain_as_assumed(&self, _acc: Stump) -> Result<bool, BlockchainError> {
+        unimplemented!("no need to mark as valid")
+    }
+
+    fn mark_block_as_valid(&self, _block: BlockHash) -> Result<(), BlockchainError> {
         unimplemented!("no need to mark as valid")
     }
 }
@@ -378,6 +401,10 @@ impl BlockchainInterface for PartialChainState {
         let coinbase_maturity = self.inner().chain_params().coinbase_maturity;
 
         Ok(height + coinbase_maturity > current_height)
+    }
+
+    fn get_validation_index(&self) -> Result<u32, Self::Error> {
+        Ok(self.inner().current_height)
     }
 
     fn is_in_idb(&self) -> bool {
@@ -465,10 +492,6 @@ impl BlockchainInterface for PartialChainState {
 
     fn get_block_locator(&self) -> Result<Vec<bitcoin::BlockHash>, Self::Error> {
         unimplemented!("partialChainState::get_block_locator")
-    }
-
-    fn get_validation_index(&self) -> Result<u32, Self::Error> {
-        unimplemented!("partialChainState::get_validation_index")
     }
 }
 

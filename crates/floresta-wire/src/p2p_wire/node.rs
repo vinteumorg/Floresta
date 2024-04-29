@@ -33,6 +33,7 @@ use floresta_chain::pruned_utreexo::BlockchainInterface;
 use floresta_chain::pruned_utreexo::UpdatableChainstate;
 use floresta_chain::Network;
 use futures::Future;
+use log::debug;
 use log::info;
 use log::warn;
 
@@ -139,7 +140,7 @@ pub struct NodeCommon<Chain: BlockchainInterface + UpdatableChainstate> {
     pub(crate) utreexo_peers: Vec<u32>,
     pub(crate) peer_ids: Vec<u32>,
     pub(crate) peers: HashMap<u32, LocalPeerView>,
-    pub(crate) chain: Arc<Chain>,
+    pub(crate) chain: Chain,
     pub(crate) blocks: HashMap<BlockHash, (PeerId, UtreexoBlock)>,
     pub(crate) inflight: HashMap<InflightRequests, (u32, Instant)>,
     pub(crate) node_rx: Receiver<NodeNotification>,
@@ -183,11 +184,7 @@ where
     WireError: From<<Chain as BlockchainInterface>::Error>,
     Chain: BlockchainInterface + UpdatableChainstate + 'static,
 {
-    pub fn new(
-        config: UtreexoNodeConfig,
-        chain: Arc<Chain>,
-        mempool: Arc<RwLock<Mempool>>,
-    ) -> Self {
+    pub fn new(config: UtreexoNodeConfig, chain: Chain, mempool: Arc<RwLock<Mempool>>) -> Self {
         let (node_tx, node_rx) = channel::unbounded();
         let socks5 = config.proxy.map(Socks5StreamBuilder::new);
         UtreexoNode(
@@ -273,8 +270,8 @@ where
             return Ok(());
         }
         info!(
-            "New peer id={} version={} blocks={}",
-            version.id, version.user_agent, version.blocks
+            "New peer id={} version={} blocks={} services={}",
+            version.id, version.user_agent, version.blocks, version.services
         );
         self.inflight.remove(&InflightRequests::Connect(peer));
 
@@ -290,7 +287,7 @@ where
             }
             peer_data.state = PeerStatus::Ready;
             peer_data.services = version.services;
-            peer_data.user_agent = version.user_agent.clone();
+            peer_data.user_agent.clone_from(&version.user_agent);
             peer_data.height = version.blocks;
             self.address_man
                 .update_set_state(version.address_id, AddressState::Connected)
@@ -436,10 +433,7 @@ where
         try_and_log!(self.save_peers());
         try_and_log!(self.chain.flush());
     }
-    pub(crate) async fn ask_block(&mut self) -> Result<(), WireError> {
-        let blocks = self.get_blocks_to_download()?;
-        self.request_blocks(blocks).await
-    }
+
     pub(crate) async fn handle_broadcast(&self) -> Result<(), WireError> {
         for (_, peer) in self.peers.iter() {
             if peer.services.has(ServiceFlags::from(1 << 24)) {
@@ -466,31 +460,18 @@ where
         }
         Ok(())
     }
+
     pub(crate) async fn ask_for_addresses(&mut self) -> Result<(), WireError> {
         let _ = self
             .send_to_random_peer(NodeRequest::GetAddresses, ServiceFlags::NONE)
             .await?;
         Ok(())
     }
+
     pub(crate) fn save_peers(&self) -> Result<(), WireError> {
         self.address_man
             .dump_peers(&self.datadir)
             .map_err(WireError::Io)
-    }
-    pub(crate) fn get_blocks_to_download(&mut self) -> Result<Vec<BlockHash>, WireError> {
-        let mut blocks = Vec::new();
-        let tip = self.chain.get_height()?;
-
-        for i in (self.last_block_request + 1)..=(self.last_block_request + 10) {
-            if i > tip {
-                break;
-            }
-            self.last_block_request += 1;
-            let hash = self.chain.get_block_hash(i)?;
-            blocks.push(hash);
-        }
-
-        Ok(blocks)
     }
 
     pub(crate) async fn maybe_open_connection(&mut self) -> Result<(), WireError> {
@@ -552,7 +533,7 @@ where
 
         self.address_man
             .update_set_state(peer_id, AddressState::Connected);
-
+        debug!("attempting connection with: {}", address.get_net_address());
         // Don't connect to the same peer twice
         if self
             .0

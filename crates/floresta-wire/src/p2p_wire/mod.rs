@@ -3,7 +3,9 @@
 
 use std::net::SocketAddr;
 
+use bitcoin::BlockHash;
 use bitcoin::Network;
+use rustreexo::accumulator::node_hash::NodeHash;
 
 use self::address_man::LocalAddress;
 
@@ -45,6 +47,31 @@ pub struct UtreexoNodeConfig {
     pub datadir: String,
     /// A SOCKS5 proxy to use. Defaults to None.
     pub proxy: Option<SocketAddr>,
+    /// If enabled, the node will assume that the provided Utreexo state is valid, and will
+    /// start running from there
+    pub assume_utreexo: Option<AssumeUtreexoValue>,
+    /// If we assumeutreexo or pow_fraud_proof, we can skip the IBD and make our node usable
+    /// faster, with the tradeoff of security. If this is enabled, we will still download the
+    /// blocks in the background, and verify the final Utreexo state. So, the worse case scenario
+    /// is that we are vulnerable to a fraud proof attack for a few hours, but we can spot it
+    /// and react in a couple of hours at most, so the attack window is very small.
+    pub backfill: bool,
+}
+
+/// If enabled, the node will assume that the provided Utreexo state is valid, and will
+/// start running from there. You may use this to make your node start faster, but you
+/// should be sure that the provided state is valid. You may or not verify the state,
+/// by downloading all blocks on background, and then verifying the final Utreexo state.
+#[derive(Debug, Clone)]
+pub struct AssumeUtreexoValue {
+    /// The latest block assumed to be valid. This acc is the roots at this block
+    pub block_hash: BlockHash,
+    /// Same as block_hash, but in height
+    pub height: u32,
+    /// The roots of the Utreexo accumulator at this block
+    pub roots: Vec<NodeHash>,
+    /// The number of leaves in the Utreexo accumulator at this block
+    pub leaves: u64,
 }
 
 impl Default for UtreexoNodeConfig {
@@ -59,6 +86,8 @@ impl Default for UtreexoNodeConfig {
             max_inflight: 10,
             datadir: ".floresta-node".to_string(),
             proxy: None,
+            backfill: false,
+            assume_utreexo: None,
         }
     }
 }
@@ -74,3 +103,4 @@ pub mod peer;
 pub mod running_node;
 pub mod socks;
 pub mod stream_reader;
+pub mod sync_node;

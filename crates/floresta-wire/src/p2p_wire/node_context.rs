@@ -34,7 +34,7 @@ pub trait NodeContext {
     /// Attempt to open a new connection (if needed) every TRY_NEW_CONNECTION seconds
     const TRY_NEW_CONNECTION: u64 = 10; // 10 seconds
     /// If ASSUME_STALE seconds passed since our last tip update, treat it as stale
-    const ASSUME_STALE: u64 = 30 * 60; // 30 minutes
+    const ASSUME_STALE: u64 = 15 * 60; // 15 minutes
     /// While on IBD, if we've been without blocks for this long, ask for headers again
     const IBD_REQUEST_BLOCKS_AGAIN: u64 = 30; // 30 seconds
     /// How often we broadcast transactions
