@@ -146,11 +146,14 @@ impl Florestad {
     /// It's not safe to stop you program before this thread returns because some
     /// information may not be fully flushed to disk yet, and killing the process
     /// before flushing everything is equivalent to an unclean shutdown.
+    #[allow(unused)]
     pub fn stop(&self) {
         async_std::task::block_on(async move {
             *self.stop_signal.write().await = true;
-            let mut chan = self.stop_notify.lock().unwrap();
-            let chan = std::mem::take(&mut *chan);
+            let chan = {
+                let mut guard = self.stop_notify.lock().unwrap();
+                std::mem::take(&mut *guard)
+            };
             if let Some(chan) = chan {
                 if let Err(e) = chan.await {
                     error!("POSSIBLE BUG: unexpected error while shutting down {e:?}");
@@ -164,8 +167,10 @@ impl Florestad {
     }
 
     pub async fn wait_shutdown(&self) {
-        let mut chan = self.stop_notify.lock().unwrap();
-        let chan = std::mem::take(&mut *chan);
+        let chan = {
+            let mut guard = self.stop_notify.lock().unwrap();
+            std::mem::take(&mut *guard)
+        };
         if let Some(chan) = chan {
             if let Err(e) = chan.await {
                 error!("POSSIBLE BUG: unexpected error while shutting down {e:?}");
