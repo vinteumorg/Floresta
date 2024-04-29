@@ -13,6 +13,7 @@ use crate::prelude::*;
 #[derive(Debug)]
 pub enum DiskBlockHeader {
     FullyValid(BlockHeader, u32),
+    AssumedValid(BlockHeader, u32),
     Orphan(BlockHeader),
     HeadersOnly(BlockHeader, u32),
     InFork(BlockHeader, u32),
@@ -29,6 +30,7 @@ impl DiskBlockHeader {
             DiskBlockHeader::HeadersOnly(_, height) => Some(*height),
             DiskBlockHeader::InFork(_, height) => Some(*height),
             DiskBlockHeader::InvalidChain(_) => None,
+            DiskBlockHeader::AssumedValid(_, height) => Some(*height),
         }
     }
 }
@@ -41,6 +43,7 @@ impl Deref for DiskBlockHeader {
             DiskBlockHeader::HeadersOnly(header, _) => header,
             DiskBlockHeader::InFork(header, _) => header,
             DiskBlockHeader::InvalidChain(header) => header,
+            DiskBlockHeader::AssumedValid(header, _) => header,
         }
     }
 }
@@ -67,6 +70,10 @@ impl Decodable for DiskBlockHeader {
                 Ok(Self::InFork(header, height))
             }
             0x04 => Ok(Self::InvalidChain(header)),
+            0x05 => {
+                let height = u32::consensus_decode(reader)?;
+                Ok(Self::AssumedValid(header, height))
+            }
             _ => unreachable!(),
         }
     }
@@ -103,6 +110,12 @@ impl Encodable for DiskBlockHeader {
             DiskBlockHeader::InvalidChain(header) => {
                 0x04_u8.consensus_encode(writer)?;
                 header.consensus_encode(writer)?;
+            }
+            DiskBlockHeader::AssumedValid(header, height) => {
+                0x05_u8.consensus_encode(writer)?;
+                header.consensus_encode(writer)?;
+                height.consensus_encode(writer)?;
+                len += 4;
             }
         };
         Ok(len)

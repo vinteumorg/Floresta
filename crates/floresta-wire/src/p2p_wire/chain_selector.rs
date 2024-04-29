@@ -451,7 +451,7 @@ where
                         leaves: assume_utreexo.leaves,
                         roots: assume_utreexo.roots.clone(),
                     };
-                    self.chain.mark_chain_as_valid(acc)?;
+                    self.chain.mark_chain_as_assumed(acc)?;
                 }
 
                 if self.config.pow_fraud_proofs {
@@ -519,7 +519,7 @@ where
                 );
 
                 self.1.state = ChainSelectorState::Done;
-                self.chain.mark_chain_as_valid(acc).unwrap();
+                self.chain.mark_chain_as_assumed(acc).unwrap();
                 self.chain.toggle_ibd(false);
             }
             // if we have more than one tip, we need to check if our best chain has an invalid block

@@ -52,9 +52,9 @@ pub struct RunningNode {
 }
 
 impl NodeContext for RunningNode {
-    const REQUEST_TIMEOUT: u64 = 60 * 2;
-    fn get_required_services(&self, _utreexo_peers: usize) -> ServiceFlags {
-        if _utreexo_peers <= 2 {
+    const REQUEST_TIMEOUT: u64 = 30;
+    fn get_required_services(&self, utreexo_peers: usize) -> ServiceFlags {
+        if utreexo_peers <= 2 {
             ServiceFlags::UTREEXO | ServiceFlags::NETWORK | ServiceFlags::WITNESS
         } else {
             ServiceFlags::NETWORK | ServiceFlags::WITNESS
@@ -283,46 +283,42 @@ where
             return;
         }
 
-        // download all blocks from the network
-        let mut sync = UtreexoNode(ibd.0, SyncNode::default());
+        self = UtreexoNode(ibd.0, self.1);
 
-        if sync.config.backfill && startup_tip == 0 {
-            let end = sync.0.chain.get_validation_index().unwrap();
-            let chain = sync
+        // download all blocks from the network
+        if self.config.backfill && startup_tip == 0 {
+            let end = self.0.chain.get_validation_index().unwrap();
+            let chain = self
                 .chain
                 .get_partial_chain(startup_tip, end, Stump::default())
                 .unwrap();
 
             let mut backfill = UtreexoNode::<SyncNode, PartialChainState>::new(
-                sync.config.clone(),
+                self.config.clone(),
                 chain,
-                sync.mempool.clone(),
+                self.mempool.clone(),
             );
 
             UtreexoNode::<SyncNode, PartialChainState>::run(
                 &mut backfill,
                 kill_signal.clone(),
-                |chain| {
-                    if chain.get_height().unwrap() != end {
-                        panic!("Backfill didn't reach the end of the chain");
+                |chain: &PartialChainState| {
+                    if chain.has_invalid_blocks() {
+                        panic!(
+                            "We assumed a chain with invalid blocks, something went really wrong"
+                        );
+                    }
+
+                    for block in chain.list_valid_blocks() {
+                        self.chain
+                            .mark_block_as_valid(block.block_hash())
+                            .expect("Failed to mark block as valid");
                     }
                 },
             )
             .await;
         }
 
-        if sync.0.chain.get_height().unwrap() > sync.0.chain.get_validation_index().unwrap() {
-            UtreexoNode::<SyncNode, Chain>::run(&mut sync, kill_signal.clone(), |_| {}).await;
-
-            if *kill_signal.read().await {
-                self = UtreexoNode(sync.0, self.1);
-                self.shutdown().await;
-                return;
-            }
-        }
-
-        // Then take the final state and run the node
-        self = UtreexoNode(sync.0, self.1);
         self.last_block_request = self.chain.get_validation_index().unwrap_or(0);
 
         info!("starting running node...");
@@ -407,11 +403,6 @@ where
 
             try_and_log!(self.request_rescan_block().await);
 
-            // requests that need a utreexo peer
-            if self.utreexo_peers.is_empty() {
-                continue;
-            }
-
             // Check whether we are in a stale tip
             periodic_job!(
                 self.check_for_stale_tip().await,
@@ -419,6 +410,11 @@ where
                 ASSUME_STALE,
                 RunningNode
             );
+
+            // requests that need a utreexo peer
+            if self.utreexo_peers.is_empty() {
+                continue;
+            }
 
             // Check if we haven't missed any block
             if self.inflight.len() < 10 {
@@ -501,6 +497,14 @@ where
     /// been more than 15 minutes, try to update it.
     async fn check_for_stale_tip(&mut self) -> Result<(), WireError> {
         warn!("Potential stale tip detected, trying extra peers");
+
+        // this catches an edge-case where all our utreexo peers are gone, and the GetData
+        // times-out. That yields an error, but doesn't ask the block again. Our last_block_request
+        // will be pointing to a block that will never arrive, so we basically deadlock.
+        self.last_block_request = self.chain.get_validation_index().unwrap();
+        // update this or we'll get this warning every second after 15 minutes without a block,
+        // until we get a new block.
+        self.last_tip_update = Instant::now();
         self.create_connection(false).await;
         self.send_to_random_peer(
             NodeRequest::GetHeaders(self.chain.get_block_locator().unwrap()),

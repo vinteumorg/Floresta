@@ -131,6 +131,9 @@ pub trait UpdatableChainstate {
     fn toggle_ibd(&self, is_ibd: bool);
     /// Tells this blockchain to consider this block invalid, and not build on top of it
     fn invalidate_block(&self, block: BlockHash) -> Result<(), BlockchainError>;
+    /// Marks one block as being fully validated, this overrides a block that was explicitly
+    /// marked as invalid.
+    fn mark_block_as_valid(&self, block: BlockHash) -> Result<(), BlockchainError>;
     /// Gives a requested block for rescan
     fn process_rescan_block(&self, block: &Block) -> Result<(), BlockchainError>;
     /// Returns the root hashes of our utreexo forest
@@ -156,7 +159,7 @@ pub trait UpdatableChainstate {
     ///
     /// This mimics the behavour of checking every block before this block, and continues
     /// from this point
-    fn mark_chain_as_valid(&self, acc: Stump) -> Result<bool, BlockchainError>;
+    fn mark_chain_as_assumed(&self, acc: Stump) -> Result<bool, BlockchainError>;
 }
 
 /// [ChainStore] is a trait defining how we interact with our chain database. This definitions
@@ -246,16 +249,20 @@ impl<T: UpdatableChainstate> UpdatableChainstate for Arc<T> {
         T::handle_transaction(self)
     }
 
-    fn mark_chain_as_valid(&self, acc: Stump) -> Result<bool, BlockchainError> {
-        T::mark_chain_as_valid(self, acc)
-    }
-
     fn switch_chain(&self, new_tip: BlockHash) -> Result<(), BlockchainError> {
         T::switch_chain(self, new_tip)
     }
 
     fn process_rescan_block(&self, block: &Block) -> Result<(), BlockchainError> {
         T::process_rescan_block(self, block)
+    }
+
+    fn mark_block_as_valid(&self, block: BlockHash) -> Result<(), BlockchainError> {
+        T::mark_block_as_valid(self, block)
+    }
+
+    fn mark_chain_as_assumed(&self, acc: Stump) -> Result<bool, BlockchainError> {
+        T::mark_chain_as_assumed(self, acc)
     }
 }
 

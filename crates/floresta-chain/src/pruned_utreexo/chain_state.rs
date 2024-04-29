@@ -305,6 +305,9 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
                     header = *self.get_ancestor(&block)?;
                     continue;
                 }
+                Some(DiskBlockHeader::AssumedValid(block, _)) => {
+                    return Ok(block);
+                }
                 Some(DiskBlockHeader::Orphan(header)) => {
                     return Err(BlockchainError::InvalidTip(format(format_args!(
                         "Block {} doesn't have a known ancestor (i.e an orphan block)",
@@ -361,7 +364,9 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         while !self.is_genesis(&header) {
             let _header = self.get_ancestor(&header)?;
             match _header {
-                DiskBlockHeader::FullyValid(_, _) => return Ok(header.block_hash()),
+                DiskBlockHeader::FullyValid(_, _) | DiskBlockHeader::AssumedValid(_, _) => {
+                    return Ok(header.block_hash())
+                }
                 DiskBlockHeader::Orphan(_) => {
                     return Err(BlockchainError::InvalidTip(format(format_args!(
                         "Block {} doesn't have a known ancestor (i.e an orphan block)",
@@ -986,7 +991,14 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
         self.reorg(new_tip)
     }
 
-    fn mark_chain_as_valid(&self, acc: Stump) -> Result<bool, BlockchainError> {
+    fn mark_block_as_valid(&self, block: BlockHash) -> Result<(), BlockchainError> {
+        let header = self.get_disk_block_header(&block)?;
+        let height = header.height().unwrap();
+        let new_header = DiskBlockHeader::FullyValid(*header, height);
+        self.update_header(&new_header)
+    }
+
+    fn mark_chain_as_assumed(&self, acc: Stump) -> Result<bool, BlockchainError> {
         let assumed_hash = self.get_best_block()?.1;
 
         let mut curr_header = self.get_block_header(&assumed_hash)?;
@@ -1058,6 +1070,7 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
         }
         Ok(())
     }
+
     fn connect_block(
         &self,
         block: &Block,
@@ -1073,6 +1086,7 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
             }
             // If it's valid or orphan, we don't validate
             DiskBlockHeader::Orphan(_)
+            | DiskBlockHeader::AssumedValid(_, _) // this will be validated by a partial chain
             | DiskBlockHeader::InFork(_, _)
             | DiskBlockHeader::InvalidChain(_) => return Ok(0),
             DiskBlockHeader::HeadersOnly(_, height) => height,
@@ -1179,6 +1193,7 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
 
         Ok(())
     }
+
     fn get_root_hashes(&self) -> Vec<NodeHash> {
         let inner = read_lock!(self);
         inner.acc.roots.clone()
@@ -1191,7 +1206,16 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
         acc: Stump,
     ) -> Result<super::partial_chain::PartialChainState, BlockchainError> {
         let blocks = (initial_height..=final_height)
-            .map(|height| self.get_block_header_by_height(height))
+            .flat_map(|height| {
+                let hash = self
+                    .get_block_hash(height)
+                    .expect("Block should be present");
+                self.get_disk_block_header(&hash)
+            })
+            .filter_map(|header| match header {
+                DiskBlockHeader::FullyValid(header, _) => Some(header),
+                _ => None,
+            })
             .collect();
 
         let inner = PartialChainStateInner {

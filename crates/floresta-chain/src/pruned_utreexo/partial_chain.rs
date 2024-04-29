@@ -281,6 +281,25 @@ impl PartialChainState {
     fn inner_mut(&self) -> &mut PartialChainStateInner {
         unsafe { self.0.get().as_mut().expect("this pointer is valid") }
     }
+
+    /// Returns all blocks in this partial chain
+    pub fn list_blocks(&self) -> &[BlockHeader] {
+        &self.inner().blocks
+    }
+
+    /// Returns all block we have validated so far in this chain
+    pub fn list_valid_blocks(&self) -> Vec<&BlockHeader> {
+        self.inner()
+            .blocks
+            .iter()
+            .take(self.inner().current_height as usize)
+            .collect()
+    }
+
+    /// Returns whether any block inside this interval is invalid
+    pub fn has_invalid_blocks(&self) -> bool {
+        self.inner().error.is_some()
+    }
 }
 
 impl UpdatableChainstate for PartialChainState {
@@ -341,7 +360,11 @@ impl UpdatableChainstate for PartialChainState {
         unimplemented!("we don't do rescan")
     }
 
-    fn mark_chain_as_valid(&self, _acc: Stump) -> Result<bool, BlockchainError> {
+    fn mark_chain_as_assumed(&self, _acc: Stump) -> Result<bool, BlockchainError> {
+        unimplemented!("no need to mark as valid")
+    }
+
+    fn mark_block_as_valid(&self, _block: BlockHash) -> Result<(), BlockchainError> {
         unimplemented!("no need to mark as valid")
     }
 }

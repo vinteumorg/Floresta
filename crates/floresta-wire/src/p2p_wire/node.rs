@@ -270,8 +270,8 @@ where
             return Ok(());
         }
         info!(
-            "New peer id={} version={} blocks={}",
-            version.id, version.user_agent, version.blocks
+            "New peer id={} version={} blocks={} services={}",
+            version.id, version.user_agent, version.blocks, version.services
         );
         self.inflight.remove(&InflightRequests::Connect(peer));
 
