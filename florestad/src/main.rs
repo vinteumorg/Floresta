@@ -33,7 +33,6 @@ use std::time::Duration;
 use clap::Parser;
 use cli::Cli;
 use cli::Commands;
-use cli::FilterType;
 use florestad::Config;
 use florestad::Florestad;
 #[cfg(feature = "zmq-server")]
@@ -54,56 +53,38 @@ async fn main() {
             proxy,
             zmq_address: _zmq_address,
             cfilters,
-            cfilter_types,
             connect,
             rpc_address,
             electrum_address,
-        }) => {
-            // By default, we build filters for WPKH and TR outputs, as they are the newest.
-            // We also build the `inputs` filters to find spends
-            let cfilter_types = match cfilter_types {
-                Some(cfilters) if !cfilters.is_empty() => cfilters,
-                _ => {
-                    vec![FilterType::SpkWPKH, FilterType::SpkTR, FilterType::Inputs]
-                }
-            };
-
-            Config {
-                data_dir,
-                assume_valid,
-                wallet_xpub,
-                wallet_descriptor,
-                rescan,
-                proxy,
-                config_file: params.config_file,
-                network: params.network,
-                cfilters,
-                cfilter_types,
-                #[cfg(feature = "zmq-server")]
-                zmq_address: _zmq_address,
-                connect,
-                #[cfg(feature = "json-rpc")]
-                json_rpc_address: rpc_address,
-                electrum_address,
-                log_to_file: true,
-                log_to_stdout: true,
-            }
-        }
+        }) => Config {
+            data_dir,
+            assume_valid,
+            wallet_xpub,
+            wallet_descriptor,
+            rescan,
+            proxy,
+            config_file: params.config_file,
+            network: params.network,
+            cfilters,
+            #[cfg(feature = "zmq-server")]
+            zmq_address: _zmq_address,
+            connect,
+            #[cfg(feature = "json-rpc")]
+            json_rpc_address: rpc_address,
+            electrum_address,
+            log_to_file: true,
+            log_to_stdout: true,
+        },
 
         // We may have more commands here, like setup and dump wallet
-        None => {
-            let cfilter_types = vec![FilterType::SpkWPKH, FilterType::SpkTR, FilterType::Inputs];
-
-            Config {
-                config_file: params.config_file,
-                network: params.network,
-                cfilters: true,
-                cfilter_types,
-                log_to_file: false,
-                log_to_stdout: true,
-                ..Default::default()
-            }
-        }
+        None => Config {
+            config_file: params.config_file,
+            network: params.network,
+            cfilters: true,
+            log_to_file: false,
+            log_to_stdout: true,
+            ..Default::default()
+        },
     };
 
     let florestad = Florestad::from(config);

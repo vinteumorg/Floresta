@@ -32,6 +32,8 @@ use floresta_chain::pruned_utreexo::chainparams::get_chain_dns_seeds;
 use floresta_chain::pruned_utreexo::BlockchainInterface;
 use floresta_chain::pruned_utreexo::UpdatableChainstate;
 use floresta_chain::Network;
+use floresta_compact_filters::kv_filter_database::KvFilterStore;
+use floresta_compact_filters::network_filters::NetworkFilters;
 use futures::Future;
 use log::debug;
 use log::info;
@@ -79,6 +81,7 @@ pub enum NodeRequest {
     /// Sends know addresses to our peers
     SendAddresses(Vec<AddrV2Message>),
     GetUtreexoState((BlockHash, u32)),
+    GetFilter((BlockHash, u32)),
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone)]
@@ -89,6 +92,7 @@ pub(crate) enum InflightRequests {
     RescanBlock(BlockHash),
     UserRequest(UserRequest),
     Connect(u32),
+    GetFilters,
 }
 
 #[derive(Debug, Clone)]
@@ -137,7 +141,7 @@ pub struct NodeCommon<Chain: BlockchainInterface + UpdatableChainstate> {
     pub(crate) last_block_request: u32,
     pub(crate) network: Network,
     pub(crate) last_get_address_request: Instant,
-    pub(crate) utreexo_peers: Vec<u32>,
+    pub(crate) peer_by_service: HashMap<ServiceFlags, Vec<u32>>,
     pub(crate) peer_ids: Vec<u32>,
     pub(crate) peers: HashMap<u32, LocalPeerView>,
     pub(crate) chain: Chain,
@@ -152,6 +156,8 @@ pub struct NodeCommon<Chain: BlockchainInterface + UpdatableChainstate> {
     pub(crate) socks5: Option<Socks5StreamBuilder>,
     pub(crate) fixed_peer: Option<LocalAddress>,
     pub(crate) config: UtreexoNodeConfig,
+    pub(crate) block_filters: Option<Arc<NetworkFilters<KvFilterStore>>>,
+    pub(crate) last_filter: BlockHash,
 }
 
 pub struct UtreexoNode<Context, Chain: BlockchainInterface + UpdatableChainstate>(
@@ -184,18 +190,25 @@ where
     WireError: From<<Chain as BlockchainInterface>::Error>,
     Chain: BlockchainInterface + UpdatableChainstate + 'static,
 {
-    pub fn new(config: UtreexoNodeConfig, chain: Chain, mempool: Arc<RwLock<Mempool>>) -> Self {
+    pub fn new(
+        config: UtreexoNodeConfig,
+        chain: Chain,
+        mempool: Arc<RwLock<Mempool>>,
+        block_filters: Option<Arc<NetworkFilters<KvFilterStore>>>,
+    ) -> Self {
         let (node_tx, node_rx) = channel::unbounded();
         let socks5 = config.proxy.map(Socks5StreamBuilder::new);
         UtreexoNode(
             NodeCommon {
+                last_filter: chain.get_block_hash(0).unwrap(),
+                block_filters,
                 inflight: HashMap::new(),
                 peer_id_count: 0,
                 peers: HashMap::new(),
                 last_block_request: chain.get_validation_index().expect("Invalid chain"),
                 chain,
                 peer_ids: Vec::new(),
-                utreexo_peers: Vec::new(),
+                peer_by_service: HashMap::new(),
                 mempool,
                 network: config.network.into(),
                 node_rx,
@@ -235,8 +248,11 @@ where
                 info!("Peer disconnected: {}", peer);
             }
         }
+
         self.peer_ids.retain(|&id| id != peer);
-        self.utreexo_peers.retain(|&id| id != peer);
+        for (_, v) in self.peer_by_service.iter_mut() {
+            v.retain(|&id| id != peer);
+        }
 
         self.address_man.update_set_state(
             idx,
@@ -275,7 +291,7 @@ where
         );
         self.inflight.remove(&InflightRequests::Connect(peer));
 
-        if let Some(peer_data) = self.peers.get_mut(&peer) {
+        if let Some(peer_data) = self.0.peers.get_mut(&peer) {
             // This peer doesn't have basic services, so we disconnect it
             if !version
                 .services
@@ -289,12 +305,35 @@ where
             peer_data.services = version.services;
             peer_data.user_agent.clone_from(&version.user_agent);
             peer_data.height = version.blocks;
+
+            if peer_data.services.has(ServiceFlags::UTREEXO) {
+                self.0
+                    .peer_by_service
+                    .entry(ServiceFlags::UTREEXO)
+                    .or_default()
+                    .push(peer);
+            }
+
+            if peer_data.services.has(ServiceFlags::COMPACT_FILTERS) {
+                self.0
+                    .peer_by_service
+                    .entry(ServiceFlags::COMPACT_FILTERS)
+                    .or_default()
+                    .push(peer);
+            }
+
+            if peer_data.services.has(ServiceFlags::from(1 << 25)) {
+                self.0
+                    .peer_by_service
+                    .entry(ServiceFlags::from(1 << 25))
+                    .or_default()
+                    .push(peer);
+            }
+
             self.address_man
                 .update_set_state(version.address_id, AddressState::Connected)
                 .update_set_service_flag(version.address_id, version.services);
-            if version.services.has(ServiceFlags::from(1 << 24)) {
-                self.utreexo_peers.push(peer);
-            }
+
             self.peer_ids.push(peer);
         }
         Ok(())
@@ -364,48 +403,49 @@ where
         Ok(())
     }
 
+    pub(crate) fn has_utreexo_peers(&self) -> bool {
+        self.peer_by_service
+            .get(&ServiceFlags::UTREEXO)
+            .unwrap_or(&Vec::new())
+            .is_empty()
+    }
+
+    pub(crate) fn has_compact_filters_peer(&self) -> bool {
+        self.peer_by_service
+            .get(&ServiceFlags::COMPACT_FILTERS)
+            .map(|peers| peers.is_empty())
+            .unwrap_or(false)
+    }
+
     #[inline]
     pub(crate) async fn send_to_random_peer(
         &mut self,
         req: NodeRequest,
-        required_services: ServiceFlags,
+        required_service: ServiceFlags,
     ) -> Result<u32, WireError> {
         if self.peers.is_empty() {
             return Err(WireError::NoPeersAvailable);
         }
-        for _ in 0..10 {
-            let idx = if required_services.has(ServiceFlags::UTREEXO) {
-                if self.utreexo_peers.is_empty() {
-                    return Err(WireError::NoUtreexoPeersAvailable);
-                }
-                let idx = rand::random::<usize>() % self.utreexo_peers.len();
-                *self
-                    .utreexo_peers
-                    .get(idx)
-                    .expect("node is in the interval 0..utreexo_peers.len(), but is not here?")
-            } else {
-                if self.peer_ids.is_empty() {
-                    return Err(WireError::NoPeersAvailable);
-                }
-                let idx = rand::random::<usize>() % self.peer_ids.len();
-                *self
-                    .peer_ids
-                    .get(idx)
-                    .expect("node is in the interval 0..utreexo_peers.len(), but is not here?")
-            };
-            if let Some(peer) = self.peers.get(&idx) {
-                if peer.state != PeerStatus::Ready {
-                    continue;
-                }
-                peer.channel
-                    .send(req.clone())
-                    .await
-                    .map_err(WireError::ChannelSend)?;
-                return Ok(idx);
-            }
+
+        let Some(peers) = self.peer_by_service.get(&required_service) else {
+            return Err(WireError::NoPeersAvailable);
+        };
+
+        if peers.is_empty() {
+            return Err(WireError::NoPeersAvailable);
         }
-        self.create_connection(false).await;
-        Err(WireError::NoPeerToSendRequest)
+
+        let rand = rand::random::<usize>() % peers.len();
+        let peer = peers[rand];
+        self.peers
+            .get(&peer)
+            .unwrap()
+            .channel
+            .send(req)
+            .await
+            .map_err(WireError::ChannelSend)?;
+
+        Ok(peer)
     }
 
     pub(crate) async fn init_peers(&mut self) -> Result<(), WireError> {
@@ -522,7 +562,7 @@ where
 
     pub(crate) async fn create_connection(&mut self, feeler: bool) -> Option<()> {
         // We should try to keep at least two utreexo connections
-        let required_services = self.1.get_required_services(self.utreexo_peers.len());
+        let required_services = self.1.get_required_services();
 
         let (peer_id, address) = match &self.fixed_peer {
             Some(address) => (0, address.clone()),

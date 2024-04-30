@@ -113,7 +113,7 @@ impl NodeContext for ChainSelector {
     const REQUEST_TIMEOUT: u64 = 10; // Ban peers stalling our IBD
     const TRY_NEW_CONNECTION: u64 = 10; // Try creating connections more aggressively
 
-    fn get_required_services(&self, _utreexo_peers: usize) -> ServiceFlags {
+    fn get_required_services(&self) -> ServiceFlags {
         ServiceFlags::NETWORK | ServiceFlags::UTREEXO
     }
 }

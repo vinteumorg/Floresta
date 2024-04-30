@@ -53,12 +53,11 @@ pub struct RunningNode {
 
 impl NodeContext for RunningNode {
     const REQUEST_TIMEOUT: u64 = 30;
-    fn get_required_services(&self, utreexo_peers: usize) -> ServiceFlags {
-        if utreexo_peers <= 2 {
-            ServiceFlags::UTREEXO | ServiceFlags::NETWORK | ServiceFlags::WITNESS
-        } else {
-            ServiceFlags::NETWORK | ServiceFlags::WITNESS
-        }
+    fn get_required_services(&self) -> ServiceFlags {
+        ServiceFlags::UTREEXO
+            | ServiceFlags::NETWORK
+            | ServiceFlags::WITNESS
+            | ServiceFlags::COMPACT_FILTERS
     }
 }
 
@@ -197,7 +196,7 @@ where
             match request {
                 InflightRequests::UtreexoState(_) => {}
                 InflightRequests::Blocks(block) => {
-                    if self.utreexo_peers.is_empty() {
+                    if !self.has_utreexo_peers() {
                         continue;
                     }
                     let peer = self
@@ -263,6 +262,13 @@ where
                 InflightRequests::Connect(peer) => {
                     self.send_to_peer(peer, NodeRequest::Shutdown).await?
                 }
+                InflightRequests::GetFilters => {
+                    if let Some(ref block_filters) = self.block_filters {
+                        let last_success = block_filters.get_height() + 1;
+                        self.last_filter = self.chain.get_block_hash(last_success)?;
+                        self.download_filters().await?;
+                    }
+                }
             }
         }
 
@@ -301,6 +307,7 @@ where
                 self.config.clone(),
                 chain,
                 self.mempool.clone(),
+                None,
             );
 
             UtreexoNode::<SyncNode, PartialChainState>::run(
@@ -414,9 +421,9 @@ where
                 ASSUME_STALE,
                 RunningNode
             );
-
+            try_and_log!(self.download_filters().await);
             // requests that need a utreexo peer
-            if self.utreexo_peers.is_empty() {
+            if self.has_utreexo_peers() {
                 continue;
             }
 
@@ -427,6 +434,45 @@ where
         }
 
         stop_signal.send(()).unwrap();
+    }
+
+    async fn download_filters(&mut self) -> Result<(), WireError> {
+        if self.inflight.contains_key(&InflightRequests::GetFilters) {
+            return Ok(());
+        }
+
+        if !self.has_compact_filters_peer() {
+            self.create_connection(false).await;
+            return Ok(());
+        }
+
+        let Some(ref filters) = self.block_filters else {
+            return Ok(());
+        };
+
+        info!("Downloading filters from height {}", filters.get_height());
+        let height = filters.get_height();
+        let best_height = self.chain.get_height().unwrap();
+
+        let stop = if height + 1000 > best_height {
+            best_height
+        } else {
+            height + 1000
+        };
+
+        let stop_hash = self.chain.get_block_hash(stop)?;
+        self.last_filter = stop_hash;
+
+        let peer = self
+            .send_to_random_peer(
+                NodeRequest::GetFilter((stop_hash, height + 1)),
+                ServiceFlags::COMPACT_FILTERS,
+            )
+            .await?;
+
+        self.inflight
+            .insert(InflightRequests::GetFilters, (peer, Instant::now()));
+        Ok(())
     }
 
     async fn ask_missed_block(&mut self) -> Result<(), WireError> {
@@ -725,6 +771,16 @@ where
                     let addresses: Vec<_> =
                         addresses.iter().cloned().map(|addr| addr.into()).collect();
                     self.address_man.push_addresses(&addresses);
+                }
+                PeerMessages::BlockFilter((hash, filter)) => {
+                    debug!("Got a block filter from peer {}", peer);
+                    let height = self.chain.get_block_height(&hash)?.unwrap_or(0);
+                    self.block_filters
+                        .as_ref()
+                        .map(|filters| filters.push_filter(height, filter));
+                    if hash == self.last_filter {
+                        self.download_filters().await?;
+                    }
                 }
                 PeerMessages::NotFound(inv) => match inv {
                     Inventory::Error => {}

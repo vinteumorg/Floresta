@@ -1004,6 +1004,7 @@ dependencies = [
  "dns-lookup",
  "floresta-chain",
  "floresta-common",
+ "floresta-compact-filters",
  "futures 0.3.30",
  "kv",
  "log",

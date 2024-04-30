@@ -94,10 +94,6 @@ pub enum Commands {
         /// Will cause more disk usage
         #[arg(long = "cfilters", short = 'c', default_value_t = true)]
         cfilters: bool,
-        /// What types of filters we should build. Keep in mind that each filter
-        /// type you add, will eat up more disk.
-        #[arg(long = "cfilter-types")]
-        cfilter_types: Option<Vec<FilterType>>,
         #[arg(long, short, default_value = None)]
         /// The url of a proxy we should open p2p connections through (e.g. 127.0.0.1:9050)
         proxy: Option<String>,
@@ -120,16 +116,4 @@ pub enum Commands {
         #[arg(long)]
         electrum_address: Option<String>,
     },
-}
-
-#[derive(Clone, Debug, ValueEnum)]
-pub enum FilterType {
-    All,
-    Inputs,
-    TxId,
-    SpkPKH,
-    SpkPSH,
-    SpkWPKH,
-    SpkWSH,
-    SpkTR,
 }

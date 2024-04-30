@@ -57,8 +57,12 @@ async fn main() {
     // Finally, we are using the chain state created above, the node will use it to determine
     // what blocks and headers to download, and hand them to it to validate.
     let config = UtreexoNodeConfig::default();
-    let p2p: UtreexoNode<RunningNode, Arc<ChainState<KvChainStore>>> =
-        UtreexoNode::new(config, chain.clone(), Arc::new(RwLock::new(Mempool::new())));
+    let p2p: UtreexoNode<RunningNode, Arc<ChainState<KvChainStore>>> = UtreexoNode::new(
+        config,
+        chain.clone(),
+        Arc::new(RwLock::new(Mempool::new())),
+        None,
+    );
     // A handle is a simple way to interact with the node. It implements a queue of requests
     // that will be processed by the node.
     let handle = p2p.get_handle();

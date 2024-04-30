@@ -83,7 +83,7 @@ impl Encodable for DiskBlockHeader {
         &self,
         writer: &mut W,
     ) -> core::result::Result<usize, ioError> {
-        let mut len = 80 + 1; // Header + tag + height
+        let mut len = 80 + 1; // Header + tag
         match self {
             DiskBlockHeader::FullyValid(header, height) => {
                 0x00_u8.consensus_encode(writer)?;
