@@ -1,3 +1,4 @@
+use std::cell::OnceCell;
 use std::fmt::Arguments;
 use std::path::PathBuf;
 use std::process::exit;
@@ -138,6 +139,8 @@ pub struct Florestad {
     stop_signal: Arc<RwLock<bool>>,
     /// A channel that notifies we are done, and it's safe to die now
     stop_notify: Arc<Mutex<Option<oneshot::Receiver<()>>>>,
+    /// A handle to our json-rpc server
+    json_rpc: OnceCell<jsonrpc_http_server::Server>,
 }
 
 impl Florestad {
@@ -379,19 +382,24 @@ impl Florestad {
 
         // JSON-RPC
         #[cfg(feature = "json-rpc")]
-        let _server = json_rpc::server::RpcImpl::create(
-            blockchain_state.clone(),
-            wallet.clone(),
-            &Self::get_net(&self.config.network),
-            chain_provider.get_handle(),
-            self.stop_signal.clone(),
-            Self::get_net(&self.config.network),
-            cfilters.clone(),
-            self.config
-                .json_rpc_address
-                .as_ref()
-                .map(|x| x.parse().expect("Invalid json rpc address")),
-        );
+        {
+            let server = json_rpc::server::RpcImpl::create(
+                blockchain_state.clone(),
+                wallet.clone(),
+                chain_provider.get_handle(),
+                self.stop_signal.clone(),
+                Self::get_net(&self.config.network),
+                cfilters.clone(),
+                self.config
+                    .json_rpc_address
+                    .as_ref()
+                    .map(|x| x.parse().expect("Invalid json rpc address")),
+            );
+
+            if self.json_rpc.set(server).is_err() {
+                panic!("we should be the first one setting this");
+            }
+        }
 
         // Electrum
         let electrum_address = self
@@ -480,6 +488,7 @@ impl Florestad {
             config,
             stop_signal: Arc::new(RwLock::new(false)),
             stop_notify: Arc::new(Mutex::new(None)),
+            json_rpc: OnceCell::new(),
         }
     }
 
@@ -613,6 +622,7 @@ impl From<Config> for Florestad {
             config,
             stop_signal: Arc::new(RwLock::new(false)),
             stop_notify: Arc::new(Mutex::new(None)),
+            json_rpc: OnceCell::new(),
         }
     }
 }
