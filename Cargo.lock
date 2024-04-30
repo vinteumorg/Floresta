@@ -114,6 +114,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0952808a6c2afd1aa8947271f3a60f1a6763c7b912d210184c5149b5cf147247"
 
 [[package]]
+name = "arrayvec"
+version = "0.7.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "96d30a06541fbafbc7f82ed10c06164cfbd2c401138f6addd8404629c4b16711"
+
+[[package]]
 name = "async-attributes"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -314,6 +320,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "98f7eed2b2781a6f0b5c903471d48e15f56fb4e1165df8a9a2337fd1a59d45ea"
 
 [[package]]
+name = "bip324"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "110dbe8430293983afc12f659307344352fc0c6142376b384cb76d29a37858ae"
+dependencies = [
+ "bitcoin_hashes 0.14.0",
+ "rand 0.8.5",
+ "secp256k1 0.29.0",
+]
+
+[[package]]
 name = "bitcoin"
 version = "0.30.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -336,7 +353,7 @@ dependencies = [
  "bitcoin_hashes 0.13.0",
  "bitcoinconsensus",
  "core2 0.3.3",
- "hex-conservative",
+ "hex-conservative 0.1.1",
  "hex_lit",
  "secp256k1 0.28.2",
  "serde",
@@ -374,8 +391,17 @@ checksum = "1930a4dabfebb8d7d9992db18ebe3ae2876f0a305fab206fd168df931ede293b"
 dependencies = [
  "bitcoin-internals",
  "core2 0.3.3",
- "hex-conservative",
+ "hex-conservative 0.1.1",
  "serde",
+]
+
+[[package]]
+name = "bitcoin_hashes"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bb18c03d0db0247e147a21a6faafd5a7eb851c743db062de72018b6b7e8e4d16"
+dependencies = [
+ "hex-conservative 0.2.0",
 ]
 
 [[package]]
@@ -999,6 +1025,7 @@ name = "floresta-wire"
 version = "0.1.0"
 dependencies = [
  "async-std",
+ "bip324",
  "bitcoin 0.31.0",
  "dns-lookup",
  "floresta-chain",
@@ -1357,6 +1384,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "30ed443af458ccb6d81c1e7e661545f94d3176752fb1df2f543b902a1e0f51e2"
 dependencies = [
  "core2 0.3.3",
+]
+
+[[package]]
+name = "hex-conservative"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e1aa273bf451e37ed35ced41c71a5e2a4e29064afb104158f2514bcd71c2c986"
+dependencies = [
+ "arrayvec",
 ]
 
 [[package]]
