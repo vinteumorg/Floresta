@@ -1,10 +1,10 @@
-use std::cell::OnceCell;
 use std::fmt::Arguments;
 use std::path::PathBuf;
 use std::process::exit;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::OnceLock;
 
 use async_std::sync::RwLock;
 use async_std::task;
@@ -140,7 +140,7 @@ pub struct Florestad {
     /// A channel that notifies we are done, and it's safe to die now
     stop_notify: Arc<Mutex<Option<oneshot::Receiver<()>>>>,
     /// A handle to our json-rpc server
-    json_rpc: OnceCell<jsonrpc_http_server::Server>,
+    json_rpc: OnceLock<jsonrpc_http_server::Server>,
 }
 
 impl Florestad {
@@ -497,7 +497,7 @@ impl Florestad {
             config,
             stop_signal: Arc::new(RwLock::new(false)),
             stop_notify: Arc::new(Mutex::new(None)),
-            json_rpc: OnceCell::new(),
+            json_rpc: OnceLock::new(),
         }
     }
 
@@ -631,7 +631,7 @@ impl From<Config> for Florestad {
             config,
             stop_signal: Arc::new(RwLock::new(false)),
             stop_notify: Arc::new(Mutex::new(None)),
-            json_rpc: OnceCell::new(),
+            json_rpc: OnceLock::new(),
         }
     }
 }
