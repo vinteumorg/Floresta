@@ -338,9 +338,17 @@ impl Florestad {
             None => None,
         };
 
+        // For now we only have compatible bridges on signet
+        let pow_fraud_proofs = match self.config.network {
+            cli::Network::Bitcoin => false,
+            cli::Network::Signet => true,
+            cli::Network::Testnet => false,
+            cli::Network::Regtest => false,
+        };
+
         let config = UtreexoNodeConfig {
             network: Self::get_net(&self.config.network),
-            pow_fraud_proofs: false,
+            pow_fraud_proofs,
             proxy: self
                 .config
                 .proxy
@@ -407,6 +415,7 @@ impl Florestad {
             .electrum_address
             .clone()
             .unwrap_or("0.0.0.0:50001".into());
+
         let electrum_server = block_on(ElectrumServer::new(
             electrum_address,
             wallet,

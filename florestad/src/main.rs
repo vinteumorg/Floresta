@@ -99,7 +99,7 @@ async fn main() {
                 network: params.network,
                 cfilters: true,
                 cfilter_types,
-                log_to_file: true,
+                log_to_file: false,
                 log_to_stdout: true,
                 ..Default::default()
             }
