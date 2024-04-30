@@ -269,7 +269,11 @@ where
         Ok(())
     }
 
-    pub async fn run(mut self, kill_signal: Arc<RwLock<bool>>) {
+    pub async fn run(
+        mut self,
+        kill_signal: Arc<RwLock<bool>>,
+        stop_signal: futures::channel::oneshot::Sender<()>,
+    ) {
         try_and_log!(self.init_peers().await);
         let startup_tip = self.chain.get_height().unwrap();
 
@@ -421,6 +425,8 @@ where
                 try_and_log!(self.ask_missed_block().await);
             }
         }
+
+        stop_signal.send(()).unwrap();
     }
 
     async fn ask_missed_block(&mut self) -> Result<(), WireError> {

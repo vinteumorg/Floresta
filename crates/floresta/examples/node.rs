@@ -63,11 +63,13 @@ async fn main() {
     // that will be processed by the node.
     let handle = p2p.get_handle();
 
+    let (sender, _receiver) = futures::channel::oneshot::channel();
+
     // Start the node. This will start the IBD process, and will return once the node is synced.
     // It will also start the mempool, which will start rebroadcasting our transactions every hour.
     // The node will keep running until the process is killed, by setting kill_signal to true. In
     // this example, we don't kill the node, so it will keep running forever.
-    p2p.run(Arc::new(RwLock::new(false))).await;
+    p2p.run(Arc::new(RwLock::new(false)), sender).await;
 
     // That's it! The node is now running, and will keep running until the process is killed.
     // You can now use the chain state to query the current state of the accumulator, or the

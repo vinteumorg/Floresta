@@ -14,8 +14,8 @@
 //!   
 //!   - Shared ownership is forbidden: if you have two threads or tasks owning this, you'll have
 //!     data race. If you want to hold shared ownership for this module, you need to place a
-//!     [PartialChainState] inside an `Arc<Mutex>` yourself. Note that you can't just Arc this,
-//!     because [PartialChainState] isn't [Sync].
+//!     [PartialChainState] inside an `Arc<Mutex>` yourself. Don't just Arc this and expect it to
+//!     work, as you are garanteed to have data races.
 //!   - The interior is toxic, so no peeking: no references, mutable or not, to any field should
 //!     leak through the API, as we are not enforcing lifetime or borrowing rules at compile time.
 //!   - Sending is fine: There's nothing in this module that makes it not sendable to between
@@ -84,7 +84,7 @@ pub(crate) struct PartialChainStateInner {
 /// We could just use a mutex, but this is not required and very wateful. Partial chains
 /// differ from the normal chain because they only have one owner, the worker responsible
 /// for driving this chain to it's completion. Because of that, we can simply use a UnsafeCell
-/// and forbit shared access between threads (i.e. don't implement [Sync])
+/// and forbit shared access between threads by not implementing [Clone].
 pub struct PartialChainState(pub(crate) UnsafeCell<PartialChainStateInner>);
 
 /// We need to send [PartialChainState] between threads/tasks, because the worker thread, once it
@@ -93,12 +93,8 @@ pub struct PartialChainState(pub(crate) UnsafeCell<PartialChainStateInner>);
 ///
 /// All itens inside the [UnsafeCell] are [Send], most importantly, there are no references or
 /// smart pointers inside it, so sending shouldn't be a problem.
-///
-/// Note that [PartialChainState] isn't meant to be shared among threads, so we shouldn't implement [Sync].
-/// The idea of a partial chain is be owned by a single worker that will download all blocks in
-/// the range covered by this chain and validate each block, so only the worker thread (or task)
-/// will own this at any given time.
 unsafe impl Send for PartialChainState {}
+unsafe impl Sync for PartialChainState {}
 
 impl PartialChainStateInner {
     /// Returns the height we have synced up to so far

@@ -35,6 +35,7 @@ use futures::executor::block_on;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use jsonrpc_http_server::ServerBuilder;
+use log::info;
 use serde_json::json;
 use serde_json::Value;
 
@@ -514,7 +515,6 @@ impl RpcImpl {
     pub fn create(
         chain: Arc<ChainState<KvChainStore>>,
         wallet: Arc<RwLock<AddressCache<KvDatabase>>>,
-        net: &Network,
         node: Arc<NodeInterface>,
         kill_signal: Arc<RwLock<bool>>,
         network: Network,
@@ -532,10 +532,11 @@ impl RpcImpl {
         };
         io.extend_with(rpc_impl.to_delegate());
         let address = address.unwrap_or_else(|| {
-            format!("127.0.0.1:{}", Self::get_port(net))
+            format!("127.0.0.1:{}", Self::get_port(&network))
                 .parse()
                 .unwrap()
         });
+        info!("Starting JSON-RPC server on {:?}", address);
         ServerBuilder::new(io)
             .threads(1)
             .start_http(&address)

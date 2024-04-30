@@ -1,4 +1,3 @@
-use bitcoin::BlockHash;
 use clap::arg;
 use clap::command;
 use clap::Parser;
@@ -79,7 +78,7 @@ pub enum Commands {
         batch_sync: Option<String>,
         /// Assume blocks before this one as having valid signatures, same with bitcoin core
         #[arg(long)]
-        assume_valid: Option<BlockHash>,
+        assume_valid: Option<String>,
     },
     #[cfg(feature = "experimental-p2p")]
     /// Starts your wallet and server
@@ -111,7 +110,7 @@ pub enum Commands {
         wallet_descriptor: Option<Vec<String>>,
         /// Assume blocks before this one as having valid signatures, same with bitcoin core
         #[arg(long)]
-        assume_valid: Option<BlockHash>,
+        assume_valid: Option<String>,
         #[arg(long, short)]
         zmq_address: Option<String>,
         #[arg(long)]

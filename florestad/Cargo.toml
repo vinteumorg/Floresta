@@ -38,6 +38,14 @@ jsonrpc-core-client = { version = "18.0.0", features = [
 zmq = { version = "0.10.0", optional = true }
 latest = "0.1.1"
 
+[lib]
+name = "florestad"
+path = "src/lib.rs"
+
+[[bin]]
+name = "florestad"
+path = "src/main.rs"
+
 [dev-dependencies]
 pretty_assertions = "1"
 
