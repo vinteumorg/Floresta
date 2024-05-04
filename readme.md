@@ -56,9 +56,23 @@ cargo run --release -- -c config.toml --network signet run
 ```
 
 ### Running the tests
+
+#### Requirements
+
+```bash
+cargo build
+```
+
 There's a set of unit tests that you can run with
 ```bash
 cargo test
+```
+
+There's also a set of functional tests that you can run with
+
+```bash
+pip3 install -r tests/requirements.txt
+python tests/run_tests.py
 ```
 
 ### Contributing
