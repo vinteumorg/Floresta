@@ -6,3 +6,4 @@ config.toml
 /builds
 data/
 output.log
+tmp/
