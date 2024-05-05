@@ -925,7 +925,6 @@ dependencies = [
 name = "floresta-cli"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "bitcoin 0.31.0",
  "clap",
  "rand 0.8.5",
@@ -933,6 +932,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "thiserror",
 ]
 
 [[package]]
