@@ -1,3 +1,4 @@
+use crate::error::AppError;
 use std::fmt::Display;
 
 use serde::Deserialize;
@@ -271,6 +272,18 @@ impl From<serde_json::Error> for Error {
 impl From<reqwest::Error> for Error {
     fn from(value: reqwest::Error) -> Self {
         Error::Reqwest(value)
+    }
+}
+
+impl From<Error> for AppError {
+    fn from(error: Error) -> Self {
+        match error {
+            Error::Serde(e) => AppError::SerializationError(e),
+            #[cfg(feature = "with-reqwest")]
+            Error::Reqwest(e) => AppError::CustomRpcError(e),
+            Error::Api(e) => AppError::ApiError(format!("{}", e)),
+            Error::EmtpyResponse => AppError::ApiError("Empty response from server".to_string()),
+        }
     }
 }
 
