@@ -41,6 +41,7 @@ use zmq::ZMQServer;
 use crate::cli;
 pub use crate::cli::FilterType;
 use crate::config_file::ConfigFile;
+use crate::error::FlorestadError;
 use crate::json_rpc;
 use crate::wallet_input::InitialWalletSetup;
 
@@ -513,12 +514,12 @@ impl Florestad {
             data
         } else {
             match data.unwrap_err() {
-                crate::error::Error::TomlParsing(e) => {
+                FlorestadError::TomlParsing(e) => {
                     error!("Error while parsing config file, ignoring it");
                     debug!("{e}");
                     ConfigFile::default()
                 }
-                crate::error::Error::Io(e) => {
+                FlorestadError::Io(e) => {
                     error!("Error reading config file, ignoring it");
                     debug!("{e}");
                     ConfigFile::default()
@@ -583,7 +584,7 @@ impl Florestad {
         addresses: Vec<String>,
         wallet: &mut AddressCache<D>,
         network: cli::Network,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), FlorestadError> {
         if let Some(key) = Self::get_key_from_env() {
             xpubs.push(key);
         }
@@ -604,7 +605,7 @@ impl Florestad {
             wallet.cache_address(addresses.script_pubkey());
         }
         info!("Wallet setup completed!");
-        anyhow::Ok(())
+        Ok(())
     }
 
     fn get_both_vec<T>(a: Option<Vec<T>>, b: Option<Vec<T>>) -> Vec<T> {

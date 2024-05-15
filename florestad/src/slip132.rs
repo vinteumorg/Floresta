@@ -14,9 +14,7 @@ extern crate strict_encoding;
 #[cfg(feature = "serde")]
 #[macro_use]
 extern crate serde_crate as serde;
-
-use std::fmt::Debug;
-use std::str::FromStr;
+use thiserror::Error;
 
 use bitcoin::base58;
 use bitcoin::bip32;
@@ -83,7 +81,7 @@ pub const VERSION_MAGIC_VPUB_MULTISIG: [u8; 4] = [0x02, 0x57, 0x54, 0x83];
 pub const VERSION_MAGIC_VPRV_MULTISIG: [u8; 4] = [0x02, 0x57, 0x50, 0x48];
 
 /// Extended public and private key processing errors
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Error, Clone, PartialEq, Eq, Debug)]
 pub enum Error {
     /// error in BASE58 key encoding. Details: {0}
     Base58(base58::Error),

@@ -1,5 +1,5 @@
-use thiserror::Error;
 use floresta_cli::rpc_types::Error as RpcError;
+use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum AppError {

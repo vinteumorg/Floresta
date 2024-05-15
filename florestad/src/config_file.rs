@@ -13,7 +13,7 @@ pub struct ConfigFile {
 }
 
 impl ConfigFile {
-    pub fn from_file(filename: &str) -> Result<Self, crate::error::Error> {
+    pub fn from_file(filename: &str) -> Result<Self, crate::error::FlorestadError> {
         let file = std::fs::read_to_string(filename)?;
         Ok(toml::from_str(&file)?)
     }

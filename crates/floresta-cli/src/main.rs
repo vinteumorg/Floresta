@@ -1,11 +1,11 @@
 use std::fmt::Debug;
 
+use crate::error::AppError;
 use bitcoin::BlockHash;
 use bitcoin::Network;
 use bitcoin::Txid;
 use clap::Parser;
 use clap::Subcommand;
-use crate::error::AppError;
 use floresta_cli::reqwest_client::ReqwestClient;
 use floresta_cli::rpc::FlorestaRPC;
 
