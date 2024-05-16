@@ -7,10 +7,15 @@ use async_std::channel::unbounded;
 use async_std::channel::Receiver;
 use async_std::channel::Sender;
 use async_std::io::BufReader;
+use async_std::io::ReadExt;
 use async_std::net::TcpStream;
 use async_std::net::ToSocketAddrs;
 use async_std::sync::RwLock;
 use async_std::task::spawn;
+use bip324::Handshake;
+use bip324::PacketHandler;
+use bip324::PacketReader;
+use bip324::PacketWriter;
 use bitcoin::block::Header as BlockHeader;
 use bitcoin::consensus::serialize;
 use bitcoin::hashes::Hash;
@@ -29,6 +34,7 @@ use futures::AsyncWrite;
 use futures::AsyncWriteExt;
 use futures::FutureExt;
 use log::error;
+use log::info;
 use log::warn;
 use thiserror::Error;
 
@@ -87,6 +93,8 @@ pub struct Peer<T: Transport> {
     feeler: bool,
     wants_addrv2: bool,
     shutdown: bool,
+    v2_encoder: Option<PacketWriter>,
+    v2_decoder: Option<PacketReader>,
 }
 #[derive(Debug, Error)]
 pub enum PeerError {
@@ -106,6 +114,12 @@ pub enum PeerError {
     TooManyMessages,
     #[error("Peer timed a ping out")]
     Timeout,
+    #[error("Error occured creating a V2 protocol handshake")]
+    V2HandshakeFailure,
+    #[error("Error encrypting a V2 message")]
+    V2EncryptionError,
+    #[error("Error decrypting a V2 message")]
+    V2DecryptionError,
 }
 impl Debug for Peer<TcpStream> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -137,7 +151,9 @@ impl<T: Transport> Peer<T> {
         let read_stream = BufReader::new(self.stream.clone());
         let (tx, rx) = unbounded();
         let magic = self.network.magic();
-        let stream: StreamReader<_, RawNetworkMessage> = StreamReader::new(read_stream, magic, tx);
+        let stream: StreamReader<_, RawNetworkMessage> =
+            StreamReader::new(read_stream, magic, tx, self.v2_decoder.clone());
+        self.v2_decoder = None;
         spawn(stream.read_loop());
         loop {
             futures::select! {
@@ -192,6 +208,59 @@ impl<T: Transport> Peer<T> {
                 }
             }
         }
+    }
+    pub async fn try_v2_connection(
+        &mut self,
+        read_stream: &mut BufReader<T>,
+    ) -> Option<PacketHandler> {
+        let network = match self.network {
+            Network::Bitcoin => bip324::Network::Mainnet,
+            Network::Testnet => return None,
+            Network::Signet => bip324::Network::Signet,
+            Network::Regtest => return None,
+            _ => return None,
+        };
+        // generate a public key for the session
+        let mut public_key_buffer = [0u8; 64];
+        let handshake = Handshake::new(
+            network,
+            bip324::Role::Initiator,
+            None,
+            &mut public_key_buffer,
+        );
+        let mut handshake = match handshake {
+            Ok(handshake) => handshake,
+            Err(_) => return None, // Return None if handshake creation fails
+        };
+        // write the public key to the peer
+        if let Err(_) = self.stream.write_all(&public_key_buffer).await {
+            return None; // Return None if writing public key fails
+        }
+        let mut their_public_key_buffer = [0u8; 64];
+        // read their public key
+        if let Err(_) = read_stream.read_exact(&mut their_public_key_buffer).await {
+            return None; // Return None if reading their public key fails
+        }
+        let mut our_response_buffer = [0u8; 36];
+        let complete_result =
+            handshake.complete_materials(their_public_key_buffer, &mut our_response_buffer);
+        if let Err(_) = complete_result {
+            return None; // Return None if completing handshake materials fails
+        }
+        // write our response back to the peer
+        if let Err(_) = self.stream.write_all(&our_response_buffer).await {
+            return None; // Return None if writing response back fails
+        }
+        let mut remote_garbage_and_version = vec![0u8; 5000];
+        if let Err(_) = read_stream.read(&mut remote_garbage_and_version).await {
+            return None; // Return None if reading the rest of their handshake fails
+        }
+        let packet_handler_result =
+            handshake.authenticate_garbage_and_version(&remote_garbage_and_version);
+        if let Err(_) = packet_handler_result {
+            return None; // Return None if authenticating garbage and version fails
+        }
+        packet_handler_result.ok()
     }
     pub async fn handle_node_request(&mut self, request: NodeRequest) -> Result<()> {
         match request {
@@ -399,9 +468,25 @@ impl<T: Transport> Peer<T> {
 }
 impl<T: Transport> Peer<T> {
     pub async fn write(&mut self, msg: NetworkMessage) -> Result<()> {
-        let data = &mut RawNetworkMessage::new(self.network.magic(), msg);
-        let data = serialize(&data);
-        self.stream.write_all(data.as_slice()).await?;
+        match &mut self.v2_encoder {
+            Some(encoder) => {
+                // let data = &mut RawNetworkMessage::new(self.network.magic(), msg);
+                // let mut command = msg.cmd().as_bytes().to_vec();
+                let mut buffer = vec![0u8, 1];
+                let data = serialize(&msg);
+                buffer.extend_from_slice(&data);
+                // command.extend_from_slice(&buffer);
+                let v2_message = encoder
+                    .prepare_v2_packet(buffer, None, false)
+                    .map_err(|_| PeerError::V2EncryptionError)?;
+                self.stream.write_all(&v2_message).await?;
+            }
+            None => {
+                let data = &mut RawNetworkMessage::new(self.network.magic(), msg);
+                let data = serialize(&data);
+                self.stream.write_all(data.as_slice()).await?;
+            }
+        }
         Ok(())
     }
     pub async fn handle_get_data(&mut self, inv: Inventory) -> Result<()> {
@@ -454,12 +539,15 @@ impl<T: Transport> Peer<T> {
             feeler,
             wants_addrv2: false,
             shutdown: false,
+            v2_encoder: None,
+            v2_decoder: None,
         };
+
         spawn(peer.read_loop());
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub async fn create_outbound_connection<A: ToSocketAddrs + Debug>(
+    pub async fn create_outbound_connection<A: ToSocketAddrs + Debug + Clone>(
         id: u32,
         address: A,
         mempool: Arc<RwLock<Mempool>>,
@@ -469,8 +557,11 @@ impl<T: Transport> Peer<T> {
         address_id: usize,
         feeler: bool,
     ) {
-        let stream =
-            async_std::future::timeout(Duration::from_secs(10), TcpStream::connect(address)).await;
+        let stream = async_std::future::timeout(
+            Duration::from_secs(10),
+            TcpStream::connect(address.clone()),
+        )
+        .await;
         let Ok(Ok(stream)) = stream else {
             let _ = node_tx
                 .send(NodeNotification::FromPeer(
@@ -480,7 +571,7 @@ impl<T: Transport> Peer<T> {
                 .await;
             return;
         };
-        let peer = Peer {
+        let mut peer = Peer {
             address_id,
             blocks_only: false,
             current_best_block: -1,
@@ -501,8 +592,43 @@ impl<T: Transport> Peer<T> {
             feeler,
             wants_addrv2: false,
             shutdown: false,
+            v2_encoder: None,
+            v2_decoder: None,
         };
-        spawn(peer.read_loop());
+        info!("Trying to connect with peer {} over V2 transport", peer.id);
+        let handler = peer
+            .try_v2_connection(&mut BufReader::new(peer.stream.clone()))
+            .await;
+        match handler {
+            Some(handler) => {
+                let (read, write) = handler.split();
+                peer.v2_encoder = Some(write);
+                peer.v2_decoder = Some(read);
+            }
+            None => {
+                info!(
+                    "V2 handshake with peer {} failed. Attemping V1 connection",
+                    peer.id
+                );
+                let stream = async_std::future::timeout(
+                    Duration::from_secs(10),
+                    TcpStream::connect(address),
+                )
+                .await;
+                let Ok(Ok(stream)) = stream else {
+                    let _ = peer
+                        .node_tx
+                        .send(NodeNotification::FromPeer(
+                            id,
+                            PeerMessages::Disconnected(id as usize),
+                        ))
+                        .await;
+                    return;
+                };
+                peer.stream = stream;
+                spawn(peer.read_loop());
+            }
+        }
     }
     async fn handle_ping(&mut self, nonce: u64) -> Result<()> {
         let pong = make_pong(nonce);

@@ -10,6 +10,7 @@ use std::marker::PhantomData;
 
 use async_std::channel::Sender;
 use async_std::io::ReadExt;
+use bip324::PacketReader;
 use bitcoin::consensus::deserialize;
 use bitcoin::consensus::deserialize_partial;
 use bitcoin::consensus::Decodable;
@@ -29,6 +30,8 @@ pub struct StreamReader<Source: Sync + Send + ReadExt + Unpin + AsyncRead, Item:
     magic: Magic,
     /// Where should we send data
     sender: Sender<Result<Item, PeerError>>,
+    /// Optional handling of encrypted V2 transport messages
+    v2_decoder: Option<PacketReader>,
 }
 impl<Source, Item> StreamReader<Source, Item>
 where
@@ -36,36 +39,96 @@ where
     Source: Sync + Send + ReadExt + Unpin + AsyncRead,
 {
     /// Creates a new reader from a given stream
-    pub fn new(stream: Source, magic: Magic, sender: Sender<Result<Item, PeerError>>) -> Self {
+    pub fn new(
+        stream: Source,
+        magic: Magic,
+        sender: Sender<Result<Item, PeerError>>,
+        v2_decoder: Option<PacketReader>,
+    ) -> Self {
         StreamReader {
             source: stream,
             phantom: PhantomData,
             magic,
             sender,
+            v2_decoder,
         }
     }
     async fn read_loop_inner(&mut self) -> Result<(), PeerError> {
-        loop {
-            let mut data: Vec<u8> = vec![0; 24];
-
-            // Read the reader first, so learn the payload size
-            self.source.read_exact(&mut data).await?;
-            let header: P2PMessageHeader = deserialize_partial(&data)?.0;
-            if header.magic != self.magic {
-                return Err(PeerError::MagicBitsMismatch);
-            }
-            // Network Message too big
-            if header.length > (1024 * 1024 * 32) as u32 {
-                return Err(PeerError::MessageTooBig);
-            }
-
-            data.resize(24 + header.length as usize, 0);
-            // Read everything else
-            self.source.read_exact(&mut data[24..]).await?;
-            let message = deserialize(&data)?;
-            let _ = self.sender.send(Ok(message)).await;
+        if self.v2_decoder.is_some() {
+            return self.read_v2().await;
+        } else {
+            return self.read_v1().await;
         }
     }
+    async fn read_v1(&mut self) -> Result<(), PeerError> {
+        loop {
+            self.parse_v1_message().await?;
+        }
+    }
+
+    async fn read_v2(&mut self) -> Result<(), PeerError> {
+        loop {
+            self.parse_v2_message().await?;
+        }
+    }
+
+    async fn parse_v1_message(&mut self) -> Result<(), PeerError> {
+        let mut data: Vec<u8> = vec![0; 24];
+
+        // Read the reader first, so learn the payload size
+        self.source.read_exact(&mut data).await?;
+        let header: P2PMessageHeader = deserialize_partial(&data)?.0;
+        if header.magic != self.magic {
+            return Err(PeerError::MagicBitsMismatch);
+        }
+        // Network Message too big
+        if header.length > (1024 * 1024 * 32) as u32 {
+            return Err(PeerError::MessageTooBig);
+        }
+
+        data.resize(24 + header.length as usize, 0);
+        // Read everything else
+        self.source.read_exact(&mut data[24..]).await?;
+        let message = deserialize(&data)?;
+        let _ = self.sender.send(Ok(message)).await;
+        Ok(())
+    }
+
+    async fn parse_v2_message(&mut self) -> Result<(), PeerError> {
+        let decoder_ref = self
+            .v2_decoder
+            .as_mut()
+            .ok_or(PeerError::V2DecryptionError)?;
+        // the first 3 bytes of a v2 message encode the length
+        let mut length_bytes = [0u8; 3];
+        self.source.read_exact(&mut length_bytes);
+        let contents_len = decoder_ref.decypt_len(length_bytes);
+        let mut packet_bytes = vec![0u8; contents_len];
+        // read the exact amount of bytes from the stream
+        self.source.read_exact(&mut packet_bytes).await?;
+        let contents = decoder_ref
+            .decrypt_contents(packet_bytes, None)
+            .map_err(|_| PeerError::V2DecryptionError)?
+            .message;
+        // peers may send decoy packages which may be safely ignored
+        if let Some(content) = contents {
+            // if the message content starts with zero bytes, the command string was encoded as 13 bytes
+            if content.starts_with(&[0u8]) {
+                let message = deserialize(&content[13..])?;
+                let _ = self.sender.send(Ok(message)).await;
+                return Ok(());
+            } else {
+                // otherwise the command string was short-hand encoded
+                let message = deserialize(&content[1..])?;
+                let _ = self.sender.send(Ok(message)).await;
+                println!("succesful deser");
+                return Ok(());
+            }
+        }
+        // do nothing if the message was a decoy
+        Ok(())
+    }
+
     /// Tries to read from a parsed [Item] from [Source]. Only returns on error or if we have
     /// a valid Item to return
     pub async fn read_loop(mut self) {
