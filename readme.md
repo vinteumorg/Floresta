@@ -13,7 +13,7 @@ If you want to discuss this project, you can join our Discord server [here](http
 
 ### Building
 
-You'll need Rust and Cargo, refer to [this](https://www.rust-lang.org/) for more details. Minimum support version is rustc 1.64 and newer.
+You'll need Rust and Cargo, refer to [this](https://www.rust-lang.org/) for more details. Minimum support version is rustc 1.74 and newer.
 
 Once you have Cargo, clone the repository with:
 
