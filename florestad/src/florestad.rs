@@ -5,7 +5,6 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::OnceLock;
-
 use async_std::sync::RwLock;
 use async_std::task;
 use async_std::task::block_on;
@@ -23,7 +22,7 @@ use floresta_compact_filters::kv_filter_database::KvFilterStore;
 use floresta_compact_filters::FilterBackendBuilder;
 use floresta_electrum::electrum_protocol::client_accept_loop;
 use floresta_electrum::electrum_protocol::ElectrumServer;
-use floresta_watch_only::kv_database::KvDatabase;
+use z::kv_database::KvDatabase;
 use floresta_watch_only::AddressCache;
 use floresta_watch_only::AddressCacheDatabase;
 use floresta_wire::address_man::LocalAddress;
@@ -41,7 +40,7 @@ use zmq::ZMQServer;
 use crate::cli;
 pub use crate::cli::FilterType;
 use crate::config_file::ConfigFile;
-use crate::error::FlorestadError;
+use floresta_errors::florestad::commom::FlorestadError;
 use crate::json_rpc;
 use crate::wallet_input::InitialWalletSetup;
 

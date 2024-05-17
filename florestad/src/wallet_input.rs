@@ -7,14 +7,16 @@ use bitcoin::Address;
 use miniscript::Descriptor;
 use miniscript::DescriptorPublicKey;
 
-use crate::error::FlorestadError;
+use floresta_errors::florestad::commom::FlorestadError;
+
 
 pub mod extended_pub_key {
     use bitcoin::bip32::Xpub;
+    use floresta_errors::florestad::slip123::Slip32Errors;
 
     use crate::slip132;
 
-    pub fn from_str(s: &str) -> Result<Xpub, slip132::Error> {
+    pub fn from_str(s: &str) -> Result<Xpub, Slip32Errors> {
         slip132::FromSlip132::from_slip132_str(s)
     }
 }

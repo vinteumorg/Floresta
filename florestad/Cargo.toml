@@ -4,7 +4,6 @@ version = "0.5.1"
 edition = "2021"
 
 [dependencies]
-thiserror = "1.0.60"
 rustreexo = "0.1.0"
 clap = { version = "4.0.29", features = ["derive"] }
 sha2 = "^0.10.6"
@@ -22,6 +21,7 @@ bitcoin = { version = "0.31", features = ["serde", "std", "bitcoinconsensus"] }
 ctrlc = "3.2.5"
 fern = { version = "0.6", features = ["colored"] }
 chrono = "0.4.19"
+floresta-errors = { path = "../crates/floresta-errors"}
 floresta-chain = { path = "../crates/floresta-chain" }
 floresta-common = { path = "../crates/floresta-common" }
 floresta-electrum = { path = "../crates/floresta-electrum" }
