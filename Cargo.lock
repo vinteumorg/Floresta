@@ -975,11 +975,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "floresta-errors"
+version = "0.1.0"
+dependencies = [
+ "bitcoin 0.31.0",
+ "kv",
+ "miniscript 11.0.0",
+ "serde_json",
+ "thiserror",
+ "toml 0.5.11",
+]
+
+[[package]]
 name = "floresta-watch-only"
 version = "0.1.0"
 dependencies = [
  "bitcoin 0.31.0",
  "floresta-common",
+ "floresta-errors",
  "hex",
  "kv",
  "log",
@@ -1025,6 +1038,7 @@ dependencies = [
  "floresta-common",
  "floresta-compact-filters",
  "floresta-electrum",
+ "floresta-errors",
  "floresta-watch-only",
  "floresta-wire",
  "futures 0.3.30",
@@ -1042,7 +1056,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "thiserror",
  "toml 0.5.11",
  "zmq",
 ]
