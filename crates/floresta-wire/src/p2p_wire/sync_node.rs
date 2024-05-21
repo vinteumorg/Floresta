@@ -40,7 +40,7 @@ impl NodeContext for SyncNode {
 
     const MAX_OUTGOING_PEERS: usize = 5; // don't need many peers, half the default
     const TRY_NEW_CONNECTION: u64 = 10; // ten seconds
-    const REQUEST_TIMEOUT: u64 = 10; // ten seconds
+    const REQUEST_TIMEOUT: u64 = 30; // 30 seconds
     const MAX_INFLIGHT_REQUESTS: usize = 100; // double the default
 }
 
@@ -133,6 +133,19 @@ where
         let mut next_block = self.chain.get_block_hash(next_block)?;
 
         while let Some((peer, block)) = self.blocks.remove(&next_block) {
+            if block.udata.is_none() {
+                error!("Block without proof received from peer {}", peer);
+                self.send_to_peer(peer, NodeRequest::Shutdown).await?;
+                self.send_to_random_peer(
+                    NodeRequest::GetBlock((vec![block.block.block_hash()], true)),
+                    ServiceFlags::UTREEXO,
+                )
+                .await?;
+                self.inflight
+                    .insert(InflightRequests::Blocks(next_block), (peer, Instant::now()));
+                return Err(WireError::PeerMisbehaving);
+            }
+
             debug!("processing block {}", block.block.block_hash(),);
             let (proof, del_hashes, inputs) = floresta_chain::proof_util::process_proof(
                 &block.udata.unwrap(),

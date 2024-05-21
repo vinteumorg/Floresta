@@ -275,6 +275,13 @@ where
         Ok(())
     }
 
+    pub async fn catch_up(self, kill_signal: Arc<RwLock<bool>>) -> Self {
+        let mut sync = UtreexoNode::<SyncNode, Chain>(self.0, SyncNode::default());
+        sync.run(kill_signal, |_| {}).await;
+
+        UtreexoNode(sync.0, self.1)
+    }
+
     pub async fn run(
         mut self,
         kill_signal: Arc<RwLock<bool>>,
@@ -329,6 +336,8 @@ where
             )
             .await;
         }
+
+        self = self.catch_up(kill_signal.clone()).await;
 
         self.last_block_request = self.chain.get_validation_index().unwrap_or(0);
 
@@ -442,7 +451,8 @@ where
         }
 
         if !self.has_compact_filters_peer() {
-            self.create_connection(false).await;
+            // open a feeler connection to find more peers with COMPACT_BLOCK_FILTERS flag
+            self.create_connection(true).await;
             return Ok(());
         }
 
