@@ -20,7 +20,7 @@ use floresta_chain::ChainState;
 use floresta_chain::KvChainStore;
 use floresta_common::constants::DIR_NAME;
 use floresta_compact_filters::kv_filter_database::KvFilterStore;
-use floresta_compact_filters::FilterBackendBuilder;
+use floresta_compact_filters::network_filters::NetworkFilters;
 use floresta_electrum::electrum_protocol::client_accept_loop;
 use floresta_electrum::electrum_protocol::ElectrumServer;
 use floresta_watch_only::kv_database::KvDatabase;
@@ -39,7 +39,6 @@ use log::Record;
 use zmq::ZMQServer;
 
 use crate::cli;
-pub use crate::cli::FilterType;
 use crate::config_file::ConfigFile;
 use crate::json_rpc;
 use crate::wallet_input::InitialWalletSetup;
@@ -107,12 +106,6 @@ pub struct Config {
     /// is very inefficient and resource/time consuming. But keep in mind that filters will take
     /// up disk space.
     pub cfilters: bool,
-    /// The type of filters we should build
-    ///
-    /// This option only apply to filters we build locally, not ones we download from peers. The
-    /// options correspond to each standard script type (pkh, sh, wsh, wpkh, tr), Inputs (the
-    /// outpoints being spent in that block) and txid (the id for each tx in a block).
-    pub cfilter_types: Vec<FilterType>,
     #[cfg(feature = "zmq-server")]
     /// The address to listen to for our ZMQ server
     ///
@@ -263,57 +256,8 @@ impl Florestad {
         #[cfg(feature = "compact-filters")]
         let cfilters = if self.config.cfilters {
             // Block Filters
-            let key = if let Ok(file) = std::fs::read(format!("{data_dir}/cfilters_key")) {
-                let mut key = [0_u8; 32];
-                key.copy_from_slice(&file[0..32]);
-                key
-            } else {
-                let key = rand::random::<[u8; 32]>();
-                std::fs::write(format!("{data_dir}/cfilters_key"), key)
-                    .expect("couldn't write to datadir");
-                key
-            };
-            let filters_dir = format!("{data_dir}/cfilters");
-            let cfilters_db = KvFilterStore::new(&filters_dir.into());
-
-            let mut filters = FilterBackendBuilder::default()
-                .key_hash(key)
-                .use_storage(Box::new(cfilters_db));
-
-            for filter_type in self.config.cfilter_types.iter() {
-                filters = match filter_type {
-                    FilterType::All => filters
-                        .index_txids(true)
-                        .index_input(true)
-                        .add_address_type(floresta_compact_filters::OutputTypes::SH)
-                        .add_address_type(floresta_compact_filters::OutputTypes::PKH)
-                        .add_address_type(floresta_compact_filters::OutputTypes::WSH)
-                        .add_address_type(floresta_compact_filters::OutputTypes::WPKH)
-                        .add_address_type(floresta_compact_filters::OutputTypes::TR),
-
-                    FilterType::TxId => filters.index_txids(true),
-                    FilterType::Inputs => filters.index_input(true),
-
-                    FilterType::SpkPKH => {
-                        filters.add_address_type(floresta_compact_filters::OutputTypes::PKH)
-                    }
-                    FilterType::SpkPSH => {
-                        filters.add_address_type(floresta_compact_filters::OutputTypes::SH)
-                    }
-                    FilterType::SpkWPKH => {
-                        filters.add_address_type(floresta_compact_filters::OutputTypes::WPKH)
-                    }
-                    FilterType::SpkWSH => {
-                        filters.add_address_type(floresta_compact_filters::OutputTypes::WSH)
-                    }
-                    FilterType::SpkTR => {
-                        filters.add_address_type(floresta_compact_filters::OutputTypes::TR)
-                    }
-                };
-            }
-            let cfilters = Arc::new(filters.build());
-            blockchain_state.subscribe(cfilters.clone());
-            Some(cfilters)
+            let filter_store = KvFilterStore::new(&(data_dir.clone() + "/cfilters").into());
+            Some(Arc::new(NetworkFilters::new(filter_store, 0)))
         } else {
             None
         };
@@ -369,6 +313,7 @@ impl Florestad {
             config,
             blockchain_state.clone(),
             Arc::new(async_std::sync::RwLock::new(Mempool::new())),
+            cfilters.clone(),
         );
 
         // ZMQ

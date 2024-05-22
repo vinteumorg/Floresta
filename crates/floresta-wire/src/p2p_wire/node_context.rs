@@ -51,7 +51,7 @@ pub trait NodeContext {
     const BLOCK_CHECK_INTERVAL: u64 = 60 * 5; // 5 minutes
     /// How often we send our addresses to our peers
     const SEND_ADDRESSES_INTERVAL: u64 = 60 * 60; // 1 hour
-    fn get_required_services(&self, _utreexo_peers: usize) -> ServiceFlags {
+    fn get_required_services(&self) -> ServiceFlags {
         ServiceFlags::NETWORK
     }
 }

@@ -34,7 +34,7 @@ pub struct SyncNode {
 }
 
 impl NodeContext for SyncNode {
-    fn get_required_services(&self, _utreexo_peers: usize) -> bitcoin::p2p::ServiceFlags {
+    fn get_required_services(&self) -> bitcoin::p2p::ServiceFlags {
         ServiceFlags::WITNESS | ServiceFlags::UTREEXO | ServiceFlags::NETWORK
     }
 
@@ -74,9 +74,10 @@ where
 
             self.handle_timeout().await;
 
-            if self.utreexo_peers.is_empty() {
+            if self.has_utreexo_peers() {
                 continue;
             }
+
             if self.inflight.len() < SyncNode::MAX_INFLIGHT_REQUESTS {
                 let mut blocks = Vec::with_capacity(100);
                 for _ in 0..100 {

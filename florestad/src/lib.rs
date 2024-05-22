@@ -9,5 +9,4 @@ mod wallet_input;
 
 pub use cli::Network;
 pub use florestad::Config;
-pub use florestad::FilterType;
 pub use florestad::Florestad;
