@@ -193,17 +193,26 @@ impl Florestad {
             })
             .unwrap_or("floresta".into());
 
-        if self.config.log_to_stdout || self.config.log_to_file {
-            Self::setup_logger(&data_dir, self.config.log_to_file)
-                .expect("failure to setup logger");
-        }
-
         let data_dir = match self.config.network {
             cli::Network::Bitcoin => data_dir,
             cli::Network::Signet => data_dir + "/signet/",
             cli::Network::Testnet => data_dir + "/testnet3/",
             cli::Network::Regtest => data_dir + "/regtest/",
         };
+
+        // create the data directory if it doesn't exist
+        if !std::path::Path::new(&data_dir).exists() {
+            std::fs::create_dir_all(&data_dir).expect("Could not create data directory");
+        }
+
+        if self.config.log_to_stdout || self.config.log_to_file {
+            Self::setup_logger(
+                &data_dir,
+                self.config.log_to_file,
+                self.config.log_to_stdout,
+            )
+            .expect("failure to setup logger");
+        }
 
         // The config file inside our datadir directory. Any datadir
         // passed as argument will be used instead
@@ -391,7 +400,11 @@ impl Florestad {
         task::spawn(chain_provider.run(kill_signal, sender));
     }
 
-    fn setup_logger(data_dir: &String, log_file: bool) -> Result<(), fern::InitError> {
+    fn setup_logger(
+        data_dir: &String,
+        log_file: bool,
+        log_to_stdout: bool,
+    ) -> Result<(), fern::InitError> {
         let colors = ColoredLevelConfig::new()
             .error(Color::Red)
             .warn(Color::Yellow)
@@ -413,26 +426,27 @@ impl Florestad {
                 ))
             }
         };
+
+        let mut dispatchers = fern::Dispatch::new();
         let stdout_dispatcher = fern::Dispatch::new()
             .format(formatter(true))
             .level(log::LevelFilter::Info)
             .chain(std::io::stdout());
 
-        match log_file {
-            true => {
-                let file_dispatcher = fern::Dispatch::new()
-                    .format(formatter(false))
-                    .level(log::LevelFilter::Info)
-                    .chain(fern::log_file(format!("{}/output.log", data_dir))?);
-                fern::Dispatch::new()
-                    .chain(stdout_dispatcher)
-                    .chain(file_dispatcher)
-                    .apply()?;
-            }
-            false => {
-                fern::Dispatch::new().chain(stdout_dispatcher).apply()?;
-            }
+        let file_dispatcher = fern::Dispatch::new()
+            .format(formatter(false))
+            .level(log::LevelFilter::Info)
+            .chain(fern::log_file(format!("{}/output.log", data_dir))?);
+
+        if log_file {
+            dispatchers = dispatchers.chain(file_dispatcher);
         }
+
+        if log_to_stdout {
+            dispatchers = dispatchers.chain(stdout_dispatcher);
+        }
+
+        dispatchers.apply()?;
 
         Ok(())
     }
