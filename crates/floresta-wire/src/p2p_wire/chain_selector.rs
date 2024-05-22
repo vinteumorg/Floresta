@@ -454,7 +454,11 @@ where
                     self.chain.mark_chain_as_assumed(acc)?;
                 }
 
-                if self.config.pow_fraud_proofs {
+                let has_peers = self
+                    .peer_by_service
+                    .contains_key(&ServiceFlags::from(1 << 25));
+
+                if self.config.pow_fraud_proofs && has_peers {
                     self.check_tips().await?;
                 }
 
@@ -565,7 +569,7 @@ where
 
         for (request, (peer, instant)) in self.inflight.clone() {
             if instant.elapsed().as_secs() > ChainSelector::REQUEST_TIMEOUT {
-                self.send_to_peer(peer, NodeRequest::Shutdown).await?;
+                self.increase_banscore(peer, 2).await?;
                 failed.push(request)
             }
         }
