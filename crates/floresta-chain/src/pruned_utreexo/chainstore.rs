@@ -8,10 +8,12 @@ use bitcoin::consensus::serialize;
 use bitcoin::consensus::Decodable;
 use bitcoin::consensus::Encodable;
 use bitcoin::BlockHash;
+use kv::Batch;
 use kv::Bucket;
+use spin::RwLock;
 
 use crate::prelude::*;
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum DiskBlockHeader {
     FullyValid(BlockHeader, u32),
     AssumedValid(BlockHeader, u32),
@@ -20,6 +22,7 @@ pub enum DiskBlockHeader {
     InFork(BlockHeader, u32),
     InvalidChain(BlockHeader),
 }
+
 impl DiskBlockHeader {
     pub fn block_hash(&self) -> BlockHash {
         self.deref().block_hash()
@@ -131,9 +134,10 @@ use super::ChainStore;
 
 pub struct KvChainStore<'a> {
     _store: Store,
-    headers: Bucket<'a, &'a [u8], Vec<u8>>,
+    headers: Bucket<'a, Vec<u8>, Vec<u8>>,
     index: Bucket<'a, Integer, Vec<u8>>,
     meta: Bucket<'a, &'a str, Vec<u8>>,
+    headers_cache: RwLock<HashMap<BlockHash, DiskBlockHeader>>,
 }
 
 impl<'a> KvChainStore<'a> {
@@ -144,11 +148,12 @@ impl<'a> KvChainStore<'a> {
         // Open the key/value store
         let store = Store::new(cfg)?;
 
-        Ok(KvChainStore { 
-            headers: store.bucket(Some("headers"))?, 
-            index: store.bucket(Some("index"))?, 
+        Ok(KvChainStore {
+            headers: store.bucket(Some("headers"))?,
+            index: store.bucket(Some("index"))?,
             meta: store.bucket(None)?,
             _store: store,
+            headers_cache: RwLock::new(HashMap::new()),
         })
     }
 }
@@ -182,14 +187,24 @@ impl<'a> ChainStore for KvChainStore<'a> {
     fn get_header(&self, block_hash: &BlockHash) -> Result<Option<DiskBlockHeader>, Self::Error> {
         let block_hash = serialize(&block_hash);
 
-        let header = self.headers.get(&&*block_hash)?;
-        if let Some(header) = header {
-            return Ok(Some(deserialize(&header).unwrap()));
-        }
-        Ok(None)
+        Ok(self
+            .headers
+            .get(&block_hash)?
+            .and_then(|header| deserialize(&header).ok())
+            .or_else(|| self.headers_cache.read().get(&*block_hash).cloned()))
     }
 
     fn flush(&self) -> Result<(), Self::Error> {
+        // save all headers in batch
+        let mut batch = Batch::new();
+        for header in self.headers_cache.read().iter() {
+            let ser_header = serialize(header.1);
+            let block_hash = serialize(&header.1.block_hash());
+            batch.set(&block_hash, &ser_header)?;
+        }
+
+        self.headers.batch(batch)?;
+
         // Flush the header bucket
         self.headers.flush()?;
         // Flush the block index
@@ -200,15 +215,17 @@ impl<'a> ChainStore for KvChainStore<'a> {
     }
 
     fn save_header(&self, header: &DiskBlockHeader) -> Result<(), Self::Error> {
-        let ser_header = serialize(header);
-        let block_hash = serialize(&header.block_hash());
-        
-        self.headers.set(&&*block_hash, &ser_header)?;
+        self.headers_cache
+            .write()
+            .insert(header.block_hash(), *header);
         Ok(())
     }
 
     fn get_block_hash(&self, height: u32) -> Result<Option<BlockHash>, Self::Error> {
-        Ok(self.index.get(&Integer::from(height))?.map(|b| deserialize(&b).unwrap()))  
+        Ok(self
+            .index
+            .get(&Integer::from(height))?
+            .map(|b| deserialize(&b).unwrap()))
     }
 
     fn update_block_index(&self, height: u32, hash: BlockHash) -> Result<(), Self::Error> {
