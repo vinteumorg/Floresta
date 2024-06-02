@@ -190,8 +190,10 @@ where
                 continue;
             };
 
-            // Punnishing this peer for taking too long to respond
-            self.increase_banscore(peer, 2).await?;
+            if !matches!(request, InflightRequests::Connect(_)) {
+                // Punnishing this peer for taking too long to respond
+                self.increase_banscore(peer, 2).await?;
+            }
 
             match request {
                 InflightRequests::UtreexoState(_) => {}

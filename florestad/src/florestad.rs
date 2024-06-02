@@ -4,6 +4,7 @@ use std::process::exit;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::Mutex;
+#[cfg(feature = "json-rpc")]
 use std::sync::OnceLock;
 
 use async_std::sync::RwLock;
@@ -40,6 +41,7 @@ use zmq::ZMQServer;
 
 use crate::cli;
 use crate::config_file::ConfigFile;
+#[cfg(feature = "json-rpc")]
 use crate::json_rpc;
 use crate::wallet_input::InitialWalletSetup;
 
@@ -132,6 +134,7 @@ pub struct Florestad {
     stop_signal: Arc<RwLock<bool>>,
     /// A channel that notifies we are done, and it's safe to die now
     stop_notify: Arc<Mutex<Option<oneshot::Receiver<()>>>>,
+    #[cfg(feature = "json-rpc")]
     /// A handle to our json-rpc server
     json_rpc: OnceLock<jsonrpc_http_server::Server>,
 }
@@ -246,9 +249,9 @@ impl Florestad {
         }
 
         info!("loading blockchain database");
-
+        let datadir2 = data_dir.clone();
         let blockchain_state = Arc::new(Self::load_chain_state(
-            &data_dir,
+            datadir2,
             Self::get_net(&self.config.network),
             self.config
                 .assume_valid
@@ -456,6 +459,7 @@ impl Florestad {
             config,
             stop_signal: Arc::new(RwLock::new(false)),
             stop_notify: Arc::new(Mutex::new(None)),
+            #[cfg(feature = "json-rpc")]
             json_rpc: OnceLock::new(),
         }
     }
@@ -501,10 +505,10 @@ impl Florestad {
     }
 
     fn load_chain_state(
-        data_dir: &String,
+        data_dir: String,
         network: Network,
         assume_valid: Option<bitcoin::BlockHash>,
-    ) -> ChainState<KvChainStore> {
+    ) -> ChainState<KvChainStore<'static>> {
         let db = KvChainStore::new(data_dir.to_string()).expect("Could not read db");
         let assume_valid =
             assume_valid.map_or(AssumeValidArg::Hardcoded, AssumeValidArg::UserInput);
@@ -590,6 +594,7 @@ impl From<Config> for Florestad {
             config,
             stop_signal: Arc::new(RwLock::new(false)),
             stop_notify: Arc::new(Mutex::new(None)),
+            #[cfg(feature = "json-rpc")]
             json_rpc: OnceLock::new(),
         }
     }
