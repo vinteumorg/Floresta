@@ -87,7 +87,7 @@ pub trait Rpc {
 pub struct RpcImpl {
     block_filter_storage: Option<Arc<NetworkFilters<KvFilterStore>>>,
     network: Network,
-    chain: Arc<ChainState<KvChainStore>>,
+    chain: Arc<ChainState<KvChainStore<'static>>>,
     wallet: Arc<RwLock<AddressCache<KvDatabase>>>,
     node: Arc<NodeInterface>,
     kill_signal: Arc<RwLock<bool>>,
@@ -398,6 +398,7 @@ impl Rpc for RpcImpl {
         Ok(true)
     }
 }
+
 impl RpcImpl {
     fn make_vin(&self, input: TxIn) -> TxInJson {
         let txid = serialize_hex(&input.previous_output.txid);
@@ -514,7 +515,7 @@ impl RpcImpl {
 
     #[allow(clippy::too_many_arguments)]
     pub fn create(
-        chain: Arc<ChainState<KvChainStore>>,
+        chain: Arc<ChainState<KvChainStore<'static>>>,
         wallet: Arc<RwLock<AddressCache<KvDatabase>>>,
         node: Arc<NodeInterface>,
         kill_signal: Arc<RwLock<bool>>,

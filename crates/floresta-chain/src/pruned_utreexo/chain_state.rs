@@ -969,7 +969,9 @@ impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedSta
         if let DiskBlockHeader::FullyValid(_, height) = header {
             Ok(height)
         } else {
-            unreachable!("Validation index is in an invalid state, you should re-index your node")
+            unreachable!(
+                "Validation index is in an invalid state, you should re-index your node {header:?}"
+            )
         }
     }
 
