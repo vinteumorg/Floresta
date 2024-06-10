@@ -40,7 +40,7 @@ impl NodeContext for SyncNode {
 
     const MAX_OUTGOING_PEERS: usize = 5; // don't need many peers, half the default
     const TRY_NEW_CONNECTION: u64 = 10; // ten seconds
-    const REQUEST_TIMEOUT: u64 = 30; // 30 seconds
+    const REQUEST_TIMEOUT: u64 = 60; // one minute
     const MAX_INFLIGHT_REQUESTS: usize = 100; // double the default
 }
 
@@ -78,9 +78,13 @@ where
                 continue;
             }
 
-            if self.inflight.len() < SyncNode::MAX_INFLIGHT_REQUESTS {
-                let mut blocks = Vec::with_capacity(100);
-                for _ in 0..100 {
+            if self.chain.get_validation_index().unwrap() + 10 > self.1.last_block_requested {
+                if self.inflight.len() > 10 {
+                    continue;
+                }
+                let mut blocks = Vec::with_capacity(10);
+                info!("Requesting blocks from {}", self.1.last_block_requested);
+                for _ in 0..10 {
                     let next_block = self.1.last_block_requested + 1;
                     let next_block = self.chain.get_block_hash(next_block);
                     match next_block {
@@ -110,12 +114,24 @@ where
 
         for (peer, block) in to_remove {
             self.inflight.remove(&block);
-            try_and_log!(self.increase_banscore(peer, 1).await);
+            try_and_log!(self.increase_banscore(peer, 1, "Request timeout").await);
 
-            let InflightRequests::Blocks(block) = block else {
+            if !self.has_utreexo_peers() {
                 continue;
-            };
-            try_and_log!(self.request_blocks(vec![block]).await);
+            }
+
+            if let InflightRequests::Blocks(block) = block {
+                if let Ok(peer) = self
+                    .send_to_random_peer(
+                        NodeRequest::GetBlock((vec![block], true)),
+                        ServiceFlags::UTREEXO,
+                    )
+                    .await
+                {
+                    self.inflight
+                        .insert(InflightRequests::Blocks(block), (peer, Instant::now()));
+                }
+            }
         }
     }
 
@@ -133,6 +149,16 @@ where
         let mut next_block = self.chain.get_block_hash(next_block)?;
 
         while let Some((peer, block)) = self.blocks.remove(&next_block) {
+            info!(
+                "processing block hash={} tx={} height={}",
+                block.block.block_hash(),
+                block.block.txdata.len(),
+                self.chain
+                    .get_block_height(&block.block.block_hash())
+                    .unwrap()
+                    .unwrap()
+            );
+
             if block.udata.is_none() {
                 error!("Block without proof received from peer {}", peer);
                 self.send_to_peer(peer, NodeRequest::Shutdown).await?;
@@ -218,6 +244,11 @@ where
                 }
                 PeerMessages::Disconnected(idx) => {
                     try_and_log!(self.handle_disconnection(peer, idx));
+
+                    if !self.has_utreexo_peers() {
+                        self.1.last_block_requested = self.chain.get_validation_index().unwrap();
+                        self.inflight.clear();
+                    }
                 }
                 _ => {}
             },

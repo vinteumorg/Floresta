@@ -190,8 +190,10 @@ where
                 continue;
             };
 
-            // Punnishing this peer for taking too long to respond
-            self.increase_banscore(peer, 2).await?;
+            if !matches!(request, InflightRequests::Connect(_)) {
+                // Punnishing this peer for taking too long to respond
+                self.increase_banscore(peer, 2, "timed out request {request:?}").await?;
+            }
 
             match request {
                 InflightRequests::UtreexoState(_) => {}
@@ -297,6 +299,7 @@ where
         if *kill_signal.read().await {
             self = UtreexoNode(ibd.0, self.1);
             self.shutdown().await;
+            stop_signal.send(()).unwrap();
             return;
         }
 
@@ -651,7 +654,8 @@ where
                 "Peer {peer} sent us block {} which we didn't request",
                 block.block.block_hash()
             );
-            self.increase_banscore(peer, 5).await?;
+            self.increase_banscore(peer, 5, "sent unrequested block")
+                .await?;
             return Ok(());
         }
 
@@ -745,14 +749,14 @@ where
             NodeNotification::FromPeer(peer, message) => match message {
                 PeerMessages::NewBlock(block) => {
                     debug!("We got an inv with block {block} requesting it");
-                    self.handle_new_block().await?;
+                    try_and_log!(self.handle_new_block().await);
                 }
                 PeerMessages::Block(block) => {
                     debug!(
                         "Got data for block {} from peer {peer}",
                         block.block.block_hash()
                     );
-                    self.handle_block_data(block, peer).await?;
+                    try_and_log!(self.handle_block_data(block, peer).await);
                 }
                 PeerMessages::Headers(headers) => {
                     debug!(
@@ -766,7 +770,7 @@ where
 
                     if self.chain.is_in_idb() {
                         let blocks = headers.iter().map(|header| header.block_hash()).collect();
-                        self.request_blocks(blocks).await?;
+                        try_and_log!(self.request_blocks(blocks).await);
                     }
                 }
                 PeerMessages::Ready(version) => {
@@ -823,7 +827,8 @@ where
                         "Utreexo state received from peer {}, but we didn't ask",
                         peer
                     );
-                    self.increase_banscore(peer, 5).await?;
+                    self.increase_banscore(peer, 5, "sent a utreexo state without we requesting")
+                        .await?;
                 }
             },
         }

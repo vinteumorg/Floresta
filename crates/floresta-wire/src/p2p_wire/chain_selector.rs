@@ -557,7 +557,6 @@ where
         let peer = self.1.sync_peer;
         self.inflight
             .insert(InflightRequests::Headers, (peer, Instant::now()));
-
         Ok(())
     }
 
@@ -569,7 +568,7 @@ where
 
         for (request, (peer, instant)) in self.inflight.clone() {
             if instant.elapsed().as_secs() > ChainSelector::REQUEST_TIMEOUT {
-                self.increase_banscore(peer, 2).await?;
+                self.increase_banscore(peer, 2, "timed request out").await?;
                 failed.push(request)
             }
         }

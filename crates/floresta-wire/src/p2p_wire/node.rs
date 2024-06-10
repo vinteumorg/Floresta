@@ -285,10 +285,12 @@ where
                 .update_set_service_flag(version.address_id, version.services);
             return Ok(());
         }
+
         info!(
             "New peer id={} version={} blocks={} services={}",
             version.id, version.user_agent, version.blocks, version.services
         );
+
         self.inflight.remove(&InflightRequests::Connect(peer));
 
         if let Some(peer_data) = self.0.peers.get_mut(&peer) {
@@ -306,6 +308,17 @@ where
             peer_data.user_agent.clone_from(&version.user_agent);
             peer_data.height = version.blocks;
 
+            // Add this peer to the list of peers that support the same service, we'll use this
+            // list to send requests to peers that support a specific service, if needed.
+
+            // NONE this is a whildcard service flag for requests that don't require a specific service
+            self.0
+                .peer_by_service
+                .entry(ServiceFlags::NONE)
+                .or_default()
+                .push(peer);
+
+            // UTREEXO
             if peer_data.services.has(ServiceFlags::UTREEXO) {
                 self.0
                     .peer_by_service
@@ -314,6 +327,7 @@ where
                     .push(peer);
             }
 
+            // COMPACT_FILTERS
             if peer_data.services.has(ServiceFlags::COMPACT_FILTERS) {
                 self.0
                     .peer_by_service
@@ -322,6 +336,7 @@ where
                     .push(peer);
             }
 
+            // UTREEXO_FILTER
             if peer_data.services.has(ServiceFlags::from(1 << 25)) {
                 self.0
                     .peer_by_service
@@ -374,10 +389,14 @@ where
         &mut self,
         peer_id: u32,
         factor: u32,
+        reason: &str,
     ) -> Result<(), WireError> {
         let Some(peer) = self.0.peers.get_mut(&peer_id) else {
             return Ok(());
         };
+
+        warn!("Peer {} misbehaving: {}", peer_id, reason);
+
         peer.banscore += factor;
         // This peer is misbehaving too often, ban it
         if peer.banscore >= self.0.max_banscore {

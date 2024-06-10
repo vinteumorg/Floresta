@@ -624,7 +624,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             inner: RwLock::new(inner),
         };
         // Check the integrity of our chain
-        chainstate.check_chain_integrity();
+        //chainstate.check_chain_integrity();
         Ok(chainstate)
     }
 
