@@ -372,6 +372,10 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
         let known_descs = self.database.descs_get()?;
         Ok(known_descs.contains(desc))
     }
+    /// Tells wheter an address is already cached
+    pub fn is_address_cached(&self, script_hash: &Hash) -> bool {
+        self.address_map.contains_key(script_hash)
+    }
     pub fn push_descriptor(&self, descriptor: &str) -> Result<(), WatchOnlyError<D::Error>> {
         Ok(self.database.desc_save(descriptor)?)
     }
