@@ -7,3 +7,4 @@ config.toml
 data/
 output.log
 tmp/
+.pre-commit-config.yaml
