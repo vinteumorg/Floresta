@@ -311,6 +311,7 @@ where
                 .chain
                 .get_partial_chain(startup_tip, end, Stump::default())
                 .unwrap();
+            let chain = Arc::new(chain);
 
             let mut backfill = UtreexoNode::<SyncNode, PartialChainState>::new(
                 self.config.clone(),

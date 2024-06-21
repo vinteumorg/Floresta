@@ -144,7 +144,7 @@ pub struct NodeCommon<Chain: BlockchainInterface + UpdatableChainstate> {
     pub(crate) peer_by_service: HashMap<ServiceFlags, Vec<u32>>,
     pub(crate) peer_ids: Vec<u32>,
     pub(crate) peers: HashMap<u32, LocalPeerView>,
-    pub(crate) chain: Chain,
+    pub(crate) chain: Arc<Chain>,
     pub(crate) blocks: HashMap<BlockHash, (PeerId, UtreexoBlock)>,
     pub(crate) inflight: HashMap<InflightRequests, (u32, Instant)>,
     pub(crate) node_rx: Receiver<NodeNotification>,
@@ -192,7 +192,7 @@ where
 {
     pub fn new(
         config: UtreexoNodeConfig,
-        chain: Chain,
+        chain: Arc<Chain>,
         mempool: Arc<RwLock<Mempool>>,
         block_filters: Option<Arc<NetworkFilters<KvFilterStore>>>,
     ) -> Self {

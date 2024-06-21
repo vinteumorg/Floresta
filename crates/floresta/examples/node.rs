@@ -45,6 +45,7 @@ async fn main() {
         Network::Bitcoin,
         AssumeValidArg::Disabled,
     ));
+    let chain = Arc::new(chain);
 
     // Create a new node. It will connect to the Bitcoin network and start downloading the blockchain.
     // It will also start a mempool, which will keep track of the current mempool state, this

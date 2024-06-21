@@ -158,7 +158,7 @@ where
             }
         }
 
-        self.request_headers(headers.last().unwrap().block_hash())
+        self.request_headers(headers.last().unwrap().block_hash(), peer)
             .await
     }
 
@@ -546,12 +546,12 @@ where
     /// peer is following a chain with `tip` inside it. We use this in case some of
     /// our peer is in a fork, so we can learn about all blocks in that fork and
     /// compare the candidate chains to pick the best one.
-    async fn request_headers(&mut self, tip: BlockHash) -> Result<(), WireError> {
+    async fn request_headers(&mut self, tip: BlockHash, peer: PeerId) -> Result<(), WireError> {
         let locator = self
             .chain
             .get_block_locator_for_tip(tip)
             .unwrap_or_default();
-        self.send_to_peer(self.1.sync_peer, NodeRequest::GetHeaders(locator))
+        self.send_to_peer(peer, NodeRequest::GetHeaders(locator))
             .await?;
 
         let peer = self.1.sync_peer;
@@ -622,7 +622,10 @@ where
                     let new_sync_peer = rand::random::<usize>() % self.peer_ids.len();
                     self.1.sync_peer = *self.peer_ids.get(new_sync_peer).unwrap();
 
-                    try_and_log!(self.request_headers(self.chain.get_best_block()?.1).await);
+                    try_and_log!(
+                        self.request_headers(self.chain.get_best_block()?.1, new_sync_peer as u32)
+                            .await
+                    );
 
                     self.1.state = ChainSelectorState::DownloadingHeaders;
                 }
@@ -631,6 +634,7 @@ where
             // We downloaded all headers in the most-pow chain, and all our peers agree
             // this is the most-pow chain, we're done!
             if self.1.state == ChainSelectorState::Done {
+                self.chain.toggle_ibd(false);
                 break;
             }
 
