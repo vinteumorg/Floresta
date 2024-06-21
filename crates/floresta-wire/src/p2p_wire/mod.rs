@@ -103,5 +103,6 @@ pub mod peer;
 pub mod running_node;
 pub mod socks;
 pub mod stream_reader;
+pub mod sync_node;
 #[cfg(test)]
 pub mod test_chain_selector;

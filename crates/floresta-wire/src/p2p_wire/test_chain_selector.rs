@@ -1,21 +1,25 @@
 #[cfg(test)]
 mod tests_utils {
     use std::collections::HashMap;
+    use std::io::Cursor;
     use std::mem::ManuallyDrop;
     use std::sync::Arc;
+    use std::time::Duration;
     use std::time::Instant;
 
     use async_std::channel::Receiver;
     use async_std::channel::Sender;
+    use async_std::future;
     use async_std::sync::RwLock;
     use async_std::task;
     use bitcoin::blockdata::block::Header;
+    use bitcoin::consensus::Decodable;
     use bitcoin::p2p::ServiceFlags;
     use bitcoin::BlockHash;
+    use floresta_chain::pruned_utreexo::BlockchainInterface;
     use floresta_chain::AssumeValidArg;
     use floresta_chain::ChainState;
     use floresta_chain::KvChainStore;
-    use futures::Future;
 
     use crate::mempool::Mempool;
     use crate::node::LocalPeerView;
@@ -24,15 +28,28 @@ mod tests_utils {
     use crate::node::PeerStatus;
     use crate::node::UtreexoNode;
     use crate::p2p_wire::chain_selector::ChainSelector;
-    use crate::p2p_wire::error::WireError;
     use crate::p2p_wire::peer::PeerMessages;
     use crate::UtreexoNodeConfig;
+
+    pub fn get_test_headers() -> Vec<Header> {
+        let file = include_bytes!(
+            "../../../floresta-chain/src/pruned_utreexo/testdata/signet_headers.zst"
+        );
+        let uncompressed: Vec<u8> = zstd::decode_all(std::io::Cursor::new(file)).unwrap();
+        let mut cursor = Cursor::new(uncompressed);
+        let mut headers: Vec<Header> = Vec::new();
+        while let Ok(header) = Header::consensus_decode(&mut cursor) {
+            headers.push(header);
+        }
+        headers
+    }
 
     pub struct TestPeer {
         headers: Vec<Header>,
         filters: HashMap<BlockHash, Vec<u8>>,
         node_tx: Sender<NodeNotification>,
         node_rx: Receiver<NodeRequest>,
+        peer_id: u32,
     }
 
     impl TestPeer {
@@ -41,15 +58,48 @@ mod tests_utils {
             headers: Vec<Header>,
             filters: HashMap<BlockHash, Vec<u8>>,
             node_rx: Receiver<NodeRequest>,
+            peer_id: u32,
         ) -> Self {
             TestPeer {
                 headers,
                 filters,
                 node_tx,
                 node_rx,
+                peer_id,
             }
         }
 
+        ///  FOR KEEPING TRACK OF KINDS OF MESSAGE TYPES
+        /// 
+        ///  NODE REQUESTS:
+        ///
+        /// GetBlock((Vec<BlockHash>, bool))
+        /// GetHeaders(Vec<BlockHash>),         *
+        /// GetAddresses,
+        /// Shutdown,
+        /// BroadcastTransaction(Txid),
+        /// MempoolTransaction(Txid),
+        /// SendAddresses(Vec<AddrV2Message>),
+        /// GetUtreexoState((BlockHash, u32)),
+        /// GetFilter((BlockHash, u32))
+
+        /// PEER MESSAGES:
+        ///
+        /// NewBlock(BlockHash),
+        /// Block(UtreexoBlock),
+        /// Headers(Vec<BlockHeader>),
+        /// Addr(Vec<AddrV2Message>),
+        /// Ready(Version),
+        /// Disconnected(usize),
+        /// NotFound(Inventory),
+        /// Transaction(Transaction),
+        /// UtreexoState(Vec<u8>),
+        /// BlockFilter((BlockHash, floresta_compact_filters::BlockFilter))
+
+        /// NODE NOTIFICATIONS:
+        ///
+        /// FromPeer(u32, PeerMessages)
+        
         pub async fn run(self) {
             loop {
                 let req = self.node_rx.recv().await.unwrap();
@@ -64,7 +114,7 @@ mod tests_utils {
 
                         self.node_tx
                             .send(NodeNotification::FromPeer(
-                                0,
+                                self.peer_id,
                                 PeerMessages::Headers(headers),
                             ))
                             .await
@@ -74,7 +124,7 @@ mod tests_utils {
                         let filters = self.filters.get(&hash).unwrap().clone();
                         self.node_tx
                             .send(NodeNotification::FromPeer(
-                                0,
+                                self.peer_id,
                                 PeerMessages::UtreexoState(filters),
                             ))
                             .await
@@ -92,8 +142,9 @@ mod tests_utils {
         node_sender: Sender<NodeNotification>,
         sender: Sender<NodeRequest>,
         node_rcv: Receiver<NodeRequest>,
+        peer_id: u32,
     ) -> LocalPeerView {
-        let peer = TestPeer::new(node_sender, headers, filters, node_rcv);
+        let peer = TestPeer::new(node_sender, headers, filters, node_rcv, peer_id);
         task::spawn(peer.run());
 
         LocalPeerView {
@@ -111,16 +162,13 @@ mod tests_utils {
         }
     }
 
-    pub fn setup_test(
+    pub async fn setup_test(
         test_name: &str,
         peers: Vec<(Vec<Header>, HashMap<BlockHash, Vec<u8>>)>,
         pow_fraud_proofs: bool,
         network: floresta_chain::Network,
-    ) -> (
-        impl Future<Output = Result<(), WireError>>,
-        Arc<ChainState<KvChainStore>>,
     ) {
-        let datadir = format!("./test/{}", test_name);
+        let datadir = format!("./data/{}.node_test", rand::random::<u32>());
         let chainstore = KvChainStore::new(datadir.clone()).unwrap();
         let mempool = Arc::new(RwLock::new(Mempool::new()));
         let chain = ChainState::new(chainstore, network, AssumeValidArg::Disabled);
@@ -136,12 +184,15 @@ mod tests_utils {
             max_inflight: 10,
             datadir: datadir.clone(),
             proxy: None,
+            assume_utreexo: None,
+            backfill: false,
         };
 
         let mut node = UtreexoNode::<ChainSelector, ChainState<KvChainStore>>::new(
             config,
             chain.clone(),
             mempool,
+            None,
         );
 
         for (i, peer) in peers.into_iter().enumerate() {
@@ -152,10 +203,20 @@ mod tests_utils {
                 node.node_tx.clone(),
                 sender.clone(),
                 receiver,
+                i as u32,
             );
+
+            let _peer = peer.clone();
+
             node.peers.insert(i as u32, peer);
-            node.utreexo_peers.push(i as u32);
             node.peer_ids.push(i as u32);
+            match node.peer_by_service.get_mut(&_peer.services) {
+                Some(peer_vec) => peer_vec.push(i as u32),
+                None => {
+                    node.peer_by_service.insert(_peer.services, vec![i as u32]);
+                    ()
+                }
+            }
         }
 
         let mut node = ManuallyDrop::new(Box::new(node));
@@ -166,9 +227,33 @@ mod tests_utils {
         let _node: &'static mut UtreexoNode<ChainSelector, ChainState<KvChainStore>> =
             unsafe { std::mem::transmute(&mut **node) };
 
-        let fut = _node.run(kill_signal);
+        future::timeout(Duration::from_secs(2), _node.run(kill_signal))
+            .await
+            .unwrap()
+            .unwrap();
 
-        (fut, chain)
+        let headers = get_test_headers();
+
+        match test_name {
+            "test_chain_selector" => {
+                assert_eq!(chain.is_in_idb(), false);
+                assert_eq!(chain.get_best_block().unwrap().0, 2015);
+                assert_eq!(
+                    chain.get_best_block().unwrap().1,
+                    headers[2015].block_hash()
+                );
+            }
+
+            "two_peers_different_tips" => {
+                assert_eq!(chain.is_in_idb(), false);
+                assert_eq!(chain.get_best_block().unwrap().0, 2014);
+                assert_eq!(
+                    chain.get_best_block().unwrap().1,
+                    headers[2014].block_hash()
+                );
+            }
+            _ => {}
+        }
     }
 }
 
@@ -176,41 +261,43 @@ mod tests_utils {
 mod tests {
     use std::collections::HashMap;
 
-    use bitcoin::blockdata::block::Header;
-    use bitcoin::consensus::deserialize;
-    use bitcoin::hex::FromHex;
-    use floresta_chain::pruned_utreexo::BlockchainInterface;
-
+    use super::tests_utils::get_test_headers;
     use super::tests_utils::setup_test;
 
     #[async_std::test]
     async fn accept_one_header() {
-        let headers = [
-            "0100000000000000000000000000000000000000000000000000000000000000000000003ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a008f4d5fae77031e8ad22203",
-            "00000020f61eee3b63a380a477a063af32b2bbc97c9ff9f01f2c4225e973988108000000f575c83235984e7dc4afc1f30944c170462e84437ab6f2d52e16878a79e4678bd1914d5fae77031eccf40700"
-        ]
-        .iter()
-        .map(|x| {
-            let header = Vec::from_hex(x).unwrap();
-            deserialize(&header).unwrap()
-        })
-        .collect::<Vec<Header>>();
+        let headers = get_test_headers();
 
-        let (fut, chain) = setup_test(
+        setup_test(
             "test_chain_selector",
-            vec![(headers.clone(), HashMap::new())],
+            vec![(headers, HashMap::new())],
             false,
             floresta_chain::Network::Signet,
-        );
-
-        fut.await.expect("should fininsh fine");
-
-        assert_eq!(chain.is_in_idb(), false);
-        assert_eq!(chain.get_best_block().unwrap().0, 1);
-        assert_eq!(chain.get_best_block().unwrap().1, headers[1].block_hash());
+        )
+        .await;
     }
 
-    // two peers in different tips
+    #[async_std::test]
+    async fn two_peers_different_tips() {
+        let mut headers = get_test_headers();
+
+        let mut peers = Vec::new();
+
+        for _ in 0..2 {
+            headers.pop();
+            peers.push((headers.clone(), HashMap::new()))
+        }
+
+        setup_test(
+            "two_peers_different_tips",
+            peers,
+            false,
+            floresta_chain::Network::Signet,
+        )
+        .await;
+    }
+
+    // two peers in different tips      *
 
     // 10 peers on different tips
 
