@@ -22,6 +22,7 @@ pub enum DiskBlockHeader {
     InFork(BlockHeader, u32),
     InvalidChain(BlockHeader),
 }
+
 impl DiskBlockHeader {
     pub fn block_hash(&self) -> BlockHash {
         self.deref().block_hash()
