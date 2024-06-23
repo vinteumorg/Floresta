@@ -310,38 +310,40 @@ impl AddressMan {
         let peers = if let Ok(peers) = local_db {
             info!("Peers database found, using it");
 
-            serde_json::from_str::<Vec<DiskLocalAddress>>(&peers)
+            serde_json::from_str::<Vec<DiskLocalAddress>>(&peers).unwrap_or(Vec::new())
         } else {
             info!("No peers available, using fixed peers");
             let mut peers_from_dns = 0;
             for seed in dns_seeds {
-                peers_from_dns += self.get_seeds_from_dns(seed, default_port)?;
+                match self.get_seeds_from_dns(seed, default_port) {
+                    Ok(peers) => peers_from_dns += peers,
+                    Err(e) => {
+                        info!("Error getting peers from DNS seed {seed}: {e:?}");
+                    }
+                }
             }
+
             info!("Got {peers_from_dns} peers from DNS Seeds",);
             let addresses = Self::get_net_seeds(network);
-            serde_json::from_str(addresses)
+            serde_json::from_str(addresses).expect("BUG: fixed peers are invalid")
         };
-        if let Ok(peers) = peers {
-            let peers = peers
-                .iter()
-                .cloned()
-                .map(Into::<LocalAddress>::into)
-                .collect::<Vec<_>>();
-            self.push_addresses(&peers);
-        }
-        let anchors = std::fs::read_to_string(format!("{datadir}/anchors.json"));
-        if anchors.is_err() {
-            return Ok(Vec::new());
-        }
-        if let Ok(anchors) = serde_json::from_str::<Vec<DiskLocalAddress>>(&anchors.unwrap()) {
-            let anchors = anchors
-                .iter()
-                .cloned()
-                .map(Into::<LocalAddress>::into)
-                .collect::<Vec<_>>();
-            return Ok(anchors);
-        }
-        Ok(Vec::new())
+
+        let peers = peers
+            .iter()
+            .cloned()
+            .map(Into::<LocalAddress>::into)
+            .collect::<Vec<_>>();
+        self.push_addresses(&peers);
+
+        let anchors = std::fs::read_to_string(format!("{datadir}/anchors.json"))?;
+        let anchors = serde_json::from_str::<Vec<DiskLocalAddress>>(&anchors)?;
+        let anchors = anchors
+            .iter()
+            .cloned()
+            .map(Into::<LocalAddress>::into)
+            .collect::<Vec<_>>();
+
+        Ok(anchors)
     }
     /// This function moves addresses between buckets, like if the ban time of a peer expired,
     /// or if we tried to connect to a peer and it failed in the past, but now it might be online
