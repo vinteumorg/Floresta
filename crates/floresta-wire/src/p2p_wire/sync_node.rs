@@ -79,7 +79,9 @@ where
                 break;
             }
 
-            if !self.chain.is_in_idb() {
+            if self.chain.get_validation_index().unwrap() == self.chain.get_best_block().unwrap().0
+            {
+                self.chain.toggle_ibd(false);
                 break;
             }
 
@@ -92,7 +94,7 @@ where
 
             self.handle_timeout().await;
 
-            if self.has_utreexo_peers() {
+            if !self.has_utreexo_peers() {
                 continue;
             }
 

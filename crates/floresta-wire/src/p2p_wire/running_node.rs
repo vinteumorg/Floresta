@@ -424,6 +424,12 @@ where
             );
 
             try_and_log!(self.request_rescan_block().await);
+            try_and_log!(self.download_filters().await);
+
+            // requests that need a utreexo peer
+            if !self.has_utreexo_peers() {
+                continue;
+            }
 
             // Check whether we are in a stale tip
             periodic_job!(
@@ -432,11 +438,6 @@ where
                 ASSUME_STALE,
                 RunningNode
             );
-            try_and_log!(self.download_filters().await);
-            // requests that need a utreexo peer
-            if self.has_utreexo_peers() {
-                continue;
-            }
 
             // Check if we haven't missed any block
             if self.inflight.len() < 10 {
@@ -790,7 +791,8 @@ where
                     self.block_filters
                         .as_ref()
                         .map(|filters| filters.push_filter(height, filter));
-                    if hash == self.last_filter {
+
+                    if self.inflight.len() < RunningNode::MAX_INFLIGHT_REQUESTS {
                         self.download_filters().await?;
                     }
                 }

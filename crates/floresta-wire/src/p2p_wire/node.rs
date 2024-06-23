@@ -404,7 +404,8 @@ where
     }
 
     pub(crate) fn has_utreexo_peers(&self) -> bool {
-        self.peer_by_service
+        !self
+            .peer_by_service
             .get(&ServiceFlags::UTREEXO)
             .unwrap_or(&Vec::new())
             .is_empty()
@@ -413,7 +414,7 @@ where
     pub(crate) fn has_compact_filters_peer(&self) -> bool {
         self.peer_by_service
             .get(&ServiceFlags::COMPACT_FILTERS)
-            .map(|peers| peers.is_empty())
+            .map(|peers| !peers.is_empty())
             .unwrap_or(false)
     }
 
@@ -427,8 +428,12 @@ where
             return Err(WireError::NoPeersAvailable);
         }
 
-        let Some(peers) = self.peer_by_service.get(&required_service) else {
-            return Err(WireError::NoPeersAvailable);
+        let peers = match required_service {
+            ServiceFlags::NONE => &self.peer_ids,
+            _ => self
+                .peer_by_service
+                .get(&required_service)
+                .ok_or(WireError::NoPeersAvailable)?,
         };
 
         if peers.is_empty() {
