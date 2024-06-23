@@ -1000,14 +1000,14 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
         self.update_header(&new_header)
     }
 
-    fn mark_chain_as_assumed(&self, acc: Stump) -> Result<bool, BlockchainError> {
-        let assumed_hash = self.get_best_block()?.1;
-
+    fn mark_chain_as_assumed(
+        &self,
+        acc: Stump,
+        assumed_hash: BlockHash,
+    ) -> Result<bool, BlockchainError> {
         let mut curr_header = self.get_block_header(&assumed_hash)?;
 
-        // The assumeutreexo value passed is inside our main chain, start from that point
         while let Ok(header) = self.get_disk_block_header(&curr_header.block_hash()) {
-            // We've reached genesis and didn't our block
             if self.is_genesis(&header) {
                 break;
             }
@@ -1021,7 +1021,6 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
         let mut guard = write_lock!(self);
         guard.best_block.validation_index = assumed_hash;
         guard.best_block.rescan_index = None;
-        info!("assuming chain with hash={assumed_hash}");
         guard.acc = acc;
 
         Ok(true)

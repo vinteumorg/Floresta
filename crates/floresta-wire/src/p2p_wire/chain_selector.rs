@@ -446,12 +446,23 @@ where
                     }
                 }
 
-                if let Some(assume_utreexo) = self.config.assume_utreexo.as_ref() {
+                if let Some(assume_utreexo) = self.0.config.assume_utreexo.as_ref() {
+                    self.1.state = ChainSelectorState::Done;
+                    // already assumed the chain
+                    if self.chain.get_validation_index().unwrap() >= assume_utreexo.height {
+                        return Ok(());
+                    }
+                    info!(
+                        "Assuming chain with height={} tip={}",
+                        assume_utreexo.height, assume_utreexo.block_hash
+                    );
                     let acc = Stump {
                         leaves: assume_utreexo.leaves,
                         roots: assume_utreexo.roots.clone(),
                     };
-                    self.chain.mark_chain_as_assumed(acc)?;
+                    self.chain
+                        .mark_chain_as_assumed(acc, assume_utreexo.block_hash)?;
+                    return Ok(());
                 }
 
                 let has_peers = self
@@ -523,7 +534,7 @@ where
                 );
 
                 self.1.state = ChainSelectorState::Done;
-                self.chain.mark_chain_as_assumed(acc).unwrap();
+                self.chain.mark_chain_as_assumed(acc, tips[0]).unwrap();
                 self.chain.toggle_ibd(false);
             }
             // if we have more than one tip, we need to check if our best chain has an invalid block

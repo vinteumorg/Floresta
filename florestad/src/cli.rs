@@ -13,6 +13,17 @@ pub enum Network {
     Regtest,
 }
 
+impl From<Network> for floresta_chain::Network {
+    fn from(network: Network) -> Self {
+        match network {
+            Network::Bitcoin => floresta_chain::Network::Bitcoin,
+            Network::Signet => floresta_chain::Network::Signet,
+            Network::Testnet => floresta_chain::Network::Testnet,
+            Network::Regtest => floresta_chain::Network::Regtest,
+        }
+    }
+}
+
 impl std::fmt::Display for Network {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

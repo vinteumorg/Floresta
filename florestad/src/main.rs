@@ -74,6 +74,7 @@ async fn main() {
             electrum_address,
             log_to_file: true,
             log_to_stdout: true,
+            assume_utreexo: true,
         },
 
         // We may have more commands here, like setup and dump wallet
