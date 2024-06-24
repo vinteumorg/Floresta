@@ -67,9 +67,11 @@ where
         }
         try_and_log!(self.request_blocks(blocks).await);
     }
+
     pub async fn run(&mut self, kill_signal: Arc<RwLock<bool>>, done_cb: impl FnOnce(&Chain)) {
         info!("Starting sync node");
         self.1.last_block_requested = self.chain.get_validation_index().unwrap();
+
         loop {
             while let Ok(Ok(msg)) = timeout(Duration::from_secs(1), self.node_rx.recv()).await {
                 self.handle_message(msg).await;
@@ -102,7 +104,6 @@ where
                 if self.inflight.len() > 10 {
                     continue;
                 }
-                info!("Requesting blocks from {}", self.1.last_block_requested);
                 self.get_blocks_to_download().await;
             }
         }
@@ -167,7 +168,10 @@ where
                 .chain
                 .connect_block(&block.block, proof, inputs, del_hashes)
             {
-                error!("Invalid block received by peer {} reason: {:?}", peer, e);
+                error!(
+                    "Invalid block {:?} received by peer {} reason: {:?}",
+                    block.block.header, peer, e
+                );
 
                 if let BlockchainError::BlockValidation(e) = e {
                     // Because the proof isn't committed to the block, we can't invalidate
