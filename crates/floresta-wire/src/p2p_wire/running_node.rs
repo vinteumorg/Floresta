@@ -462,7 +462,6 @@ where
 
         if !self.has_compact_filters_peer() {
             // open a feeler connection to find more peers with COMPACT_BLOCK_FILTERS flag
-            self.create_connection(true).await;
             return Ok(());
         }
 
