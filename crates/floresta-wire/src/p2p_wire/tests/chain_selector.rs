@@ -150,7 +150,10 @@ mod tests_utils {
 
         LocalPeerView {
             address: "127.0.0.1".parse().unwrap(),
-            services: ServiceFlags::NETWORK,
+            services: ServiceFlags::WITNESS
+                | ServiceFlags::NETWORK
+                | ServiceFlags::UTREEXO
+                | ServiceFlags::from(1 << 25),
             user_agent: "/utreexo:0.1.0/".to_string(),
             height: 0,
             state: PeerStatus::Ready,
@@ -330,7 +333,7 @@ mod tests {
 
     // two peers in different tips      *
 
-    // 10 peers on different tips
+    // 10 peers on different tips       *
 
     // two-peers pow fraud proofs one lying
 
