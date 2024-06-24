@@ -343,6 +343,13 @@ where
 
         self.last_block_request = self.chain.get_validation_index().unwrap_or(0);
 
+        if let Some(ref cfilters) = self.block_filters {
+            self.last_filter = self
+                .chain
+                .get_block_hash(cfilters.get_height() as u32)
+                .unwrap();
+        }
+
         info!("starting running node...");
         loop {
             while let Ok(notification) =

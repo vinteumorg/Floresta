@@ -477,6 +477,16 @@ where
         }
         try_and_log!(self.save_peers());
         try_and_log!(self.chain.flush());
+
+        let last_filter_height = self
+            .chain
+            .get_block_height(&self.last_filter)
+            .unwrap()
+            .unwrap();
+
+        if let Some(filters) = &self.block_filters {
+            filters.save_height(last_filter_height);
+        }
     }
 
     pub(crate) async fn handle_broadcast(&self) -> Result<(), WireError> {

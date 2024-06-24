@@ -271,7 +271,7 @@ impl Florestad {
         let cfilters = if self.config.cfilters {
             // Block Filters
             let filter_store = KvFilterStore::new(&(data_dir.clone() + "/cfilters").into());
-            Some(Arc::new(NetworkFilters::new(filter_store, 0)))
+            Some(Arc::new(NetworkFilters::new(filter_store)))
         } else {
             None
         };
