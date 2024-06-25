@@ -630,22 +630,45 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
 
     fn check_chain_integrity(&self) {
         let best_height = self.get_best_block().expect("should have this loaded").0;
-        for height in 0..=best_height {
-            let Ok(hash) = self.get_block_hash(height) else {
-                self.reindex_chain();
-                return;
-            };
-            match self.get_disk_block_header(&hash) {
-                Ok(DiskBlockHeader::FullyValid(_, _)) => continue,
-                Ok(DiskBlockHeader::HeadersOnly(_, _)) => continue,
+        // make sure our index is right for the latest block
+        let best_block_heigh = self
+            .get_disk_block_header(&self.get_best_block().expect("should have this loaded").1)
+            .expect("should have this loaded")
+            .height()
+            .expect("should have this loaded");
 
-                _ => {
-                    warn!("our chain is corrupted, reindexing");
-                    self.reindex_chain();
-                }
+        if best_height != best_block_heigh {
+            self.reindex_chain();
+        }
+
+        // make sure our validation index is pointing to a valid block
+        let validation_index = self.get_best_block().expect("should have this loaded").1;
+        let validation_index = self
+            .get_disk_block_header(&validation_index)
+            .expect("should have this loaded");
+
+        if !matches!(validation_index, DiskBlockHeader::FullyValid(_, _)) {
+            self.reindex_chain();
+        }
+
+        // make sure our rescan index is pointing to a valid block
+        let rescan_index = read_lock!(self).best_block.rescan_index;
+        if let Some(rescan_index) = rescan_index {
+            let hash = self
+                .get_block_hash(rescan_index)
+                .expect("should have this loaded");
+
+            let rescan_index = self
+                .get_disk_block_header(&hash)
+                .expect("should have this loaded");
+
+            match rescan_index {
+                DiskBlockHeader::FullyValid(_, _) | DiskBlockHeader::HeadersOnly(_, _) => {}
+                _ => write_lock!(self).best_block.rescan_index = None,
             }
         }
     }
+
     fn load_acc<Storage: ChainStore>(data_storage: &Storage) -> Stump {
         let acc = data_storage
             .load_roots()
