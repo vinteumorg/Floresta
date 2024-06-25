@@ -863,7 +863,6 @@ mod test {
     use floresta_watch_only::AddressCache;
     use floresta_wire::mempool::Mempool;
     use floresta_wire::node::UtreexoNode;
-    use floresta_wire::node_interface::NodeInterface;
     use floresta_wire::running_node::RunningNode;
     use floresta_wire::UtreexoNodeConfig;
     use serde_json::json;
