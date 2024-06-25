@@ -352,8 +352,7 @@ where
 
         info!("starting running node...");
         loop {
-            while let Ok(notification) =
-                timeout(Duration::from_millis(100), self.node_rx.recv()).await
+            while let Ok(notification) = timeout(Duration::from_secs(5), self.node_rx.recv()).await
             {
                 try_and_log!(self.handle_notification(notification).await);
             }
@@ -430,14 +429,6 @@ where
                 RunningNode
             );
 
-            try_and_log!(self.request_rescan_block().await);
-            try_and_log!(self.download_filters().await);
-
-            // requests that need a utreexo peer
-            if !self.has_utreexo_peers() {
-                continue;
-            }
-
             // Check whether we are in a stale tip
             periodic_job!(
                 self.check_for_stale_tip().await,
@@ -445,6 +436,14 @@ where
                 ASSUME_STALE,
                 RunningNode
             );
+
+            try_and_log!(self.request_rescan_block().await);
+            try_and_log!(self.download_filters().await);
+
+            // requests that need a utreexo peer
+            if !self.has_utreexo_peers() {
+                continue;
+            }
 
             // Check if we haven't missed any block
             if self.inflight.len() < 10 {
@@ -681,13 +680,12 @@ where
                 &block.block.txdata,
                 &self.chain,
             )?;
-
+            async_std::task::yield_now().await;
             if let Err(e) = self
                 .chain
                 .connect_block(&block.block, proof, inputs, del_hashes)
             {
                 error!("Invalid block received by peer {} reason: {:?}", peer, e);
-
                 if let BlockchainError::BlockValidation(e) = e {
                     // Because the proof isn't committed to the block, we can't invalidate
                     // it if the proof is invalid. Any other error should cause the block

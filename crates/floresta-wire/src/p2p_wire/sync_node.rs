@@ -94,6 +94,17 @@ where
                 SyncNode
             );
 
+            if Instant::now()
+                .duration_since(self.0.last_tip_update)
+                .as_secs()
+                > SyncNode::ASSUME_STALE
+            {
+                self.1.last_block_requested = self.chain.get_validation_index().unwrap();
+                self.create_connection(false).await;
+                self.last_tip_update = Instant::now();
+                continue;
+            }
+
             self.handle_timeout().await;
 
             if !self.has_utreexo_peers() {
