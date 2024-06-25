@@ -7,7 +7,7 @@ a set of reusable components that can be used to build Bitcoin applications. `fl
 
 If you want to use `libfloresta` to build your own Bitcoin application, you can find the documentation [here](https://docs.dlsouza.lol/floresta/).
 
-### Comunity
+### Community
 
 If you want to discuss this project, you can join our Discord server [here](https://discord.gg/5Wj8fjjS93).
 
@@ -33,6 +33,45 @@ and build with cargo build
 cargo build --release --bin florestad
 # Optionally, you can add florestad to the path with
 cargo install --path ./florestad
+```
+
+### Building with nix
+
+If you're using Nix, you can add Florestad to your system with its overlay.
+
+```nix
+{
+  #Here you declare the import for your flake
+  inputs.florestad = {
+    url = "github:Davidson-Souza/Floresta";
+    inputs = {
+      nixpkgs.follows = "nixpkgs";
+      flake-parts.follows = "flake-parts";
+    };
+  };
+
+  outputs = inputs @ { self, ... }:
+  {
+    imports = [
+      {
+        nixpkgs.overlays = [
+          # Here you use the floresta overlay with your others
+          inputs.florestad.overlays.default
+        ];
+      }
+    ];
+  };
+```
+then Florestad will be available just like any other package with
+
+```nix
+pkgs.florestad
+```
+
+
+But if you just want to test it or quickly run a instance you can do 
+```bash
+$ nix run github:Davidson-Souza/Floresta
 ```
 
 ### Running
@@ -76,7 +115,34 @@ python tests/run_tests.py
 ```
 
 ### Contributing
-Contributions are welcome, feel free to open an issue or a pull request. There's not really a set of guidelines for contributing other than the code compiling and the tests passing. If you want to contribute but don't know where to start, take a look at the issues, there's a few of them marked as `good first issue`.
+Contributions are welcome, feel free to open an issue or a pull request.
+
+If you want to contribute but don't know where to start, take a look at the issues, there's a few of them marked as `good first issue`.
+
+Here's some Guidelines:
+- Has to compile.
+- Has to run.
+- Use [pre-commit](https://pre-commit.com/) for the language that you're using (if possible 👍).
+
+You can accomplish that using our flake.nix for development.
+
+### Using Nix
+
+If you already have [Nix](https://nixos.org/) you just need to do:
+
+```Bash
+    $ nix develop
+```
+
+and use our flake for development with include
+
+- nix(fmt) and rust(fmt) pre-commit.
+- Rust Msrv(1.74.0).
+- Clippy and some libs so rust can compile.
+- Typos for good spelling.
+
+If you do not have Nix
+[Check their guide](https://nixos.org/download/).
 
 ### License
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details
