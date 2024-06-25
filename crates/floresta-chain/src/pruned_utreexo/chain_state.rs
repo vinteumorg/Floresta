@@ -1372,6 +1372,7 @@ mod test {
     use bitcoin::hashes::hex::FromHex;
     use bitcoin::Block;
     use bitcoin::BlockHash;
+    use rand::Rng;
     use rustreexo::accumulator::proof::Proof;
 
     use super::BlockchainInterface;
@@ -1384,6 +1385,7 @@ mod test {
     use crate::AssumeValidArg;
     use crate::KvChainStore;
     use crate::Network;
+
     #[test]
     fn accept_mainnet_headers() {
         // Accepts the first 10235 mainnet headers
@@ -1488,5 +1490,55 @@ mod test {
             }
             panic!("Block {} is not in the store", i);
         }
+    }
+    #[test]
+    fn test_chainstate_functions() {
+        let file = include_bytes!("./testdata/signet_headers.zst");
+        let uncompressed: Vec<u8> = zstd::decode_all(std::io::Cursor::new(file)).unwrap();
+        let mut cursor = Cursor::new(uncompressed);
+
+        let test_id = rand::random::<u64>();
+        let chainstore = KvChainStore::new(format!("./data/{test_id}/")).unwrap();
+        let chain =
+            ChainState::<KvChainStore>::new(chainstore, Network::Signet, AssumeValidArg::Hardcoded);
+        let mut headers: Vec<BlockHeader> = Vec::new();
+        while let Ok(header) = BlockHeader::consensus_decode(&mut cursor) {
+            headers.push(header);
+        }
+        headers.remove(0);
+
+        // push_headers
+        assert!(chain.push_headers(headers.clone(), 1).is_ok());
+
+        // get_block_header_by_height
+        assert_eq!(chain.get_block_header_by_height(1), headers[0]);
+
+        // reindex_chain
+        assert_eq!(chain.reindex_chain().depth, 2015);
+
+        // get_block_locator_for_tip
+        assert!(!chain
+            .get_block_locator_for_tip(read_lock!(chain).best_block.best_block)
+            .unwrap()
+            .is_empty());
+
+        // get_block_locator
+        assert!(!chain.get_block_locator().unwrap().is_empty());
+
+        // invalidate_block
+        let random_height = rand::thread_rng().gen_range(1..=2014);
+
+        chain
+            .invalidate_block(headers[random_height].prev_blockhash)
+            .unwrap();
+
+        assert_eq!(chain.get_height().unwrap() as usize, random_height - 1);
+
+        // update_tip
+        chain.update_tip(headers[1].prev_blockhash, 1);
+        assert_eq!(
+            read_lock!(chain).best_block.best_block,
+            headers[1].prev_blockhash
+        );
     }
 }
