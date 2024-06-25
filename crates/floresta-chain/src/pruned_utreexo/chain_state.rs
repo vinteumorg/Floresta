@@ -1127,34 +1127,18 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
 
         self.validate_block(block, height, inputs)?;
         let acc = Consensus::update_acc(&self.acc(), block, height, proof, del_hashes)?;
-        let ibd = self.is_in_idb();
-        // ... If we came this far, we consider this block valid ...
-        if ibd && height % 10_000 == 0 {
-            info!(
-                "Downloading blocks: height={height} hash={}",
-                block.block_hash()
-            );
-            self.flush()?;
-        }
-
-        match ibd {
-            false => {
-                info!(
-                    "New tip! hash={} height={height} tx_count={}",
-                    block.block_hash(),
-                    block.txdata.len()
-                );
-                self.flush()?;
-            }
-            true => {
-                if block.block_hash() == self.get_best_block()?.1 {
-                    info!("Tip reached, toggle IBD off");
-                    self.toggle_ibd(false);
-                }
-            }
-        }
 
         self.update_view(height, &block.header, acc)?;
+
+        info!(
+            "New tip! hash={} height={height} tx_count={}",
+            block.block_hash(),
+            block.txdata.len()
+        );
+
+        if !self.is_in_idb() {
+            self.flush()?;
+        }
 
         // Notify others we have a new block
         self.notify(block, height);
