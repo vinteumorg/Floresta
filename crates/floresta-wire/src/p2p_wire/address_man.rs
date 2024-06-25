@@ -250,8 +250,7 @@ impl AddressMan {
             .unwrap()
             .as_secs();
         match peer.state {
-            AddressState::Banned(_) => None,
-            AddressState::Connected => self.get_random_good_address(),
+            AddressState::Banned(_) | AddressState::Connected => None,
             AddressState::NeverTried | AddressState::Tried(_) => Some((id, peer)),
             AddressState::Failed(time) => {
                 if now - time > RETRY_TIME {
