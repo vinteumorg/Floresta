@@ -309,7 +309,7 @@ impl AddressMan {
         let peers = if let Ok(peers) = local_db {
             info!("Peers database found, using it");
 
-            serde_json::from_str::<Vec<DiskLocalAddress>>(&peers).unwrap_or(Vec::new())
+            serde_json::from_str::<Vec<DiskLocalAddress>>(&peers).unwrap_or_default()
         } else {
             info!("No peers available, using fixed peers");
             let mut peers_from_dns = 0;

@@ -578,10 +578,8 @@ where
     pub(crate) async fn create_connection(&mut self, feeler: bool) -> Option<()> {
         // We should try to keep at least two utreexo connections
         let mut required_services = self.1.get_required_services();
-        if required_services.has(ServiceFlags::UTREEXO) {
-            if !self.has_utreexo_peers() {
-                required_services = ServiceFlags::UTREEXO; // force utreexo peers
-            }
+        if required_services.has(ServiceFlags::UTREEXO) && !self.has_utreexo_peers() {
+            required_services = ServiceFlags::UTREEXO; // force utreexo peers
         }
 
         let (peer_id, address) = match &self.fixed_peer {
