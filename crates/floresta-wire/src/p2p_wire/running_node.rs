@@ -344,10 +344,7 @@ where
         self.last_block_request = self.chain.get_validation_index().unwrap_or(0);
 
         if let Some(ref cfilters) = self.block_filters {
-            self.last_filter = self
-                .chain
-                .get_block_hash(cfilters.get_height())
-                .unwrap();
+            self.last_filter = self.chain.get_block_hash(cfilters.get_height()).unwrap();
         }
 
         info!("starting running node...");
@@ -792,8 +789,9 @@ where
                 PeerMessages::BlockFilter((hash, filter)) => {
                     debug!("Got a block filter from peer {}", peer);
                     let height = self.chain.get_block_height(&hash)?.unwrap_or(0);
-                    if let Some(filters) = self.block_filters
-                        .as_ref() { filters.push_filter(height, filter) }
+                    if let Some(filters) = self.block_filters.as_ref() {
+                        filters.push_filter(height, filter)
+                    }
 
                     if self.inflight.len() < RunningNode::MAX_INFLIGHT_REQUESTS {
                         self.download_filters().await?;

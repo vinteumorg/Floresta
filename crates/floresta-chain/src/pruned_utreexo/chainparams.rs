@@ -94,7 +94,24 @@ impl ChainParams {
                 .collect(),
                 leaves: 2554606658,
             },
-            _ => unimplemented!(),
+            Network::Testnet => AssumeUtreexoValue {
+                block_hash: genesis_block(network.into()).block_hash(),
+                height: 0,
+                leaves: 0,
+                roots: Vec::new(),
+            },
+            Network::Signet => AssumeUtreexoValue {
+                block_hash: genesis_block(network.into()).block_hash(),
+                height: 0,
+                leaves: 0,
+                roots: Vec::new(),
+            },
+            Network::Regtest => AssumeUtreexoValue {
+                block_hash: genesis_block(network.into()).block_hash(),
+                height: 0,
+                leaves: 0,
+                roots: Vec::new(),
+            },
         }
     }
 }
