@@ -84,6 +84,7 @@ async fn main() {
             cfilters: true,
             log_to_file: false,
             log_to_stdout: true,
+            assume_utreexo: true,
             ..Default::default()
         },
     };
