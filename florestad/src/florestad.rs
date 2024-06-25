@@ -124,6 +124,8 @@ pub struct Config {
     pub log_to_stdout: bool,
     //// Whether we should log to a fs file
     pub log_to_file: bool,
+    /// Whether we should use assume utreexo
+    pub assume_utreexo: bool,
 }
 
 pub struct Florestad {
@@ -269,7 +271,7 @@ impl Florestad {
         let cfilters = if self.config.cfilters {
             // Block Filters
             let filter_store = KvFilterStore::new(&(data_dir.clone() + "/cfilters").into());
-            Some(Arc::new(NetworkFilters::new(filter_store, 0)))
+            Some(Arc::new(NetworkFilters::new(filter_store)))
         } else {
             None
         };
@@ -302,6 +304,14 @@ impl Florestad {
             cli::Network::Regtest => false,
         };
 
+        // If this network already allows pow fraud proofs, we should use it instead of assumeutreexo
+        let assume_utreexo = match (pow_fraud_proofs, self.config.assume_utreexo) {
+            (false, true) => Some(floresta_chain::ChainParams::get_assumeutreexo_value(
+                self.config.network.clone().into(),
+            )),
+            _ => None,
+        };
+
         let config = UtreexoNodeConfig {
             network: Self::get_net(&self.config.network),
             pow_fraud_proofs,
@@ -316,7 +326,7 @@ impl Florestad {
             compact_filters: self.config.cfilters,
             max_outbound: 10,
             max_inflight: 20,
-            assume_utreexo: None,
+            assume_utreexo,
             backfill: false,
         };
 

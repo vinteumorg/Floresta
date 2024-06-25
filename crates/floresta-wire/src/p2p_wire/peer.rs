@@ -195,6 +195,7 @@ impl<T: Transport> Peer<T> {
         }
     }
     pub async fn handle_node_request(&mut self, request: NodeRequest) -> Result<()> {
+        assert_eq!(self.state, State::Connected);
         match request {
             NodeRequest::GetBlock((block_hashes, proof)) => {
                 let inv = if proof {
@@ -380,16 +381,6 @@ impl<T: Transport> Peer<T> {
             State::None | State::SentVersion(_) => match message.payload().to_owned() {
                 bitcoin::p2p::message::NetworkMessage::Version(version) => {
                     self.handle_version(version).await?;
-                    self.send_to_node(PeerMessages::Ready(Version {
-                        user_agent: self.user_agent.clone(),
-                        protocol_version: 0,
-                        id: self.id,
-                        blocks: self.current_best_block.unsigned_abs(),
-                        address_id: self.address_id,
-                        services: self.services,
-                        feeler: self.feeler,
-                    }))
-                    .await;
                 }
                 _ => {
                     warn!(
@@ -403,6 +394,16 @@ impl<T: Transport> Peer<T> {
             State::SentVerack => match message.payload() {
                 bitcoin::p2p::message::NetworkMessage::Verack => {
                     self.state = State::Connected;
+                    self.send_to_node(PeerMessages::Ready(Version {
+                        user_agent: self.user_agent.clone(),
+                        protocol_version: 0,
+                        id: self.id,
+                        blocks: self.current_best_block.unsigned_abs(),
+                        address_id: self.address_id,
+                        services: self.services,
+                        feeler: self.feeler,
+                    }))
+                    .await;
                 }
                 bitcoin::p2p::message::NetworkMessage::SendAddrV2 => {
                     self.wants_addrv2 = true;
