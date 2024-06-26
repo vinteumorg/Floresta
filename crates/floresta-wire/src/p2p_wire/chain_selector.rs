@@ -235,16 +235,10 @@ where
     ) -> Result<Option<PeerId>, WireError> {
         let (mut height, mut hash) = self.chain.get_best_block()?;
         let mut prev_height = 0;
-        let agree = false;
         // we first norrow down the possible fork point to a couple of blocks, looking
         // for all blocks in a linear search would be too slow
         loop {
             // ask both peers for the utreexo state
-            self.send_to_peer(peer1, NodeRequest::GetUtreexoState((hash, height)))
-                .await?;
-            self.send_to_peer(peer2, NodeRequest::GetUtreexoState((hash, height)))
-                .await?;
-
             let (peer1_acc, peer2_acc) = self
                 .grab_both_peers_version(peer1, peer2, hash, height)
                 .await?;
@@ -278,6 +272,21 @@ where
         info!("Fork point is arround height={height} hash={hash}");
         // at the end, this variable should hold the last block where they agreed
         let mut fork = 0;
+
+        // Getting the acc for the block on which we landed on
+        let (peer1_acc, peer2_acc) = self
+            .grab_both_peers_version(peer1, peer2, hash, height)
+            .await?;
+
+        // Intializing the agree bool for the block on which we landed on
+        let agree = peer1_acc == peer2_acc;
+
+        if agree {
+            height += 1;
+        } else {
+            height -= 1;
+        }
+
         loop {
             // keep asking blocks until we find the fork point
             let (peer1_acc, peer2_acc) = self
