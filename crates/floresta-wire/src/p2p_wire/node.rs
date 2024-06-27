@@ -580,6 +580,8 @@ where
         let mut required_services = self.1.get_required_services();
         if required_services.has(ServiceFlags::UTREEXO) && !self.has_utreexo_peers() {
             required_services = ServiceFlags::UTREEXO; // force utreexo peers
+        } else {
+            required_services = ServiceFlags::NETWORK;
         }
 
         let (peer_id, address) = match &self.fixed_peer {

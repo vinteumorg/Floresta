@@ -29,6 +29,7 @@ use futures::AsyncRead;
 use futures::AsyncWrite;
 use futures::AsyncWriteExt;
 use futures::FutureExt;
+use log::debug;
 use log::error;
 use log::warn;
 use thiserror::Error;
@@ -172,7 +173,7 @@ impl<T: Transport> Peer<T> {
             }
 
             // divide the number of messages by the number of seconds we've been connected,
-            // if it's more than 100 msg/sec, this peer is sending us too many messages, and we should
+            // if it's more than 10 msg/sec, this peer is sending us too many messages, and we should
             // disconnect.
             let msg_sec = self
                 .messages
@@ -264,7 +265,7 @@ impl<T: Transport> Peer<T> {
     }
     pub async fn handle_peer_message(&mut self, message: RawNetworkMessage) -> Result<()> {
         self.last_message = Instant::now();
-
+        debug!("Received {} from peer {}", message.command(), self.id);
         match self.state {
             State::Connected => match message.payload().to_owned() {
                 NetworkMessage::Inv(inv) => {
@@ -427,6 +428,7 @@ impl<T: Transport> Peer<T> {
 }
 impl<T: Transport> Peer<T> {
     pub async fn write(&mut self, msg: NetworkMessage) -> Result<()> {
+        debug!("Writing {} to peer {}", msg.command(), self.id);
         let data = &mut RawNetworkMessage::new(self.network.magic(), msg);
         let data = serialize(&data);
         self.stream.write_all(data.as_slice()).await?;
@@ -508,6 +510,7 @@ impl<T: Transport> Peer<T> {
                 .await;
             return;
         };
+        stream.set_nodelay(true).unwrap();
         let peer = Peer {
             address_id,
             blocks_only: false,
