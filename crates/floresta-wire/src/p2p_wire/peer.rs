@@ -510,6 +510,7 @@ impl<T: Transport> Peer<T> {
                 .await;
             return;
         };
+        stream.set_nodelay(true).unwrap();
         let peer = Peer {
             address_id,
             blocks_only: false,
