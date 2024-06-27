@@ -132,10 +132,16 @@ where
                         IpAddr::V4(addr) => AddrV2::Ipv4(addr),
                         IpAddr::V6(addr) => AddrV2::Ipv6(addr),
                     };
-                    let id = rand::random::<usize>();
-                    let local_addr =
-                        LocalAddress::new(addr_v2, 0, AddressState::NeverTried, 0.into(), port, id);
+                    let local_addr = LocalAddress::new(
+                        addr_v2,
+                        0,
+                        AddressState::NeverTried,
+                        0.into(),
+                        port,
+                        self.peer_id_count as usize,
+                    );
                     self.open_connection(false, 0, local_addr).await;
+                    self.peer_id_count += 1;
                     self.1.user_requests.send_answer(
                         UserRequest::Connect((addr, port)),
                         Some(NodeResponse::Connect(true)),
