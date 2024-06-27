@@ -774,7 +774,10 @@ where
                     }
                 }
                 PeerMessages::Ready(version) => {
-                    debug!("handshake with peer={peer} succeeded");
+                    debug!(
+                        "handshake with peer={peer} succeeded feeler={}",
+                        version.feeler
+                    );
                     self.handle_peer_ready(peer, &version).await?;
                 }
                 PeerMessages::Disconnected(idx) => {
