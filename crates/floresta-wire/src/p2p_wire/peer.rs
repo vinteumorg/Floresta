@@ -173,7 +173,7 @@ impl<T: Transport> Peer<T> {
             }
 
             // divide the number of messages by the number of seconds we've been connected,
-            // if it's more than 100 msg/sec, this peer is sending us too many messages, and we should
+            // if it's more than 10 msg/sec, this peer is sending us too many messages, and we should
             // disconnect.
             let msg_sec = self
                 .messages
