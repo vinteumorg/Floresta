@@ -57,6 +57,7 @@ async fn main() {
             rpc_address,
             electrum_address,
         }) => Config {
+            debug: params.debug,
             data_dir,
             assume_valid,
             wallet_xpub,
@@ -79,6 +80,7 @@ async fn main() {
 
         // We may have more commands here, like setup and dump wallet
         None => Config {
+            debug: params.debug,
             config_file: params.config_file,
             network: params.network,
             cfilters: true,

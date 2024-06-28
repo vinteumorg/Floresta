@@ -44,8 +44,8 @@ pub struct Cli {
     #[arg(short, long, default_value_t=Network::Bitcoin)]
     pub network: Network,
     /// Turn debugging information on
-    #[arg(short, long, action = clap::ArgAction::Count)]
-    pub debug: u8,
+    #[arg(short, long, default_value_t = false)]
+    pub debug: bool,
 
     /// option for saving log into data_Dir
     /// if set, log will be saved into dataDir/output.log
