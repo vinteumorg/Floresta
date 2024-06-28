@@ -1,7 +1,10 @@
 #[cfg(test)]
 mod tests_utils {
     use std::collections::HashMap;
+    use std::fs::File;
+    use std::io;
     use std::io::Cursor;
+    use std::io::Read;
     use std::mem::ManuallyDrop;
     use std::sync::Arc;
     use std::time::Duration;
@@ -13,13 +16,18 @@ mod tests_utils {
     use async_std::sync::RwLock;
     use async_std::task;
     use bitcoin::blockdata::block::Header;
+    use bitcoin::consensus::deserialize;
     use bitcoin::consensus::Decodable;
+    use bitcoin::hex::FromHex;
+    use bitcoin::p2p::utreexo::UtreexoBlock;
     use bitcoin::p2p::ServiceFlags;
     use bitcoin::BlockHash;
     use floresta_chain::pruned_utreexo::BlockchainInterface;
     use floresta_chain::AssumeValidArg;
     use floresta_chain::ChainState;
     use floresta_chain::KvChainStore;
+    use serde::Deserialize;
+    use serde::Serialize;
 
     use crate::mempool::Mempool;
     use crate::node::LocalPeerView;
@@ -31,6 +39,16 @@ mod tests_utils {
     use crate::p2p_wire::peer::PeerMessages;
     use crate::UtreexoNodeConfig;
 
+    #[derive(Debug, Deserialize, Serialize)]
+    struct UtreexoRoots {
+        roots: Option<Vec<String>>,
+        numleaves: i32,
+    }
+
+    #[derive(Deserialize, Debug)]
+    struct Block {
+        block: String,
+    }
     pub fn get_test_headers() -> Vec<Header> {
         let file = include_bytes!(
             "../../../../floresta-chain/src/pruned_utreexo/testdata/signet_headers.zst"
@@ -44,8 +62,45 @@ mod tests_utils {
         headers
     }
 
+    pub fn get_test_blocks() -> io::Result<HashMap<BlockHash, UtreexoBlock>> {
+        let dir = "./src/p2p_wire/tests/test_data/blocks.json";
+        let mut contents = String::new();
+        File::open(dir)?.read_to_string(&mut contents)?;
+
+        let blocks: Vec<Block> = serde_json::from_str(&contents).expect("JSON NOT WELL-FORMATTED");
+        let mut u_blocks: HashMap<BlockHash, UtreexoBlock> = HashMap::new();
+
+        for block_str in blocks {
+            let block = Vec::from_hex(&block_str.block).unwrap();
+            let block: UtreexoBlock = deserialize(&block).unwrap();
+            u_blocks.insert(block.block.block_hash(), block);
+        }
+
+        Ok(u_blocks)
+    }
+
+    pub fn get_test_filters(dir: &str) -> io::Result<HashMap<BlockHash, Vec<u8>>> {
+        let mut contents = String::new();
+        File::open(dir)
+            .unwrap()
+            .read_to_string(&mut contents)
+            .unwrap();
+
+        let roots: Vec<UtreexoRoots> = serde_json::from_str(&contents).expect("JSON: BAD");
+
+        let headers = get_test_headers();
+
+        let mut filters = HashMap::new();
+        for i in 0..roots.len() {
+            let byte_roots: Vec<u8> = serde_json::to_vec(&roots[i]).unwrap();
+            filters.insert(headers[i].block_hash(), byte_roots);
+        }
+
+        Ok(filters)
+    }
     pub struct TestPeer {
         headers: Vec<Header>,
+        blocks: HashMap<BlockHash, UtreexoBlock>,
         filters: HashMap<BlockHash, Vec<u8>>,
         node_tx: Sender<NodeNotification>,
         node_rx: Receiver<NodeRequest>,
@@ -56,12 +111,14 @@ mod tests_utils {
         pub fn new(
             node_tx: Sender<NodeNotification>,
             headers: Vec<Header>,
+            blocks: HashMap<BlockHash, UtreexoBlock>,
             filters: HashMap<BlockHash, Vec<u8>>,
             node_rx: Receiver<NodeRequest>,
             peer_id: u32,
         ) -> Self {
             TestPeer {
                 headers,
+                blocks,
                 filters,
                 node_tx,
                 node_rx,
@@ -122,6 +179,7 @@ mod tests_utils {
                             .unwrap();
                     }
                     NodeRequest::GetUtreexoState((hash, _)) => {
+                        println!("get roots");
                         let filters = self.filters.get(&hash).unwrap().clone();
                         self.node_tx
                             .send(NodeNotification::FromPeer(
@@ -131,6 +189,24 @@ mod tests_utils {
                             .await
                             .unwrap();
                     }
+                    NodeRequest::Shutdown => {
+                        println!("LIAR FOUND...");
+                        return;
+                    }
+                    NodeRequest::GetBlock((hashes, _)) => {
+                        println!("Get blocks");
+                        for hash in hashes {
+                            let block = self.blocks.get(&hash).unwrap().clone();
+                            self.node_tx
+                                .send(NodeNotification::FromPeer(
+                                    self.peer_id,
+                                    PeerMessages::Block(block),
+                                ))
+                                .await
+                                .unwrap();
+                        }
+                    }
+
                     _ => {}
                 }
             }
@@ -139,21 +215,19 @@ mod tests_utils {
 
     fn create_peer(
         headers: Vec<Header>,
+        blocks: HashMap<BlockHash, UtreexoBlock>,
         filters: HashMap<BlockHash, Vec<u8>>,
         node_sender: Sender<NodeNotification>,
         sender: Sender<NodeRequest>,
         node_rcv: Receiver<NodeRequest>,
         peer_id: u32,
     ) -> LocalPeerView {
-        let peer = TestPeer::new(node_sender, headers, filters, node_rcv, peer_id);
+        let peer = TestPeer::new(node_sender, headers, blocks, filters, node_rcv, peer_id);
         task::spawn(peer.run());
 
         LocalPeerView {
             address: "127.0.0.1".parse().unwrap(),
-            services: ServiceFlags::WITNESS
-                | ServiceFlags::NETWORK
-                | ServiceFlags::UTREEXO
-                | ServiceFlags::from(1 << 25),
+            services: ServiceFlags::from(1 << 25),
             user_agent: "/utreexo:0.1.0/".to_string(),
             height: 0,
             state: PeerStatus::Ready,
@@ -168,7 +242,11 @@ mod tests_utils {
 
     pub async fn setup_test(
         test_name: &str,
-        peers: Vec<(Vec<Header>, HashMap<BlockHash, Vec<u8>>)>,
+        peers: Vec<(
+            Vec<Header>,
+            HashMap<BlockHash, UtreexoBlock>,
+            HashMap<BlockHash, Vec<u8>>,
+        )>,
         pow_fraud_proofs: bool,
         network: floresta_chain::Network,
     ) {
@@ -204,6 +282,7 @@ mod tests_utils {
             let peer = create_peer(
                 peer.0,
                 peer.1,
+                peer.2,
                 node.node_tx.clone(),
                 sender.clone(),
                 receiver,
@@ -273,6 +352,12 @@ mod tests_utils {
 mod tests {
     use std::collections::HashMap;
 
+    use bitcoin::consensus::deserialize;
+    use bitcoin::hex::FromHex;
+    use bitcoin::p2p::utreexo::UtreexoBlock;
+
+    use super::tests_utils::get_test_blocks;
+    use super::tests_utils::get_test_filters;
     use super::tests_utils::get_test_headers;
     use super::tests_utils::setup_test;
 
@@ -280,9 +365,15 @@ mod tests {
     async fn accept_one_header() {
         let headers = get_test_headers();
 
+        let block = "00000020f61eee3b63a380a477a063af32b2bbc97c9ff9f01f2c4225e973988108000000f575c83235984e7dc4afc1f30944c170462e84437ab6f2d52e16878a79e4678bd1914d5fae77031eccf4070001010000000001010000000000000000000000000000000000000000000000000000000000000000ffffffff025151feffffff0200f2052a010000001600149243f727dd5343293eb83174324019ec16c2630f0000000000000000776a24aa21a9ede2f61c3f71d1defd3fa999dfa36953755c690689799962b48bebd836974e8cf94c4fecc7daa2490047304402205e423a8754336ca99dbe16509b877ef1bf98d008836c725005b3c787c41ebe46022047246e4467ad7cc7f1ad98662afcaf14c115e0095a227c7b05c5182591c23e7e0100012000000000000000000000000000000000000000000000000000000000000000000000000000000000";
+        let block = Vec::from_hex(block).unwrap();
+        let block: UtreexoBlock = deserialize(&block).unwrap();
+
+        println!("{:?}", block);
+
         setup_test(
             "test_chain_selector",
-            vec![(headers, HashMap::new())],
+            vec![(headers, HashMap::new(), HashMap::new())],
             false,
             floresta_chain::Network::Signet,
         )
@@ -297,7 +388,7 @@ mod tests {
 
         for _ in 0..2 {
             headers.pop();
-            peers.push((headers.clone(), HashMap::new()))
+            peers.push((headers.clone(), HashMap::new(), HashMap::new()))
         }
 
         setup_test(
@@ -319,13 +410,38 @@ mod tests {
             headers.pop();
             headers.pop();
 
-            peers.push((headers.clone(), HashMap::new()))
+            peers.push((headers.clone(), HashMap::new(), HashMap::new()))
         }
 
         setup_test(
             "ten_peers_different_tips",
             peers,
             false,
+            floresta_chain::Network::Signet,
+        )
+        .await;
+    }
+
+    #[async_std::test]
+    async fn two_peers_one_lying() {
+        let mut headers = get_test_headers();
+        headers.truncate(10);
+
+        let true_filters = get_test_filters("./src/p2p_wire/tests/test_data/roots.json").unwrap();
+        let false_filters =
+            get_test_filters("./src/p2p_wire/tests/test_data/false_roots.json").unwrap();
+
+        let blocks = get_test_blocks().unwrap();
+
+        let peers = vec![
+            (headers.clone(), blocks.clone(), false_filters),
+            (headers, blocks, true_filters),
+        ];
+
+        setup_test(
+            "two_peers_one_lying",
+            peers,
+            true,
             floresta_chain::Network::Signet,
         )
         .await;
