@@ -355,7 +355,8 @@ where
 
         info!("starting running node...");
         loop {
-            while let Ok(notification) = timeout(Duration::from_secs(5), self.node_rx.recv()).await
+            while let Ok(notification) =
+                timeout(Duration::from_millis(100), self.node_rx.recv()).await
             {
                 try_and_log!(self.handle_notification(notification).await);
             }

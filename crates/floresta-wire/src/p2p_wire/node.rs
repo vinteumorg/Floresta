@@ -270,6 +270,7 @@ where
         peer: u32,
         version: &Version,
     ) -> Result<(), WireError> {
+        self.inflight.remove(&InflightRequests::Connect(peer));
         if version.feeler {
             self.send_to_peer(peer, NodeRequest::Shutdown).await?;
             self.address_man.update_set_state(
@@ -285,11 +286,11 @@ where
                 .update_set_service_flag(version.address_id, version.services);
             return Ok(());
         }
+
         info!(
             "New peer id={} version={} blocks={} services={}",
             version.id, version.user_agent, version.blocks, version.services
         );
-        self.inflight.remove(&InflightRequests::Connect(peer));
 
         if let Some(peer_data) = self.0.peers.get_mut(&peer) {
             // This peer doesn't have basic services, so we disconnect it
@@ -298,7 +299,17 @@ where
                 .has(ServiceFlags::NETWORK | ServiceFlags::WITNESS)
             {
                 self.send_to_peer(peer, NodeRequest::Shutdown).await?;
-                self.peers.remove(&peer);
+                self.address_man.update_set_state(
+                    version.address_id,
+                    AddressState::Tried(
+                        SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap()
+                            .as_secs(),
+                    ),
+                );
+                self.address_man
+                    .update_set_service_flag(version.address_id, version.services);
                 return Ok(());
             }
             peer_data.state = PeerStatus::Ready;
