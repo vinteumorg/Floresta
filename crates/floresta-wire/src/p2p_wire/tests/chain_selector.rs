@@ -6,6 +6,7 @@ mod tests_utils {
     use std::io::Cursor;
     use std::io::Read;
     use std::mem::ManuallyDrop;
+    use std::str::FromStr;
     use std::sync::Arc;
     use std::time::Duration;
     use std::time::Instant;
@@ -23,9 +24,11 @@ mod tests_utils {
     use bitcoin::p2p::ServiceFlags;
     use bitcoin::BlockHash;
     use floresta_chain::pruned_utreexo::BlockchainInterface;
+    use floresta_chain::pruned_utreexo::UpdatableChainstate;
     use floresta_chain::AssumeValidArg;
     use floresta_chain::ChainState;
     use floresta_chain::KvChainStore;
+    use rustreexo::accumulator::node_hash::NodeHash;
     use serde::Deserialize;
     use serde::Serialize;
 
@@ -42,7 +45,7 @@ mod tests_utils {
     #[derive(Debug, Deserialize, Serialize)]
     struct UtreexoRoots {
         roots: Option<Vec<String>>,
-        numleaves: i32,
+        numleaves: usize,
     }
 
     #[derive(Deserialize, Debug)]
@@ -91,9 +94,21 @@ mod tests_utils {
         let headers = get_test_headers();
 
         let mut filters = HashMap::new();
-        for i in 0..roots.len() {
-            let byte_roots: Vec<u8> = serde_json::to_vec(&roots[i]).unwrap();
-            filters.insert(headers[i].block_hash(), byte_roots);
+
+        for root in roots.into_iter() {
+            let mut buffer = Vec::new();
+
+            // Serealize leaves as u64 into buffer
+            buffer.extend_from_slice(&(root.numleaves as u64).to_le_bytes());
+
+            // Process each root-hash into bytes and append
+            for root_hash in root.roots.unwrap() {
+                let bytes = Vec::from_hex(&root_hash).unwrap();
+                buffer.extend_from_slice(&bytes);
+            }
+
+            // Insert the serialised Utreexo-Root along with its corresponding BlockHash in the HashMap
+            filters.insert(headers[root.numleaves].block_hash(), buffer);
         }
 
         Ok(filters)
@@ -179,7 +194,6 @@ mod tests_utils {
                             .unwrap();
                     }
                     NodeRequest::GetUtreexoState((hash, _)) => {
-                        println!("get roots");
                         let filters = self.filters.get(&hash).unwrap().clone();
                         self.node_tx
                             .send(NodeNotification::FromPeer(
@@ -190,11 +204,9 @@ mod tests_utils {
                             .unwrap();
                     }
                     NodeRequest::Shutdown => {
-                        println!("LIAR FOUND...");
                         return;
                     }
                     NodeRequest::GetBlock((hashes, _)) => {
-                        println!("Get blocks");
                         for hash in hashes {
                             let block = self.blocks.get(&hash).unwrap().clone();
                             self.node_tx
@@ -343,6 +355,18 @@ mod tests_utils {
                     headers[2013].block_hash()
                 );
             }
+            "two_peers_one_lying" => {
+                assert_eq!(chain.is_in_idb(), false);
+                assert_eq!(
+                    chain.get_root_hashes()[3],
+                    NodeHash::from_str(
+                        "bfe030a7a994b921fb2329ff085bd0f2351cb5fa251985d6646aaf57954b782b"
+                    )
+                    .unwrap()
+                );
+                assert_eq!(chain.get_root_hashes().len(), 6);
+                assert_eq!(chain.get_best_block().unwrap().1, headers[119].block_hash());
+            }
             _ => {}
         }
     }
@@ -425,7 +449,7 @@ mod tests {
     #[async_std::test]
     async fn two_peers_one_lying() {
         let mut headers = get_test_headers();
-        headers.truncate(10);
+        headers.truncate(120);
 
         let true_filters = get_test_filters("./src/p2p_wire/tests/test_data/roots.json").unwrap();
         let false_filters =
@@ -434,8 +458,8 @@ mod tests {
         let blocks = get_test_blocks().unwrap();
 
         let peers = vec![
-            (headers.clone(), blocks.clone(), false_filters),
-            (headers, blocks, true_filters),
+            (headers.clone(), blocks.clone(), true_filters),
+            (headers, blocks, false_filters),
         ];
 
         setup_test(
