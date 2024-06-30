@@ -428,6 +428,13 @@ where
                 } else {
                     invalid_accs.insert(peer[1].1.clone());
                 }
+            } else {
+                // Both peers were lying
+                self.send_to_peer(peer1, NodeRequest::Shutdown).await?;
+                self.send_to_peer(peer2, NodeRequest::Shutdown).await?;
+
+                invalid_accs.insert(peer[0].1.clone());
+                invalid_accs.insert(peer[1].1.clone());
             }
         }
         //filter out the invalid accs

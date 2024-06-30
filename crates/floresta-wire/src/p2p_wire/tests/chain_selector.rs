@@ -28,6 +28,9 @@ mod tests_utils {
     use floresta_chain::AssumeValidArg;
     use floresta_chain::ChainState;
     use floresta_chain::KvChainStore;
+    use hex;
+    use rand::rngs::OsRng;
+    use rand::RngCore;
     use rustreexo::accumulator::node_hash::NodeHash;
     use serde::Deserialize;
     use serde::Serialize;
@@ -42,8 +45,8 @@ mod tests_utils {
     use crate::p2p_wire::peer::PeerMessages;
     use crate::UtreexoNodeConfig;
 
-    #[derive(Debug, Deserialize, Serialize)]
-    struct UtreexoRoots {
+    #[derive(Debug, Deserialize, Serialize, Clone)]
+    pub struct UtreexoRoots {
         roots: Option<Vec<String>>,
         numleaves: usize,
     }
@@ -52,6 +55,33 @@ mod tests_utils {
     struct Block {
         block: String,
     }
+
+    pub fn create_false_acc(tip: usize) -> Vec<u8> {
+        let mut bytes = [0u8; 32];
+        OsRng.fill_bytes(&mut bytes);
+        let node_hash = hex::encode(bytes);
+
+        let utreexo_root = UtreexoRoots {
+            roots: Some(vec![node_hash]),
+            numleaves: tip,
+        };
+
+        serialise(utreexo_root)
+    }
+
+    pub fn serialise(root: UtreexoRoots) -> Vec<u8> {
+        let mut buffer = Vec::new();
+
+        buffer.extend_from_slice(&(root.numleaves as u64).to_le_bytes());
+
+        for root_hash in root.roots.unwrap() {
+            let bytes = Vec::from_hex(&root_hash).unwrap();
+            buffer.extend_from_slice(&bytes);
+        }
+
+        buffer
+    }
+
     pub fn get_test_headers() -> Vec<Header> {
         let file = include_bytes!(
             "../../../../floresta-chain/src/pruned_utreexo/testdata/signet_headers.zst"
@@ -96,16 +126,7 @@ mod tests_utils {
         let mut filters = HashMap::new();
 
         for root in roots.into_iter() {
-            let mut buffer = Vec::new();
-
-            // Serealize leaves as u64 into buffer
-            buffer.extend_from_slice(&(root.numleaves as u64).to_le_bytes());
-
-            // Process each root-hash into bytes and append
-            for root_hash in root.roots.unwrap() {
-                let bytes = Vec::from_hex(&root_hash).unwrap();
-                buffer.extend_from_slice(&bytes);
-            }
+            let buffer = serialise(root.clone());
 
             // Insert the serialised Utreexo-Root along with its corresponding BlockHash in the HashMap
             filters.insert(headers[root.numleaves].block_hash(), buffer);
@@ -367,8 +388,38 @@ mod tests_utils {
                 assert_eq!(chain.get_root_hashes().len(), 6);
                 assert_eq!(chain.get_best_block().unwrap().1, headers[119].block_hash());
             }
+            "ten_peers_one_honest" => {
+                assert_eq!(chain.is_in_idb(), false);
+                assert_eq!(
+                    chain.get_root_hashes()[3],
+                    NodeHash::from_str(
+                        "bfe030a7a994b921fb2329ff085bd0f2351cb5fa251985d6646aaf57954b782b"
+                    )
+                    .unwrap()
+                );
+                assert_eq!(chain.get_root_hashes().len(), 6);
+                assert_eq!(chain.get_best_block().unwrap().1, headers[119].block_hash());
+            }
             _ => {}
         }
+    }
+
+    pub fn get_essentials() -> (
+        Vec<Header>,
+        HashMap<BlockHash, UtreexoBlock>,
+        HashMap<BlockHash, Vec<u8>>,
+        BlockHash,
+    ) {
+        let headers = get_test_headers();
+        let blocks = get_test_blocks().unwrap();
+        let true_filters = get_test_filters("./src/p2p_wire/tests/test_data/roots.json").unwrap();
+
+        // // BlockHash of chain_tip: 0000035f0e5513b26bba7cead874fdf06241a934e4bc4cf7a0381c60e4cdd2bb (119)
+        let tip_hash =
+            BlockHash::from_str("0000035f0e5513b26bba7cead874fdf06241a934e4bc4cf7a0381c60e4cdd2bb")
+                .unwrap();
+
+        (headers, blocks, true_filters, tip_hash)
     }
 }
 
@@ -376,24 +427,13 @@ mod tests_utils {
 mod tests {
     use std::collections::HashMap;
 
-    use bitcoin::consensus::deserialize;
-    use bitcoin::hex::FromHex;
-    use bitcoin::p2p::utreexo::UtreexoBlock;
-
-    use super::tests_utils::get_test_blocks;
-    use super::tests_utils::get_test_filters;
-    use super::tests_utils::get_test_headers;
+    use super::tests_utils::create_false_acc;
+    use super::tests_utils::get_essentials;
     use super::tests_utils::setup_test;
 
     #[async_std::test]
     async fn accept_one_header() {
-        let headers = get_test_headers();
-
-        let block = "00000020f61eee3b63a380a477a063af32b2bbc97c9ff9f01f2c4225e973988108000000f575c83235984e7dc4afc1f30944c170462e84437ab6f2d52e16878a79e4678bd1914d5fae77031eccf4070001010000000001010000000000000000000000000000000000000000000000000000000000000000ffffffff025151feffffff0200f2052a010000001600149243f727dd5343293eb83174324019ec16c2630f0000000000000000776a24aa21a9ede2f61c3f71d1defd3fa999dfa36953755c690689799962b48bebd836974e8cf94c4fecc7daa2490047304402205e423a8754336ca99dbe16509b877ef1bf98d008836c725005b3c787c41ebe46022047246e4467ad7cc7f1ad98662afcaf14c115e0095a227c7b05c5182591c23e7e0100012000000000000000000000000000000000000000000000000000000000000000000000000000000000";
-        let block = Vec::from_hex(block).unwrap();
-        let block: UtreexoBlock = deserialize(&block).unwrap();
-
-        println!("{:?}", block);
+        let (headers, _, _, _) = get_essentials();
 
         setup_test(
             "test_chain_selector",
@@ -406,7 +446,7 @@ mod tests {
 
     #[async_std::test]
     async fn two_peers_different_tips() {
-        let mut headers = get_test_headers();
+        let (mut headers, _, _, _) = get_essentials();
 
         let mut peers = Vec::new();
 
@@ -426,7 +466,7 @@ mod tests {
 
     #[async_std::test]
     async fn ten_peers_different_tips() {
-        let mut headers = get_test_headers();
+        let (mut headers, _, _, _) = get_essentials();
 
         let mut peers = Vec::new();
 
@@ -448,14 +488,13 @@ mod tests {
 
     #[async_std::test]
     async fn two_peers_one_lying() {
-        let mut headers = get_test_headers();
+        let (mut headers, blocks, true_filters, tip_hash) = get_essentials();
         headers.truncate(120);
 
-        let true_filters = get_test_filters("./src/p2p_wire/tests/test_data/roots.json").unwrap();
-        let false_filters =
-            get_test_filters("./src/p2p_wire/tests/test_data/false_roots.json").unwrap();
-
-        let blocks = get_test_blocks().unwrap();
+        // Create a random false utreexo-acc for the lying peer
+        let mut false_filters = true_filters.clone();
+        false_filters.remove(&tip_hash).unwrap();
+        false_filters.insert(tip_hash, create_false_acc(119));
 
         let peers = vec![
             (headers.clone(), blocks.clone(), true_filters),
@@ -471,15 +510,28 @@ mod tests {
         .await;
     }
 
-    // two peers in different tips      *
+    #[async_std::test]
+    async fn ten_peers_one_honest() {
+        let (mut headers, blocks, true_filters, tip_hash) = get_essentials();
+        headers.truncate(120);
 
-    // 10 peers on different tips       *
+        let mut false_filters = true_filters.clone();
+        let mut peers = Vec::new();
 
-    // two-peers pow fraud proofs one lying
+        // Create 9 lying peers
+        for _ in 0..9 {
+            false_filters.remove(&tip_hash).unwrap();
+            false_filters.insert(tip_hash, create_false_acc(119));
+            peers.push((headers.clone(), blocks.clone(), false_filters.clone()));
+        }
+        peers.push((headers, blocks, true_filters));
 
-    // 10 peers pow fraud proofs, all but one lying (in the chain with less work)
-
-    // two peers, one invalid accumulator
-
-    // 10 peers, only one valid accumulator
+        setup_test(
+            "ten_peers_one_honest",
+            peers,
+            true,
+            floresta_chain::Network::Signet,
+        )
+        .await;
+    }
 }
