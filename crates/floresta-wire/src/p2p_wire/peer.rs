@@ -122,9 +122,10 @@ type Result<T> = std::result::Result<T, PeerError>;
 impl<T: Transport> Peer<T> {
     pub async fn read_loop(mut self) -> Result<()> {
         let err = self.peer_loop_inner().await;
-
+        // force the stream to shutdown to prevent leaking resources
+        let _ = self.stream.shutdown();
         if let Err(err) = err {
-            warn!("Peer {} connection loop closed: {err:?}", self.id);
+            debug!("Peer {} connection loop closed: {err:?}", self.id);
         }
 
         self.send_to_node(PeerMessages::Disconnected(self.address_id))
@@ -167,6 +168,9 @@ impl<T: Transport> Peer<T> {
             // Send a ping to check if this peer is still good
             let last_message = self.last_message.elapsed().as_secs();
             if last_message > SEND_PING_TIMEOUT {
+                if self.last_ping.is_some() {
+                    continue;
+                }
                 let nonce = rand::random();
                 self.last_ping = Some(Instant::now());
                 self.write(NetworkMessage::Ping(nonce)).await?;
@@ -197,6 +201,7 @@ impl<T: Transport> Peer<T> {
     }
     pub async fn handle_node_request(&mut self, request: NodeRequest) -> Result<()> {
         assert_eq!(self.state, State::Connected);
+        debug!("Handling node request: {:?}", request);
         match request {
             NodeRequest::GetBlock((block_hashes, proof)) => {
                 let inv = if proof {
@@ -405,6 +410,9 @@ impl<T: Transport> Peer<T> {
                         feeler: self.feeler,
                     }))
                     .await;
+                    if self.feeler {
+                        self.shutdown = true;
+                    }
                 }
                 bitcoin::p2p::message::NetworkMessage::SendAddrV2 => {
                     self.wants_addrv2 = true;

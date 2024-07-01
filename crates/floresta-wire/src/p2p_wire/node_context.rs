@@ -26,7 +26,7 @@ use bitcoin::p2p::ServiceFlags;
 pub trait NodeContext {
     const REQUEST_TIMEOUT: u64;
     /// Max number of simultaneous connections we initiates we are willing to hold
-    const MAX_OUTGOING_PEERS: usize = 4;
+    const MAX_OUTGOING_PEERS: usize = 10;
     /// We ask for peers every ASK_FOR_PEERS_INTERVAL seconds
     const ASK_FOR_PEERS_INTERVAL: u64 = 60 * 60; // One hour
     /// Save our database of peers every PEER_DB_DUMP_INTERVAL seconds
