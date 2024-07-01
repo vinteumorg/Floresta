@@ -126,6 +126,8 @@ pub struct Config {
     pub log_to_file: bool,
     /// Whether we should use assume utreexo
     pub assume_utreexo: bool,
+    /// Whether we should post debug information to the console
+    pub debug: bool,
 }
 
 pub struct Florestad {
@@ -215,6 +217,7 @@ impl Florestad {
                 &data_dir,
                 self.config.log_to_file,
                 self.config.log_to_stdout,
+                self.config.debug,
             )
             .expect("failure to setup logger");
         }
@@ -417,6 +420,7 @@ impl Florestad {
         data_dir: &String,
         log_file: bool,
         log_to_stdout: bool,
+        debug: bool,
     ) -> Result<(), fern::InitError> {
         let colors = ColoredLevelConfig::new()
             .error(Color::Red)
@@ -443,7 +447,11 @@ impl Florestad {
         let mut dispatchers = fern::Dispatch::new();
         let stdout_dispatcher = fern::Dispatch::new()
             .format(formatter(true))
-            .level(log::LevelFilter::Info)
+            .level(if debug {
+                log::LevelFilter::Debug
+            } else {
+                log::LevelFilter::Info
+            })
             .chain(std::io::stdout());
 
         let file_dispatcher = fern::Dispatch::new()
