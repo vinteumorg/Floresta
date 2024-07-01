@@ -168,6 +168,9 @@ impl<T: Transport> Peer<T> {
             // Send a ping to check if this peer is still good
             let last_message = self.last_message.elapsed().as_secs();
             if last_message > SEND_PING_TIMEOUT {
+                if self.last_ping.is_some() {
+                    continue;
+                }
                 let nonce = rand::random();
                 self.last_ping = Some(Instant::now());
                 self.write(NetworkMessage::Ping(nonce)).await?;
