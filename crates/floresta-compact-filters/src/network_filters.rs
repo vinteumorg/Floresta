@@ -25,17 +25,14 @@ impl<Storage: BlockFilterStore + Send + Sync> NetworkFilters<Storage> {
         chain: impl BlockchainInterface,
     ) -> Vec<BlockHash> {
         let mut blocks = Vec::new();
-        for height in start_height..end_height {
-            let Some(filter) = self.filters.get_filter(height) else {
-                continue;
-            };
-
-            let mut query = query.clone().into_iter();
+        let iter = query.into_iter();
+        for (height, filter) in self.filters.iter()? {
+            if height >= end_height {
+                break;
+            }
             let hash = chain.get_block_hash(height).unwrap();
-
-            if filter.match_any(&hash, &mut query).unwrap() {
-                let block_hash = chain.get_block_hash(height).unwrap();
-                blocks.push(block_hash);
+            if filter.match_any(&hash, &mut iter.clone()).unwrap() {
+                blocks.push(hash);
             }
         }
 

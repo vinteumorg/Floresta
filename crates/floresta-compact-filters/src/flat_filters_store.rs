@@ -1,9 +1,10 @@
 use std::convert::TryFrom;
+use std::fs::File;
+use std::io::BufReader;
 use std::io::Read;
 use std::io::Seek;
 use std::io::SeekFrom;
 use std::io::Write;
-use std::os::unix::fs::FileExt;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
@@ -12,10 +13,38 @@ use std::sync::PoisonError;
 use crate::IteratableFilterStore;
 use crate::IteratableFilterStoreError;
 
+pub struct FiltersIterator {
+    reader: BufReader<File>,
+    current: u32,
+}
+
+impl Iterator for FiltersIterator {
+    type Item = (u32, crate::bip158::BlockFilter);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut buf = [0; 4];
+        self.reader.read_exact(&mut buf).ok()?;
+        let length = u32::from_le_bytes(buf);
+
+        debug_assert!(
+            length < 1_000_000,
+            "filter for block {} has length {}",
+            self.current,
+            length
+        );
+
+        let mut buf = vec![0_u8; length as usize];
+        self.reader.read_exact(&mut buf).ok()?;
+        let filter = crate::bip158::BlockFilter::new(&buf);
+        self.current += 1;
+
+        Some((self.current - 1, filter))
+    }
+}
+
 struct FlatFiltersStoreInner {
     file: std::fs::File,
-    counter: u32,
-    offset: u32,
+    path: PathBuf,
 }
 
 impl From<PoisonError<MutexGuard<'_, FlatFiltersStoreInner>>> for IteratableFilterStoreError {
@@ -33,14 +62,10 @@ impl FlatFiltersStore {
             .write(true)
             .create(true)
             .truncate(false)
-            .open(path)
+            .open(&path)
             .unwrap();
 
-        Self(Mutex::new(FlatFiltersStoreInner {
-            file,
-            counter: 1, // counter is always 1 because the genesis block doesn't have filter
-            offset: 4,  // the first four bytes are reserved for the height
-        }))
+        Self(Mutex::new(FlatFiltersStoreInner { file, path }))
     }
 }
 
@@ -52,17 +77,30 @@ impl TryFrom<&PathBuf> for FlatFiltersStore {
             .read(true)
             .write(true)
             .create(true)
+            .truncate(false)
             .open(path)?;
 
         Ok(Self(Mutex::new(FlatFiltersStoreInner {
             file,
-            counter: 1, // counter is always 1 because the genesis block doesn't have filter
-            offset: 4,  // the first four bytes are reserved for the height
+            path: path.clone(),
         })))
     }
 }
 
+impl IntoIterator for FlatFiltersStore {
+    type Item = (u32, crate::bip158::BlockFilter);
+    type IntoIter = FiltersIterator;
+
+    fn into_iter(self) -> Self::IntoIter {
+        let mut inner = self.0.lock().unwrap();
+        inner.file.seek(SeekFrom::Start(4)).unwrap();
+        let reader = BufReader::new(inner.file.try_clone().unwrap());
+        FiltersIterator { reader, current: 0 }
+    }
+}
+
 impl IteratableFilterStore for FlatFiltersStore {
+    type I = FiltersIterator;
     fn set_height(&self, height: u32) -> Result<(), IteratableFilterStoreError> {
         let mut inner = self.0.lock()?;
         inner.file.seek(SeekFrom::Start(0))?;
@@ -72,66 +110,37 @@ impl IteratableFilterStore for FlatFiltersStore {
     }
 
     fn get_height(&self) -> Result<u32, IteratableFilterStoreError> {
-        let inner = self.0.lock()?;
+        let mut inner = self.0.lock()?;
 
         let mut buf = [0; 4];
-        inner.file.read_exact_at(&mut buf, 0)?;
+        inner.file.seek(SeekFrom::Start(0))?;
+        inner.file.read_exact(&mut buf)?;
+        
         Ok(u32::from_le_bytes(buf))
     }
 
-    fn next(&self) -> Result<(u32, crate::bip158::BlockFilter), IteratableFilterStoreError> {
-        let local_heigth = self.get_height()?;
-        let mut inner = self.0.lock()?;
-
-        if inner.counter > local_heigth {
-            return Err(IteratableFilterStoreError::Eof);
-        }
-
-        let mut buf = [0; 4];
-        let offset = inner.offset as u64;
-
-        inner.file.seek(SeekFrom::Start(offset))?;
-        inner.file.read_exact(&mut buf)?;
-
-        let length = u32::from_le_bytes(buf);
-
-        debug_assert!(length < 1_000_000);
-
-        let mut buf = vec![0_u8; length as usize];
-        inner.file.read_exact(&mut buf)?;
-        let filter = crate::bip158::BlockFilter::new(&buf);
-
-        inner.offset += length + 4;
-        inner.counter += 1;
-
-        Ok((inner.counter - 1, filter))
-    }
-
-    fn first(&self) -> Result<(u32, crate::bip158::BlockFilter), IteratableFilterStoreError> {
-        {
-            let mut inner = self.0.lock()?;
-
-            inner.offset = 4;
-            inner.counter = 1;
-        }
-
-        self.next()
+    fn iter(&self) -> Result<Self::I, IteratableFilterStoreError> {
+        let inner = self.0.lock()?;
+        let new_file = File::open(inner.path.clone())?;
+        let mut reader = BufReader::new(new_file);
+        reader.seek(SeekFrom::Start(4))?;
+        Ok(FiltersIterator { reader, current: 1 })
     }
 
     fn put_filter(
         &self,
         block_filter: crate::bip158::BlockFilter,
     ) -> Result<(), IteratableFilterStoreError> {
-        if block_filter.content.len() > 1_000_000 {
+        let length = block_filter.content.len() as u32;
+
+        if length > 1_000_000 {
             return Err(IteratableFilterStoreError::FilterTooLarge);
         }
         let mut inner = self.0.lock()?;
-        let filter = block_filter.content;
-        let length = filter.len() as u32;
 
         inner.file.seek(SeekFrom::End(0))?;
         inner.file.write_all(&length.to_le_bytes())?;
-        inner.file.write_all(&filter)?;
+        inner.file.write_all(&block_filter.content)?;
 
         Ok(())
     }
@@ -160,9 +169,10 @@ mod tests {
             .put_filter(filter.clone())
             .expect("could not put filter");
 
-        assert_eq!((1, filter), store.first().unwrap());
-        let res = store.next().unwrap_err();
-        assert!(matches!(res, crate::IteratableFilterStoreError::Eof));
+        let mut iter = store.iter().expect("could not get iterator");
+        assert_eq!((1, filter), iter.next().unwrap());
+
+        assert_eq!(iter.next(), None);
         remove_file(path).expect("could not remove file after test");
     }
 }

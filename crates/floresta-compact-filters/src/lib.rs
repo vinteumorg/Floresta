@@ -86,13 +86,13 @@ impl From<PoisonError<RwLockWriteGuard<'_, FlatFiltersStore>>> for IteratableFil
     }
 }
 
-pub trait IteratableFilterStore: Send + Sync {
+pub trait IteratableFilterStore:
+    Send + Sync + IntoIterator<Item = (u32, bip158::BlockFilter)>
+{
+    type I: Iterator<Item = (u32, bip158::BlockFilter)>;
     /// Fetches the first filter and sets our internal cursor to the first filter,
     /// succeeding calls to [next] will return the next filter until we reach the end
-    fn first(&self) -> Result<(u32, bip158::BlockFilter), IteratableFilterStoreError>;
-    /// Fetches the next filter in our internal cursor and sets the cursor to the next filter
-    /// until we reach the end
-    fn next(&self) -> Result<(u32, bip158::BlockFilter), IteratableFilterStoreError>;
+    fn iter(&self) -> Result<Self::I, IteratableFilterStoreError>;
     /// Writes a new filter to the store
     fn put_filter(
         &self,
