@@ -1,5 +1,6 @@
 use floresta_chain::BlockchainError;
 use floresta_common::impl_error_from;
+use floresta_compact_filters::IteratableFilterStoreError;
 use thiserror::Error;
 
 use super::peer::PeerError;
@@ -31,6 +32,14 @@ pub enum WireError {
     NoPeerToSendRequest,
     #[error("Peer timed out")]
     PeerTimeout,
+    #[error("Compact block filters error")]
+    CompactBlockFiltersError(IteratableFilterStoreError),
 }
+
 impl_error_from!(WireError, PeerError, PeerError);
 impl_error_from!(WireError, BlockchainError, Blockchain);
+impl_error_from!(
+    WireError,
+    IteratableFilterStoreError,
+    CompactBlockFiltersError
+);

@@ -23,7 +23,7 @@ use floresta_chain::pruned_utreexo::BlockchainInterface;
 use floresta_chain::pruned_utreexo::UpdatableChainstate;
 use floresta_chain::ChainState;
 use floresta_chain::KvChainStore;
-use floresta_compact_filters::kv_filter_database::KvFilterStore;
+use floresta_compact_filters::flat_filters_store::FlatFiltersStore;
 use floresta_compact_filters::network_filters::NetworkFilters;
 use floresta_watch_only::kv_database::KvDatabase;
 use floresta_watch_only::AddressCache;
@@ -50,8 +50,6 @@ use super::res::TxOutJson;
 
 #[rpc]
 pub trait Rpc {
-    #[rpc(name = "getblockfilter")]
-    fn get_block_filter(&self, heigth: u32) -> Result<String>;
     #[rpc(name = "getblockchaininfo")]
     fn get_blockchain_info(&self) -> Result<GetBlockchainInfoRes>;
     #[rpc(name = "getblockhash")]
@@ -85,7 +83,7 @@ pub trait Rpc {
 }
 
 pub struct RpcImpl {
-    block_filter_storage: Option<Arc<NetworkFilters<KvFilterStore>>>,
+    block_filter_storage: Option<Arc<NetworkFilters<FlatFiltersStore>>>,
     network: Network,
     chain: Arc<ChainState<KvChainStore<'static>>>,
     wallet: Arc<RwLock<AddressCache<KvDatabase>>>,
@@ -126,12 +124,14 @@ impl Rpc for RpcImpl {
 
             let candidates = cfilters.match_any(
                 vec![filter_outpoint.as_slice(), filter_txid.as_slice()],
-                1,
                 tip,
                 self.chain.clone(),
             );
 
-            let candidates = candidates.into_iter().map(|hash| self.node.get_block(hash));
+            let candidates = candidates
+                .unwrap_or_default()
+                .into_iter()
+                .map(|hash| self.node.get_block(hash));
 
             for candidate in candidates {
                 let candidate = match candidate {
@@ -170,21 +170,6 @@ impl Rpc for RpcImpl {
         Ok(self.chain.get_best_block().unwrap().0)
     }
 
-    fn get_block_filter(&self, heigth: u32) -> Result<String> {
-        if let Some(ref cfilters) = self.block_filter_storage {
-            return Ok(serialize_hex(
-                &cfilters
-                    .get_filter(heigth)
-                    .ok_or(Error::BlockNotFound)?
-                    .content,
-            ));
-        }
-        Err(jsonrpc_core::Error {
-            code: Error::NoBlockFilters.into(),
-            message: Error::NoBlockFilters.to_string(),
-            data: None,
-        })
-    }
     fn add_node(&self, node: String) -> Result<bool> {
         let node = node.split(':').collect::<Vec<&str>>();
         let (ip, port) = if node.len() == 2 {
@@ -520,7 +505,7 @@ impl RpcImpl {
         node: Arc<NodeInterface>,
         kill_signal: Arc<RwLock<bool>>,
         network: Network,
-        block_filter_storage: Option<Arc<NetworkFilters<KvFilterStore>>>,
+        block_filter_storage: Option<Arc<NetworkFilters<FlatFiltersStore>>>,
         address: Option<SocketAddr>,
     ) -> jsonrpc_http_server::Server {
         let mut io = jsonrpc_core::IoHandler::new();

@@ -1,29 +1,29 @@
 use bitcoin::BlockHash;
 use floresta_chain::pruned_utreexo::BlockchainInterface;
 
-use crate::BlockFilterStore;
+use crate::IteratableFilterStore;
+use crate::IteratableFilterStoreError;
 
 #[derive(Debug)]
-pub struct NetworkFilters<Storage: BlockFilterStore + Send + Sync> {
+pub struct NetworkFilters<Storage: IteratableFilterStore> {
     filters: Storage,
 }
 
-impl<Storage: BlockFilterStore + Send + Sync> NetworkFilters<Storage> {
+impl<Storage: IteratableFilterStore> NetworkFilters<Storage> {
     pub fn new(filters: Storage) -> Self {
-        Self { filters }
-    }
+        if filters.get_height().is_err() {
+            filters.set_height(0).unwrap();
+        }
 
-    pub fn get_filter(&self, height: u32) -> Option<crate::BlockFilter> {
-        self.filters.get_filter(height)
+        Self { filters }
     }
 
     pub fn match_any(
         &self,
         query: Vec<&[u8]>,
-        start_height: u32,
         end_height: u32,
         chain: impl BlockchainInterface,
-    ) -> Vec<BlockHash> {
+    ) -> Result<Vec<BlockHash>, IteratableFilterStoreError> {
         let mut blocks = Vec::new();
         let iter = query.into_iter();
         for (height, filter) in self.filters.iter()? {
@@ -35,20 +35,21 @@ impl<Storage: BlockFilterStore + Send + Sync> NetworkFilters<Storage> {
                 blocks.push(hash);
             }
         }
-
-        blocks
+        Ok(blocks)
     }
 
-    pub fn push_filter(&self, height: u32, filter: crate::BlockFilter) {
-        self.filters.put_filter(height, filter);
-        self.filters.put_height(height);
+    pub fn push_filter(
+        &self,
+        filter: crate::BlockFilter,
+    ) -> Result<(), IteratableFilterStoreError> {
+        self.filters.put_filter(filter)
     }
 
-    pub fn get_height(&self) -> u32 {
-        self.filters.get_height().unwrap_or(0)
+    pub fn get_height(&self) -> Result<u32, IteratableFilterStoreError> {
+        self.filters.get_height()
     }
 
-    pub fn save_height(&self, height: u32) {
-        self.filters.put_height(height);
+    pub fn save_height(&self, height: u32) -> Result<(), IteratableFilterStoreError> {
+        self.filters.set_height(height)
     }
 }

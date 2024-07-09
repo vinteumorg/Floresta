@@ -32,7 +32,7 @@ use floresta_chain::pruned_utreexo::BlockchainInterface;
 use floresta_chain::pruned_utreexo::UpdatableChainstate;
 use floresta_chain::Network;
 use floresta_chain::UtreexoBlock;
-use floresta_compact_filters::kv_filter_database::KvFilterStore;
+use floresta_compact_filters::flat_filters_store::FlatFiltersStore;
 use floresta_compact_filters::network_filters::NetworkFilters;
 use futures::Future;
 use log::debug;
@@ -156,7 +156,7 @@ pub struct NodeCommon<Chain: BlockchainInterface + UpdatableChainstate> {
     pub(crate) socks5: Option<Socks5StreamBuilder>,
     pub(crate) fixed_peer: Option<LocalAddress>,
     pub(crate) config: UtreexoNodeConfig,
-    pub(crate) block_filters: Option<Arc<NetworkFilters<KvFilterStore>>>,
+    pub(crate) block_filters: Option<Arc<NetworkFilters<FlatFiltersStore>>>,
     pub(crate) last_filter: BlockHash,
 }
 
@@ -194,7 +194,7 @@ where
         config: UtreexoNodeConfig,
         chain: Chain,
         mempool: Arc<RwLock<Mempool>>,
-        block_filters: Option<Arc<NetworkFilters<KvFilterStore>>>,
+        block_filters: Option<Arc<NetworkFilters<FlatFiltersStore>>>,
     ) -> Self {
         let (node_tx, node_rx) = channel::unbounded();
         let socks5 = config.proxy.map(Socks5StreamBuilder::new);
@@ -486,18 +486,9 @@ where
         for peer in self.peer_ids.iter() {
             try_and_log!(self.send_to_peer(*peer, NodeRequest::Shutdown).await);
         }
+
         try_and_log!(self.save_peers());
         try_and_log!(self.chain.flush());
-
-        let last_filter_height = self
-            .chain
-            .get_block_height(&self.last_filter)
-            .unwrap()
-            .unwrap();
-
-        if let Some(filters) = &self.block_filters {
-            filters.save_height(last_filter_height);
-        }
     }
 
     pub(crate) async fn handle_broadcast(&self) -> Result<(), WireError> {
