@@ -156,7 +156,7 @@ impl LocalAddress {
 pub struct AddressMan {
     addresses: HashMap<usize, LocalAddress>,
     good_addresses: Vec<usize>,
-    utreexo_addresses: Vec<usize>,
+    peers_by_service: HashMap<ServiceFlags, Vec<usize>>,
 }
 impl AddressMan {
     /// Add a new address to our list of known address
@@ -164,15 +164,27 @@ impl AddressMan {
         for address in addresses {
             let id = address.id;
             if let std::collections::hash_map::Entry::Vacant(e) = self.addresses.entry(id) {
+                e.insert(address.to_owned());
                 // For now we assume that all addresses are valid, until proven otherwise.
                 self.good_addresses.push(id);
-                if address.services.has(ServiceFlags::from(1 << 24)) {
-                    self.utreexo_addresses.push(id);
-                }
-                e.insert(address.to_owned());
+
+                self.push_if_has_service(address, ServiceFlags::UTREEXO);
+                self.push_if_has_service(address, ServiceFlags::from(1 << 25)); // UTREEXO_FILTER
+                self.push_if_has_service(address, ServiceFlags::NONE); // this means any peer
+                self.push_if_has_service(address, ServiceFlags::COMPACT_FILTERS);
             }
         }
     }
+
+    fn push_if_has_service(&mut self, address: &LocalAddress, service: ServiceFlags) {
+        if address.services.has(service) {
+            self.peers_by_service
+                .entry(service)
+                .or_default()
+                .push(address.id);
+        }
+    }
+
     pub fn get_addresses_to_send(&self) -> AddressToSend {
         let addresses = self
             .addresses
@@ -221,34 +233,32 @@ impl AddressMan {
     /// a set of features supported for our peers
     pub fn get_address_to_connect(
         &mut self,
-        flags: ServiceFlags,
+        required_service: ServiceFlags,
         feeler: bool,
     ) -> Option<(usize, LocalAddress)> {
         if self.addresses.is_empty() {
             return None;
         }
+
         // Feeler connection are used to test if a peer is still alive, we don't care about
         // the features it supports or even if it's a valid peer. The only thing we care about
         // is that we haven't banned it.
-        let (id, peer) = if feeler {
+        if feeler {
             let idx = rand::random::<usize>() % self.addresses.len();
             let peer = self.addresses.keys().nth(idx)?;
             let address = self.addresses.get(peer)?.to_owned();
             if let AddressState::Banned(_) = address.state {
                 return None;
             }
-            (*peer, address)
-        } else if flags.has(ServiceFlags::from(1 << 24)) {
-            // if we don't have an utreexo address, we fallback to a normal good address
-            self.get_random_utreexo_address()
-                .or_else(|| self.get_random_good_address())?
-        } else {
-            self.get_random_good_address()?
+            return Some((*peer, address));
         };
+
+        let (id, peer) = self.get_address_by_service(required_service)?;
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs();
+
         match peer.state {
             AddressState::Banned(_) | AddressState::Connected => None,
             AddressState::NeverTried | AddressState::Tried(_) => Some((id, peer)),
@@ -274,20 +284,14 @@ impl AddressMan {
         }
         Ok(())
     }
-    fn get_random_good_address(&self) -> Option<(usize, LocalAddress)> {
-        if self.good_addresses.is_empty() {
+    fn get_address_by_service(&self, service: ServiceFlags) -> Option<(usize, LocalAddress)> {
+        let peers = self.peers_by_service.get(&service)?;
+        if peers.is_empty() {
             return None;
         }
-        let idx = rand::random::<usize>() % self.good_addresses.len();
-        let good_peer = self.good_addresses.get(idx)?;
-        Some((*good_peer, self.addresses.get(good_peer)?.to_owned()))
-    }
-    fn get_random_utreexo_address(&self) -> Option<(usize, LocalAddress)> {
-        if self.utreexo_addresses.is_empty() {
-            return None;
-        }
-        let idx = rand::random::<usize>() % self.utreexo_addresses.len();
-        let utreexo_peer = self.utreexo_addresses.get(idx)?;
+
+        let idx = rand::random::<usize>() % peers.len();
+        let utreexo_peer = peers.get(idx)?;
         Some((*utreexo_peer, self.addresses.get(utreexo_peer)?.to_owned()))
     }
     fn get_net_seeds(network: Network) -> &'static str {
@@ -532,6 +536,8 @@ mod test {
         /// Network port this peers listens to
         port: u16,
     }
+
+    #[allow(non_snake_case)]
     #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
     struct SeedAddress {
         V4: Ipv4Addr,
@@ -557,7 +563,7 @@ mod test {
             let local_address = LocalAddress {
                 address: _address,
                 last_connected: seed.last_connected,
-                state: state,
+                state,
                 services: ServiceFlags::from(seed.services),
                 port: seed.port,
                 id: rng.gen(),
@@ -579,11 +585,7 @@ mod test {
     }
     #[test]
     fn test_address_man() {
-        let mut address_man = AddressMan {
-            addresses: HashMap::new(),
-            good_addresses: Vec::new(),
-            utreexo_addresses: Vec::new(),
-        };
+        let mut address_man = AddressMan::default();
 
         let signet_address =
             load_addresses_from_json("./src/p2p_wire/seeds/signet_seeds.json").unwrap();
@@ -592,7 +594,7 @@ mod test {
 
         assert!(!address_man.good_addresses.is_empty());
 
-        assert!(!address_man.utreexo_addresses.is_empty());
+        assert!(!address_man.peers_by_service.is_empty());
 
         assert!(!address_man.get_addresses_to_send().is_empty());
 
@@ -604,9 +606,13 @@ mod test {
             .get_address_to_connect(ServiceFlags::default(), false)
             .is_some());
 
-        assert!(address_man.get_random_good_address().is_some());
+        assert!(address_man
+            .get_address_to_connect(ServiceFlags::NONE, false)
+            .is_some());
 
-        assert!(address_man.get_random_utreexo_address().is_some());
+        assert!(address_man
+            .get_address_to_connect(ServiceFlags::UTREEXO, false)
+            .is_some());
 
         assert!(!AddressMan::get_net_seeds(Network::Signet).is_empty());
         assert!(!AddressMan::get_net_seeds(Network::Bitcoin).is_empty());
