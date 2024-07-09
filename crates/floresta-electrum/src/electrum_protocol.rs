@@ -232,7 +232,7 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                     .unwrap_or_else(|| {
                         Ok(json!({
                             "jsonrpc": "2.0",
-                            "result": null,
+                            "result": [],
                             "id": request.id
                         }))
                     })
