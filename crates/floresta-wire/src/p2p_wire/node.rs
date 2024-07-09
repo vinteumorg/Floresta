@@ -586,15 +586,34 @@ where
         Ok(())
     }
 
-    pub(crate) async fn create_connection(&mut self, feeler: bool) -> Option<()> {
-        // We should try to keep at least two utreexo connections
-        let mut required_services = self.1.get_required_services();
-        if required_services.has(ServiceFlags::UTREEXO) && !self.has_utreexo_peers() {
-            required_services = ServiceFlags::UTREEXO; // force utreexo peers
-        } else {
-            required_services = ServiceFlags::NETWORK;
+    fn get_required_services(&self) -> ServiceFlags {
+        let required_services = self.1.get_required_services();
+
+        // chain selector should prefer peers that support UTREEXO filters, as
+        // more peers with this service will improve our security for PoW
+        // fraud proofs. This is only true if pow fraud proofs are enabled
+        // in the configuration.
+        if self.config.pow_fraud_proofs && required_services.has(ServiceFlags::from(1 << 25)) {
+            return ServiceFlags::from(1 << 25);
         }
 
+        // we need at least one utreexo peer
+        if !self.has_utreexo_peers() {
+            return ServiceFlags::UTREEXO;
+        }
+
+        // we need at least one peer with compact filters
+        if !self.has_compact_filters_peer() {
+            return ServiceFlags::COMPACT_FILTERS;
+        }
+
+        // we have at least one peer with the required services, so we can connect
+        // with any random peer
+        ServiceFlags::NONE
+    }
+
+    pub(crate) async fn create_connection(&mut self, feeler: bool) -> Option<()> {
+        let required_services = self.get_required_services();
         let (peer_id, address) = match &self.fixed_peer {
             Some(address) => (0, address.clone()),
             None => self
@@ -604,7 +623,9 @@ where
 
         self.address_man
             .update_set_state(peer_id, AddressState::Connected);
+
         debug!("attempting connection with: {}", address.get_net_address());
+
         // Don't connect to the same peer twice
         if self
             .0
@@ -614,8 +635,8 @@ where
         {
             return None;
         }
-
         self.open_connection(feeler, peer_id, address).await;
+
         Some(())
     }
 
