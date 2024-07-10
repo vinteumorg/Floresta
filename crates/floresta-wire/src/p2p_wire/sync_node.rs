@@ -189,8 +189,14 @@ where
                     // it if the proof is invalid. Any other error should cause the block
                     // to be invalidated.
                     match e {
-                        BlockValidationErrors::InvalidTx(_)
+                        BlockValidationErrors::InvalidCoinbase(_)
+                        | BlockValidationErrors::UtxoAlreadySpent(_)
+                        | BlockValidationErrors::ScriptValidationError(_)
+                        | BlockValidationErrors::InvalidOutput
+                        | BlockValidationErrors::ScriptError
+                        | BlockValidationErrors::BlockTooBig
                         | BlockValidationErrors::NotEnoughPow
+                        | BlockValidationErrors::TooManyCoins
                         | BlockValidationErrors::BadMerkleRoot
                         | BlockValidationErrors::BadWitnessCommitment
                         | BlockValidationErrors::NotEnoughMoney
