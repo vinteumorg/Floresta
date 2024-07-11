@@ -13,6 +13,7 @@ use std::time::UNIX_EPOCH;
 use bitcoin::p2p::address::AddrV2;
 use bitcoin::p2p::address::AddrV2Message;
 use bitcoin::p2p::ServiceFlags;
+use floresta_chain::DnsSeed;
 use floresta_chain::Network;
 use log::info;
 use serde::Deserialize;
@@ -151,6 +152,7 @@ impl LocalAddress {
         self.address.clone()
     }
 }
+
 /// A module that keeps track of know addresses and serve them to our node to connect
 #[derive(Default)]
 pub struct AddressMan {
@@ -158,11 +160,34 @@ pub struct AddressMan {
     good_addresses: Vec<usize>,
     peers_by_service: HashMap<ServiceFlags, Vec<usize>>,
 }
+
 impl AddressMan {
     /// Add a new address to our list of known address
     pub fn push_addresses(&mut self, addresses: &[LocalAddress]) {
         for address in addresses {
             let id = address.id;
+
+            // don't add addresses that don't have the minimum required services
+            if !address.services.has(ServiceFlags::WITNESS)
+                | !address.services.has(ServiceFlags::NETWORK)
+            {
+                continue;
+            }
+
+            // don't add private addresses
+            if Self::is_localhost(address) || Self::is_private(address) {
+                continue;
+            }
+
+            // don't add duplicate addresses
+            if self
+                .addresses
+                .values()
+                .any(|x| x.address == address.address)
+            {
+                continue;
+            }
+
             if let std::collections::hash_map::Entry::Vacant(e) = self.addresses.entry(id) {
                 e.insert(address.to_owned());
                 // For now we assume that all addresses are valid, until proven otherwise.
@@ -173,6 +198,22 @@ impl AddressMan {
                 self.push_if_has_service(address, ServiceFlags::NONE); // this means any peer
                 self.push_if_has_service(address, ServiceFlags::COMPACT_FILTERS);
             }
+        }
+    }
+
+    fn is_private(address: &LocalAddress) -> bool {
+        match address.address {
+            AddrV2::Ipv4(ip) => ip.is_private(),
+            AddrV2::Ipv6(ip) => ip.octets()[0] == 0xfd || ip.octets()[0] == 0xfe,
+            _ => false,
+        }
+    }
+
+    fn is_localhost(address: &LocalAddress) -> bool {
+        match address.address {
+            AddrV2::Ipv4(ip) => ip.is_loopback(),
+            AddrV2::Ipv6(ip) => ip.is_loopback(),
+            _ => false,
         }
     }
 
@@ -209,26 +250,82 @@ impl AddressMan {
             .collect();
         addresses
     }
-    pub fn get_seeds_from_dns(
-        &mut self,
-        seed: &str,
+
+    fn do_lookup(
+        address: &str,
         default_port: u16,
-    ) -> Result<usize, std::io::Error> {
+    ) -> Result<Vec<LocalAddress>, dns_lookup::LookupError> {
         let mut addresses = Vec::new();
-        let utreexo_seed = seed.contains("x1000000.");
-        for ip in dns_lookup::lookup_host(seed)? {
-            if let Ok(mut ip) = LocalAddress::try_from(format!("{}:{}", ip, default_port).as_str())
-            {
-                // This seed returns utreexo nodes
-                if utreexo_seed {
-                    ip.services |= ServiceFlags::from(1 << 24);
-                }
+        for ip in dns_lookup::lookup_host(address)? {
+            if let Ok(ip) = LocalAddress::try_from(format!("{}:{}", ip, default_port).as_str()) {
                 addresses.push(ip);
             }
         }
-        self.push_addresses(&addresses);
-        Ok(addresses.len())
+
+        Ok(addresses)
     }
+
+    fn get_seeds_from_dns(
+        &mut self,
+        seed: &DnsSeed,
+        default_port: u16,
+    ) -> Result<usize, std::io::Error> {
+        let mut seed_address_count = 0;
+
+        // ask for utreexo peers (if filtering is available)
+        if seed.filters.has(ServiceFlags::UTREEXO) {
+            let address = format!("x1000000.{}", seed.seed);
+            let _addresses = Self::do_lookup(&address, default_port).unwrap_or_default();
+            seed_address_count += _addresses.len();
+            _addresses
+                .into_iter()
+                .map(|mut x| {
+                    x.services =
+                        ServiceFlags::UTREEXO | ServiceFlags::NETWORK | ServiceFlags::WITNESS;
+                    x
+                })
+                .for_each(|x| {
+                    self.push_addresses(&[x]);
+                });
+        }
+
+        // ask for compact filter peers (if filtering is available)
+        if seed.filters.has(ServiceFlags::COMPACT_FILTERS) {
+            let address = format!("x49.{}", seed.seed);
+            let _addresses = Self::do_lookup(&address, default_port).unwrap_or_default();
+            seed_address_count += _addresses.len();
+            _addresses
+                .into_iter()
+                .map(|mut x| {
+                    x.services = ServiceFlags::COMPACT_FILTERS
+                        | ServiceFlags::NETWORK
+                        | ServiceFlags::WITNESS;
+                    x
+                })
+                .for_each(|x| {
+                    self.push_addresses(&[x]);
+                });
+        }
+
+        // ask for any peer (if filtering is available)
+        if seed.filters.has(ServiceFlags::WITNESS) {
+            let address = format!("x9.{}", seed.seed);
+            let _addresses = Self::do_lookup(&address, default_port).unwrap_or_default();
+            seed_address_count += _addresses.len();
+            _addresses
+                .into_iter()
+                .map(|mut x| {
+                    x.services = ServiceFlags::NETWORK | ServiceFlags::WITNESS;
+                    x
+                })
+                .for_each(|x| {
+                    self.push_addresses(&[x]);
+                });
+        }
+
+        Ok(seed_address_count)
+    }
+
     /// Returns a new random address to open a new connection, we try to get addresses with
     /// a set of features supported for our peers
     pub fn get_address_to_connect(
@@ -307,36 +404,37 @@ impl AddressMan {
         datadir: String,
         default_port: u16,
         network: Network,
-        dns_seeds: &[&'static str],
+        dns_seeds: &[DnsSeed],
     ) -> Result<Vec<LocalAddress>, std::io::Error> {
-        let local_db = std::fs::read_to_string(format!("{datadir}/peers.json"));
-        let peers = if let Ok(peers) = local_db {
-            info!("Peers database found, using it");
+        let persisted_peers = std::fs::read_to_string(format!("{datadir}/peers.json"))
+            .map(|seeds| serde_json::from_str::<Vec<DiskLocalAddress>>(&seeds));
 
-            serde_json::from_str::<Vec<DiskLocalAddress>>(&peers).unwrap_or_default()
-        } else {
-            info!("No peers available, using fixed peers");
-            let mut peers_from_dns = 0;
-            for seed in dns_seeds {
-                match self.get_seeds_from_dns(seed, default_port) {
-                    Ok(peers) => peers_from_dns += peers,
-                    Err(e) => {
-                        info!("Error getting peers from DNS seed {seed}: {e:?}");
-                    }
-                }
+        let persisted_peers = match persisted_peers {
+            Ok(Ok(peers)) => peers,
+            _ => {
+                let addresses = Self::get_net_seeds(network);
+                serde_json::from_str(addresses).expect("BUG: fixed peers are invalid")
             }
-
-            info!("Got {peers_from_dns} peers from DNS Seeds",);
-            let addresses = Self::get_net_seeds(network);
-            serde_json::from_str(addresses).expect("BUG: fixed peers are invalid")
         };
 
-        let peers = peers
+        let persisted_peers = persisted_peers
             .iter()
             .cloned()
             .map(Into::<LocalAddress>::into)
             .collect::<Vec<_>>();
-        self.push_addresses(&peers);
+        self.push_addresses(&persisted_peers);
+
+        let mut peers_from_dns = 0;
+        for seed in dns_seeds {
+            match self.get_seeds_from_dns(seed, default_port) {
+                Ok(peers) => peers_from_dns += peers,
+                Err(e) => {
+                    info!("Error getting peers from DNS seed {}: {e:?}", seed.seed);
+                }
+            }
+        }
+
+        info!("Got {peers_from_dns} peers from DNS Seeds",);
 
         let anchors = std::fs::read_to_string(format!("{datadir}/anchors.json"))?;
         let anchors = serde_json::from_str::<Vec<DiskLocalAddress>>(&anchors)?;
