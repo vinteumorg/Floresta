@@ -13,6 +13,7 @@ use std::time::UNIX_EPOCH;
 use bitcoin::p2p::address::AddrV2;
 use bitcoin::p2p::address::AddrV2Message;
 use bitcoin::p2p::ServiceFlags;
+use floresta_chain::DnsSeed;
 use floresta_chain::Network;
 use log::info;
 use serde::Deserialize;
@@ -151,28 +152,80 @@ impl LocalAddress {
         self.address.clone()
     }
 }
+
 /// A module that keeps track of know addresses and serve them to our node to connect
 #[derive(Default)]
 pub struct AddressMan {
     addresses: HashMap<usize, LocalAddress>,
     good_addresses: Vec<usize>,
-    utreexo_addresses: Vec<usize>,
+    peers_by_service: HashMap<ServiceFlags, Vec<usize>>,
 }
+
 impl AddressMan {
     /// Add a new address to our list of known address
     pub fn push_addresses(&mut self, addresses: &[LocalAddress]) {
         for address in addresses {
             let id = address.id;
+
+            // don't add addresses that don't have the minimum required services
+            if !address.services.has(ServiceFlags::WITNESS)
+                | !address.services.has(ServiceFlags::NETWORK)
+            {
+                continue;
+            }
+
+            // don't add private addresses
+            if Self::is_localhost(address) || Self::is_private(address) {
+                continue;
+            }
+
+            // don't add duplicate addresses
+            if self
+                .addresses
+                .values()
+                .any(|x| x.address == address.address)
+            {
+                continue;
+            }
+
             if let std::collections::hash_map::Entry::Vacant(e) = self.addresses.entry(id) {
+                e.insert(address.to_owned());
                 // For now we assume that all addresses are valid, until proven otherwise.
                 self.good_addresses.push(id);
-                if address.services.has(ServiceFlags::from(1 << 24)) {
-                    self.utreexo_addresses.push(id);
-                }
-                e.insert(address.to_owned());
+
+                self.push_if_has_service(address, ServiceFlags::UTREEXO);
+                self.push_if_has_service(address, ServiceFlags::from(1 << 25)); // UTREEXO_FILTER
+                self.push_if_has_service(address, ServiceFlags::NONE); // this means any peer
+                self.push_if_has_service(address, ServiceFlags::COMPACT_FILTERS);
             }
         }
     }
+
+    fn is_private(address: &LocalAddress) -> bool {
+        match address.address {
+            AddrV2::Ipv4(ip) => ip.is_private(),
+            AddrV2::Ipv6(ip) => ip.octets()[0] == 0xfd || ip.octets()[0] == 0xfe,
+            _ => false,
+        }
+    }
+
+    fn is_localhost(address: &LocalAddress) -> bool {
+        match address.address {
+            AddrV2::Ipv4(ip) => ip.is_loopback(),
+            AddrV2::Ipv6(ip) => ip.is_loopback(),
+            _ => false,
+        }
+    }
+
+    fn push_if_has_service(&mut self, address: &LocalAddress, service: ServiceFlags) {
+        if address.services.has(service) {
+            self.peers_by_service
+                .entry(service)
+                .or_default()
+                .push(address.id);
+        }
+    }
+
     pub fn get_addresses_to_send(&self) -> AddressToSend {
         let addresses = self
             .addresses
@@ -197,58 +250,112 @@ impl AddressMan {
             .collect();
         addresses
     }
-    pub fn get_seeds_from_dns(
-        &mut self,
-        seed: &str,
+
+    fn do_lookup(
+        address: &str,
         default_port: u16,
-    ) -> Result<usize, std::io::Error> {
+    ) -> Result<Vec<LocalAddress>, dns_lookup::LookupError> {
         let mut addresses = Vec::new();
-        let utreexo_seed = seed.contains("x1000000.");
-        for ip in dns_lookup::lookup_host(seed)? {
-            if let Ok(mut ip) = LocalAddress::try_from(format!("{}:{}", ip, default_port).as_str())
-            {
-                // This seed returns utreexo nodes
-                if utreexo_seed {
-                    ip.services |= ServiceFlags::from(1 << 24);
-                }
+        for ip in dns_lookup::lookup_host(address)? {
+            if let Ok(ip) = LocalAddress::try_from(format!("{}:{}", ip, default_port).as_str()) {
                 addresses.push(ip);
             }
         }
-        self.push_addresses(&addresses);
-        Ok(addresses.len())
+
+        Ok(addresses)
     }
+
+    fn get_seeds_from_dns(
+        &mut self,
+        seed: &DnsSeed,
+        default_port: u16,
+    ) -> Result<usize, std::io::Error> {
+        let mut seed_address_count = 0;
+
+        // ask for utreexo peers (if filtering is available)
+        if seed.filters.has(ServiceFlags::UTREEXO) {
+            let address = format!("x1000000.{}", seed.seed);
+            let _addresses = Self::do_lookup(&address, default_port).unwrap_or_default();
+            seed_address_count += _addresses.len();
+            _addresses
+                .into_iter()
+                .map(|mut x| {
+                    x.services =
+                        ServiceFlags::UTREEXO | ServiceFlags::NETWORK | ServiceFlags::WITNESS;
+                    x
+                })
+                .for_each(|x| {
+                    self.push_addresses(&[x]);
+                });
+        }
+
+        // ask for compact filter peers (if filtering is available)
+        if seed.filters.has(ServiceFlags::COMPACT_FILTERS) {
+            let address = format!("x49.{}", seed.seed);
+            let _addresses = Self::do_lookup(&address, default_port).unwrap_or_default();
+            seed_address_count += _addresses.len();
+            _addresses
+                .into_iter()
+                .map(|mut x| {
+                    x.services = ServiceFlags::COMPACT_FILTERS
+                        | ServiceFlags::NETWORK
+                        | ServiceFlags::WITNESS;
+                    x
+                })
+                .for_each(|x| {
+                    self.push_addresses(&[x]);
+                });
+        }
+
+        // ask for any peer (if filtering is available)
+        if seed.filters.has(ServiceFlags::WITNESS) {
+            let address = format!("x9.{}", seed.seed);
+            let _addresses = Self::do_lookup(&address, default_port).unwrap_or_default();
+            seed_address_count += _addresses.len();
+            _addresses
+                .into_iter()
+                .map(|mut x| {
+                    x.services = ServiceFlags::NETWORK | ServiceFlags::WITNESS;
+                    x
+                })
+                .for_each(|x| {
+                    self.push_addresses(&[x]);
+                });
+        }
+
+        Ok(seed_address_count)
+    }
+
     /// Returns a new random address to open a new connection, we try to get addresses with
     /// a set of features supported for our peers
     pub fn get_address_to_connect(
         &mut self,
-        flags: ServiceFlags,
+        required_service: ServiceFlags,
         feeler: bool,
     ) -> Option<(usize, LocalAddress)> {
         if self.addresses.is_empty() {
             return None;
         }
+
         // Feeler connection are used to test if a peer is still alive, we don't care about
         // the features it supports or even if it's a valid peer. The only thing we care about
         // is that we haven't banned it.
-        let (id, peer) = if feeler {
+        if feeler {
             let idx = rand::random::<usize>() % self.addresses.len();
             let peer = self.addresses.keys().nth(idx)?;
             let address = self.addresses.get(peer)?.to_owned();
             if let AddressState::Banned(_) = address.state {
                 return None;
             }
-            (*peer, address)
-        } else if flags.has(ServiceFlags::from(1 << 24)) {
-            // if we don't have an utreexo address, we fallback to a normal good address
-            self.get_random_utreexo_address()
-                .or_else(|| self.get_random_good_address())?
-        } else {
-            self.get_random_good_address()?
+            return Some((*peer, address));
         };
+
+        let (id, peer) = self.get_address_by_service(required_service)?;
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs();
+
         match peer.state {
             AddressState::Banned(_) | AddressState::Connected => None,
             AddressState::NeverTried | AddressState::Tried(_) => Some((id, peer)),
@@ -274,20 +381,14 @@ impl AddressMan {
         }
         Ok(())
     }
-    fn get_random_good_address(&self) -> Option<(usize, LocalAddress)> {
-        if self.good_addresses.is_empty() {
+    fn get_address_by_service(&self, service: ServiceFlags) -> Option<(usize, LocalAddress)> {
+        let peers = self.peers_by_service.get(&service)?;
+        if peers.is_empty() {
             return None;
         }
-        let idx = rand::random::<usize>() % self.good_addresses.len();
-        let good_peer = self.good_addresses.get(idx)?;
-        Some((*good_peer, self.addresses.get(good_peer)?.to_owned()))
-    }
-    fn get_random_utreexo_address(&self) -> Option<(usize, LocalAddress)> {
-        if self.utreexo_addresses.is_empty() {
-            return None;
-        }
-        let idx = rand::random::<usize>() % self.utreexo_addresses.len();
-        let utreexo_peer = self.utreexo_addresses.get(idx)?;
+
+        let idx = rand::random::<usize>() % peers.len();
+        let utreexo_peer = peers.get(idx)?;
         Some((*utreexo_peer, self.addresses.get(utreexo_peer)?.to_owned()))
     }
     fn get_net_seeds(network: Network) -> &'static str {
@@ -303,36 +404,37 @@ impl AddressMan {
         datadir: String,
         default_port: u16,
         network: Network,
-        dns_seeds: &[&'static str],
+        dns_seeds: &[DnsSeed],
     ) -> Result<Vec<LocalAddress>, std::io::Error> {
-        let local_db = std::fs::read_to_string(format!("{datadir}/peers.json"));
-        let peers = if let Ok(peers) = local_db {
-            info!("Peers database found, using it");
+        let persisted_peers = std::fs::read_to_string(format!("{datadir}/peers.json"))
+            .map(|seeds| serde_json::from_str::<Vec<DiskLocalAddress>>(&seeds));
 
-            serde_json::from_str::<Vec<DiskLocalAddress>>(&peers).unwrap_or_default()
-        } else {
-            info!("No peers available, using fixed peers");
-            let mut peers_from_dns = 0;
-            for seed in dns_seeds {
-                match self.get_seeds_from_dns(seed, default_port) {
-                    Ok(peers) => peers_from_dns += peers,
-                    Err(e) => {
-                        info!("Error getting peers from DNS seed {seed}: {e:?}");
-                    }
-                }
+        let persisted_peers = match persisted_peers {
+            Ok(Ok(peers)) => peers,
+            _ => {
+                let addresses = Self::get_net_seeds(network);
+                serde_json::from_str(addresses).expect("BUG: fixed peers are invalid")
             }
-
-            info!("Got {peers_from_dns} peers from DNS Seeds",);
-            let addresses = Self::get_net_seeds(network);
-            serde_json::from_str(addresses).expect("BUG: fixed peers are invalid")
         };
 
-        let peers = peers
+        let persisted_peers = persisted_peers
             .iter()
             .cloned()
             .map(Into::<LocalAddress>::into)
             .collect::<Vec<_>>();
-        self.push_addresses(&peers);
+        self.push_addresses(&persisted_peers);
+
+        let mut peers_from_dns = 0;
+        for seed in dns_seeds {
+            match self.get_seeds_from_dns(seed, default_port) {
+                Ok(peers) => peers_from_dns += peers,
+                Err(e) => {
+                    info!("Error getting peers from DNS seed {}: {e:?}", seed.seed);
+                }
+            }
+        }
+
+        info!("Got {peers_from_dns} peers from DNS Seeds",);
 
         let anchors = std::fs::read_to_string(format!("{datadir}/anchors.json"))?;
         let anchors = serde_json::from_str::<Vec<DiskLocalAddress>>(&anchors)?;
@@ -532,6 +634,8 @@ mod test {
         /// Network port this peers listens to
         port: u16,
     }
+
+    #[allow(non_snake_case)]
     #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
     struct SeedAddress {
         V4: Ipv4Addr,
@@ -557,7 +661,7 @@ mod test {
             let local_address = LocalAddress {
                 address: _address,
                 last_connected: seed.last_connected,
-                state: state,
+                state,
                 services: ServiceFlags::from(seed.services),
                 port: seed.port,
                 id: rng.gen(),
@@ -579,11 +683,7 @@ mod test {
     }
     #[test]
     fn test_address_man() {
-        let mut address_man = AddressMan {
-            addresses: HashMap::new(),
-            good_addresses: Vec::new(),
-            utreexo_addresses: Vec::new(),
-        };
+        let mut address_man = AddressMan::default();
 
         let signet_address =
             load_addresses_from_json("./src/p2p_wire/seeds/signet_seeds.json").unwrap();
@@ -592,7 +692,7 @@ mod test {
 
         assert!(!address_man.good_addresses.is_empty());
 
-        assert!(!address_man.utreexo_addresses.is_empty());
+        assert!(!address_man.peers_by_service.is_empty());
 
         assert!(!address_man.get_addresses_to_send().is_empty());
 
@@ -604,9 +704,13 @@ mod test {
             .get_address_to_connect(ServiceFlags::default(), false)
             .is_some());
 
-        assert!(address_man.get_random_good_address().is_some());
+        assert!(address_man
+            .get_address_to_connect(ServiceFlags::NONE, false)
+            .is_some());
 
-        assert!(address_man.get_random_utreexo_address().is_some());
+        assert!(address_man
+            .get_address_to_connect(ServiceFlags::UTREEXO, false)
+            .is_some());
 
         assert!(!AddressMan::get_net_seeds(Network::Signet).is_empty());
         assert!(!AddressMan::get_net_seeds(Network::Bitcoin).is_empty());

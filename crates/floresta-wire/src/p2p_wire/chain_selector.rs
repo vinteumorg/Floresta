@@ -114,7 +114,7 @@ impl NodeContext for ChainSelector {
     const TRY_NEW_CONNECTION: u64 = 10; // Try creating connections more aggressively
 
     fn get_required_services(&self) -> ServiceFlags {
-        ServiceFlags::NETWORK | ServiceFlags::UTREEXO
+        ServiceFlags::NETWORK | ServiceFlags::UTREEXO | ServiceFlags::from(1 << 25)
     }
 }
 
