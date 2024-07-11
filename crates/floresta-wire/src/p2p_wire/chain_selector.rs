@@ -666,7 +666,6 @@ where
             // We downloaded all headers in the most-pow chain, and all our peers agree
             // this is the most-pow chain, we're done!
             if self.1.state == ChainSelectorState::Done {
-                self.chain.toggle_ibd(false);
                 break;
             }
 

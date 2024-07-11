@@ -38,6 +38,7 @@ hex = "0.4.3"
 
 [dev-dependencies]
 hex = "0.4.3"
+zstd = "0.13.1"
 
 [features]
 default = []

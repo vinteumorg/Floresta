@@ -44,6 +44,7 @@ mod tests_utils {
     use crate::p2p_wire::chain_selector::ChainSelector;
     use crate::p2p_wire::peer::PeerMessages;
     use crate::UtreexoNodeConfig;
+    use zstd;
 
     #[derive(Debug, Deserialize, Serialize, Clone)]
     pub struct UtreexoRoots {
@@ -274,7 +275,6 @@ mod tests_utils {
     }
 
     pub async fn setup_test(
-        test_name: &str,
         peers: Vec<(
             Vec<Header>,
             HashMap<BlockHash, UtreexoBlock>,
@@ -282,7 +282,7 @@ mod tests_utils {
         )>,
         pow_fraud_proofs: bool,
         network: floresta_chain::Network,
-    ) {
+    ) -> Arc<ChainState<KvChainStore<'static>>> {
         let datadir = format!("./data/{}.node_test", rand::random::<u32>());
         let chainstore = KvChainStore::new(datadir.clone()).unwrap();
         let mempool = Arc::new(RwLock::new(Mempool::new()));
@@ -348,60 +348,7 @@ mod tests_utils {
             .unwrap()
             .unwrap();
 
-        let headers = get_test_headers();
-
-        match test_name {
-            "test_chain_selector" => {
-                assert_eq!(chain.is_in_idb(), false);
-                assert_eq!(chain.get_best_block().unwrap().0, 2015);
-                assert_eq!(
-                    chain.get_best_block().unwrap().1,
-                    headers[2015].block_hash()
-                );
-            }
-
-            "two_peers_different_tips" => {
-                assert_eq!(chain.is_in_idb(), false);
-                assert_eq!(chain.get_best_block().unwrap().0, 2014);
-                assert_eq!(
-                    chain.get_best_block().unwrap().1,
-                    headers[2014].block_hash()
-                );
-            }
-            "ten_peers_different_tips" => {
-                assert_eq!(chain.is_in_idb(), false);
-                assert_eq!(chain.get_best_block().unwrap().0, 2013);
-                assert_eq!(
-                    chain.get_best_block().unwrap().1,
-                    headers[2013].block_hash()
-                );
-            }
-            "two_peers_one_lying" => {
-                assert_eq!(chain.is_in_idb(), false);
-                assert_eq!(
-                    chain.get_root_hashes()[3],
-                    NodeHash::from_str(
-                        "bfe030a7a994b921fb2329ff085bd0f2351cb5fa251985d6646aaf57954b782b"
-                    )
-                    .unwrap()
-                );
-                assert_eq!(chain.get_root_hashes().len(), 6);
-                assert_eq!(chain.get_best_block().unwrap().1, headers[119].block_hash());
-            }
-            "ten_peers_one_honest" => {
-                assert_eq!(chain.is_in_idb(), false);
-                assert_eq!(
-                    chain.get_root_hashes()[3],
-                    NodeHash::from_str(
-                        "bfe030a7a994b921fb2329ff085bd0f2351cb5fa251985d6646aaf57954b782b"
-                    )
-                    .unwrap()
-                );
-                assert_eq!(chain.get_root_hashes().len(), 6);
-                assert_eq!(chain.get_best_block().unwrap().1, headers[119].block_hash());
-            }
-            _ => {}
-        }
+        chain
     }
 
     pub fn get_essentials() -> (
@@ -426,6 +373,11 @@ mod tests_utils {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::str::FromStr;
+
+    use floresta_chain::pruned_utreexo::BlockchainInterface;
+    use floresta_chain::pruned_utreexo::UpdatableChainstate;
+    use rustreexo::accumulator::node_hash::NodeHash;
 
     use super::tests_utils::create_false_acc;
     use super::tests_utils::get_essentials;
@@ -435,18 +387,24 @@ mod tests {
     async fn accept_one_header() {
         let (headers, _, _, _) = get_essentials();
 
-        setup_test(
-            "test_chain_selector",
-            vec![(headers, HashMap::new(), HashMap::new())],
+        let chain = setup_test(
+            vec![(headers.clone(), HashMap::new(), HashMap::new())],
             false,
             floresta_chain::Network::Signet,
         )
         .await;
+
+        assert_eq!(chain.get_best_block().unwrap().0, 2015);
+        assert_eq!(
+            chain.get_best_block().unwrap().1,
+            headers[2015].block_hash()
+        );
     }
 
     #[async_std::test]
     async fn two_peers_different_tips() {
         let (mut headers, _, _, _) = get_essentials();
+        let _headers = headers.clone();
 
         let mut peers = Vec::new();
 
@@ -455,18 +413,19 @@ mod tests {
             peers.push((headers.clone(), HashMap::new(), HashMap::new()))
         }
 
-        setup_test(
-            "two_peers_different_tips",
-            peers,
-            false,
-            floresta_chain::Network::Signet,
-        )
-        .await;
+        let chain = setup_test(peers, false, floresta_chain::Network::Signet).await;
+
+        assert_eq!(chain.get_best_block().unwrap().0, 2014);
+        assert_eq!(
+            chain.get_best_block().unwrap().1,
+            _headers[2014].block_hash()
+        );
     }
 
     #[async_std::test]
     async fn ten_peers_different_tips() {
         let (mut headers, _, _, _) = get_essentials();
+        let _headers = headers.clone();
 
         let mut peers = Vec::new();
 
@@ -477,13 +436,13 @@ mod tests {
             peers.push((headers.clone(), HashMap::new(), HashMap::new()))
         }
 
-        setup_test(
-            "ten_peers_different_tips",
-            peers,
-            false,
-            floresta_chain::Network::Signet,
-        )
-        .await;
+        let chain = setup_test(peers, false, floresta_chain::Network::Signet).await;
+
+        assert_eq!(chain.get_best_block().unwrap().0, 2013);
+        assert_eq!(
+            chain.get_best_block().unwrap().1,
+            _headers[2013].block_hash()
+        );
     }
 
     #[async_std::test]
@@ -498,16 +457,18 @@ mod tests {
 
         let peers = vec![
             (headers.clone(), blocks.clone(), true_filters),
-            (headers, blocks, false_filters),
+            (headers.clone(), blocks, false_filters),
         ];
 
-        setup_test(
-            "two_peers_one_lying",
-            peers,
-            true,
-            floresta_chain::Network::Signet,
-        )
-        .await;
+        let chain = setup_test(peers, true, floresta_chain::Network::Signet).await;
+
+        assert_eq!(
+            chain.get_root_hashes()[3],
+            NodeHash::from_str("bfe030a7a994b921fb2329ff085bd0f2351cb5fa251985d6646aaf57954b782b")
+                .unwrap()
+        );
+        assert_eq!(chain.get_root_hashes().len(), 6);
+        assert_eq!(chain.get_best_block().unwrap().1, headers[119].block_hash());
     }
 
     #[async_std::test]
@@ -524,14 +485,16 @@ mod tests {
             false_filters.insert(tip_hash, create_false_acc(119));
             peers.push((headers.clone(), blocks.clone(), false_filters.clone()));
         }
-        peers.push((headers, blocks, true_filters));
+        peers.push((headers.clone(), blocks, true_filters));
 
-        setup_test(
-            "ten_peers_one_honest",
-            peers,
-            true,
-            floresta_chain::Network::Signet,
-        )
-        .await;
+        let chain = setup_test( peers, true, floresta_chain::Network::Signet).await;
+
+        assert_eq!(
+            chain.get_root_hashes()[3],
+            NodeHash::from_str("bfe030a7a994b921fb2329ff085bd0f2351cb5fa251985d6646aaf57954b782b")
+                .unwrap()
+        );
+        assert_eq!(chain.get_root_hashes().len(), 6);
+        assert_eq!(chain.get_best_block().unwrap().1, headers[119].block_hash());
     }
 }

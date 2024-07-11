@@ -87,4 +87,5 @@ pub mod running_node;
 pub mod socks;
 pub mod stream_reader;
 pub mod sync_node;
+#[doc(hidden)]
 pub mod tests;
