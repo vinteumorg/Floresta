@@ -478,6 +478,17 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
 
             // rescan for new addresses, if any
             if !self.addresses_to_scan.is_empty() {
+                if self.chain.is_in_idb() {
+                    continue;
+                }
+
+                let mut lock = self.address_cache.write().await;
+                self.addresses_to_scan.iter().for_each(|address| {
+                    lock.cache_address(address.clone());
+                });
+
+                drop(lock);
+
                 info!("Catching up with addresses {:?}", self.addresses_to_scan);
                 let addresses: Vec<_> = self.addresses_to_scan.drain(..).collect();
                 self.rescan_for_addresses(addresses).await?;
@@ -518,7 +529,7 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
         addresses: Vec<ScriptBuf>,
     ) -> Result<(), super::error::Error> {
         // By default, we look from 1..tip
-        let height = self.chain.get_height().unwrap_or(1);
+        let height = cfilters.get_height().unwrap();
         let mut _addresses = addresses
             .iter()
             .map(|address| address.as_bytes())
@@ -532,15 +543,21 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
             return Ok(());
         }
 
+        info!("filters told us to scan blocks: {:?}", blocks);
+        
         let blocks = blocks
             .unwrap()
             .into_iter()
-            .flat_map(|hash| self.node_interface.get_block(hash).ok().flatten())
+            .flat_map(|hash| self.node_interface.get_block(hash))
             .collect::<Vec<_>>();
-
-        info!("filters told us to scan blocks: {:?}", blocks);
+        
         // Tells users about the transactions we found
         for block in blocks {
+            let Some(block) = block else {
+                self.addresses_to_scan.extend(addresses); // push them back to get a retry
+                return Ok(());
+            };
+            
             let height = self
                 .chain
                 .get_block_height(&block.block_hash())
