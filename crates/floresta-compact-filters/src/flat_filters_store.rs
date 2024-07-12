@@ -115,7 +115,7 @@ impl IteratableFilterStore for FlatFiltersStore {
         let mut buf = [0; 4];
         inner.file.seek(SeekFrom::Start(0))?;
         inner.file.read_exact(&mut buf)?;
-        
+
         Ok(u32::from_le_bytes(buf))
     }
 

@@ -107,6 +107,7 @@ pub enum Error {
     Node,
     NoBlockFilters,
     InvalidNetwork,
+    InInitialBlockDownload,
 }
 
 impl Display for Error {
@@ -120,7 +121,8 @@ impl Display for Error {
             Error::InvalidAddress => "Invalid address",
             Error::Node => "Node returned an error",
             Error::NoBlockFilters => "You don't have block filters enabled, please start florestad with --cfilters to run this RPC",
-            Error::InvalidNetwork => "Invalid network"
+            Error::InvalidNetwork => "Invalid network",
+            Error::InInitialBlockDownload => "Node is in initial block download, wait until it's finished",
         };
         write!(f, "{}", msg)
     }
@@ -138,6 +140,7 @@ impl From<Error> for i64 {
             Error::Node => 7,
             Error::NoBlockFilters => 8,
             Error::InvalidNetwork => 9,
+            Error::InInitialBlockDownload => 10,
         }
     }
 }
