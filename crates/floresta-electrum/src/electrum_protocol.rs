@@ -297,7 +297,10 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                 let hash = get_spk_hash(&script);
 
                 if !self.address_cache.read().await.is_address_cached(&hash) {
-                    self.address_cache.write().await.cache_address_hash(hash);
+                    self.address_cache
+                        .write()
+                        .await
+                        .cache_address(script.clone());
                     self.addresses_to_scan.push(script);
                     let res = json!({
                         "confirmed": 0,
@@ -318,7 +321,10 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                 let hash = get_spk_hash(&script);
 
                 if !self.address_cache.read().await.is_address_cached(&hash) {
-                    self.address_cache.write().await.cache_address_hash(hash);
+                    self.address_cache
+                        .write()
+                        .await
+                        .cache_address(script.clone());
                     self.addresses_to_scan.push(script);
                     return json_rpc_res!(request, null);
                 }
@@ -544,20 +550,20 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
         }
 
         info!("filters told us to scan blocks: {:?}", blocks);
-        
+
         let blocks = blocks
             .unwrap()
             .into_iter()
             .flat_map(|hash| self.node_interface.get_block(hash))
             .collect::<Vec<_>>();
-        
+
         // Tells users about the transactions we found
         for block in blocks {
             let Some(block) = block else {
                 self.addresses_to_scan.extend(addresses); // push them back to get a retry
                 return Ok(());
             };
-            
+
             let height = self
                 .chain
                 .get_block_height(&block.block_hash())

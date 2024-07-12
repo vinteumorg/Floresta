@@ -169,6 +169,7 @@ impl Rpc for RpcImpl {
             None => Ok(json!({})),
         }
     }
+
     fn get_height(&self) -> Result<u32> {
         Ok(self.chain.get_best_block().unwrap().0)
     }
@@ -290,22 +291,55 @@ impl Rpc for RpcImpl {
             addresses
         );
 
-        self.rescan_with_block_filters(&addresses)?;
-
-        let wallet = block_on(self.wallet.write());
-        wallet
-            .push_descriptor(&descriptor)
-            .map_err(|e| jsonrpc_core::Error {
-                code: 3.into(),
-                message: e.to_string(),
+        let addresses = block_on(self.wallet.read()).get_cached_addresses();
+        let wallet = self.wallet.clone();
+        if self.block_filter_storage.is_none() {
+            return Err(jsonrpc_core::Error {
+                code: Error::InInitialBlockDownload.into(),
+                message: Error::InInitialBlockDownload.to_string(),
                 data: None,
-            })?;
+            });
+        };
+        let cfilters = self.block_filter_storage.as_ref().unwrap().clone();
+        let node = self.node.clone();
+        let chain = self.chain.clone();
+        std::thread::spawn(move || {
+            match Self::rescan_with_block_filters(&addresses, chain, wallet, cfilters, node) {
+                Ok(_) => info!("rescan completed"),
+                Err(e) => error!("error while rescaning {e:?}"),
+            }
+        });
 
         Ok(true)
     }
 
-    fn rescan(&self, rescan: u32) -> Result<bool> {
-        self.chain.rescan(rescan).unwrap();
+    fn rescan(&self, _rescan: u32) -> Result<bool> {
+        if self.chain.is_in_idb() {
+            return Err(jsonrpc_core::Error {
+                code: Error::InInitialBlockDownload.into(),
+                message: Error::InInitialBlockDownload.to_string(),
+                data: None,
+            });
+        }
+
+        let addresses = block_on(self.wallet.read()).get_cached_addresses();
+        let wallet = self.wallet.clone();
+        if self.block_filter_storage.is_none() {
+            return Err(jsonrpc_core::Error {
+                code: Error::InInitialBlockDownload.into(),
+                message: Error::InInitialBlockDownload.to_string(),
+                data: None,
+            });
+        };
+        let cfilters = self.block_filter_storage.as_ref().unwrap().clone();
+        let node = self.node.clone();
+        let chain = self.chain.clone();
+        std::thread::spawn(move || {
+            match Self::rescan_with_block_filters(&addresses, chain, wallet, cfilters, node) {
+                Ok(_) => info!("rescan completed"),
+                Err(e) => error!("error while rescaning {e:?}"),
+            }
+        });
         Ok(true)
     }
 
@@ -418,38 +452,33 @@ impl Rpc for RpcImpl {
 }
 
 impl RpcImpl {
-    fn rescan_with_block_filters(&self, addresses: &[ScriptBuf]) -> Result<()> {
-        let mut wallet = block_on(self.wallet.write());
-        let cfilters = self
-            .block_filter_storage
-            .as_ref()
-            .ok_or(Error::NoBlockFilters)?;
+    fn rescan_with_block_filters(
+        addresses: &[ScriptBuf],
+        chain: Arc<ChainState<KvChainStore<'static>>>,
+        wallet: Arc<RwLock<AddressCache<KvDatabase>>>,
+        cfilters: Arc<NetworkFilters<FlatFiltersStore>>,
+        node: Arc<NodeInterface>,
+    ) -> Result<()> {
+        let mut wallet = block_on(async { wallet.write().await });
         let tip = cfilters.get_height().unwrap();
         let blocks = cfilters
             .match_any(
                 addresses.iter().map(|a| a.as_bytes()).collect(),
                 tip,
-                self.chain.clone(),
+                chain.clone(),
             )
             .unwrap();
-        debug!("filter hits: {:?}", blocks);
+
+        info!("rescan filter hits: {:?}", blocks);
         for block in blocks {
-            match self.node.get_block(block) {
-                Ok(Some(block)) => {
-                    let height = self
-                        .chain
+            loop {
+                if let Ok(Some(block)) = node.get_block(block) {
+                    let height = chain
                         .get_block_height(&block.block_hash())
                         .unwrap()
                         .unwrap();
                     wallet.block_process(&block, height);
-                }
-                Ok(None) => {
-                    error!("node didn't return block {block:?}");
-                    return Err(Error::Node.into());
-                }
-                Err(e) => {
-                    error!("error while downloading block {block:?}: {e}");
-                    return Err(Error::Node.into());
+                    break;
                 }
             }
         }

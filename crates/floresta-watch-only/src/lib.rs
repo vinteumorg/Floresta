@@ -103,6 +103,7 @@ impl Default for CachedTransaction {
 pub struct CachedAddress {
     script_hash: Hash,
     balance: u64,
+    script: ScriptBuf,
     transactions: Vec<Txid>,
     utxos: Vec<OutPoint>,
 }
@@ -225,6 +226,13 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
         my_transactions
     }
 
+    pub fn get_cached_addresses(&self) -> Vec<ScriptBuf> {
+        self.address_map
+            .values()
+            .map(|address| address.script.clone())
+            .collect()
+    }
+
     fn get_stats(&self) -> Stats {
         self.database
             .get_stats()
@@ -335,6 +343,7 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
         }
         let new_address = CachedAddress {
             balance: 0,
+            script: script_pk,
             script_hash: hash,
             transactions: Vec::new(),
             utxos: Vec::new(),
@@ -344,21 +353,7 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
         self.address_map.insert(hash, new_address);
         self.script_set.insert(hash);
     }
-    pub fn cache_address_hash(&mut self, script_hash: Hash) {
-        if self.address_map.contains_key(&script_hash) {
-            return;
-        }
-        let new_address = CachedAddress {
-            balance: 0,
-            script_hash,
-            transactions: Vec::new(),
-            utxos: Vec::new(),
-        };
-        self.database.save(&new_address);
 
-        self.address_map.insert(script_hash, new_address);
-        self.script_set.insert(script_hash);
-    }
     /// Setup is the first command that should be executed. In a new cache. It sets our wallet's
     /// state, like the height we should start scanning and the wallet's descriptor.
     pub fn setup(&self) -> Result<(), WatchOnlyError<D::Error>> {
@@ -549,12 +544,14 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
             .expect("Database not working");
 
         if let Entry::Vacant(e) = self.address_map.entry(hash) {
+            let script = transaction.output[index as usize].script_pubkey.clone();
             // This means `cache_transaction` have been called with an address we don't
             // follow. This may be useful for caching new addresses without re-scanning.
             // We can track this address from now onwards, but the past history is only
             // available with full rescan
             let new_address = CachedAddress {
                 balance: 0,
+                script,
                 script_hash: hash,
                 transactions: Vec::new(),
                 utxos: Vec::new(),
@@ -630,18 +627,7 @@ mod test {
         assert_eq!(cache.get_address_balance(&script_hash), 0);
         assert_eq!(cache.get_address_history(&script_hash), Some(Vec::new()));
     }
-    #[test]
-    fn test_cache_address_hash() {
-        let (_, script_hash) = get_test_address();
-        let mut cache = get_test_cache();
-        assert!(cache.address_map.is_empty());
 
-        cache.cache_address_hash(script_hash);
-        // Assert we indeed have one cached address
-        assert_eq!(cache.address_map.len(), 1);
-        assert_eq!(cache.get_address_balance(&script_hash), 0);
-        assert_eq!(cache.get_address_history(&script_hash), Some(Vec::new()));
-    }
     #[test]
     fn test_cache_transaction() {
         // Signet transaction with id 6bb0665122c7dcecc6e6c45b6384ee2bdce148aea097896e6f3e9e08070353ea
