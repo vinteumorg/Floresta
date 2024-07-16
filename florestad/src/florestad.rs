@@ -36,13 +36,13 @@ use log::debug;
 use log::error;
 use log::info;
 use log::Record;
-#[cfg(feature = "zmq-server")]
-use zmq::ZMQServer;
 
 use crate::config_file::ConfigFile;
 #[cfg(feature = "json-rpc")]
 use crate::json_rpc;
 use crate::wallet_input::InitialWalletSetup;
+#[cfg(feature = "zmq-server")]
+use crate::zmq::ZMQServer;
 
 #[derive(Default, Clone)]
 /// General configuration for the floresta daemon.
@@ -244,7 +244,7 @@ impl Florestad {
             ),
             Self::get_both_vec(config_file.wallet.addresses.clone(), None),
             &mut wallet,
-            self.config.network.clone(),
+            self.config.network,
         );
 
         if let Err(e) = result {
@@ -344,9 +344,13 @@ impl Florestad {
         #[cfg(feature = "zmq-server")]
         {
             info!("Starting ZMQ server");
-            if let Ok(zserver) =
-                ZMQServer::new(&ctx.zmq_address.unwrap_or("tcp://127.0.0.1:5150".into()))
-            {
+            if let Ok(zserver) = ZMQServer::new(
+                &self
+                    .config
+                    .zmq_address
+                    .as_ref()
+                    .unwrap_or(&"tcp://127.0.0.1:5150".to_string()),
+            ) {
                 blockchain_state.subscribe(Arc::new(zserver));
                 info!("Done!");
             } else {

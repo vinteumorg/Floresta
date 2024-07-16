@@ -5,6 +5,8 @@ mod florestad;
 mod json_rpc;
 mod slip132;
 mod wallet_input;
+#[cfg(feature = "zmq-server")]
+mod zmq;
 
 #[derive(Debug, Default, Clone, Copy)]
 /// Which network should we use

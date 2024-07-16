@@ -18,19 +18,14 @@
 #![deny(non_upper_case_globals)]
 
 mod cli;
-#[cfg(feature = "zmq-server")]
-mod zmq;
 
 use std::time::Duration;
 
 use clap::Parser;
-use florestad::Config;
-use florestad::Florestad;
 use cli::Cli;
 use cli::Commands;
-
-#[cfg(feature = "zmq-server")]
-use zmq::ZMQServer;
+use florestad::Config;
+use florestad::Florestad;
 
 #[async_std::main]
 async fn main() {
