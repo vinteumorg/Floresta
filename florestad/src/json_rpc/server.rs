@@ -375,9 +375,9 @@ impl Rpc for RpcImpl {
                         .get_block_hash(height + 1)
                         .ok()
                         .map(|h| h.to_string()),
+                    #[allow(deprecated)]
                     strippedsize: block.strippedsize(),
                 };
-
                 return Ok(serde_json::to_value(block).unwrap());
             }
             return Ok(json!(serialize(&block).to_vec()));
