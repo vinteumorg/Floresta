@@ -36,14 +36,13 @@ use log::debug;
 use log::error;
 use log::info;
 use log::Record;
-#[cfg(feature = "zmq-server")]
-use zmq::ZMQServer;
 
-use crate::cli;
 use crate::config_file::ConfigFile;
 #[cfg(feature = "json-rpc")]
 use crate::json_rpc;
 use crate::wallet_input::InitialWalletSetup;
+#[cfg(feature = "zmq-server")]
+use crate::zmq::ZMQServer;
 
 #[derive(Default, Clone)]
 /// General configuration for the floresta daemon.
@@ -100,7 +99,7 @@ pub struct Config {
     /// will be made through this one, except dns seed connections.
     pub proxy: Option<String>,
     /// The network we are running in, it may be one of: bitcoin, signet, regtest or testnet.
-    pub network: cli::Network,
+    pub network: crate::Network,
     /// Whther we should build and store compact block filters
     ///
     /// Those filters are used for rescanning our wallet for historical transactions. If you don't
@@ -201,10 +200,10 @@ impl Florestad {
             .unwrap_or("floresta".into());
 
         let data_dir = match self.config.network {
-            cli::Network::Bitcoin => data_dir,
-            cli::Network::Signet => data_dir + "/signet/",
-            cli::Network::Testnet => data_dir + "/testnet3/",
-            cli::Network::Regtest => data_dir + "/regtest/",
+            crate::Network::Bitcoin => data_dir,
+            crate::Network::Signet => data_dir + "/signet/",
+            crate::Network::Testnet => data_dir + "/testnet3/",
+            crate::Network::Regtest => data_dir + "/regtest/",
         };
 
         // create the data directory if it doesn't exist
@@ -245,7 +244,7 @@ impl Florestad {
             ),
             Self::get_both_vec(config_file.wallet.addresses.clone(), None),
             &mut wallet,
-            self.config.network.clone(),
+            self.config.network,
         );
 
         if let Err(e) = result {
@@ -301,16 +300,16 @@ impl Florestad {
 
         // For now we only have compatible bridges on signet
         let pow_fraud_proofs = match self.config.network {
-            cli::Network::Bitcoin => false,
-            cli::Network::Signet => true,
-            cli::Network::Testnet => false,
-            cli::Network::Regtest => false,
+            crate::Network::Bitcoin => false,
+            crate::Network::Signet => true,
+            crate::Network::Testnet => false,
+            crate::Network::Regtest => false,
         };
 
         // If this network already allows pow fraud proofs, we should use it instead of assumeutreexo
         let assume_utreexo = match (pow_fraud_proofs, self.config.assume_utreexo) {
             (false, true) => Some(floresta_chain::ChainParams::get_assumeutreexo_value(
-                self.config.network.clone().into(),
+                Self::get_net(&self.config.network).into(),
             )),
             _ => None,
         };
@@ -345,9 +344,13 @@ impl Florestad {
         #[cfg(feature = "zmq-server")]
         {
             info!("Starting ZMQ server");
-            if let Ok(zserver) =
-                ZMQServer::new(&ctx.zmq_address.unwrap_or("tcp://127.0.0.1:5150".into()))
-            {
+            if let Ok(zserver) = ZMQServer::new(
+                &self
+                    .config
+                    .zmq_address
+                    .as_ref()
+                    .unwrap_or(&"tcp://127.0.0.1:5150".to_string()),
+            ) {
                 blockchain_state.subscribe(Arc::new(zserver));
                 info!("Done!");
             } else {
@@ -549,12 +552,12 @@ impl Florestad {
         AddressCache::new(database)
     }
 
-    fn get_net(net: &cli::Network) -> bitcoin::Network {
+    fn get_net(net: &crate::Network) -> bitcoin::Network {
         match net {
-            cli::Network::Bitcoin => bitcoin::Network::Bitcoin,
-            cli::Network::Signet => bitcoin::Network::Signet,
-            cli::Network::Testnet => bitcoin::Network::Testnet,
-            cli::Network::Regtest => bitcoin::Network::Regtest,
+            crate::Network::Bitcoin => bitcoin::Network::Bitcoin,
+            crate::Network::Signet => bitcoin::Network::Signet,
+            crate::Network::Testnet => bitcoin::Network::Testnet,
+            crate::Network::Regtest => bitcoin::Network::Regtest,
         }
     }
 
@@ -563,7 +566,7 @@ impl Florestad {
         descriptors: Vec<String>,
         addresses: Vec<String>,
         wallet: &mut AddressCache<D>,
-        network: cli::Network,
+        network: crate::Network,
     ) -> anyhow::Result<()> {
         if let Some(key) = Self::get_key_from_env() {
             xpubs.push(key);
