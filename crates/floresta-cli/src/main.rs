@@ -9,10 +9,6 @@ use clap::Subcommand;
 use floresta_cli::reqwest_client::ReqwestClient;
 use floresta_cli::rpc::FlorestaRPC;
 
-mod reqwest_client;
-mod rpc;
-mod rpc_types;
-
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
