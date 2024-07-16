@@ -3,6 +3,7 @@ use clap::command;
 use clap::Parser;
 use clap::Subcommand;
 use clap::ValueEnum;
+use florestad::Network as FlorestaNetwork;
 
 #[derive(Clone, Debug, ValueEnum, Default)]
 pub enum Network {
@@ -11,6 +12,17 @@ pub enum Network {
     Signet,
     Testnet,
     Regtest,
+}
+
+impl From<Network> for FlorestaNetwork {
+    fn from(network: Network) -> Self {
+        match network {
+            Network::Bitcoin => FlorestaNetwork::Bitcoin,
+            Network::Signet => FlorestaNetwork::Signet,
+            Network::Testnet => FlorestaNetwork::Testnet,
+            Network::Regtest => FlorestaNetwork::Regtest,
+        }
+    }
 }
 
 impl From<Network> for floresta_chain::Network {

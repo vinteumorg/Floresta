@@ -18,23 +18,17 @@
 #![deny(non_upper_case_globals)]
 
 mod cli;
-mod config_file;
-mod error;
-mod florestad;
-#[cfg(feature = "json-rpc")]
-mod json_rpc;
-mod slip132;
-mod wallet_input;
 #[cfg(feature = "zmq-server")]
 mod zmq;
 
 use std::time::Duration;
 
 use clap::Parser;
-use cli::Cli;
-use cli::Commands;
 use florestad::Config;
 use florestad::Florestad;
+use cli::Cli;
+use cli::Commands;
+
 #[cfg(feature = "zmq-server")]
 use zmq::ZMQServer;
 
@@ -65,7 +59,7 @@ async fn main() {
             rescan,
             proxy,
             config_file: params.config_file,
-            network: params.network,
+            network: params.network.into(),
             cfilters,
             #[cfg(feature = "zmq-server")]
             zmq_address: _zmq_address,
@@ -82,7 +76,7 @@ async fn main() {
         None => Config {
             debug: params.debug,
             config_file: params.config_file,
-            network: params.network,
+            network: params.network.into(),
             cfilters: true,
             log_to_file: false,
             log_to_stdout: true,
