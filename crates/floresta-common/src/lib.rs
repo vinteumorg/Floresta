@@ -96,8 +96,8 @@ pub mod prelude {
     pub use std::str::FromStr;
     pub use std::string::String;
     pub use std::sync;
+    pub use std::vec;
     pub use std::vec::Vec;
-    pub use std::vec::{self};
 }
 #[macro_export]
 macro_rules! impl_error_from {
