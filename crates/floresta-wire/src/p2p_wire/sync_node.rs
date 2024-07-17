@@ -6,12 +6,12 @@ use std::time::Instant;
 
 use async_std::future::timeout;
 use async_std::sync::RwLock;
-use bitcoin::p2p::utreexo::UtreexoBlock;
 use bitcoin::p2p::ServiceFlags;
 use floresta_chain::pruned_utreexo::BlockchainInterface;
 use floresta_chain::pruned_utreexo::UpdatableChainstate;
 use floresta_chain::BlockValidationErrors;
 use floresta_chain::BlockchainError;
+use floresta_chain::UtreexoBlock;
 use log::debug;
 use log::error;
 use log::info;

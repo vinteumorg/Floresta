@@ -20,11 +20,11 @@ use bitcoin::p2p::message::NetworkMessage;
 use bitcoin::p2p::message::RawNetworkMessage;
 use bitcoin::p2p::message_blockdata::Inventory;
 use bitcoin::p2p::message_network::VersionMessage;
-use bitcoin::p2p::utreexo::UtreexoBlock;
 use bitcoin::p2p::ServiceFlags;
 use bitcoin::BlockHash;
 use bitcoin::Network;
 use bitcoin::Transaction;
+use floresta_chain::UtreexoBlock;
 use futures::AsyncRead;
 use futures::AsyncWrite;
 use futures::AsyncWriteExt;
@@ -38,6 +38,7 @@ use self::peer_utils::make_pong;
 use super::mempool::Mempool;
 use super::node::NodeNotification;
 use super::node::NodeRequest;
+use super::stream_reader::ReaderMessage;
 use super::stream_reader::StreamReader;
 
 /// If we send a ping, and our peer takes more than PING_TIMEOUT to
@@ -45,6 +46,8 @@ use super::stream_reader::StreamReader;
 const PING_TIMEOUT: u64 = 30;
 /// If the last message we've got was more than XX, send out a ping
 const SEND_PING_TIMEOUT: u64 = 60;
+/// The inv element type for a utreexo block with witness data
+const INV_UTREEXO_BLOCK: u32 = 0x40000002 | 1 << 24;
 
 #[derive(Debug, PartialEq)]
 enum State {
@@ -140,7 +143,7 @@ impl<T: Transport> Peer<T> {
         let read_stream = BufReader::new(self.stream.clone());
         let (tx, rx) = unbounded();
         let magic = self.network.magic();
-        let stream: StreamReader<_, RawNetworkMessage> = StreamReader::new(read_stream, magic, tx);
+        let stream: StreamReader<_> = StreamReader::new(read_stream, magic, tx);
         spawn(stream.read_loop());
         loop {
             futures::select! {
@@ -151,7 +154,14 @@ impl<T: Transport> Peer<T> {
                 }
                 peer_request = async_std::future::timeout(Duration::from_secs(10), rx.recv()).fuse() => {
                     if let Ok(Ok(peer_request)) = peer_request {
-                        self.handle_peer_message(peer_request?).await?;
+                        match peer_request? {
+                            ReaderMessage::Message(message) => {
+                                self.handle_peer_message(message).await?;
+                            }
+                            ReaderMessage::Block(block) => {
+                                self.send_to_node(PeerMessages::Block(block)).await;
+                            }
+                        }
                     }
                 }
             };
@@ -207,7 +217,10 @@ impl<T: Transport> Peer<T> {
                 let inv = if proof {
                     block_hashes
                         .iter()
-                        .map(|block| Inventory::UtreexoWitnessBlock(*block))
+                        .map(|block| Inventory::Unknown {
+                            inv_type: INV_UTREEXO_BLOCK,
+                            hash: *block.as_byte_array(),
+                        })
                         .collect()
                 } else {
                     block_hashes
@@ -289,9 +302,6 @@ impl<T: Transport> Peer<T> {
                 }
                 NetworkMessage::GetHeaders(_) => {
                     self.write(NetworkMessage::Headers(Vec::new())).await?;
-                }
-                NetworkMessage::Block(block) => {
-                    self.send_to_node(PeerMessages::Block(block)).await;
                 }
                 NetworkMessage::Headers(headers) => {
                     self.send_to_node(PeerMessages::Headers(headers)).await;
@@ -382,7 +392,8 @@ impl<T: Transport> Peer<T> {
                 | NetworkMessage::GetCFilters(_)
                 | NetworkMessage::MemPool
                 | NetworkMessage::MerkleBlock(_)
-                | NetworkMessage::SendCmpct(_) => {}
+                | NetworkMessage::SendCmpct(_)
+                | NetworkMessage::Block(_) => {}
             },
             State::None | State::SentVersion(_) => match message.payload().to_owned() {
                 bitcoin::p2p::message::NetworkMessage::Version(version) => {

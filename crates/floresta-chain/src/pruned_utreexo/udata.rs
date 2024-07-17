@@ -274,10 +274,7 @@ impl From<UtreexoBlock> for Block {
 
 impl From<Block> for UtreexoBlock {
     fn from(block: Block) -> Self {
-        UtreexoBlock {
-            block,
-            udata: None,
-        }
+        UtreexoBlock { block, udata: None }
     }
 }
 
@@ -285,8 +282,6 @@ pub mod proof_util {
     use bitcoin::blockdata::script::Instruction;
     use bitcoin::hashes::sha256;
     use bitcoin::hashes::Hash;
-    use bitcoin::p2p::utreexo::CompactLeafData;
-    use bitcoin::p2p::utreexo::UData;
     use bitcoin::Amount;
     use bitcoin::OutPoint;
     use bitcoin::PubkeyHash;
@@ -303,6 +298,9 @@ pub mod proof_util {
     use super::LeafData;
     use crate::prelude::*;
     use crate::pruned_utreexo::BlockchainInterface;
+    use crate::CompactLeafData;
+    use crate::ScriptPubkeyType;
+    use crate::UData;
 
     #[derive(Debug)]
     pub enum Error {
@@ -379,22 +377,20 @@ pub mod proof_util {
 
     fn reconstruct_script_pubkey(leaf: &CompactLeafData, input: &TxIn) -> Result<ScriptBuf, Error> {
         match &leaf.spk_ty {
-            bitcoin::p2p::utreexo::ScriptPubkeyType::Other(spk) => {
-                Ok(ScriptBuf::from(spk.clone().into_vec()))
-            }
-            bitcoin::p2p::utreexo::ScriptPubkeyType::PubKeyHash => {
+            ScriptPubkeyType::Other(spk) => Ok(ScriptBuf::from(spk.clone().into_vec())),
+            ScriptPubkeyType::PubKeyHash => {
                 let pkhash = get_pk_hash(input)?;
                 Ok(ScriptBuf::new_p2pkh(&pkhash))
             }
-            bitcoin::p2p::utreexo::ScriptPubkeyType::WitnessV0PubKeyHash => {
+            ScriptPubkeyType::WitnessV0PubKeyHash => {
                 let pk_hash = get_witness_pk_hash(input)?;
                 Ok(ScriptBuf::new_p2wpkh(&pk_hash))
             }
-            bitcoin::p2p::utreexo::ScriptPubkeyType::ScriptHash => {
+            ScriptPubkeyType::ScriptHash => {
                 let script_hash = get_script_hash(input)?;
                 Ok(ScriptBuf::new_p2sh(&script_hash))
             }
-            bitcoin::p2p::utreexo::ScriptPubkeyType::WitnessV0ScriptHash => {
+            ScriptPubkeyType::WitnessV0ScriptHash => {
                 let witness_program_hash = get_witness_script_hash(input)?;
                 Ok(ScriptBuf::new_p2wsh(&witness_program_hash))
             }
@@ -441,14 +437,16 @@ mod test {
 
     use bitcoin::consensus::deserialize;
     use bitcoin::hashes::hex::FromHex;
-    use bitcoin::p2p::utreexo::CompactLeafData;
     use bitcoin::Amount;
     use bitcoin::BlockHash;
     use bitcoin::ScriptBuf;
     use bitcoin::Transaction;
 
     use super::proof_util::reconstruct_leaf_data;
+    use super::CompactLeafData;
     use super::LeafData;
+    use super::ScriptPubkeyType;
+
     macro_rules! test_recover_spk {
         (
             $tx_hex:literal,
@@ -464,7 +462,7 @@ mod test {
             let leaf = CompactLeafData {
                 amount: Amount::from_btc($amount).unwrap().to_sat(),
                 header_code: $height,
-                spk_ty: bitcoin::p2p::utreexo::ScriptPubkeyType::$spk_type,
+                spk_ty: ScriptPubkeyType::$spk_type,
             };
             let spk = super::proof_util::reconstruct_leaf_data(
                 &leaf,
@@ -540,7 +538,7 @@ mod test {
         let compact = CompactLeafData {
             amount: Amount::from_btc(69373.68668596).unwrap().to_sat(),
             header_code: 262348,
-            spk_ty: bitcoin::p2p::utreexo::ScriptPubkeyType::WitnessV0PubKeyHash,
+            spk_ty: ScriptPubkeyType::WitnessV0PubKeyHash,
         };
         let reconstructed = reconstruct_leaf_data(
             &compact,

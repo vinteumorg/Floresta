@@ -13,7 +13,6 @@ use alloc::sync::Arc;
 
 use bitcoin::block::Header as BlockHeader;
 use bitcoin::hashes::sha256;
-use bitcoin::p2p::utreexo::UtreexoBlock;
 use bitcoin::Block;
 use bitcoin::BlockHash;
 use bitcoin::OutPoint;
@@ -30,6 +29,7 @@ use crate::BlockConsumer;
 use crate::BlockchainError;
 use crate::DatabaseError;
 use crate::DiskBlockHeader;
+use crate::UtreexoBlock;
 
 /// This trait is the main interface between our blockchain backend and other services.
 /// It'll be useful for transitioning from rpc to a p2p based node

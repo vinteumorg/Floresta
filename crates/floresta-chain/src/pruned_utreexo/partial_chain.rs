@@ -40,6 +40,7 @@ use super::error::BlockValidationErrors;
 use super::error::BlockchainError;
 use super::BlockchainInterface;
 use super::UpdatableChainstate;
+use crate::UtreexoBlock;
 
 #[doc(hidden)]
 #[derive(Debug)]
@@ -442,7 +443,7 @@ impl BlockchainInterface for PartialChainState {
     fn update_acc(
         &self,
         _acc: Stump,
-        _block: bitcoin::p2p::utreexo::UtreexoBlock,
+        _block: UtreexoBlock,
         _height: u32,
         _proof: rustreexo::accumulator::proof::Proof,
         _del_hashes: Vec<bitcoin::hashes::sha256::Hash>,
