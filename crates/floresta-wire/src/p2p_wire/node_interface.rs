@@ -2,11 +2,11 @@ use std::net::IpAddr;
 use std::sync::Mutex;
 use std::time::Instant;
 
-use bitcoin::p2p::utreexo::UtreexoBlock;
 use bitcoin::Block;
 use bitcoin::BlockHash;
 use bitcoin::Transaction;
 use bitcoin::Txid;
+use floresta_chain::UtreexoBlock;
 use serde::Deserialize;
 use serde::Serialize;
 

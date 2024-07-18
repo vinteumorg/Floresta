@@ -1,16 +1,22 @@
 //! UData is the serialized data used for proof propagation in utreexo. It contains all
 //! data needed for validating some piece of information, like a transaction and a block.
 
+use bitcoin::consensus;
+use bitcoin::consensus::encode::Error;
 use bitcoin::consensus::Decodable;
 use bitcoin::consensus::Encodable;
 use bitcoin::hashes::sha256;
 use bitcoin::hashes::Hash;
+use bitcoin::Block;
 use bitcoin::BlockHash;
 use bitcoin::OutPoint;
 use bitcoin::TxOut;
+use bitcoin::VarInt;
 use sha2::Digest;
 use sha2::Sha512_256;
 
+use crate::prelude::ioError;
+use crate::prelude::Read;
 use crate::prelude::*;
 use crate::pruned_utreexo::consensus::UTREEXO_TAG_V1;
 
@@ -77,12 +83,205 @@ impl Decodable for LeafData {
     }
 }
 
+/// Commitment of the leaf data, but in a compact way
+///
+/// The serialized format is:
+/// [<header_code><amount><spk_type>]
+///
+/// The serialized header code format is:
+///   bit 0 - containing transaction is a coinbase
+///   bits 1-x - height of the block that contains the spent txout
+///
+/// It's calculated with:
+///   header_code = <<= 1
+///   if IsCoinBase {
+///       header_code |= 1 // only set the bit 0 if it's a coinbase.
+///   }
+/// ScriptPubkeyType is the output's scriptPubkey, but serialized in a more efficient way
+/// to save bandwidth. If the type is recoverable from the scriptSig, don't download the
+/// scriptPubkey.
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub struct CompactLeafData {
+    /// Header code tells the height of creating for this UTXO and whether it's a coinbase
+    pub header_code: u32,
+    /// The amount locked in this UTXO
+    pub amount: u64,
+    /// The type of the locking script for this UTXO
+    pub spk_ty: ScriptPubkeyType,
+}
+
+/// A recoverable scriptPubkey type, this avoids copying over data that are already
+/// present or can be computed from the transaction itself.
+/// An example is a p2pkh, the public key is serialized in the scriptSig, so we can just
+/// grab it and hash to obtain the actual scriptPubkey. Since this data is committed in
+/// the Utreexo leaf hash, it is still authenticated
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub enum ScriptPubkeyType {
+    /// An non-specified type, in this case the script is just copied over
+    Other(Box<[u8]>),
+    /// p2pkh
+    PubKeyHash,
+    /// p2wsh
+    WitnessV0PubKeyHash,
+    /// p2sh
+    ScriptHash,
+    /// p2wsh
+    WitnessV0ScriptHash,
+}
+
+impl Decodable for ScriptPubkeyType {
+    fn consensus_decode<R: Read + ?Sized>(reader: &mut R) -> Result<Self, Error> {
+        let ty = u8::consensus_decode(reader)?;
+        match ty {
+            0x00 => Ok(ScriptPubkeyType::Other(Box::consensus_decode(reader)?)),
+            0x01 => Ok(ScriptPubkeyType::PubKeyHash),
+            0x02 => Ok(ScriptPubkeyType::WitnessV0PubKeyHash),
+            0x03 => Ok(ScriptPubkeyType::ScriptHash),
+            0x04 => Ok(ScriptPubkeyType::WitnessV0ScriptHash),
+            _ => Err(Error::ParseFailed("Invalid script type")),
+        }
+    }
+}
+
+impl Encodable for ScriptPubkeyType {
+    fn consensus_encode<W: Write + ?Sized>(&self, writer: &mut W) -> Result<usize, ioError> {
+        let mut len = 1;
+
+        match self {
+            ScriptPubkeyType::Other(script) => {
+                00_u8.consensus_encode(writer)?;
+                len += script.consensus_encode(writer)?;
+            }
+            ScriptPubkeyType::PubKeyHash => {
+                0x01_u8.consensus_encode(writer)?;
+            }
+            ScriptPubkeyType::WitnessV0PubKeyHash => {
+                0x02_u8.consensus_encode(writer)?;
+            }
+            ScriptPubkeyType::ScriptHash => {
+                0x03_u8.consensus_encode(writer)?;
+            }
+            ScriptPubkeyType::WitnessV0ScriptHash => {
+                0x04_u8.consensus_encode(writer)?;
+            }
+        }
+        Ok(len)
+    }
+}
+
+/// BatchProof serialization defines how the utreexo accumulator proof will be
+/// serialized both for i/o.
+///
+/// Note that this serialization format differs from the one from
+/// github.com/mit-dci/utreexo/accumulator as this serialization method uses
+/// varints and the one in that package does not.  They are not compatible and
+/// should not be used together.  The serialization method here is more compact
+/// and thus is better for wire and disk storage.
+///
+/// The serialized format is:
+/// [<target count><targets><proof count><proofs>]
+///
+/// All together, the serialization looks like so:
+/// Field          Type       Size
+/// target count   varint     1-8 bytes
+/// targets        []uint64   variable
+/// hash count     varint     1-8 bytes
+/// hashes         []32 byte  variable
+#[derive(PartialEq, Eq, Clone, Debug, Default)]
+pub struct BatchProof {
+    /// All targets that'll be deleted
+    pub targets: Vec<VarInt>,
+    /// The inner hashes of a proof
+    pub hashes: Vec<BlockHash>,
+}
+
+/// UData contains data needed to prove the existence and validity of all inputs
+/// for a Bitcoin block.  With this data, a full node may only keep the utreexo
+/// roots and still be able to fully validate a block.
+#[derive(PartialEq, Eq, Clone, Debug, Default)]
+pub struct UData {
+    /// All the indexes of new utxos to remember.
+    pub remember_idx: Vec<u64>,
+    /// AccProof is the utreexo accumulator proof for all the inputs.
+    pub proof: BatchProof,
+    /// LeafData are the tx validation data for every input.
+    pub leaves: Vec<CompactLeafData>,
+}
+
+/// A block plus some udata
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub struct UtreexoBlock {
+    /// A actual block
+    pub block: Block,
+    /// The utreexo specific data
+    pub udata: Option<UData>,
+}
+
+impl Decodable for UtreexoBlock {
+    fn consensus_decode<R: Read + ?Sized>(
+        mut reader: &mut R,
+    ) -> Result<Self, consensus::encode::Error> {
+        let block = Block::consensus_decode(&mut reader)?;
+
+        if let Err(Error::Io(_remember)) = VarInt::consensus_decode(&mut reader) {
+            return Ok(block.into());
+        };
+
+        let n_positions = VarInt::consensus_decode(&mut reader)?;
+        let mut targets = vec![];
+        for _ in 0..n_positions.0 {
+            let pos = VarInt::consensus_decode(&mut reader)?;
+            targets.push(pos);
+        }
+
+        let n_hashes = VarInt::consensus_decode(&mut reader)?;
+        let mut hashes = vec![];
+        for _ in 0..n_hashes.0 {
+            let hash = BlockHash::consensus_decode(&mut reader)?;
+            hashes.push(hash);
+        }
+
+        let n_leaves = VarInt::consensus_decode(&mut reader)?;
+        let mut leaves = vec![];
+        for _ in 0..n_leaves.0 {
+            let header_code = u32::consensus_decode(&mut reader)?;
+            let amount = u64::consensus_decode(&mut reader)?;
+            let spk_ty = ScriptPubkeyType::consensus_decode(&mut reader)?;
+
+            leaves.push(CompactLeafData {
+                header_code,
+                amount,
+                spk_ty,
+            });
+        }
+
+        Ok(Self {
+            block,
+            udata: Some(UData {
+                remember_idx: vec![],
+                proof: BatchProof { targets, hashes },
+                leaves,
+            }),
+        })
+    }
+}
+
+impl From<UtreexoBlock> for Block {
+    fn from(block: UtreexoBlock) -> Self {
+        block.block
+    }
+}
+
+impl From<Block> for UtreexoBlock {
+    fn from(block: Block) -> Self {
+        UtreexoBlock { block, udata: None }
+    }
+}
+
 pub mod proof_util {
     use bitcoin::blockdata::script::Instruction;
     use bitcoin::hashes::sha256;
     use bitcoin::hashes::Hash;
-    use bitcoin::p2p::utreexo::CompactLeafData;
-    use bitcoin::p2p::utreexo::UData;
     use bitcoin::Amount;
     use bitcoin::OutPoint;
     use bitcoin::PubkeyHash;
@@ -99,6 +298,9 @@ pub mod proof_util {
     use super::LeafData;
     use crate::prelude::*;
     use crate::pruned_utreexo::BlockchainInterface;
+    use crate::CompactLeafData;
+    use crate::ScriptPubkeyType;
+    use crate::UData;
 
     #[derive(Debug)]
     pub enum Error {
@@ -175,22 +377,20 @@ pub mod proof_util {
 
     fn reconstruct_script_pubkey(leaf: &CompactLeafData, input: &TxIn) -> Result<ScriptBuf, Error> {
         match &leaf.spk_ty {
-            bitcoin::p2p::utreexo::ScriptPubkeyType::Other(spk) => {
-                Ok(ScriptBuf::from(spk.clone().into_vec()))
-            }
-            bitcoin::p2p::utreexo::ScriptPubkeyType::PubKeyHash => {
+            ScriptPubkeyType::Other(spk) => Ok(ScriptBuf::from(spk.clone().into_vec())),
+            ScriptPubkeyType::PubKeyHash => {
                 let pkhash = get_pk_hash(input)?;
                 Ok(ScriptBuf::new_p2pkh(&pkhash))
             }
-            bitcoin::p2p::utreexo::ScriptPubkeyType::WitnessV0PubKeyHash => {
+            ScriptPubkeyType::WitnessV0PubKeyHash => {
                 let pk_hash = get_witness_pk_hash(input)?;
                 Ok(ScriptBuf::new_p2wpkh(&pk_hash))
             }
-            bitcoin::p2p::utreexo::ScriptPubkeyType::ScriptHash => {
+            ScriptPubkeyType::ScriptHash => {
                 let script_hash = get_script_hash(input)?;
                 Ok(ScriptBuf::new_p2sh(&script_hash))
             }
-            bitcoin::p2p::utreexo::ScriptPubkeyType::WitnessV0ScriptHash => {
+            ScriptPubkeyType::WitnessV0ScriptHash => {
                 let witness_program_hash = get_witness_script_hash(input)?;
                 Ok(ScriptBuf::new_p2wsh(&witness_program_hash))
             }
@@ -237,14 +437,16 @@ mod test {
 
     use bitcoin::consensus::deserialize;
     use bitcoin::hashes::hex::FromHex;
-    use bitcoin::p2p::utreexo::CompactLeafData;
     use bitcoin::Amount;
     use bitcoin::BlockHash;
     use bitcoin::ScriptBuf;
     use bitcoin::Transaction;
 
     use super::proof_util::reconstruct_leaf_data;
+    use super::CompactLeafData;
     use super::LeafData;
+    use super::ScriptPubkeyType;
+
     macro_rules! test_recover_spk {
         (
             $tx_hex:literal,
@@ -260,7 +462,7 @@ mod test {
             let leaf = CompactLeafData {
                 amount: Amount::from_btc($amount).unwrap().to_sat(),
                 header_code: $height,
-                spk_ty: bitcoin::p2p::utreexo::ScriptPubkeyType::$spk_type,
+                spk_ty: ScriptPubkeyType::$spk_type,
             };
             let spk = super::proof_util::reconstruct_leaf_data(
                 &leaf,
@@ -336,7 +538,7 @@ mod test {
         let compact = CompactLeafData {
             amount: Amount::from_btc(69373.68668596).unwrap().to_sat(),
             header_code: 262348,
-            spk_ty: bitcoin::p2p::utreexo::ScriptPubkeyType::WitnessV0PubKeyHash,
+            spk_ty: ScriptPubkeyType::WitnessV0PubKeyHash,
         };
         let reconstructed = reconstruct_leaf_data(
             &compact,

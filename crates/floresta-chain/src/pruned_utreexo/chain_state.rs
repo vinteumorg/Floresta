@@ -20,7 +20,6 @@ use bitcoin::consensus::Decodable;
 use bitcoin::consensus::Encodable;
 use bitcoin::hashes::sha256;
 use bitcoin::hashes::Hash;
-use bitcoin::p2p::utreexo::UtreexoBlock;
 use bitcoin::Block;
 use bitcoin::BlockHash;
 use bitcoin::OutPoint;
@@ -53,6 +52,7 @@ use crate::prelude::*;
 use crate::read_lock;
 use crate::write_lock;
 use crate::Network;
+use crate::UtreexoBlock;
 
 pub trait BlockConsumer: Sync + Send + 'static {
     fn consume_block(&self, block: &Block, height: u32);
