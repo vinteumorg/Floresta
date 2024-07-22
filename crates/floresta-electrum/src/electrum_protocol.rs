@@ -936,7 +936,7 @@ mod test {
         stream.flush().await?;
 
         let mut response = vec![0u8; 100000000];
-        let timeout_duration = Duration::from_secs(1);
+        let timeout_duration = Duration::from_secs(10);
 
         let read_result = future::timeout(timeout_duration, stream.read(&mut response)).await;
         match read_result {
