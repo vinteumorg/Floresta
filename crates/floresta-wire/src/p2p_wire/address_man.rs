@@ -677,7 +677,7 @@ mod test {
             load_addresses_from_json("./src/p2p_wire/seeds/signet_seeds.json").unwrap();
 
         assert!(!signet_address.is_empty());
-        let random = rand::thread_rng().gen_range(1..=14);
+        let random = rand::thread_rng().gen_range(1..=13);
         let loc_adr_1 = LocalAddress::from(signet_address[random].address.clone());
         assert_eq!(loc_adr_1.address, signet_address[random].address);
     }
