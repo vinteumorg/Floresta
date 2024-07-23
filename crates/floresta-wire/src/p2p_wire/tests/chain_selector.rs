@@ -20,20 +20,18 @@ mod tests_utils {
     use bitcoin::consensus::deserialize;
     use bitcoin::consensus::Decodable;
     use bitcoin::hex::FromHex;
-    use bitcoin::p2p::utreexo::UtreexoBlock;
     use bitcoin::p2p::ServiceFlags;
     use bitcoin::BlockHash;
-    use floresta_chain::pruned_utreexo::BlockchainInterface;
-    use floresta_chain::pruned_utreexo::UpdatableChainstate;
     use floresta_chain::AssumeValidArg;
     use floresta_chain::ChainState;
     use floresta_chain::KvChainStore;
+    use floresta_chain::UtreexoBlock;
     use hex;
     use rand::rngs::OsRng;
     use rand::RngCore;
-    use rustreexo::accumulator::node_hash::NodeHash;
     use serde::Deserialize;
     use serde::Serialize;
+    use zstd;
 
     use crate::mempool::Mempool;
     use crate::node::LocalPeerView;
@@ -44,7 +42,6 @@ mod tests_utils {
     use crate::p2p_wire::chain_selector::ChainSelector;
     use crate::p2p_wire::peer::PeerMessages;
     use crate::UtreexoNodeConfig;
-    use zstd;
 
     #[derive(Debug, Deserialize, Serialize, Clone)]
     pub struct UtreexoRoots {
@@ -487,7 +484,7 @@ mod tests {
         }
         peers.push((headers.clone(), blocks, true_filters));
 
-        let chain = setup_test( peers, true, floresta_chain::Network::Signet).await;
+        let chain = setup_test(peers, true, floresta_chain::Network::Signet).await;
 
         assert_eq!(
             chain.get_root_hashes()[3],
