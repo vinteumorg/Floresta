@@ -5,6 +5,7 @@ use std::time::Duration;
 use std::time::Instant;
 
 use bitcoin::p2p::ServiceFlags;
+use floresta_chain::pruned_utreexo::nodetime::standard_node_time::StdNodeTime;
 use floresta_chain::pruned_utreexo::BlockchainInterface;
 use floresta_chain::pruned_utreexo::UpdatableChainstate;
 use floresta_chain::BlockValidationErrors;
@@ -177,13 +178,12 @@ where
             debug!("processing block {}", block.block.block_hash(),);
             let (proof, del_hashes, inputs) = floresta_chain::proof_util::process_proof(
                 &block.udata.unwrap(),
-                &block.block.txdata,
+                &block.block,
                 &self.chain,
             )?;
-
-            if let Err(e) = self
-                .chain
-                .connect_block(&block.block, proof, inputs, del_hashes)
+            if let Err(e) =
+                self.chain
+                    .connect_block(&block.block, proof, inputs, del_hashes, &StdNodeTime)
             {
                 error!(
                     "Invalid block {:?} received by peer {} reason: {:?}",
@@ -196,6 +196,12 @@ where
                     // to be invalidated.
                     match e {
                         BlockValidationErrors::InvalidCoinbase(_)
+                        | BlockValidationErrors::BadRelativeLockTime
+                        | BlockValidationErrors::InvalidScript(_)
+                        | BlockValidationErrors::BadAbsoluteLockTime
+                        | BlockValidationErrors::BlockTimeTooNew
+                        | BlockValidationErrors::BlockTimeTooOld
+                        | BlockValidationErrors::BadBlockVersion
                         | BlockValidationErrors::UtxoAlreadySpent(_)
                         | BlockValidationErrors::ScriptValidationError(_)
                         | BlockValidationErrors::InvalidOutput

@@ -13,6 +13,7 @@ use bitcoin::p2p::address::AddrV2Message;
 use bitcoin::p2p::message_blockdata::Inventory;
 use bitcoin::p2p::ServiceFlags;
 use bitcoin::BlockHash;
+use floresta_chain::pruned_utreexo::nodetime::standard_node_time::StdNodeTime;
 use floresta_chain::pruned_utreexo::partial_chain::PartialChainState;
 use floresta_chain::pruned_utreexo::BlockchainInterface;
 use floresta_chain::pruned_utreexo::UpdatableChainstate;
@@ -637,12 +638,12 @@ where
             debug!("processing block {}", block.block.block_hash(),);
             let (proof, del_hashes, inputs) = floresta_chain::proof_util::process_proof(
                 &block.udata.unwrap(),
-                &block.block.txdata,
+                &block.block,
                 &self.chain,
             )?;
-            if let Err(e) = self
-                .chain
-                .connect_block(&block.block, proof, inputs, del_hashes)
+            if let Err(e) =
+                self.chain
+                    .connect_block(&block.block, proof, inputs, del_hashes, &StdNodeTime)
             {
                 error!("Invalid block received by peer {} reason: {:?}", peer, e);
                 if let BlockchainError::BlockValidation(e) = e {
@@ -651,6 +652,12 @@ where
                     // to be invalidated.
                     match e {
                         BlockValidationErrors::InvalidCoinbase(_)
+                        | BlockValidationErrors::BadRelativeLockTime
+                        | BlockValidationErrors::InvalidScript(_)
+                        | BlockValidationErrors::BadAbsoluteLockTime
+                        | BlockValidationErrors::BlockTimeTooOld
+                        | BlockValidationErrors::BlockTimeTooNew
+                        | BlockValidationErrors::BadBlockVersion
                         | BlockValidationErrors::UtxoAlreadySpent(_)
                         | BlockValidationErrors::ScriptValidationError(_)
                         | BlockValidationErrors::InvalidOutput
@@ -778,9 +785,9 @@ where
                             info.kind = ConnectionKind::Regular;
                         });
                     }
-
+                    // Here we use the StdNoteTime to get time context from the std env
                     for header in headers.iter() {
-                        self.chain.accept_header(*header)?;
+                        self.chain.accept_header(*header, &StdNodeTime)?;
                     }
 
                     if self.chain.is_in_idb() {

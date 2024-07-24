@@ -287,7 +287,6 @@ pub mod proof_util {
     use bitcoin::PubkeyHash;
     use bitcoin::ScriptBuf;
     use bitcoin::ScriptHash;
-    use bitcoin::Transaction;
     use bitcoin::TxIn;
     use bitcoin::TxOut;
     use bitcoin::WPubkeyHash;
@@ -297,7 +296,10 @@ pub mod proof_util {
 
     use super::LeafData;
     use crate::prelude::*;
+    use crate::pruned_utreexo::utxo_data::UtxoData;
+    use crate::pruned_utreexo::utxo_data::UtxoMap;
     use crate::pruned_utreexo::BlockchainInterface;
+    use crate::BlockchainError;
     use crate::CompactLeafData;
     use crate::ScriptPubkeyType;
     use crate::UData;
@@ -311,7 +313,7 @@ pub mod proof_util {
         leaf: &CompactLeafData,
         input: &TxIn,
         block_hash: bitcoin::BlockHash,
-    ) -> Result<LeafData, Error> {
+    ) -> Result<LeafData, BlockchainError> {
         let spk = reconstruct_script_pubkey(leaf, input)?;
 
         Ok(LeafData {
@@ -328,9 +330,9 @@ pub mod proof_util {
     #[allow(clippy::type_complexity)]
     pub fn process_proof<Chain: BlockchainInterface>(
         udata: &UData,
-        transactions: &[Transaction],
+        block: &bitcoin::Block,
         chain: &Chain,
-    ) -> Result<(Proof, Vec<sha256::Hash>, HashMap<OutPoint, TxOut>), Chain::Error> {
+    ) -> Result<(Proof, Vec<sha256::Hash>, UtxoMap), BlockchainError> {
         let targets = udata.proof.targets.iter().map(|target| target.0).collect();
         let hashes = udata
             .proof
@@ -341,11 +343,23 @@ pub mod proof_util {
         let proof = Proof::new(targets, hashes);
         let mut hashes = Vec::new();
         let mut leaves_iter = udata.leaves.iter().cloned();
-        let mut tx_iter = transactions.iter();
+
+        let mut tx_iter = block.txdata.iter();
+
+        let actual_block_height = match chain.get_block_height(&block.block_hash()) {
+            Ok(height) => {
+                if let Some(height) = height {
+                    height
+                } else {
+                    return Err(BlockchainError::BlockNotFound);
+                }
+            }
+            Err(_) => return Err(BlockchainError::BlockNotFound),
+        };
+
+        tx_iter.next(); // skip coinbase
 
         let mut inputs = HashMap::new();
-        tx_iter.next(); // Skip coinbase
-
         for tx in tx_iter {
             let txid = tx.txid();
             for (vout, out) in tx.output.iter().enumerate() {
@@ -354,7 +368,7 @@ pub mod proof_util {
                         txid,
                         vout: vout as u32,
                     },
-                    out.clone(),
+                    UtxoData::new(out.clone(), actual_block_height, 0),
                 );
             }
 
@@ -362,11 +376,13 @@ pub mod proof_util {
                 if !inputs.contains_key(&input.previous_output) {
                     if let Some(leaf) = leaves_iter.next() {
                         let height = leaf.header_code >> 1;
-                        let hash = chain.get_block_hash(height)?;
+                        let hash = chain
+                            .get_block_hash(height)
+                            .map_err(|_| BlockchainError::BlockNotFound)?;
                         let leaf =
                             reconstruct_leaf_data(&leaf, input, hash).expect("Invalid proof");
                         hashes.push(leaf._get_leaf_hashes());
-                        inputs.insert(leaf.prevout, leaf.utxo);
+                        inputs.insert(leaf.prevout, UtxoData::new(leaf.utxo, height, 0));
                     }
                 }
             }
@@ -375,7 +391,10 @@ pub mod proof_util {
         Ok((proof, hashes, inputs))
     }
 
-    fn reconstruct_script_pubkey(leaf: &CompactLeafData, input: &TxIn) -> Result<ScriptBuf, Error> {
+    fn reconstruct_script_pubkey(
+        leaf: &CompactLeafData,
+        input: &TxIn,
+    ) -> Result<ScriptBuf, BlockchainError> {
         match &leaf.spk_ty {
             ScriptPubkeyType::Other(spk) => Ok(ScriptBuf::from(spk.clone().into_vec())),
             ScriptPubkeyType::PubKeyHash => {
@@ -396,37 +415,37 @@ pub mod proof_util {
             }
         }
     }
-    fn get_pk_hash(input: &TxIn) -> Result<PubkeyHash, Error> {
+    fn get_pk_hash(input: &TxIn) -> Result<PubkeyHash, BlockchainError> {
         let script_sig = &input.script_sig;
         let inst = script_sig.instructions().last();
         if let Some(Ok(bitcoin::blockdata::script::Instruction::PushBytes(bytes))) = inst {
             return Ok(PubkeyHash::hash(bytes.as_bytes()));
         }
-        Err(Error::EmptyStack)
+        Err(BlockchainError::EmptyStack)
     }
-    fn get_script_hash(input: &TxIn) -> Result<ScriptHash, Error> {
+    fn get_script_hash(input: &TxIn) -> Result<ScriptHash, BlockchainError> {
         let script_sig = &input.script_sig;
         let inst = script_sig.instructions().last();
         if let Some(Ok(Instruction::PushBytes(bytes))) = inst {
             return Ok(ScriptBuf::from_bytes(bytes.as_bytes().to_vec()).script_hash());
         }
-        Err(Error::EmptyStack)
+        Err(BlockchainError::EmptyStack)
     }
-    fn get_witness_pk_hash(input: &TxIn) -> Result<WPubkeyHash, Error> {
+    fn get_witness_pk_hash(input: &TxIn) -> Result<WPubkeyHash, BlockchainError> {
         let witness = &input.witness;
         let pk = witness.last();
         if let Some(pk) = pk {
             return Ok(WPubkeyHash::hash(pk));
         }
-        Err(Error::EmptyStack)
+        Err(BlockchainError::EmptyStack)
     }
-    fn get_witness_script_hash(input: &TxIn) -> Result<WScriptHash, Error> {
+    fn get_witness_script_hash(input: &TxIn) -> Result<WScriptHash, BlockchainError> {
         let witness = &input.witness;
         let script = witness.last();
         if let Some(script) = script {
             return Ok(WScriptHash::hash(script));
         }
-        Err(Error::EmptyStack)
+        Err(BlockchainError::EmptyStack)
     }
 }
 #[cfg(test)]

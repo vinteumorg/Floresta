@@ -7,6 +7,7 @@ mod tests_utils {
 
     use bitcoin::block::Header;
     use bitcoin::BlockHash;
+    use floresta_chain::pruned_utreexo::nodetime::standard_node_time::StdNodeTime;
     use floresta_chain::pruned_utreexo::UpdatableChainstate;
     use floresta_chain::AssumeValidArg;
     use floresta_chain::ChainState;
@@ -41,8 +42,9 @@ mod tests_utils {
         let mut headers = get_test_headers();
         headers.remove(0);
         headers.truncate(9);
+
         for header in headers {
-            chain.accept_header(header).unwrap();
+            chain.accept_header(header, &StdNodeTime).unwrap();
         }
 
         let config = get_node_config(datadir, network, pow_fraud_proofs);

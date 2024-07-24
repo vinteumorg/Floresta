@@ -11,6 +11,8 @@ pub trait DatabaseError: Debug + Send + Sync + 'static {}
 #[derive(Debug)]
 pub enum BlockchainError {
     BlockNotPresent,
+    EmptyStack,
+    BlockNotFound,
     #[cfg(feature = "cli-blockchain")]
     #[error("Json-Rpc error")]
     JsonRpcError(#[from] UtreexodError),
@@ -34,6 +36,12 @@ pub struct TransactionError {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum BlockValidationErrors {
+    InvalidScript(bitcoin::transaction::TxVerifyError),
+    BadRelativeLockTime,
+    BadAbsoluteLockTime,
+    BlockTimeTooOld,
+    BlockTimeTooNew,
+    BadBlockVersion,
     InvalidCoinbase(String),
     UtxoAlreadySpent(Txid),
     ScriptValidationError(String),
@@ -63,6 +71,24 @@ impl Display for TransactionError {
 impl Display for BlockValidationErrors {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
+            BlockValidationErrors::BadRelativeLockTime => {
+                write!(f, "Relative lock time not satisfied")
+            }
+            BlockValidationErrors::InvalidScript(e) => {
+                write!(f, "Invalid script: {:?}", e)
+            }
+            BlockValidationErrors::BadAbsoluteLockTime => {
+                write!(f, "Absolute lock time not satisfied")
+            }
+            BlockValidationErrors::BlockTimeTooNew => {
+                write!(f, "Block time is too new")
+            }
+            BlockValidationErrors::BlockTimeTooOld => {
+                write!(f, "Block time is too old")
+            }
+            BlockValidationErrors::BadBlockVersion => {
+                write!(f, "Block version is invalid")
+            }
             BlockValidationErrors::ScriptValidationError(e) => {
                 write!(f, "{}", e)
             }

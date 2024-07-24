@@ -39,7 +39,7 @@ pub struct ChainParams {
     pub pow_target_timespan: u64,
     /// We wait this many blocks before a coinbase output can be spent
     pub coinbase_maturity: u32,
-    /// The height at which bip32 is activated
+    /// The height at which bip34 is activated
     pub bip34_activation_height: u32,
     /// The height at which bip65 is activated
     pub bip65_activation_height: u32,
@@ -52,6 +52,12 @@ pub struct ChainParams {
     /// A list of exceptions to the rules, where the key is the block hash and the value is the
     /// verification flags
     pub exceptions: HashMap<BlockHash, c_uint>,
+    /// The maximum amount of wu's a block can have.
+    pub max_block_wu: u64,
+    /// the static weight of a block header in wu.
+    pub block_header_wu: u64,
+    /// The value of a single coin in satoshis.
+    pub coin_value: u64,
 }
 
 /// A dns seed is a authoritative DNS server that returns the IP addresses of nodes that are
@@ -226,6 +232,7 @@ impl From<Network> for ChainParams {
             Network::Bitcoin => ChainParams {
                 genesis,
                 max_target,
+
                 pow_allow_min_diff: false,
                 pow_allow_no_retarget: false,
                 pow_target_spacing: 10 * 60, // One block every 600 seconds (10 minutes)
@@ -237,11 +244,15 @@ impl From<Network> for ChainParams {
                 bip66_activation_height: 363725,
                 segwit_activation_height: 481824,
                 csv_activation_height: 419328,
+                max_block_wu: 4_000_000,
+                block_header_wu: 320,
+                coin_value: 100_000_000,
                 exceptions,
             },
             Network::Testnet => ChainParams {
                 genesis,
                 max_target,
+
                 pow_allow_min_diff: true,
                 pow_allow_no_retarget: false,
                 pow_target_spacing: 10 * 60, // One block every 600 seconds (10 minutes)
@@ -253,11 +264,15 @@ impl From<Network> for ChainParams {
                 bip66_activation_height: 330_776,
                 segwit_activation_height: 834_624,
                 csv_activation_height: 770_112,
+                max_block_wu: 4_000_000,
+                block_header_wu: 320,
+                coin_value: 100_000_000,
                 exceptions,
             },
             Network::Signet => ChainParams {
                 genesis,
                 max_target,
+
                 pow_allow_min_diff: false,
                 pow_allow_no_retarget: false,
                 pow_target_spacing: 10 * 60, // One block every 600 seconds (10 minutes)
@@ -269,11 +284,15 @@ impl From<Network> for ChainParams {
                 bip65_activation_height: 1,
                 bip66_activation_height: 1,
                 segwit_activation_height: 1,
+                max_block_wu: 4_000_000,
+                block_header_wu: 320,
+                coin_value: 100_000_000,
                 exceptions,
             },
             Network::Regtest => ChainParams {
                 genesis,
                 max_target,
+
                 pow_allow_min_diff: false,
                 pow_allow_no_retarget: true,
                 pow_target_spacing: 10 * 60, // One block every 600 seconds (10 minutes)
@@ -285,6 +304,9 @@ impl From<Network> for ChainParams {
                 bip65_activation_height: 0,
                 bip66_activation_height: 0,
                 segwit_activation_height: 0,
+                max_block_wu: 4_000_000,
+                block_header_wu: 320,
+                coin_value: 100_000_000,
                 exceptions,
             },
         }

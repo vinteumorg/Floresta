@@ -11,7 +11,7 @@
 //! This choice removes the use of costly atomic operations, but opens space for design flaws
 //! and memory unsoundness, so here are some tips about this module and how people looking for
 //! extend or use this code should proceed:
-//!   
+//!
 //!   - Shared ownership is forbidden: if you have two threads or tasks owning this, you'll have
 //!     data race. If you want to hold shared ownership for this module, you need to place a
 //!     [PartialChainState] inside an `Arc<Mutex>` yourself. Don't just Arc this and expect it to
@@ -38,6 +38,9 @@ use super::chainparams::ChainParams;
 use super::consensus::Consensus;
 use super::error::BlockValidationErrors;
 use super::error::BlockchainError;
+use super::nodetime::NodeTime;
+use super::nodetime::HOUR;
+use super::utxo_data::UtxoMap;
 use super::BlockchainInterface;
 use super::UpdatableChainstate;
 use crate::UtreexoBlock;
@@ -70,7 +73,8 @@ pub(crate) struct PartialChainStateInner {
     pub(crate) consensus: Consensus,
     /// Whether we assume the signatures in this interval as valid, this is used to
     /// speed up syncing, by assuming signatures in old blocks are valid.
-    pub(crate) assume_valid: bool,
+    /// While assuming signatures are valid we dont validate scripts at all.
+    pub(crate) validate_signatures: bool,
 }
 
 /// A partial chain is a chain that only contains a subset of the blocks in the
@@ -112,7 +116,6 @@ impl PartialChainStateInner {
         let index = height - self.initial_height;
         self.blocks.get(index as usize)
     }
-
     #[cfg(feature = "bitcoinconsensus")]
     /// Returns the validation flags, given the current block height
     fn get_validation_flags(&self, height: u32) -> c_uint {
@@ -167,21 +170,31 @@ impl PartialChainStateInner {
         Ok(*prev)
     }
 
-    /// Process a block, given the proof, inputs, and deleted hashes. If we find an error,
+    /// Process a block, given the context. If we find an error,
     /// we save it.
     pub fn process_block(
         &mut self,
         block: &bitcoin::Block,
         proof: rustreexo::accumulator::proof::Proof,
-        inputs: HashMap<bitcoin::OutPoint, bitcoin::TxOut>,
+        inputs: UtxoMap,
         del_hashes: Vec<bitcoin::hashes::sha256::Hash>,
+        node_time: &impl NodeTime,
     ) -> Result<u32, BlockchainError> {
         let height = self.current_height + 1;
-
-        if let Err(BlockchainError::BlockValidation(e)) = self.validate_block(block, height, inputs)
+        let ancestor = self.get_ancestor(height)?;
+        let flags = self.get_validation_flags(height);
+        if let Err(BlockchainError::BlockValidation(e)) = self
+            .consensus
+            .validate_block(block, &ancestor, height, inputs, flags, true)
         {
             self.error = Some(e.clone());
             return Err(BlockchainError::BlockValidation(e));
+        }
+
+        if node_time.get_time() + 2 * HOUR < block.header.time && node_time.get_time() != 0 {
+            let err = BlockValidationErrors::BlockTimeTooNew;
+            self.error = Some(err.clone());
+            return Err(BlockchainError::BlockValidation(err));
         }
 
         let acc = match Consensus::update_acc(&self.current_acc, block, height, proof, del_hashes) {
@@ -203,54 +216,6 @@ impl PartialChainStateInner {
         self.update_state(height, acc);
 
         Ok(height)
-    }
-
-    /// Check whether a block is valid
-    fn validate_block(
-        &self,
-        block: &bitcoin::Block,
-        height: u32,
-        inputs: HashMap<bitcoin::OutPoint, bitcoin::TxOut>,
-    ) -> Result<(), BlockchainError> {
-        if !block.check_merkle_root() {
-            return Err(BlockchainError::BlockValidation(
-                BlockValidationErrors::BadMerkleRoot,
-            ));
-        }
-        if height >= self.chain_params().bip34_activation_height
-            && block.bip34_block_height() != Ok(height as u64)
-        {
-            return Err(BlockchainError::BlockValidation(
-                BlockValidationErrors::BadBip34,
-            ));
-        }
-        if !block.check_witness_commitment() {
-            return Err(BlockchainError::BlockValidation(
-                BlockValidationErrors::BadWitnessCommitment,
-            ));
-        }
-        let prev_block = self.get_ancestor(height)?;
-        if block.header.prev_blockhash != prev_block.block_hash() {
-            return Err(BlockchainError::BlockValidation(
-                BlockValidationErrors::BlockExtendsAnOrphanChain,
-            ));
-        }
-        // Validate block transactions
-        let subsidy = self.consensus.get_subsidy(height);
-        let verify_script = self.assume_valid;
-        #[cfg(feature = "bitcoinconsensus")]
-        let flags = self.get_validation_flags(height);
-        #[cfg(not(feature = "bitcoinconsensus"))]
-        let flags = 0;
-        Consensus::verify_block_transactions(
-            height,
-            inputs,
-            &block.txdata,
-            subsidy,
-            verify_script,
-            flags,
-        )?;
-        Ok(())
     }
 }
 
@@ -311,11 +276,12 @@ impl UpdatableChainstate for PartialChainState {
         &self,
         block: &bitcoin::Block,
         proof: rustreexo::accumulator::proof::Proof,
-        inputs: HashMap<bitcoin::OutPoint, bitcoin::TxOut>,
+        inputs: UtxoMap,
         del_hashes: Vec<bitcoin::hashes::sha256::Hash>,
+        chain_time: &impl NodeTime,
     ) -> Result<u32, BlockchainError> {
         self.inner_mut()
-            .process_block(block, proof, inputs, del_hashes)
+            .process_block(block, proof, inputs, del_hashes, chain_time)
     }
 
     fn get_root_hashes(&self) -> Vec<rustreexo::accumulator::node_hash::NodeHash> {
@@ -335,7 +301,11 @@ impl UpdatableChainstate for PartialChainState {
 
     // these are unimplemented, and will panic if called
 
-    fn accept_header(&self, _header: BlockHeader) -> Result<(), BlockchainError> {
+    fn accept_header(
+        &self,
+        _header: BlockHeader,
+        _node_time: &impl NodeTime,
+    ) -> Result<(), BlockchainError> {
         unimplemented!("partialChainState shouldn't be used to accept new headers")
     }
 
@@ -423,13 +393,26 @@ impl BlockchainInterface for PartialChainState {
 
     fn validate_block(
         &self,
-        _block: &bitcoin::Block,
+        block: &bitcoin::Block,
         _proof: rustreexo::accumulator::proof::Proof,
-        _inputs: HashMap<bitcoin::OutPoint, bitcoin::TxOut>,
+        inputs: UtxoMap,
         _del_hashes: Vec<bitcoin::hashes::sha256::Hash>,
-        _acc: Stump,
     ) -> Result<(), Self::Error> {
-        unimplemented!("PartialChainState::validate_block")
+        let inner = self.inner();
+        let height = inner.current_height;
+        let flags = inner.get_validation_flags(height);
+        let ancestor = match inner.get_block(height) {
+            Some(h) => h,
+            _ => {
+                return Err(BlockchainError::BlockValidation(
+                    BlockValidationErrors::BlockExtendsAnOrphanChain,
+                ))
+            }
+        };
+        let validate_script = inner.validate_signatures;
+        inner
+            .consensus
+            .validate_block(block, ancestor, height, inputs, flags, validate_script)
     }
 
     fn get_fork_point(&self, _block: BlockHash) -> Result<BlockHash, Self::Error> {
@@ -510,6 +493,7 @@ mod tests {
     use crate::pruned_utreexo::chainparams::ChainParams;
     use crate::pruned_utreexo::consensus::Consensus;
     use crate::pruned_utreexo::error::BlockValidationErrors;
+    use crate::pruned_utreexo::nodetime::DisableTime;
     use crate::pruned_utreexo::partial_chain::PartialChainStateInner;
     use crate::pruned_utreexo::UpdatableChainstate;
     use crate::BlockchainError;
@@ -522,7 +506,14 @@ mod tests {
             let block = parse_block(block);
 
             let chainstate = get_empty_pchain(vec![genesis.header, block.header]);
-            let res = chainstate.connect_block(&block, Proof::default(), HashMap::new(), vec![]);
+
+            let res = chainstate.connect_block(
+                &block,
+                Proof::default(),
+                HashMap::new(),
+                vec![],
+                &crate::pruned_utreexo::nodetime::DisableTime,
+            );
 
             match res {
                 Err(BlockchainError::BlockValidation(_e)) if matches!(reason, _e) => {}
@@ -538,7 +529,7 @@ mod tests {
     }
     fn get_empty_pchain(blocks: Vec<Header>) -> PartialChainState {
         PartialChainStateInner {
-            assume_valid: true,
+            validate_signatures: true,
             consensus: Consensus {
                 parameters: ChainParams::from(Network::Regtest),
             },
@@ -564,7 +555,7 @@ mod tests {
             parsed_blocks.push(block);
         }
         let chainstate: PartialChainState = PartialChainStateInner {
-            assume_valid: true,
+            validate_signatures: true,
             consensus: Consensus {
                 parameters: ChainParams::from(Network::Regtest),
             },
@@ -577,12 +568,13 @@ mod tests {
         }
         .into();
         parsed_blocks.remove(0);
+        let chain_time = &DisableTime;
         for block in parsed_blocks {
             let proof = Proof::default();
             let inputs = HashMap::new();
             let del_hashes = Vec::new();
             chainstate
-                .connect_block(&block, proof, inputs, del_hashes)
+                .connect_block(&block, proof, inputs, del_hashes, chain_time)
                 .unwrap();
         }
         assert_eq!(chainstate.inner().current_height, 100);
@@ -601,7 +593,7 @@ mod tests {
         // The file contains 150 blocks, we split them into two chains.
         let (blocks1, blocks2) = parsed_blocks.split_at(101);
         let mut chainstate1 = PartialChainStateInner {
-            assume_valid: true,
+            validate_signatures: true,
             consensus: Consensus {
                 parameters: ChainParams::from(Network::Regtest),
             },
@@ -621,13 +613,14 @@ mod tests {
 
         let mut blocks1 = blocks1.iter();
         blocks1.next();
+        let time = crate::pruned_utreexo::nodetime::DisableTime;
 
         for block in blocks1 {
             let proof = Proof::default();
             let inputs = HashMap::new();
             let del_hashes = vec![];
             chainstate1
-                .process_block(block, proof, inputs, del_hashes)
+                .process_block(block, proof, inputs, del_hashes, &time)
                 .unwrap();
         }
         // The state after 100 blocks, computed ahead of time.
@@ -649,7 +642,7 @@ mod tests {
         assert_eq!(chainstate1.current_acc, acc2);
 
         let chainstate2: PartialChainState = PartialChainStateInner {
-            assume_valid: true,
+            validate_signatures: true,
             consensus: Consensus {
                 parameters: ChainParams::from(Network::Regtest),
             },
@@ -661,13 +654,13 @@ mod tests {
             initial_height: 100,
         }
         .into();
-
+        let time = crate::pruned_utreexo::nodetime::DisableTime;
         for block in blocks2 {
             let proof = Proof::default();
             let inputs = HashMap::new();
             let del_hashes = vec![];
             chainstate2
-                .connect_block(block, proof, inputs, del_hashes)
+                .connect_block(block, proof, inputs, del_hashes, &time)
                 .unwrap();
         }
 

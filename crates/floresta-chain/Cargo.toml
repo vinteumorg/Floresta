@@ -41,6 +41,9 @@ zstd = "0.12.3"
 hex = "0.4.3"
 
 [features]
+default = ["std", "bitcoinconsensus"]
+std = []
+no-std = []
 bitcoinconsensus = ["bitcoin/bitcoinconsensus"]
 
 [[bench]]

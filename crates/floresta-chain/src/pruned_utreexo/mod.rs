@@ -15,12 +15,12 @@ use bitcoin::block::Header as BlockHeader;
 use bitcoin::hashes::sha256;
 use bitcoin::Block;
 use bitcoin::BlockHash;
-use bitcoin::OutPoint;
 use bitcoin::Transaction;
-use bitcoin::TxOut;
+use nodetime::NodeTime;
 use rustreexo::accumulator::node_hash::NodeHash;
 use rustreexo::accumulator::proof::Proof;
 use rustreexo::accumulator::stump::Stump;
+use utxo_data::UtxoMap;
 
 use self::partial_chain::PartialChainState;
 use crate::prelude::*;
@@ -83,14 +83,15 @@ pub trait BlockchainInterface {
     ) -> Result<Stump, Self::Error>;
 
     fn get_chain_tips(&self) -> Result<Vec<BlockHash>, Self::Error>;
-
+    /// Validates a entire block.
+    ///
+    /// Wrapper to recall [`Consensus::validate_block()`] with the more context data.
     fn validate_block(
         &self,
         block: &Block,
         proof: Proof,
-        inputs: HashMap<OutPoint, TxOut>,
+        inputs: UtxoMap,
         del_hashes: Vec<sha256::Hash>,
-        acc: Stump,
     ) -> Result<(), Self::Error>;
 
     fn get_fork_point(&self, block: BlockHash) -> Result<BlockHash, Self::Error>;
@@ -107,8 +108,9 @@ pub trait UpdatableChainstate {
         &self,
         block: &Block,
         proof: Proof,
-        inputs: HashMap<OutPoint, TxOut>,
+        inputs: UtxoMap,
         del_hashes: Vec<sha256::Hash>,
+        nodetime: &impl NodeTime,
     ) -> Result<u32, BlockchainError>;
 
     fn switch_chain(&self, new_tip: BlockHash) -> Result<(), BlockchainError>;
@@ -117,7 +119,11 @@ pub trait UpdatableChainstate {
     /// valid after calling connect_block.
     ///
     /// This function returns whether this block is on our best-known chain, or in a fork
-    fn accept_header(&self, header: BlockHeader) -> Result<(), BlockchainError>;
+    fn accept_header(
+        &self,
+        header: BlockHeader,
+        node_time: &impl NodeTime,
+    ) -> Result<(), BlockchainError>;
     /// Not used for now, but in a future blockchain with mempool, we can process transactions
     /// that are not in a block yet.
     fn handle_transaction(&self) -> Result<(), BlockchainError>;
@@ -212,14 +218,19 @@ impl<T: UpdatableChainstate> UpdatableChainstate for Arc<T> {
         &self,
         block: &Block,
         proof: Proof,
-        inputs: HashMap<OutPoint, TxOut>,
+        inputs: UtxoMap,
         del_hashes: Vec<sha256::Hash>,
+        nodetime: &impl NodeTime,
     ) -> Result<u32, BlockchainError> {
-        T::connect_block(self, block, proof, inputs, del_hashes)
+        T::connect_block(self, block, proof, inputs, del_hashes, nodetime)
     }
 
-    fn accept_header(&self, header: BlockHeader) -> Result<(), BlockchainError> {
-        T::accept_header(self, header)
+    fn accept_header(
+        &self,
+        header: BlockHeader,
+        node_time: &impl NodeTime,
+    ) -> Result<(), BlockchainError> {
+        T::accept_header(self, header, node_time)
     }
 
     fn get_root_hashes(&self) -> Vec<NodeHash> {
@@ -333,7 +344,6 @@ impl<T: BlockchainInterface> BlockchainInterface for Arc<T> {
     ) -> Result<Stump, Self::Error> {
         T::update_acc(self, acc, block, height, proof, del_hashes)
     }
-
     fn get_chain_tips(&self) -> Result<Vec<BlockHash>, Self::Error> {
         T::get_chain_tips(self)
     }
@@ -342,14 +352,104 @@ impl<T: BlockchainInterface> BlockchainInterface for Arc<T> {
         &self,
         block: &Block,
         proof: Proof,
-        inputs: HashMap<OutPoint, TxOut>,
+        inputs: UtxoMap,
         del_hashes: Vec<sha256::Hash>,
-        acc: Stump,
     ) -> Result<(), Self::Error> {
-        T::validate_block(self, block, proof, inputs, del_hashes, acc)
+        T::validate_block(self, block, proof, inputs, del_hashes)
     }
 
     fn get_fork_point(&self, block: BlockHash) -> Result<BlockHash, Self::Error> {
         T::get_fork_point(self, block)
+    }
+}
+
+pub mod utxo_data {
+    use super::*;
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub struct UtxoData {
+        /// The transaction output that created this UTXO.
+        pub txout: bitcoin::TxOut,
+        //we need this mostly to validate relative-locktime.
+        /// The height of the block that the utxo was commited.
+        pub height: u32,
+        /// The timestamp of the block that the utxo was commited.
+        pub time: u32,
+    }
+
+    impl UtxoData {
+        /// Creates a new UtxoData.
+        pub const fn new(txout: bitcoin::TxOut, height: u32, time: u32) -> Self {
+            Self {
+                txout,
+                height,
+                time,
+            }
+        }
+        /// Gets the output.
+        pub const fn get_txout(&self) -> &bitcoin::TxOut {
+            &self.txout
+        }
+        /// Gets the height that the output was commited.
+        pub const fn get_height(&self) -> u32 {
+            self.height
+        }
+        pub const fn get_time(&self) -> u32 {
+            self.time
+        }
+    }
+    /// A [`HashMap<bitcoin::OutPoint, UtxoData>`] alias.
+    ///
+    /// Use HashMap to store and fast-find all needed UTXOs related data.
+    pub type UtxoMap = HashMap<bitcoin::OutPoint, UtxoData>;
+}
+
+/// Module to delegate local-time context.
+///
+/// The consumer of `Floresta-chain` has the option to implement [`NodeTime`] if on a non-std environment.([`get_time()`] implementation that returns 0u32 will disable time checks.)
+///
+/// On std you can just use a instance [`StdNodeTime`] as input.
+pub mod nodetime {
+
+    /// Disable empty struct.
+    ///
+    /// Meant to be used in cases to disable time verifications
+    pub struct DisableTime;
+
+    /// One Hour in seconds constant.
+    pub const HOUR: u32 = 60 * 60;
+
+    /// Trait to return time-related context of the chain.
+    ///
+    /// [`get_time()`] should return a the latest [unix timestamp](https://en.wikipedia.org/wiki/Unix_time) when the consumer has time-notion.
+    ///
+    /// if the consumer does not have any time notion or MTP control, its safe to use `0u32` to disable any validations on time.
+    pub trait NodeTime {
+        /// Should return a unix timestamp or 0 to skip any time related validation.
+        fn get_time(&self) -> u32;
+    }
+
+    impl NodeTime for DisableTime {
+        fn get_time(&self) -> u32 {
+            // we simply return zero to disable time checks
+            0
+        }
+    }
+
+    #[cfg(feature = "std")]
+    /// A module to provide the standard implementation of [`NodeTime`] trait. It uses [`std::time::SystemTime`] to get the current time.
+    pub mod standard_node_time {
+        extern crate std;
+        use std::time;
+        /// A empty struct to implement [`NodeTime`] trait using [`std::time::SystemTime`]
+        pub struct StdNodeTime;
+
+        impl super::NodeTime for StdNodeTime {
+            fn get_time(&self) -> u32 {
+                time::SystemTime::now()
+                    .duration_since(time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs() as u32
+            }
+        }
     }
 }

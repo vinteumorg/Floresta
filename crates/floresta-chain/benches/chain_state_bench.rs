@@ -8,6 +8,7 @@ use bitcoin::Block;
 use criterion::criterion_group;
 use criterion::criterion_main;
 use criterion::Criterion;
+use floresta_chain::pruned_utreexo::nodetime::standard_node_time::StdNodeTime;
 use floresta_chain::pruned_utreexo::UpdatableChainstate;
 use floresta_chain::AssumeValidArg;
 use floresta_chain::ChainState;
@@ -54,7 +55,7 @@ fn accept_mainnet_headers_benchmark(c: &mut Criterion) {
         b.iter(|| {
             headers
                 .iter()
-                .for_each(|header| chain.accept_header(*header).unwrap())
+                .for_each(|header| chain.accept_header(*header, &StdNodeTime).unwrap())
         })
     });
 }
@@ -67,7 +68,7 @@ fn accept_headers_benchmark(c: &mut Criterion) {
         b.iter(|| {
             blocks
                 .iter()
-                .for_each(|block| chain.accept_header(block.header).unwrap());
+                .for_each(|block| chain.accept_header(block.header, &StdNodeTime).unwrap());
         })
     });
 }
@@ -78,13 +79,19 @@ fn connect_blocks_benchmark(c: &mut Criterion) {
 
     blocks
         .iter()
-        .for_each(|block| chain.accept_header(block.header).unwrap());
+        .for_each(|block| chain.accept_header(block.header, &StdNodeTime).unwrap());
 
     c.bench_function("connect_150_blocks", |b| {
         b.iter(|| {
             blocks.iter().for_each(|block| {
                 chain
-                    .connect_block(block, Proof::default(), HashMap::new(), Vec::new())
+                    .connect_block(
+                        block,
+                        Proof::default(),
+                        HashMap::new(),
+                        Vec::new(),
+                        &StdNodeTime,
+                    )
                     .unwrap();
             })
         })
