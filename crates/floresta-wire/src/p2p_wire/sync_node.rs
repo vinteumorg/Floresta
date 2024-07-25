@@ -51,6 +51,10 @@ where
     Chain: BlockchainInterface + UpdatableChainstate + 'static,
 {
     async fn get_blocks_to_download(&mut self) {
+        if self.chain.get_validation_index().unwrap() == self.chain.get_best_block().unwrap().0 {
+            return;
+        }
+
         let mut blocks = Vec::with_capacity(10);
         for _ in 0..10 {
             let next_block = self.1.last_block_requested + 1;
