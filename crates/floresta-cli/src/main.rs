@@ -58,8 +58,8 @@ fn do_request(cmd: &Cli, client: ReqwestClient) -> anyhow::Result<String> {
         Methods::GetBlockHeader { hash } => {
             serde_json::to_string_pretty(&client.get_block_header(hash)?)?
         }
-        Methods::LoadDescriptor { desc, rescan } => {
-            serde_json::to_string_pretty(&client.load_descriptor(desc, rescan)?)?
+        Methods::LoadDescriptor { desc } => {
+            serde_json::to_string_pretty(&client.load_descriptor(desc)?)?
         }
         Methods::GetRoots => serde_json::to_string_pretty(&client.get_roots()?)?,
         Methods::GetBlock { hash, .. } => serde_json::to_string_pretty(&client.get_block(hash)?)?,
@@ -128,7 +128,7 @@ pub enum Methods {
     GetBlockHeader { hash: BlockHash },
     /// Loads a new descriptor to the watch only wallet
     #[command(name = "loaddescriptor")]
-    LoadDescriptor { desc: String, rescan: Option<u32> },
+    LoadDescriptor { desc: String },
     /// Returns the roots of the current utreexo forest
     #[command(name = "getroots")]
     GetRoots,

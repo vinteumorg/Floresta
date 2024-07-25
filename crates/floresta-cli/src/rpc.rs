@@ -56,7 +56,7 @@ pub trait FlorestaRPC {
     /// compact block filters enabled, this process will be much faster and use less bandwidth.
     /// The rescan parameter is the height at which to start the rescan, and should be at least
     /// as old as the oldest transaction this descriptor could have been used in.
-    fn load_descriptor(&self, descriptor: String, rescan: Option<u32>) -> Result<bool>;
+    fn load_descriptor(&self, descriptor: String) -> Result<bool>;
     /// Trigger a rescan of the wallet
     ///
     /// This method triggers a rescan of the wallet. If you have compact block filters enabled,
@@ -181,15 +181,8 @@ impl<T: JsonRPCClient> FlorestaRPC for T {
         )
     }
 
-    fn load_descriptor(&self, descriptor: String, rescan: Option<u32>) -> Result<bool> {
-        let rescan = rescan.unwrap_or(0);
-        self.call(
-            "loaddescriptor",
-            &[
-                Value::String(descriptor),
-                Value::Number(Number::from(rescan)),
-            ],
-        )
+    fn load_descriptor(&self, descriptor: String) -> Result<bool> {
+        self.call("loaddescriptor", &[Value::String(descriptor)])
     }
 
     fn get_block_filter(&self, heigth: u32) -> Result<String> {

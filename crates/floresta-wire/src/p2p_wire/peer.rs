@@ -225,7 +225,7 @@ impl<T: Transport> Peer<T> {
                 } else {
                     block_hashes
                         .iter()
-                        .map(|block| Inventory::Block(*block))
+                        .map(|block| Inventory::WitnessBlock(*block))
                         .collect()
                 };
 

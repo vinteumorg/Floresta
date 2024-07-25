@@ -23,7 +23,8 @@ use floresta_chain::pruned_utreexo::BlockchainInterface;
 use floresta_chain::pruned_utreexo::UpdatableChainstate;
 use floresta_chain::ChainState;
 use floresta_chain::KvChainStore;
-use floresta_compact_filters::kv_filter_database::KvFilterStore;
+use floresta_common::parse_descriptors;
+use floresta_compact_filters::flat_filters_store::FlatFiltersStore;
 use floresta_compact_filters::network_filters::NetworkFilters;
 use floresta_watch_only::kv_database::KvDatabase;
 use floresta_watch_only::AddressCache;
@@ -35,6 +36,8 @@ use futures::executor::block_on;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use jsonrpc_http_server::ServerBuilder;
+use log::debug;
+use log::error;
 use log::info;
 use serde_json::json;
 use serde_json::Value;
@@ -50,8 +53,6 @@ use super::res::TxOutJson;
 
 #[rpc]
 pub trait Rpc {
-    #[rpc(name = "getblockfilter")]
-    fn get_block_filter(&self, heigth: u32) -> Result<String>;
     #[rpc(name = "getblockchaininfo")]
     fn get_blockchain_info(&self) -> Result<GetBlockchainInfoRes>;
     #[rpc(name = "getblockhash")]
@@ -63,7 +64,7 @@ pub trait Rpc {
     #[rpc(name = "gettxproof")]
     fn get_tx_proof(&self, tx_id: Txid) -> Result<Vec<String>>;
     #[rpc(name = "loaddescriptor")]
-    fn load_descriptor(&self, descriptor: String, rescan: Option<u32>) -> Result<bool>;
+    fn load_descriptor(&self, descriptor: String) -> Result<bool>;
     #[rpc(name = "rescan")]
     fn rescan(&self, rescan: u32) -> Result<bool>;
     #[rpc(name = "getheight")]
@@ -85,7 +86,7 @@ pub trait Rpc {
 }
 
 pub struct RpcImpl {
-    block_filter_storage: Option<Arc<NetworkFilters<KvFilterStore>>>,
+    block_filter_storage: Option<Arc<NetworkFilters<FlatFiltersStore>>>,
     network: Network,
     chain: Arc<ChainState<KvChainStore<'static>>>,
     wallet: Arc<RwLock<AddressCache<KvDatabase>>>,
@@ -126,12 +127,14 @@ impl Rpc for RpcImpl {
 
             let candidates = cfilters.match_any(
                 vec![filter_outpoint.as_slice(), filter_txid.as_slice()],
-                1,
                 tip,
                 self.chain.clone(),
             );
 
-            let candidates = candidates.into_iter().map(|hash| self.node.get_block(hash));
+            let candidates = candidates
+                .unwrap_or_default()
+                .into_iter()
+                .map(|hash| self.node.get_block(hash));
 
             for candidate in candidates {
                 let candidate = match candidate {
@@ -166,25 +169,11 @@ impl Rpc for RpcImpl {
             None => Ok(json!({})),
         }
     }
+
     fn get_height(&self) -> Result<u32> {
         Ok(self.chain.get_best_block().unwrap().0)
     }
 
-    fn get_block_filter(&self, heigth: u32) -> Result<String> {
-        if let Some(ref cfilters) = self.block_filter_storage {
-            return Ok(serialize_hex(
-                &cfilters
-                    .get_filter(heigth)
-                    .ok_or(Error::BlockNotFound)?
-                    .content,
-            ));
-        }
-        Err(jsonrpc_core::Error {
-            code: Error::NoBlockFilters.into(),
-            message: Error::NoBlockFilters.to_string(),
-            data: None,
-        })
-    }
     fn add_node(&self, node: String) -> Result<bool> {
         let node = node.split(':').collect::<Vec<&str>>();
         let (ip, port) = if node.len() == 2 {
@@ -269,25 +258,88 @@ impl Rpc for RpcImpl {
         Err(Error::TxNotFound.into())
     }
 
-    fn load_descriptor(&self, descriptor: String, rescan: Option<u32>) -> Result<bool> {
-        let wallet = block_on(self.wallet.write());
-        let result = wallet.push_descriptor(&descriptor);
-        if let Some(rescan) = rescan {
-            self.chain
-                .rescan(rescan)
-                .map_err(|_| jsonrpc_core::Error::internal_error())?;
+    fn load_descriptor(&self, descriptor: String) -> Result<bool> {
+        if self.chain.is_in_idb() {
+            return Err(jsonrpc_core::Error {
+                code: Error::InInitialBlockDownload.into(),
+                message: Error::InInitialBlockDownload.to_string(),
+                data: None,
+            });
         }
-        if result.is_err() {
-            return Err(Error::InvalidDescriptor.into());
-        }
+
+        let Ok(mut parsed) = parse_descriptors(&[descriptor.clone()]) else {
+            return Err(jsonrpc_core::Error {
+                code: Error::InvalidDescriptor.into(),
+                message: Error::InvalidDescriptor.to_string(),
+                data: None,
+            });
+        };
+
+        // It's ok to unwrap bacause we know there is at least one element in the vector
+        let addresses = parsed.pop().unwrap();
+        let addresses = (0..100)
+            .map(|index| {
+                addresses
+                    .at_derivation_index(index)
+                    .unwrap()
+                    .script_pubkey()
+            })
+            .collect::<Vec<_>>();
+
+        debug!(
+            "Rescanning with block filters for addresses: {:?}",
+            addresses
+        );
+
+        let addresses = block_on(self.wallet.read()).get_cached_addresses();
+        let wallet = self.wallet.clone();
+        if self.block_filter_storage.is_none() {
+            return Err(jsonrpc_core::Error {
+                code: Error::InInitialBlockDownload.into(),
+                message: Error::InInitialBlockDownload.to_string(),
+                data: None,
+            });
+        };
+        let cfilters = self.block_filter_storage.as_ref().unwrap().clone();
+        let node = self.node.clone();
+        let chain = self.chain.clone();
+        std::thread::spawn(move || {
+            match Self::rescan_with_block_filters(&addresses, chain, wallet, cfilters, node) {
+                Ok(_) => info!("rescan completed"),
+                Err(e) => error!("error while rescaning {e:?}"),
+            }
+        });
+
         Ok(true)
     }
 
-    fn rescan(&self, rescan: u32) -> Result<bool> {
-        let result = self.chain.rescan(rescan);
-        if result.is_err() {
-            return Err(Error::Chain.into());
+    fn rescan(&self, _rescan: u32) -> Result<bool> {
+        if self.chain.is_in_idb() {
+            return Err(jsonrpc_core::Error {
+                code: Error::InInitialBlockDownload.into(),
+                message: Error::InInitialBlockDownload.to_string(),
+                data: None,
+            });
         }
+
+        let addresses = block_on(self.wallet.read()).get_cached_addresses();
+        let wallet = self.wallet.clone();
+        if self.block_filter_storage.is_none() {
+            return Err(jsonrpc_core::Error {
+                code: Error::InInitialBlockDownload.into(),
+                message: Error::InInitialBlockDownload.to_string(),
+                data: None,
+            });
+        };
+        let cfilters = self.block_filter_storage.as_ref().unwrap().clone();
+        let node = self.node.clone();
+        let chain = self.chain.clone();
+        std::thread::spawn(move || {
+            match Self::rescan_with_block_filters(&addresses, chain, wallet, cfilters, node) {
+                Ok(_) => info!("rescan completed"),
+                Err(e) => error!("error while rescaning {e:?}"),
+            }
+        });
         Ok(true)
     }
 
@@ -400,6 +452,38 @@ impl Rpc for RpcImpl {
 }
 
 impl RpcImpl {
+    fn rescan_with_block_filters(
+        addresses: &[ScriptBuf],
+        chain: Arc<ChainState<KvChainStore<'static>>>,
+        wallet: Arc<RwLock<AddressCache<KvDatabase>>>,
+        cfilters: Arc<NetworkFilters<FlatFiltersStore>>,
+        node: Arc<NodeInterface>,
+    ) -> Result<()> {
+        let mut wallet = block_on(async { wallet.write().await });
+        let tip = cfilters.get_height().unwrap();
+        let blocks = cfilters
+            .match_any(
+                addresses.iter().map(|a| a.as_bytes()).collect(),
+                tip,
+                chain.clone(),
+            )
+            .unwrap();
+
+        info!("rescan filter hits: {:?}", blocks);
+        for block in blocks {
+            loop {
+                if let Ok(Some(block)) = node.get_block(block) {
+                    let height = chain
+                        .get_block_height(&block.block_hash())
+                        .unwrap()
+                        .unwrap();
+                    wallet.block_process(&block, height);
+                    break;
+                }
+            }
+        }
+        Ok(())
+    }
     fn make_vin(&self, input: TxIn) -> TxInJson {
         let txid = serialize_hex(&input.previous_output.txid);
         let vout = input.previous_output.vout;
@@ -520,7 +604,7 @@ impl RpcImpl {
         node: Arc<NodeInterface>,
         kill_signal: Arc<RwLock<bool>>,
         network: Network,
-        block_filter_storage: Option<Arc<NetworkFilters<KvFilterStore>>>,
+        block_filter_storage: Option<Arc<NetworkFilters<FlatFiltersStore>>>,
         address: Option<SocketAddr>,
     ) -> jsonrpc_http_server::Server {
         let mut io = jsonrpc_core::IoHandler::new();

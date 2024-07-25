@@ -191,11 +191,12 @@ mod test {
     #[test]
     fn test_kv_database() {
         let db = get_test_db();
-        let (_, script_hash) = get_test_address();
+        let (address, script_hash) = get_test_address();
 
         let cache_address = CachedAddress {
-            script_hash: script_hash,
+            script_hash,
             balance: 0,
+            script: address.payload().script_pubkey(),
             transactions: Vec::new(),
             utxos: Vec::new(),
         };

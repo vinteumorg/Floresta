@@ -272,7 +272,7 @@ where
                 }
                 InflightRequests::GetFilters => {
                     if let Some(ref block_filters) = self.block_filters {
-                        let last_success = block_filters.get_height() + 1;
+                        let last_success = block_filters.get_height()? + 1;
                         self.last_filter = self.chain.get_block_hash(last_success)?;
                         self.download_filters().await?;
                     }
@@ -350,7 +350,10 @@ where
         self.last_block_request = self.chain.get_validation_index().unwrap_or(0);
 
         if let Some(ref cfilters) = self.block_filters {
-            self.last_filter = self.chain.get_block_hash(cfilters.get_height()).unwrap();
+            self.last_filter = self
+                .chain
+                .get_block_hash(cfilters.get_height().unwrap_or(1))
+                .unwrap();
         }
 
         info!("starting running node...");
@@ -464,7 +467,6 @@ where
         }
 
         if !self.has_compact_filters_peer() {
-            // open a feeler connection to find more peers with COMPACT_BLOCK_FILTERS flag
             return Ok(());
         }
 
@@ -472,10 +474,14 @@ where
             return Ok(());
         };
 
-        info!("Downloading filters from height {}", filters.get_height());
-        let height = filters.get_height();
-        let best_height = self.chain.get_height().unwrap();
+        let height = filters.get_height()?;
+        let best_height = self.chain.get_height()?;
 
+        if height >= best_height {
+            return Ok(());
+        }
+
+        info!("Downloading filters from height {}", filters.get_height()?);
         let stop = if height + 1000 > best_height {
             best_height
         } else {
@@ -803,14 +809,32 @@ where
                     self.address_man.push_addresses(&addresses);
                 }
                 PeerMessages::BlockFilter((hash, filter)) => {
-                    debug!("Got a block filter from peer {}", peer);
-                    let height = self.chain.get_block_height(&hash)?.unwrap_or(0);
-                    if let Some(filters) = self.block_filters.as_ref() {
-                        filters.push_filter(height, filter)
-                    }
+                    debug!("Got a block filter for block {hash} from peer {peer}");
 
-                    if self.inflight.len() < RunningNode::MAX_INFLIGHT_REQUESTS {
-                        self.download_filters().await?;
+                    if let Some(filters) = self.block_filters.as_ref() {
+                        filters.push_filter(filter)?;
+
+                        let current_height = filters.get_height()?;
+                        let Some(this_height) = self.chain.get_block_height(&hash)? else {
+                            warn!("Filter for block {} received, but we don't have it", hash);
+                            return Ok(());
+                        };
+                        filters.save_height(current_height + 1)?;
+                        // we expect to receive them in order
+                        if current_height + 1 != this_height {
+                            warn!(
+                                "Expected filter for height {}, got filter for height {}",
+                                current_height + 1,
+                                this_height
+                            );
+                            self.increase_banscore(peer, 10).await?;
+                            return Ok(());
+                        }
+
+                        if self.last_filter == hash {
+                            self.inflight.remove(&InflightRequests::GetFilters);
+                            self.download_filters().await?;
+                        }
                     }
                 }
                 PeerMessages::NotFound(inv) => match inv {

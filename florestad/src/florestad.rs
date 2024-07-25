@@ -20,7 +20,7 @@ use floresta_chain::BlockchainError;
 use floresta_chain::ChainState;
 use floresta_chain::KvChainStore;
 use floresta_common::constants::DIR_NAME;
-use floresta_compact_filters::kv_filter_database::KvFilterStore;
+use floresta_compact_filters::flat_filters_store::FlatFiltersStore;
 use floresta_compact_filters::network_filters::NetworkFilters;
 use floresta_electrum::electrum_protocol::client_accept_loop;
 use floresta_electrum::electrum_protocol::ElectrumServer;
@@ -272,8 +272,13 @@ impl Florestad {
         #[cfg(feature = "compact-filters")]
         let cfilters = if self.config.cfilters {
             // Block Filters
-            let filter_store = KvFilterStore::new(&(data_dir.clone() + "/cfilters").into());
-            Some(Arc::new(NetworkFilters::new(filter_store)))
+            let filter_store = FlatFiltersStore::new((data_dir.clone() + "/cfilters").into());
+            let cfilters = Arc::new(NetworkFilters::new(filter_store));
+            info!(
+                "loaded compact filters store at height: {:?}",
+                cfilters.get_height()
+            );
+            Some(cfilters)
         } else {
             None
         };
