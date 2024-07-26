@@ -537,7 +537,11 @@ where
         if self.fixed_peer.is_some() && !self.peers.is_empty() {
             return Ok(());
         }
-        if self.peers.len() < T::MAX_OUTGOING_PEERS {
+        // if we need utreexo peers, we can bypass our max outgoing peers limit in case
+        // we don't have any utreexo peers
+        let bypass =
+            self.1.get_required_services().has(ServiceFlags::UTREEXO) && !self.has_utreexo_peers();
+        if self.peers.len() < T::MAX_OUTGOING_PEERS || bypass {
             self.create_connection(false).await;
         }
         Ok(())
