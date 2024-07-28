@@ -753,7 +753,7 @@ where
                     if peer == self.1.sync_peer {
                         self.1.state = ChainSelectorState::CreatingConnections;
                     }
-                    self.handle_disconnection(peer, idx)?;
+                    self.handle_disconnection(peer, idx).await?;
                 }
 
                 PeerMessages::Addr(addresses) => {

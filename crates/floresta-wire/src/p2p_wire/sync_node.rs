@@ -158,13 +158,16 @@ where
             if block.udata.is_none() {
                 error!("Block without proof received from peer {}", peer);
                 self.send_to_peer(peer, NodeRequest::Shutdown).await?;
-                self.send_to_random_peer(
-                    NodeRequest::GetBlock((vec![block.block.block_hash()], true)),
-                    ServiceFlags::UTREEXO,
-                )
-                .await?;
-                self.inflight
-                    .insert(InflightRequests::Blocks(next_block), (peer, Instant::now()));
+                let next_peer = self
+                    .send_to_random_peer(
+                        NodeRequest::GetBlock((vec![block.block.block_hash()], true)),
+                        ServiceFlags::UTREEXO,
+                    )
+                    .await?;
+                self.inflight.insert(
+                    InflightRequests::Blocks(next_block),
+                    (next_peer, Instant::now()),
+                );
                 return Err(WireError::PeerMisbehaving);
             }
 
@@ -252,7 +255,8 @@ where
                     try_and_log!(self.handle_peer_ready(peer, &version).await);
                 }
                 PeerMessages::Disconnected(idx) => {
-                    try_and_log!(self.handle_disconnection(peer, idx));
+                    try_and_log!(self.handle_disconnection(peer, idx).await);
+
                     if !self.has_utreexo_peers() {
                         warn!("No utreexo peers connected, trying to create a new one");
                         try_and_log!(self.maybe_open_connection().await);

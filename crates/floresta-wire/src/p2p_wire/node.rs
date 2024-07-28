@@ -241,12 +241,28 @@ where
             initial_height: peer.height,
         })
     }
-    pub(crate) fn handle_disconnection(&mut self, peer: u32, idx: usize) -> Result<(), WireError> {
+    pub(crate) async fn handle_disconnection(
+        &mut self,
+        peer: u32,
+        idx: usize,
+    ) -> Result<(), WireError> {
         if let Some(p) = self.peers.remove(&peer) {
             p.channel.close();
             if !p.feeler && p.state == PeerStatus::Ready {
                 info!("Peer disconnected: {}", peer);
             }
+        }
+
+        let inflight = self
+            .inflight
+            .clone()
+            .into_iter()
+            .filter(|(_k, v)| v.0 == peer)
+            .collect::<Vec<_>>();
+
+        for req in inflight {
+            self.inflight.remove(&req.0);
+            self.redo_inflight_request(req.0.clone()).await?;
         }
 
         self.peer_ids.retain(|&id| id != peer);
@@ -265,6 +281,67 @@ where
         );
         Ok(())
     }
+
+    pub(crate) async fn redo_inflight_request(
+        &mut self,
+        req: InflightRequests,
+    ) -> Result<(), WireError> {
+        match req {
+            InflightRequests::Blocks(block) => {
+                let peer = self
+                    .send_to_random_peer(
+                        NodeRequest::GetBlock((vec![block], true)),
+                        ServiceFlags::UTREEXO,
+                    )
+                    .await?;
+                self.inflight
+                    .insert(InflightRequests::Blocks(block), (peer, Instant::now()));
+            }
+            InflightRequests::Headers => {
+                let peer = self
+                    .send_to_random_peer(NodeRequest::GetHeaders(vec![]), ServiceFlags::UTREEXO)
+                    .await?;
+                self.inflight
+                    .insert(InflightRequests::Headers, (peer, Instant::now()));
+            }
+            InflightRequests::UtreexoState(_) => {
+                let peer = self
+                    .send_to_random_peer(
+                        NodeRequest::GetUtreexoState((self.chain.get_block_hash(0).unwrap(), 0)),
+                        ServiceFlags::UTREEXO,
+                    )
+                    .await?;
+                self.inflight
+                    .insert(InflightRequests::UtreexoState(peer), (peer, Instant::now()));
+            }
+            InflightRequests::RescanBlock(block) => {
+                let peer = self
+                    .send_to_random_peer(
+                        NodeRequest::GetBlock((vec![block], false)),
+                        ServiceFlags::UTREEXO,
+                    )
+                    .await?;
+                self.inflight
+                    .insert(InflightRequests::RescanBlock(block), (peer, Instant::now()));
+            }
+            InflightRequests::GetFilters => {
+                let peer = self
+                    .send_to_random_peer(
+                        NodeRequest::GetFilter((self.chain.get_block_hash(0).unwrap(), 0)),
+                        ServiceFlags::COMPACT_FILTERS,
+                    )
+                    .await?;
+                self.inflight
+                    .insert(InflightRequests::GetFilters, (peer, Instant::now()));
+            }
+            InflightRequests::Connect(_) | InflightRequests::UserRequest(_) => {
+                // WE DON'T NEED TO DO ANYTHING HERE
+            }
+        }
+
+        Ok(())
+    }
+
     pub(crate) async fn handle_peer_ready(
         &mut self,
         peer: u32,
