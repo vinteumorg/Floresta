@@ -98,6 +98,33 @@ impl TestPeer {
             let req = self.node_rx.recv().await.unwrap();
 
             match req {
+                NodeRequest::GetHeaders(hashes) => {
+                    let pos = hashes.first().unwrap();
+                    let pos = self.headers.iter().position(|h| h.block_hash() == *pos);
+                    let headers = match pos {
+                        None => vec![],
+                        Some(pos) => self.headers[(pos + 1)..].to_vec(),
+                    };
+
+                    self.node_tx
+                        .send(NodeNotification::FromPeer(
+                            self.peer_id,
+                            PeerMessages::Headers(headers),
+                        ))
+                        .await
+                        .unwrap();
+                }
+                NodeRequest::GetUtreexoState((hash, _)) => {
+                    let filters = self.filters.get(&hash).unwrap().clone();
+                    self.node_tx
+                        .send(NodeNotification::FromPeer(
+                            self.peer_id,
+                            PeerMessages::UtreexoState(filters),
+                        ))
+                        .await
+                        .unwrap();
+                }
+
                 NodeRequest::GetBlock((hashes, _)) => {
                     for hash in hashes {
                         let block = self.blocks.get(&hash).unwrap().clone();
@@ -262,15 +289,17 @@ pub fn get_essentials() -> (
     HashMap<BlockHash, UtreexoBlock>,
     HashMap<BlockHash, Vec<u8>>,
     BlockHash,
+    UtreexoBlock,
 ) {
     let headers = get_test_headers();
     let blocks = get_test_blocks().unwrap();
     let true_filters = get_test_filters().unwrap();
+    let invalid_block = generate_invalid_block();
 
     // BlockHash of chain_tip: 0000035f0e5513b26bba7cead874fdf06241a934e4bc4cf7a0381c60e4cdd2bb (119)
     let tip_hash =
         BlockHash::from_str("0000035f0e5513b26bba7cead874fdf06241a934e4bc4cf7a0381c60e4cdd2bb")
             .unwrap();
 
-    (headers, blocks, true_filters, tip_hash)
+    (headers, blocks, true_filters, tip_hash, invalid_block)
 }

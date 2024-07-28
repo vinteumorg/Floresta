@@ -766,6 +766,36 @@ where
                         self.1.state = ChainSelectorState::CreatingConnections;
                     }
                     self.handle_disconnection(peer, idx)?;
+
+                    for (req, (_peer, _)) in self.inflight.clone() {
+                        if _peer != peer {
+                            continue;
+                        }
+                        match req {
+                            InflightRequests::Blocks(block_hash) => {
+                                self.inflight.remove(&InflightRequests::Blocks(block_hash));
+                                let next_peer = self
+                                    .send_to_random_peer(
+                                        NodeRequest::GetBlock((vec![block_hash], true)),
+                                        ServiceFlags::UTREEXO,
+                                    )
+                                    .await
+                                    .unwrap();
+                                self.inflight.insert(
+                                    InflightRequests::Blocks(block_hash),
+                                    (next_peer, Instant::now()),
+                                );
+                            }
+                            InflightRequests::Headers => {
+                                self.inflight.remove(&InflightRequests::Headers);
+                            }
+                            InflightRequests::GetFilters => {
+                                self.inflight.remove(&InflightRequests::GetFilters);
+                            }
+
+                            _ => {}
+                        }
+                    }
                 }
 
                 PeerMessages::Addr(addresses) => {
