@@ -36,6 +36,10 @@ oneshot = "0.1.5"
 zstd = "0.13.2"
 hex = "0.4.3"
 
+[dev-dependencies]
+hex = "0.4.3"
+zstd = "0.13.1"
+
 [features]
 default = []
 pruned_utreexo_chainstate = []
