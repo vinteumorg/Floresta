@@ -800,7 +800,7 @@ where
                     self.handle_peer_ready(peer, &version).await?;
                 }
                 PeerMessages::Disconnected(idx) => {
-                    self.handle_disconnection(peer, idx)?;
+                    self.handle_disconnection(peer, idx).await?;
                 }
                 PeerMessages::Addr(addresses) => {
                     debug!("Got {} addresses from peer {}", addresses.len(), peer);
