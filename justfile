@@ -1,10 +1,14 @@
-# Runs the service locally
-run:
-    cargo run
+# List the available commands
+default:
+  @just --list
 
-# Runs the service locally with release options
+# Run Florestad locally
+run:
+    cargo run --bin florestad
+
+# Runs Florestad locally with release options
 run-release:
-    cargo run --release
+    cargo run --release --bin florestad
 
 # Compile project with debug options
 build:
@@ -45,3 +49,10 @@ doc:
 lint:
     cargo +nightly fmt --all && cargo +nightly clippy --all-targets
 
+# Format code
+fmt:
+    cargo +nightly fmt --all
+
+# Checks the formatting
+format:
+    cargo +nightly fmt --all --check
