@@ -327,10 +327,6 @@ impl Consensus {
             .iter()
             .map(|hash| NodeHash::from(hash.as_byte_array()))
             .collect::<Vec<_>>();
-        // Verify the proof of inclusion of the deleted nodes
-        if !acc.verify(&proof, &del_hashes)? {
-            return Err(BlockValidationErrors::InvalidProof.into());
-        }
         // Get inputs from the block, we'll need this HashSet to check if an output is spent
         // in the same block. If it is, we don't need to add it to the accumulator.
         let mut block_inputs = HashSet::new();
