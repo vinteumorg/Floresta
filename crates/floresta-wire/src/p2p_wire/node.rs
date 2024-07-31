@@ -253,18 +253,6 @@ where
             }
         }
 
-        let inflight = self
-            .inflight
-            .clone()
-            .into_iter()
-            .filter(|(_k, v)| v.0 == peer)
-            .collect::<Vec<_>>();
-
-        for req in inflight {
-            self.inflight.remove(&req.0);
-            self.redo_inflight_request(req.0.clone()).await?;
-        }
-
         self.peer_ids.retain(|&id| id != peer);
         for (_, v) in self.peer_by_service.iter_mut() {
             v.retain(|&id| id != peer);
@@ -279,6 +267,19 @@ where
                     .as_secs(),
             ),
         );
+
+        let inflight = self
+            .inflight
+            .clone()
+            .into_iter()
+            .filter(|(_k, v)| v.0 == peer)
+            .collect::<Vec<_>>();
+
+        for req in inflight {
+            self.inflight.remove(&req.0);
+            self.redo_inflight_request(req.0.clone()).await?;
+        }
+
         Ok(())
     }
 
@@ -532,7 +533,7 @@ where
         let peer = peers[rand];
         self.peers
             .get(&peer)
-            .unwrap()
+            .ok_or(WireError::NoPeersAvailable)?
             .channel
             .send(req)
             .await
