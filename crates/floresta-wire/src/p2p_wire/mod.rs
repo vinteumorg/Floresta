@@ -55,6 +55,15 @@ pub struct UtreexoNodeConfig {
     /// is that we are vulnerable to a fraud proof attack for a few hours, but we can spot it
     /// and react in a couple of hours at most, so the attack window is very small.
     pub backfill: bool,
+    /// If we are using network-provided block filters, we may not need to download the whole
+    /// chain of filters, as our wallets may not have been created at the beginning of the chain.
+    /// With this option, we can make a rough estimate of the block height we need to start
+    /// and only download the filters from that height.
+    ///
+    /// If the value is negative, it's relative to the current tip. For example, if the current
+    /// tip is at height 1000, and we set this value to -100, we will start downloading filters
+    /// from height 900.
+    pub filter_start_height: Option<i32>,
 }
 
 impl Default for UtreexoNodeConfig {
@@ -71,6 +80,7 @@ impl Default for UtreexoNodeConfig {
             proxy: None,
             backfill: false,
             assume_utreexo: None,
+            filter_start_height: None,
         }
     }
 }

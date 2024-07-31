@@ -474,8 +474,20 @@ where
             return Ok(());
         };
 
-        let height = filters.get_height()?;
+        let mut height = filters.get_height()?;
         let best_height = self.chain.get_height()?;
+
+        if height == 0 {
+            let user_height = self.config.filter_start_height.unwrap_or(0);
+
+            height = if user_height < 0 {
+                best_height.saturating_sub(user_height.unsigned_abs())
+            } else {
+                user_height as u32
+            };
+
+            filters.save_height(height)?;
+        }
 
         if height >= best_height {
             return Ok(());
@@ -812,14 +824,12 @@ where
                     debug!("Got a block filter for block {hash} from peer {peer}");
 
                     if let Some(filters) = self.block_filters.as_ref() {
-                        filters.push_filter(filter)?;
-
                         let current_height = filters.get_height()?;
                         let Some(this_height) = self.chain.get_block_height(&hash)? else {
                             warn!("Filter for block {} received, but we don't have it", hash);
                             return Ok(());
                         };
-                        filters.save_height(current_height + 1)?;
+
                         // we expect to receive them in order
                         if current_height + 1 != this_height {
                             warn!(
@@ -830,6 +840,9 @@ where
                             self.increase_banscore(peer, 10).await?;
                             return Ok(());
                         }
+
+                        filters.save_height(current_height + 1)?;
+                        filters.push_filter(filter)?;
 
                         if self.last_filter == hash {
                             self.inflight.remove(&InflightRequests::GetFilters);
