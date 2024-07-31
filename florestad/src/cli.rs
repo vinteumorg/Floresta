@@ -138,5 +138,8 @@ pub enum Commands {
         rpc_address: Option<String>,
         #[arg(long)]
         electrum_address: Option<String>,
+        #[arg(long)]
+        /// Download block filters starting at this height. Negative numbers are relative to the current tip.
+        filters_start_height: Option<i32>,
     },
 }

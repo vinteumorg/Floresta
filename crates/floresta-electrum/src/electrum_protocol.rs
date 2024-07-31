@@ -1018,6 +1018,7 @@ mod test {
             max_inflight: 20,
             assume_utreexo: None,
             backfill: false,
+            filter_start_height: None,
         };
 
         let chain_provider: UtreexoNode<RunningNode, Arc<ChainState<KvChainStore>>> =

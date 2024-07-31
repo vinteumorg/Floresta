@@ -45,6 +45,7 @@ async fn main() {
             connect,
             rpc_address,
             electrum_address,
+            filters_start_height,
         }) => Config {
             debug: params.debug,
             data_dir,
@@ -65,6 +66,7 @@ async fn main() {
             log_to_file: true,
             log_to_stdout: true,
             assume_utreexo: true,
+            filters_start_height,
         },
 
         // We may have more commands here, like setup and dump wallet

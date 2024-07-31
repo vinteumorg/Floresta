@@ -107,6 +107,14 @@ pub struct Config {
     /// is very inefficient and resource/time consuming. But keep in mind that filters will take
     /// up disk space.
     pub cfilters: bool,
+    /// If we are using block filters, we may not need to download the whole chain of filters, as
+    /// our wallets may not have been created at the beginning of the chain. With this option, we
+    /// can make a rough estimate of the block height we need to start downloading filters.
+    ///
+    /// If the value is negative, it's relative to the current tip. For example, if the current tip
+    /// is at height 1000, and we set this value to -100, we will start downloading filters from
+    /// height 900.
+    pub filters_start_height: Option<i32>,
     #[cfg(feature = "zmq-server")]
     /// The address to listen to for our ZMQ server
     ///
@@ -335,6 +343,7 @@ impl Florestad {
             max_inflight: 20,
             assume_utreexo,
             backfill: false,
+            filter_start_height: self.config.filters_start_height,
         };
 
         // Chain Provider (p2p)
