@@ -151,4 +151,13 @@ pub struct Cli {
     #[arg(long, value_name = "HEIGHT")]
     /// Download block filters starting at this height. Negative numbers are relative to the current tip.
     pub filters_start_height: Option<i32>,
+
+    #[arg(long)]
+    /// Whether we should assume a utreexo state for a given height
+    ///
+    /// This option will significantly speed up the initial block download, by skipping the
+    /// validation of the first hundreds of thousands of blocks. However, there's an inherent
+    /// trust in the developer that the utreexo state is correct. Everything after the assumed
+    /// height will be fully validated.
+    pub assume_utreexo: bool,
 }

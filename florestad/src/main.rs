@@ -37,7 +37,7 @@ async fn main() {
         cfilters: params.cfilters,
         proxy: params.proxy,
         rescan: params.rescan,
-        assume_utreexo: false,
+        assume_utreexo: params.assume_utreexo,
         connect: params.connect,
         wallet_xpub: params.wallet_xpub,
         config_file: params.config_file,
