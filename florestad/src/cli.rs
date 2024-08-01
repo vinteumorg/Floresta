@@ -1,7 +1,6 @@
 use clap::arg;
 use clap::command;
 use clap::Parser;
-use clap::Subcommand;
 use clap::ValueEnum;
 use florestad::Network as FlorestaNetwork;
 
@@ -46,100 +45,119 @@ impl std::fmt::Display for Network {
         }
     }
 }
+
 #[derive(Parser)]
-#[command(author, version, about, long_about = None)]
+#[command(
+    author = "Davidson Souza", 
+    version = env!("CARGO_PKG_VERSION"), 
+    about = "florestad - a lightweight Bitcoin full node powered by Utreexo", 
+)]
 pub struct Cli {
-    /// Sets a custom config file
     #[arg(short, long, value_name = "FILE")]
+    /// Sets a custom config file
     pub config_file: Option<String>,
-    /// Which network should we use
+
     #[arg(short, long, default_value_t=Network::Bitcoin)]
+    /// Which network should we use
     pub network: Network,
-    /// Turn debugging information on
+
     #[arg(short, long, default_value_t = false)]
+    /// Turn debugging information on
     pub debug: bool,
 
-    /// option for saving log into data_Dir
-    /// if set, log will be saved into dataDir/output.log
     #[arg(long)]
+    /// Option for saving log into data_Dir
+    ///
+    /// if set, log will be saved into $DATA_DIR/output.log.
     pub log_file: bool,
 
-    #[command(subcommand)]
-    pub command: Option<Commands>,
-}
+    #[arg(long, value_name = "PATH")]
+    /// Where should we store data. This is the directory where we'll store the chainstate,
+    /// the wallet, the logs, the compact block filters, the Utreexo state, etc.
+    /// Defaults to `~/.floresta`. The passed value shold be an absolute path.
+    pub data_dir: Option<String>,
 
-#[derive(Subcommand)]
-pub enum Commands {
-    #[cfg(not(feature = "experimental-p2p"))]
-    /// Starts your wallet and server
-    Run {
-        /// Where should we store data
-        #[arg(long)]
-        data_dir: Option<String>,
-        /// Add a xpub to our wallet
-        #[arg(long)]
-        wallet_xpub: Option<Vec<String>>,
-        /// Add individual addresses to your wallet
-        #[arg(long)]
-        wallet_addresses: Option<Vec<String>>,
-        /// Your rpc user, as set in Utreexod
-        #[arg(long)]
-        rpc_user: Option<String>,
-        /// Your rpc password, as set in Utreexod
-        #[arg(long)]
-        rpc_password: Option<String>,
-        /// The hostname:port of Utreexod
-        #[arg(short, long)]
-        rpc_host: Option<String>,
-        #[arg(long)]
-        rpc_port: Option<u32>,
-        /// Whether or not we want to sync with a external provider
-        #[arg(long, default_value_t = false)]
-        use_batch_sync: bool,
-        /// If use_batch_sync is set, this option provides which server we use
-        #[arg(long)]
-        batch_sync: Option<String>,
-        /// Assume blocks before this one as having valid signatures, same with bitcoin core
-        #[arg(long)]
-        assume_valid: Option<String>,
-    },
-    #[cfg(feature = "experimental-p2p")]
-    /// Starts your wallet and server
-    #[command(author, version, about, long_about = None)]
-    Run {
-        /// Where should we store data
-        #[arg(long)]
-        data_dir: Option<String>,
-        /// Whether to build Compact Block Filters
-        ///
-        /// Those filters let you query for chain data after IBD, like wallet rescan,
-        /// finding an utxo, finding specific tx_ids.
-        /// Will cause more disk usage
-        #[arg(long = "cfilters", short = 'c', default_value_t = true)]
-        cfilters: bool,
-        #[arg(long, short, default_value = None)]
-        /// The url of a proxy we should open p2p connections through (e.g. 127.0.0.1:9050)
-        proxy: Option<String>,
-        #[arg(long, short, default_value = None)]
-        rescan: Option<u32>,
-        /// Add a xpub to our wallet
-        #[arg(long)]
-        wallet_xpub: Option<Vec<String>>,
-        #[arg(long)]
-        wallet_descriptor: Option<Vec<String>>,
-        /// Assume blocks before this one as having valid signatures, same with bitcoin core
-        #[arg(long)]
-        assume_valid: Option<String>,
-        #[arg(long, short)]
-        zmq_address: Option<String>,
-        #[arg(long)]
-        connect: Option<String>,
-        #[arg(long)]
-        rpc_address: Option<String>,
-        #[arg(long)]
-        electrum_address: Option<String>,
-        #[arg(long)]
-        /// Download block filters starting at this height. Negative numbers are relative to the current tip.
-        filters_start_height: Option<i32>,
-    },
+    #[arg(long, default_value_t = true)]
+    /// Whether to build Compact Block Filters
+    ///
+    /// Those filters let you query for chain data after IBD, like wallet rescan,
+    /// finding an utxo, finding specific tx_ids.
+    /// Will cause more disk usage
+    pub cfilters: bool,
+
+    #[arg(long, short, default_value = None, value_name = "address[:<port>]")]
+    /// The url of a proxy we should open p2p connections through (e.g. 127.0.0.1:9050)
+    pub proxy: Option<String>,
+
+    #[arg(long, short, default_value = None, value_name = "HEIGHT")]
+    /// Instruct the node to rescan for our wallet on startup.
+    ///
+    /// This is useful if the node already did IBD, but you add a new descriptor with
+    /// balance, you'll need to rescan to find the old transactions.
+    pub rescan: Option<u32>,
+
+    #[arg(long, value_name = "XPUB")]
+    /// Add a xpub to our wallet
+    ///
+    /// This option can be passed many times, and will accept any SLIP039-valid extended
+    /// public key. You only need to pass this once, but there's no harm in passing it
+    /// more than once. After you start florestad at least once passing some xpub, florestad
+    /// will follow the first 100 addresses derived from this xpub on each keychain  and
+    /// cache any transactions where those addresses appear. You can use either the integrated
+    /// json-rpc or electrum server to fetch an addresses' history, balance and utxos.
+    pub wallet_xpub: Option<Vec<String>>,
+
+    #[arg(long, value_name = "DESCRIPTOR")]
+    /// Add a output descriptor to our wallet
+    ///
+    /// This option can be passed many times, and will accept any valid output descriptor.
+    /// You only need to pass this once, but there's no harm in passing it more than once.
+    /// After you start florestad at least once passing some xpub, florestad
+    /// will follow the first 100 addresses derived from this xpub on each keychain  and
+    /// cache any transactions where those addresses appear. You can use either the integrated
+    /// json-rpc or electrum server to fetch an addresses' history, balance and utxos.
+    pub wallet_descriptor: Option<Vec<String>>,
+
+    #[arg(long, value_name = "BLOCK_HASH")]
+    /// Assume blocks before this one as having valid scripts
+    ///
+    /// Assume that blocks that are buried under a considerable work have valid scripts.
+    /// We still do other checks, like amounts, UTXO existance, reward... the only check we
+    /// skip is the script validation
+    pub assume_valid: Option<String>,
+
+    #[arg(long, short, value_name = "address[:<port>]")]
+    /// A address for the ZeroMQ server to listen to
+    ///
+    /// ZeroMQ is a lightweight message queue for Inter Process Communication. If you connect
+    /// with this server, it'll push new blocks after we fully validate it.
+    pub zmq_address: Option<String>,
+
+    #[arg(long, value_name = "address[:<port>]")]
+    /// A node to connect to
+    ///
+    /// If this option is provided, we'll connect **only** to this node. It should be a ipv4
+    /// address in the format <address>[:<port>]
+    pub connect: Option<String>,
+
+    #[arg(long, value_name = "address[:<port>]")]
+    /// The address where our json-rpc server shold listen to in the format <address>[:<port>]
+    pub rpc_address: Option<String>,
+
+    #[arg(long, value_name = "address[:<port>]")]
+    /// The address where our electrum server should listen to tin the format <address>[:<port>]
+    pub electrum_address: Option<String>,
+
+    #[arg(long, value_name = "HEIGHT")]
+    /// Download block filters starting at this height. Negative numbers are relative to the current tip.
+    pub filters_start_height: Option<i32>,
+
+    #[arg(long)]
+    /// Whether we should assume a utreexo state for a given height
+    ///
+    /// This option will significantly speed up the initial block download, by skipping the
+    /// validation of the first hundreds of thousands of blocks. However, there's an inherent
+    /// trust in the developer that the utreexo state is correct. Everything after the assumed
+    /// height will be fully validated.
+    pub assume_utreexo: bool,
 }

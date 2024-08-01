@@ -67,7 +67,6 @@ mod tests {
 
         let fld = Command::new(format!("{here}/target/debug/florestad"))
             .args(["-n", "regtest"])
-            .args(["run"])
             .args(["--data-dir", &dirname])
             .args(["--rpc-address", &format!("127.0.0.1:{}", port)])
             .args(["--electrum-address", &format!("127.0.0.1:{}", port + 1)])

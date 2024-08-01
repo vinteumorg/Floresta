@@ -23,7 +23,6 @@ use std::time::Duration;
 
 use clap::Parser;
 use cli::Cli;
-use cli::Commands;
 use florestad::Config;
 use florestad::Florestad;
 
@@ -31,55 +30,24 @@ use florestad::Florestad;
 async fn main() {
     let params = Cli::parse();
 
-    let config = match params.command {
-        #[cfg(feature = "experimental-p2p")]
-        Some(Commands::Run {
-            data_dir,
-            assume_valid,
-            wallet_xpub,
-            wallet_descriptor,
-            rescan,
-            proxy,
-            zmq_address: _zmq_address,
-            cfilters,
-            connect,
-            rpc_address,
-            electrum_address,
-            filters_start_height,
-        }) => Config {
-            debug: params.debug,
-            data_dir,
-            assume_valid,
-            wallet_xpub,
-            wallet_descriptor,
-            rescan,
-            proxy,
-            config_file: params.config_file,
-            network: params.network.into(),
-            cfilters,
-            #[cfg(feature = "zmq-server")]
-            zmq_address: _zmq_address,
-            connect,
-            #[cfg(feature = "json-rpc")]
-            json_rpc_address: rpc_address,
-            electrum_address,
-            log_to_file: true,
-            log_to_stdout: true,
-            assume_utreexo: true,
-            filters_start_height,
-        },
-
-        // We may have more commands here, like setup and dump wallet
-        None => Config {
-            debug: params.debug,
-            config_file: params.config_file,
-            network: params.network.into(),
-            cfilters: true,
-            log_to_file: false,
-            log_to_stdout: true,
-            assume_utreexo: true,
-            ..Default::default()
-        },
+    let config = Config {
+        network: params.network.into(),
+        debug: params.debug,
+        data_dir: params.data_dir,
+        cfilters: params.cfilters,
+        proxy: params.proxy,
+        rescan: params.rescan,
+        assume_utreexo: params.assume_utreexo,
+        connect: params.connect,
+        wallet_xpub: params.wallet_xpub,
+        config_file: params.config_file,
+        log_to_file: params.log_file,
+        assume_valid: params.assume_valid,
+        log_to_stdout: true,
+        json_rpc_address: params.rpc_address,
+        electrum_address: params.electrum_address,
+        wallet_descriptor: params.wallet_descriptor,
+        filters_start_height: params.filters_start_height,
     };
 
     let florestad = Florestad::from(config);
