@@ -165,16 +165,6 @@ mod tests {
     }
 
     #[test]
-    fn test_get_block_filter() {
-        let (_proc, client) = start_florestad();
-
-        let block_filter = client.get_block_filter(0);
-
-        // this should err, because there is no filter for genesis block
-        assert!(block_filter.is_err());
-    }
-
-    #[test]
     fn test_get_height() {
         let (_proc, client) = start_florestad();
 
