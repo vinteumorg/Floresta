@@ -66,9 +66,6 @@ fn do_request(cmd: &Cli, client: ReqwestClient) -> anyhow::Result<String> {
         Methods::GetPeerInfo => serde_json::to_string_pretty(&client.get_peer_info()?)?,
         Methods::Stop => serde_json::to_string_pretty(&client.stop()?)?,
         Methods::AddNode { node } => serde_json::to_string_pretty(&client.add_node(node)?)?,
-        Methods::GetFilters { height } => {
-            serde_json::to_string_pretty(&client.get_block_filter(height)?)?
-        }
     })
 }
 
@@ -150,7 +147,4 @@ pub enum Methods {
     /// Usage: addnode <ip:[port]>
     #[command(name = "addnode")]
     AddNode { node: String },
-    /// Returns the filters for a given block
-    #[command(name = "getfilter")]
-    GetFilters { height: u32 },
 }
