@@ -25,5 +25,6 @@ pub enum Network {
     Regtest,
 }
 
+pub use florestad::AssumeUtreexoValue;
 pub use florestad::Config;
 pub use florestad::Florestad;

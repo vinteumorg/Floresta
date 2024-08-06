@@ -945,6 +945,7 @@ mod test {
     use tokio::io::AsyncReadExt;
     use tokio::io::AsyncWriteExt;
     use tokio::net::TcpStream;
+    use tokio::sync::RwLock;
     use tokio::task::{self};
     use tokio::time::timeout;
 
@@ -997,7 +998,7 @@ mod test {
             get_spk_hash(&transaction.output[0].script_pubkey),
         );
 
-        Arc::new(tokio::sync::RwLock::new(cache))
+        Arc::new(RwLock::new(cache))
     }
 
     fn get_test_address() -> (Address<NetworkUnchecked>, sha256::Hash) {
