@@ -43,6 +43,7 @@
 //!
 //! Most likely we'll only download one chain and all peers will agree with it. Then we can start
 //! downloading the actual blocks and validating them.
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
@@ -87,6 +88,8 @@ pub struct ChainSelector {
     sync_peer: PeerId,
     /// Peers that already sent us a message we are waiting for
     done_peers: HashSet<PeerId>,
+    /// Keep track each peer's tip
+    tip_cache: HashMap<PeerId, BlockHash>,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -157,6 +160,13 @@ where
                 );
             }
         }
+
+        let last = headers.last().unwrap().block_hash();
+        self.1
+            .tip_cache
+            .entry(peer)
+            .and_modify(|e| *e = last)
+            .or_insert(last);
 
         self.request_headers(headers.last().unwrap().block_hash(), peer)
             .await
@@ -498,10 +508,14 @@ where
         )
         .await?;
 
+        let timeout = Instant::now() + Duration::from_secs(60);
         let block = loop {
             let Ok(NodeNotification::FromPeer(_, PeerMessages::Block(block))) =
                 self.node_rx.recv().await
             else {
+                if Instant::now() > timeout {
+                    return Ok(());
+                }
                 continue;
             };
             break block;
@@ -520,8 +534,28 @@ where
             .validate_block(&block.block, proof, inputs, del_hashes, acc);
 
         if is_valid.is_err() {
+            let best_block = self.chain.get_best_block()?.1;
+            self.ban_peers_on_tip(best_block).await?;
+
             self.chain.switch_chain(other_tip)?;
             self.chain.invalidate_block(fork)?;
+            return Ok(());
+        }
+
+        // our chain's block is valid, therefore there's no reason for anyone be in this fork
+        self.ban_peers_on_tip(other_tip).await?;
+        Ok(())
+    }
+
+    async fn ban_peers_on_tip(&mut self, tip: BlockHash) -> Result<(), WireError> {
+        for peer in self.0.peers.clone() {
+            if self.1.tip_cache.get(&peer.0).copied().eq(&Some(tip)) {
+                self.address_man.update_set_state(
+                    peer.1.address_id as usize,
+                    AddressState::Banned(ChainSelector::BAN_TIME),
+                );
+                self.send_to_peer(peer.0, NodeRequest::Shutdown).await?;
+            }
         }
 
         Ok(())
