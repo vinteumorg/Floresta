@@ -92,7 +92,9 @@ pub struct Peer<T: Transport> {
     feeler: bool,
     wants_addrv2: bool,
     shutdown: bool,
+    our_user_agent: String,
 }
+
 #[derive(Debug, Error)]
 pub enum PeerError {
     #[error("Error while sending to peer")]
@@ -137,7 +139,7 @@ impl<T: Transport> Peer<T> {
     }
     async fn peer_loop_inner(&mut self) -> Result<()> {
         // send a version
-        let version = peer_utils::build_version_message();
+        let version = peer_utils::build_version_message(self.our_user_agent.clone());
         self.write(version).await?;
         self.state = State::SentVersion(Instant::now());
         let read_stream = BufReader::new(self.stream.clone());
@@ -481,6 +483,7 @@ impl<T: Transport> Peer<T> {
         node_requests: Receiver<NodeRequest>,
         address_id: usize,
         feeler: bool,
+        our_user_agent: String,
     ) {
         let peer = Peer {
             address_id,
@@ -503,6 +506,7 @@ impl<T: Transport> Peer<T> {
             feeler,
             wants_addrv2: false,
             shutdown: false,
+            our_user_agent,
         };
         spawn(peer.read_loop());
     }
@@ -517,6 +521,7 @@ impl<T: Transport> Peer<T> {
         node_requests: Receiver<NodeRequest>,
         address_id: usize,
         feeler: bool,
+        our_user_agent: String,
     ) {
         let stream =
             async_std::future::timeout(Duration::from_secs(10), TcpStream::connect(address)).await;
@@ -551,6 +556,7 @@ impl<T: Transport> Peer<T> {
             feeler,
             wants_addrv2: false,
             shutdown: false,
+            our_user_agent,
         };
         spawn(peer.read_loop());
     }
@@ -587,9 +593,6 @@ pub(super) mod peer_utils {
     use bitcoin::p2p::message::NetworkMessage;
     use bitcoin::p2p::message::{self};
     use bitcoin::p2p::message_network;
-    use floresta_common::constants::FLORESTA_VERSION;
-    use floresta_common::constants::RUSTREEXO_VERSION;
-    use floresta_common::constants::RUST_BITCOIN_VERSION;
 
     /// Protocol version we speak
     pub const PROTOCOL_VERSION: u32 = 70016;
@@ -598,7 +601,7 @@ pub(super) mod peer_utils {
         NetworkMessage::Pong(nonce)
     }
 
-    pub(crate) fn build_version_message() -> message::NetworkMessage {
+    pub(crate) fn build_version_message(user_agent: String) -> message::NetworkMessage {
         use bitcoin::p2p::ServiceFlags;
 
         // Building version message, see https://en.bitcoin.it/wiki/Protocol_documentation#version
@@ -621,12 +624,6 @@ pub(super) mod peer_utils {
 
         // "Node random nonce, randomly generated every time a version packet is sent. This nonce is used to detect connections to self."
         let nonce: u64 = 1;
-
-        // "User Agent (0x00 if string is 0 bytes long)"
-        let user_agent = format!(
-            "/rust-bitcoin:{}/rustreexo:{}/Floresta:{}/",
-            RUST_BITCOIN_VERSION, RUSTREEXO_VERSION, FLORESTA_VERSION
-        );
 
         // "The last block received by the emitting node"
         let start_height: i32 = 0;

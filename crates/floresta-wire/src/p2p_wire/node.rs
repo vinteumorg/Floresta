@@ -724,6 +724,7 @@ where
         mempool: Arc<RwLock<Mempool>>,
         network: bitcoin::Network,
         node_tx: Sender<NodeNotification>,
+        user_agent: String,
     ) -> impl Future<Output = ()> + Send + 'static {
         Peer::<TcpStream>::create_outbound_connection(
             peer_id_count,
@@ -734,6 +735,7 @@ where
             requests_rx,
             peer_id,
             feeler,
+            user_agent,
         )
     }
     /// Opens a connection through a socks5 interface
@@ -748,6 +750,7 @@ where
         address: LocalAddress,
         requests_rx: Receiver<NodeRequest>,
         peer_id_count: u32,
+        user_agent: String,
     ) -> Result<(), Socks5Error> {
         let addr = match address.get_address() {
             AddrV2::Cjdns(addr) => Socks5Addr::Ipv6(addr),
@@ -772,6 +775,7 @@ where
             requests_rx,
             peer_id,
             feeler,
+            user_agent,
         );
         Ok(())
     }
@@ -799,6 +803,7 @@ where
                     address.clone(),
                     requests_rx,
                     self.peer_id_count,
+                    self.config.user_agent.clone(),
                 ),
             ));
         } else {
@@ -811,6 +816,7 @@ where
                 self.mempool.clone(),
                 self.network.into(),
                 self.node_tx.clone(),
+                self.config.user_agent.clone(),
             ));
         }
 

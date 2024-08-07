@@ -64,6 +64,8 @@ pub struct UtreexoNodeConfig {
     /// tip is at height 1000, and we set this value to -100, we will start downloading filters
     /// from height 900.
     pub filter_start_height: Option<i32>,
+    /// The user agent that we will advertise to our peers. Defaults to `floresta:<version>`.
+    pub user_agent: String,
 }
 
 impl Default for UtreexoNodeConfig {
@@ -81,6 +83,7 @@ impl Default for UtreexoNodeConfig {
             backfill: false,
             assume_utreexo: None,
             filter_start_height: None,
+            user_agent: format!("floresta:{}", env!("CARGO_PKG_VERSION")),
         }
     }
 }

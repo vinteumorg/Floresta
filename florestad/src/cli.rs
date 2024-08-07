@@ -49,8 +49,9 @@ impl std::fmt::Display for Network {
 #[derive(Parser)]
 #[command(
     author = "Davidson Souza", 
-    version = env!("CARGO_PKG_VERSION"), 
-    about = "florestad - a lightweight Bitcoin full node powered by Utreexo", 
+    version = env!("GIT_DESCRIBE"),
+    about = "florestad - a lightweight Bitcoin client", 
+    long_about = env!("LONG_VERSION"),
 )]
 pub struct Cli {
     #[arg(short, long, value_name = "FILE")]
