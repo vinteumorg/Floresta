@@ -171,6 +171,7 @@ pub fn get_node_config(
         proxy: None,
         assume_utreexo: None,
         backfill: false,
+        filter_start_height: None,
     }
 }
 
@@ -262,15 +263,17 @@ pub fn get_essentials() -> (
     HashMap<BlockHash, UtreexoBlock>,
     HashMap<BlockHash, Vec<u8>>,
     BlockHash,
+    UtreexoBlock,
 ) {
     let headers = get_test_headers();
     let blocks = get_test_blocks().unwrap();
     let true_filters = get_test_filters().unwrap();
+    let invalid_block = generate_invalid_block();
 
     // BlockHash of chain_tip: 0000035f0e5513b26bba7cead874fdf06241a934e4bc4cf7a0381c60e4cdd2bb (119)
     let tip_hash =
         BlockHash::from_str("0000035f0e5513b26bba7cead874fdf06241a934e4bc4cf7a0381c60e4cdd2bb")
             .unwrap();
 
-    (headers, blocks, true_filters, tip_hash)
+    (headers, blocks, true_filters, tip_hash, invalid_block)
 }
