@@ -22,6 +22,7 @@
 //!     threads, as long as the origin thread gives away the ownership.
 use bitcoin::BlockHash;
 use floresta_common::prelude::*;
+
 extern crate alloc;
 
 use core::cell::UnsafeCell;
@@ -52,11 +53,6 @@ pub(crate) struct PartialChainStateInner {
     /// and to build the accumulator. We assume this is sorted by height, and
     /// should contains all blocks in this interval.
     pub(crate) blocks: Vec<BlockHeader>,
-    /// The height this interval starts at. This [initial_height, final_height), so
-    /// if we break the interval at height 100, the first interval will be [0, 100)
-    /// and the second interval will be [100, 200). And the initial height of the
-    /// second interval will be 99.
-    pub(crate) initial_height: u32,
     /// The height we are on right now, this is used to keep track of the progress
     /// of the sync.
     pub(crate) current_height: u32,
@@ -98,19 +94,13 @@ unsafe impl Send for PartialChainState {}
 unsafe impl Sync for PartialChainState {}
 
 impl PartialChainStateInner {
-    /// Returns the height we have synced up to so far
-    pub fn current_height(&self) -> u32 {
-        self.current_height
-    }
-
     /// Whether or not we have synced up to the final height
     pub fn is_sync(&self) -> bool {
         self.current_height == self.final_height
     }
 
     pub fn get_block(&self, height: u32) -> Option<&BlockHeader> {
-        let index = height - self.initial_height;
-        self.blocks.get(index as usize)
+        self.blocks.get(height as usize)
     }
 
     #[cfg(feature = "bitcoinconsensus")]
@@ -200,6 +190,7 @@ impl PartialChainStateInner {
                 block.block_hash()
             );
         }
+
         self.update_state(height, acc);
 
         Ok(height)
@@ -322,6 +313,10 @@ impl UpdatableChainstate for PartialChainState {
         self.inner().current_acc.roots.clone()
     }
 
+    fn get_acc(&self) -> Stump {
+        self.inner().current_acc.clone()
+    }
+
     //these are no-ops, you can call them, but they won't do anything
 
     fn flush(&self) -> Result<(), BlockchainError> {
@@ -381,7 +376,6 @@ impl BlockchainInterface for PartialChainState {
     }
 
     fn get_block_hash(&self, height: u32) -> Result<bitcoin::BlockHash, BlockchainError> {
-        let height = height - self.inner().initial_height;
         self.inner()
             .blocks
             .get(height as usize)
@@ -391,8 +385,8 @@ impl BlockchainInterface for PartialChainState {
 
     fn get_best_block(&self) -> Result<(u32, bitcoin::BlockHash), Self::Error> {
         Ok((
-            self.inner().current_height(),
-            self.get_block_hash(self.inner().current_height())?,
+            self.inner().final_height,
+            self.get_block_hash(self.inner().final_height)?,
         ))
     }
 
@@ -586,7 +580,6 @@ mod tests {
             final_height: 100,
             blocks: parsed_blocks.iter().map(|block| block.header).collect(),
             error: None,
-            initial_height: 0,
         }
         .into();
         parsed_blocks.remove(0);
@@ -623,7 +616,6 @@ mod tests {
             final_height: 100,
             blocks: blocks1.iter().map(|block| block.header).collect(),
             error: None,
-            initial_height: 0,
         };
         // We need to add the last block of the first chain to the second chain, so that
         // the second chain can validate all its blocks.
@@ -671,7 +663,6 @@ mod tests {
             final_height: 150,
             blocks: blocks2_headers,
             error: None,
-            initial_height: 100,
         }
         .into();
 
