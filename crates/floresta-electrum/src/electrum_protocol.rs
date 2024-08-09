@@ -912,6 +912,7 @@ mod test {
     use floresta_watch_only::kv_database::KvDatabase;
     use floresta_watch_only::merkle::MerkleProof;
     use floresta_watch_only::AddressCache;
+    use floresta_wire::address_man::AddressMan;
     use floresta_wire::mempool::Mempool;
     use floresta_wire::node::UtreexoNode;
     use floresta_wire::running_node::RunningNode;
@@ -928,6 +929,7 @@ mod test {
     use tokio::net::TcpListener;
     use tokio::net::TcpStream;
     use tokio::sync::Mutex;
+    use tokio::sync::RwLock;
     use tokio::task;
     use tokio::time::timeout;
     use tokio_rustls::rustls::Certificate;
@@ -1066,6 +1068,8 @@ mod test {
                 chain.clone(),
                 Arc::new(Mutex::new(Mempool::new(Pollard::default(), 0))),
                 None,
+                Arc::new(RwLock::new(false)),
+                AddressMan::default(),
             )
             .unwrap();
 

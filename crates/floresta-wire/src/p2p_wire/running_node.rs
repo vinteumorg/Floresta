@@ -28,7 +28,6 @@ use rand::random;
 use rustreexo::accumulator::node_hash::BitcoinNodeHash;
 use rustreexo::accumulator::pollard::PollardAddition;
 use rustreexo::accumulator::stump::Stump;
-use tokio::sync::RwLock;
 use tokio::time::timeout;
 
 use super::error::WireError;
@@ -73,7 +72,7 @@ impl NodeContext for RunningNode {
 impl<Chain> UtreexoNode<Chain, RunningNode>
 where
     WireError: From<<Chain as BlockchainInterface>::Error>,
-    Chain: BlockchainInterface + UpdatableChainstate + 'static,
+    Chain: BlockchainInterface + UpdatableChainstate + Sync + Send + Clone + 'static,
 {
     async fn send_addresses(&mut self) -> Result<(), WireError> {
         let addresses = self
@@ -160,17 +159,27 @@ where
         Ok(())
     }
 
-    async fn catch_up(self, kill_signal: Arc<RwLock<bool>>) -> Self {
-        let mut sync = UtreexoNode::<Chain, SyncNode> {
-            context: SyncNode::default(),
-            common: self.common,
-        };
-        sync.run(kill_signal, |_| {}).await;
+    /// Every time we restart the node, we'll be a few blocks behind the tip. This function
+    /// will start a sync node that will request, download and validate all blocks from the
+    /// last validation index to the tip. This function will block until the sync node is
+    /// finished.
+    ///
+    /// On the first startup, if we use either assumeutreexo or pow fraud proofs, this function
+    /// will only download the blocks that are after the one that got assumed. So, for PoW fraud
+    /// proofs, this means the last 100 blocks, and for assumeutreexo, this means however many
+    /// blocks from the hard-coded value in the config file.
+    pub async fn catch_up(&self) -> Result<(), WireError> {
+        let sync = UtreexoNode::<Chain, SyncNode>::new(
+            self.config.clone(),
+            self.chain.clone(),
+            self.mempool.clone(),
+            None,
+            self.kill_signal.clone(),
+        )?;
 
-        UtreexoNode {
-            common: sync.common,
-            context: self.context,
-        }
+        sync.run(|_| {}).await;
+
+        Ok(())
     }
 
     /// This function is called periodically to check if we have:
@@ -228,77 +237,165 @@ where
         Ok(())
     }
 
-    pub async fn run(
-        mut self,
-        kill_signal: Arc<RwLock<bool>>,
-        stop_signal: futures::channel::oneshot::Sender<()>,
-    ) {
+    /// If either PoW fraud proofs or assumeutreexo are enabled, we will "skip" IBD for all
+    /// historical blocks. This allow us to start the node faster, making it usable in a few
+    /// minutes. If you still want to validate all blocks, you can enable the backfill option.
+    ///
+    /// This function will spawn a background task that will download and validate all blocks
+    /// that got assumed. After completion, the task will shutdown and the node will continue
+    /// running normally. If we ever assume an invalid chain, the node will [halt and catch fire].
+    ///
+    /// [halt and catch fire]: https://en.wikipedia.org/wiki/Halt_and_Catch_Fire_(computing)
+    pub fn backfill(&self, done_flag: std::sync::mpsc::Sender<()>) -> Result<bool, WireError> {
+        // try finding the last state of the sync node
+        let state = std::fs::read(self.config.datadir.clone() + "/.sync_node_state");
+        // try to recover from the disk state, if it exists. Otherwise, start from genesis
+        let (chain, end) = match state {
+            Ok(state) => {
+                // if this file is empty, this means we've finished backfilling
+                if state.is_empty() {
+                    return Ok(false);
+                }
+
+                let acc = Stump::deserialize(&state[..(state.len() - 8)]).unwrap();
+                let tip = u32::from_le_bytes(
+                    state[(state.len() - 8)..(state.len() - 4)]
+                        .try_into()
+                        .unwrap(),
+                );
+
+                let end = u32::from_le_bytes(state[(state.len() - 4)..].try_into().unwrap());
+                info!(
+                    "Recovering backfill node from state tip={}, end={}",
+                    tip, end
+                );
+                (
+                    self.chain
+                        .get_partial_chain(tip, end, acc)
+                        .expect("Failed to get partial chain"),
+                    end,
+                )
+            }
+            Err(_) => {
+                // if the file doesn't exist or got corrupted, start from genesis
+                let end = self
+                    .chain
+                    .get_validation_index()
+                    .expect("can get the validation index");
+                (
+                    self.chain
+                        .get_partial_chain(0, end, Stump::default())
+                        .unwrap(),
+                    end,
+                )
+            }
+        };
+
+        let backfill = UtreexoNode::<PartialChainState, SyncNode>::new(
+            self.config.clone(),
+            chain,
+            self.mempool.clone(),
+            None,
+            self.kill_signal.clone(),
+        )
+        .unwrap();
+
+        let datadir = self.config.datadir.clone();
+        let outer_chain = self.chain.clone();
+
+        let fut = UtreexoNode::<PartialChainState, SyncNode>::run(
+            backfill,
+            move |chain: &PartialChainState| {
+                if chain.has_invalid_blocks() {
+                    panic!("We assumed a chain with invalid blocks, something went really wrong");
+                }
+
+                done_flag.send(()).unwrap();
+
+                // we haven't finished the backfill yet, save the current state for the next run
+                if chain.is_in_idb() {
+                    let acc = chain.get_acc();
+                    let tip = chain.get_height().unwrap();
+                    let mut ser_acc = Vec::new();
+                    acc.serialize(&mut ser_acc).unwrap();
+                    ser_acc.extend_from_slice(&tip.to_le_bytes());
+                    ser_acc.extend_from_slice(&end.to_le_bytes());
+                    std::fs::write(datadir + "/.sync_node_state", ser_acc)
+                        .expect("Failed to write sync node state");
+                    return;
+                }
+
+                // empty the file if we're done
+                std::fs::write(datadir + "/.sync_node_state", Vec::new())
+                    .expect("Failed to write sync node state");
+
+                for block in chain.list_valid_blocks() {
+                    outer_chain
+                        .mark_block_as_valid(block.block_hash())
+                        .expect("Failed to mark block as valid");
+                }
+
+                info!("Backfilling task shutting down...");
+            },
+        );
+
+        tokio::task::spawn(fut);
+        Ok(true)
+    }
+
+    pub async fn run(mut self, stop_signal: futures::channel::oneshot::Sender<()>) {
         try_and_log!(self.init_peers().await);
-        let startup_tip = self.chain.get_height().unwrap();
 
         // Use this node state to Initial Block download
         let mut ibd = UtreexoNode {
             common: self.common,
             context: ChainSelector::default(),
         };
-        try_and_log!(UtreexoNode::<Chain, ChainSelector>::run(&mut ibd, kill_signal.clone()).await);
 
-        if *kill_signal.read().await {
-            self = UtreexoNode {
-                common: ibd.common,
-                context: self.context,
-            };
-            self.shutdown().await;
-            try_and_log!(stop_signal.send(()));
-            return;
-        }
+        try_and_log!(UtreexoNode::<Chain, ChainSelector>::run(&mut ibd).await);
 
         self = UtreexoNode {
             common: ibd.common,
             context: self.context,
         };
 
-        // download all blocks from the network
-        if self.config.backfill && startup_tip == 0 {
-            let end = self.common.chain.get_validation_index().unwrap();
-            let chain = self
-                .chain
-                .get_partial_chain(startup_tip, end, Stump::default())
-                .unwrap();
-
-            let mut backfill = UtreexoNode::<PartialChainState, SyncNode>::new(
-                self.config.clone(),
-                chain,
-                self.mempool.clone(),
-                None,
-            )
-            .expect("Failed to create backfill node"); // expect is fine here, because we already
-                                                       // validated this config before creating the RunningNode
-
-            UtreexoNode::<PartialChainState, SyncNode>::run(
-                &mut backfill,
-                kill_signal.clone(),
-                |chain: &PartialChainState| {
-                    if chain.has_invalid_blocks() {
-                        panic!(
-                            "We assumed a chain with invalid blocks, something went really wrong"
-                        );
-                    }
-
-                    for block in chain.list_valid_blocks() {
-                        self.chain
-                            .mark_block_as_valid(block.block_hash())
-                            .expect("Failed to mark block as valid");
-                    }
-                },
-            )
-            .await;
+        if *self.kill_signal.read().await {
+            self.shutdown().await;
+            try_and_log!(stop_signal.send(()));
+            return;
         }
 
-        self = self.catch_up(kill_signal.clone()).await;
+        // download blocks from the network before our validation index, probably because we've
+        // assumed it somehow.
+        let (sender, recv) = std::sync::mpsc::channel();
+        let is_backfilling = match self.config.backfill {
+            true => {
+                info!("Starting backfill task...");
+                self.backfill(sender)
+                    .expect("Failed to spawn backfill thread")
+            }
+            false => false,
+        };
+
+        // Catch up with the network, donloading blocks from our last validation index onwnwards
+        info!("Catching up with the network...");
+        try_and_log!(self.catch_up().await);
+
+        if *self.kill_signal.read().await {
+            self.shutdown().await;
+            stop_signal.send(()).unwrap();
+            return;
+        }
 
         self.last_block_request = self.chain.get_validation_index().unwrap_or(0);
+        if let Some(ref cfilters) = self.block_filters {
+            self.last_filter = self
+                .chain
+                .get_block_hash(cfilters.get_height().unwrap_or(1))
+                .unwrap();
+        }
 
+        self.last_block_request = self.chain.get_validation_index().unwrap_or(0);
         if let Some(ref cfilters) = self.block_filters {
             self.last_filter = self
                 .chain
@@ -308,16 +405,16 @@ where
 
         info!("starting running node...");
         loop {
+            if *self.kill_signal.read().await {
+                break;
+            }
+
             while let Ok(Some(notification)) =
                 timeout(Duration::from_millis(100), self.node_rx.recv()).await
             {
                 try_and_log!(self.handle_notification(notification).await);
             }
 
-            if *kill_signal.read().await {
-                self.shutdown().await;
-                break;
-            }
             // Jobs that don't need a connected peer
 
             // Save our peers db
@@ -406,6 +503,13 @@ where
             }
         }
 
+        // ignore the error here because if the backfill task already
+        // finished, this channel will be closed
+        if is_backfilling {
+            let _ = recv.recv();
+        }
+
+        self.shutdown().await;
         stop_signal.send(()).unwrap();
     }
 

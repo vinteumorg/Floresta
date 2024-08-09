@@ -1017,6 +1017,10 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
         self.reorg(new_tip)
     }
 
+    fn get_acc(&self) -> Stump {
+        self.acc()
+    }
+
     fn mark_block_as_valid(&self, block: BlockHash) -> Result<(), BlockchainError> {
         let header = self.get_disk_block_header(&block)?;
         let height = header.height().unwrap();
@@ -1196,16 +1200,14 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
         final_height: u32,
         acc: Stump,
     ) -> Result<super::partial_chain::PartialChainState, BlockchainError> {
-        let blocks = (initial_height..=final_height)
-            .flat_map(|height| {
+        let blocks = (0..=final_height)
+            .map(|height| {
                 let hash = self
                     .get_block_hash(height)
                     .expect("Block should be present");
-                self.get_disk_block_header(&hash)
-            })
-            .filter_map(|header| match header {
-                DiskBlockHeader::FullyValid(header, _) => Some(header),
-                _ => None,
+                *self
+                    .get_disk_block_header(&hash)
+                    .expect("Block should be present")
             })
             .collect();
 
@@ -1218,7 +1220,6 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
             current_acc: acc,
             final_height,
             assume_valid: false,
-            initial_height,
             current_height: initial_height,
         };
 

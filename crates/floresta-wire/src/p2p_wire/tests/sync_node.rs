@@ -1,6 +1,5 @@
 #[cfg(test)]
 mod tests_utils {
-    use std::mem::ManuallyDrop;
     use std::sync::Arc;
     use std::time::Duration;
 
@@ -13,6 +12,7 @@ mod tests_utils {
     use tokio::sync::RwLock;
     use tokio::time::timeout;
 
+    use crate::address_man::AddressMan;
     use crate::mempool::Mempool;
     use crate::node::UtreexoNode;
     use crate::p2p_wire::sync_node::SyncNode;
@@ -46,11 +46,14 @@ mod tests_utils {
 
         let config = get_node_config(datadir, network, pow_fraud_proofs);
 
+        let kill_signal = Arc::new(RwLock::new(false));
         let mut node = UtreexoNode::<Arc<ChainState<KvChainStore>>, SyncNode>::new(
             config,
             chain.clone(),
             mempool,
             None,
+            kill_signal.clone(),
+            AddressMan::default(),
         )
         .unwrap();
 
@@ -71,15 +74,7 @@ mod tests_utils {
             node.peers.insert(i as u32, peer);
         }
 
-        let mut node = ManuallyDrop::new(Box::new(node));
-        let kill_signal = Arc::new(RwLock::new(false));
-
-        // FIXME: This doesn't look very safe, but we need to coerce a &mut reference of the node
-        //        to live for the static lifetime, or it can't be spawn-ed by tokio::task
-        let _node: &'static mut UtreexoNode<Arc<ChainState<KvChainStore>>, SyncNode> =
-            unsafe { std::mem::transmute(&mut **node) };
-
-        timeout(Duration::from_secs(100), _node.run(kill_signal, |_| {}))
+        timeout(Duration::from_secs(100), node.run(|_| {}))
             .await
             .unwrap();
 

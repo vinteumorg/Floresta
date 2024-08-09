@@ -16,12 +16,12 @@ use floresta::chain::Network;
 use floresta::wire::mempool::Mempool;
 use floresta::wire::node::UtreexoNode;
 use floresta_chain::AssumeValidArg;
+use floresta_wire::address_man::AddressMan;
 use floresta_wire::node_interface::NodeMethods;
 use floresta_wire::running_node::RunningNode;
 use floresta_wire::UtreexoNodeConfig;
 use rustreexo::accumulator::pollard::Pollard;
 use tokio::sync::Mutex;
-use tokio::sync::RwLock;
 
 const DATA_DIR: &str = "./tmp-db";
 
@@ -64,6 +64,8 @@ async fn main() {
         chain.clone(),
         Arc::new(Mutex::new(Mempool::new(Pollard::default(), 1000))),
         None,
+        Arc::new(tokio::sync::RwLock::new(false)),
+        AddressMan::default(),
     )
     .unwrap();
     // A handle is a simple way to interact with the node. It implements a queue of requests
@@ -76,7 +78,7 @@ async fn main() {
     // It will also start the mempool, which will start rebroadcasting our transactions every hour.
     // The node will keep running until the process is killed, by setting kill_signal to true. In
     // this example, we don't kill the node, so it will keep running forever.
-    p2p.run(Arc::new(RwLock::new(false)), sender).await;
+    p2p.run(sender).await;
 
     // That's it! The node is now running, and will keep running until the process is killed.
     // You can now use the chain state to query the current state of the accumulator, or the

@@ -151,7 +151,6 @@ pub trait UpdatableChainstate {
     /// [PartialChainState] to completion by downloading blocks inside that chainstate's range.
     /// If all goes right, it'll end without error, and you should mark blocks in this range as
     /// valid.
-    ///
     /// Since this chainstate may start from a height with an existing UTXO set, you need to
     /// provide a [Stump] for that block.
     fn get_partial_chain(
@@ -165,6 +164,8 @@ pub trait UpdatableChainstate {
     /// This mimics the behaviour of checking every block before this block, and continues
     /// from this point
     fn mark_chain_as_assumed(&self, acc: Stump, tip: BlockHash) -> Result<bool, BlockchainError>;
+    /// Returns the current accumulator
+    fn get_acc(&self) -> Stump;
 }
 
 /// This trait is defining how we interact with our chain database. This definitions
@@ -213,6 +214,10 @@ pub enum Notification {
 impl<T: UpdatableChainstate> UpdatableChainstate for Arc<T> {
     fn flush(&self) -> Result<(), BlockchainError> {
         T::flush(self)
+    }
+
+    fn get_acc(&self) -> Stump {
+        T::get_acc(self)
     }
 
     fn toggle_ibd(&self, is_ibd: bool) {
