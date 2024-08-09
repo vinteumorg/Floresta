@@ -404,12 +404,15 @@ impl Florestad {
         };
 
         let acc = Pollard::new();
+        let kill_signal = self.stop_signal.clone();
+
         // Chain Provider (p2p)
         let chain_provider = UtreexoNode::new(
             config,
             blockchain_state.clone(),
             Arc::new(tokio::sync::Mutex::new(Mempool::new(acc, 300_000_000))),
             cfilters.clone(),
+            kill_signal.clone(),
         )
         .expect("Could not create a chain provider");
 
@@ -538,13 +541,12 @@ impl Florestad {
         }
 
         // Chain provider
-        let kill_signal = self.stop_signal.clone();
         let (sender, receiver) = oneshot::channel();
 
         let mut recv = self.stop_notify.lock().unwrap();
         *recv = Some(receiver);
 
-        task::spawn(chain_provider.run(kill_signal, sender));
+        task::spawn(chain_provider.run(sender));
 
         // Metrics
         #[cfg(feature = "metrics")]
