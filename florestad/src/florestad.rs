@@ -35,6 +35,7 @@ use floresta_watch_only::AddressCache;
 use floresta_watch_only::AddressCacheDatabase;
 use floresta_wire::mempool::Mempool;
 use floresta_wire::node::UtreexoNode;
+use floresta_wire::running_node::RunningNode;
 use floresta_wire::UtreexoNodeConfig;
 use futures::channel::oneshot;
 use futures::executor::block_on;
@@ -407,12 +408,15 @@ impl Florestad {
         };
 
         let acc = Pollard::new();
+        let kill_signal = self.stop_signal.clone();
+
         // Chain Provider (p2p)
-        let chain_provider = UtreexoNode::new(
+        let chain_provider = UtreexoNode::<_, RunningNode>::new(
             config,
             blockchain_state.clone(),
             Arc::new(tokio::sync::Mutex::new(Mempool::new(acc, 300_000_000))),
             cfilters.clone(),
+            kill_signal.clone(),
         )
         .expect("Could not create a chain provider");
 
@@ -541,13 +545,12 @@ impl Florestad {
         }
 
         // Chain provider
-        let kill_signal = self.stop_signal.clone();
         let (sender, receiver) = oneshot::channel();
 
         let mut recv = self.stop_notify.lock().unwrap();
         *recv = Some(receiver);
 
-        task::spawn(chain_provider.run(kill_signal, sender));
+        task::spawn(chain_provider.run(sender));
 
         // Metrics
         #[cfg(feature = "metrics")]
