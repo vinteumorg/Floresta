@@ -97,7 +97,36 @@ impl TestPeer {
             let req = self.node_rx.recv().await.unwrap();
 
             match req {
+                NodeRequest::GetHeaders(hashes) => {
+                    println!("REQUESTED: HEADERS");
+                    let pos = hashes.first().unwrap();
+                    let pos = self.headers.iter().position(|h| h.block_hash() == *pos);
+                    let headers = match pos {
+                        None => vec![],
+                        Some(pos) => self.headers[(pos + 1)..].to_vec(),
+                    };
+
+                    self.node_tx
+                        .send(NodeNotification::FromPeer(
+                            self.peer_id,
+                            PeerMessages::Headers(headers),
+                        ))
+                        .await
+                        .unwrap();
+                }
+                NodeRequest::GetUtreexoState((hash, _)) => {
+                    let filters = self.filters.get(&hash).unwrap().clone();
+                    self.node_tx
+                        .send(NodeNotification::FromPeer(
+                            self.peer_id,
+                            PeerMessages::UtreexoState(filters),
+                        ))
+                        .await
+                        .unwrap();
+                }
+
                 NodeRequest::GetBlock((hashes, _)) => {
+                    println!("REQUESTED BLOCKS: {}", hashes.len());
                     for hash in hashes {
                         let block = self.blocks.get(&hash).unwrap().clone();
                         self.node_tx
