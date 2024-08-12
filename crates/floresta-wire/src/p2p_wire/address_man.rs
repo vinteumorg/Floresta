@@ -200,7 +200,6 @@ impl AddressMan {
                 }
 
                 self.push_if_has_service(address, service_flags::UTREEXO.into());
-                self.push_if_has_service(address, service_flags::UTREEXO.into()); // UTREEXO_FILTER
                 self.push_if_has_service(address, ServiceFlags::NONE); // this means any peer
                 self.push_if_has_service(address, ServiceFlags::COMPACT_FILTERS);
             }
@@ -371,9 +370,9 @@ impl AddressMan {
             let (id, peer) = self
                 .get_address_by_service(required_service)
                 .or_else(|| self.get_random_address(required_service))?;
-
+            
             match peer.state {
-                AddressState::NeverTried | AddressState::Tried(_) => {
+                AddressState::NeverTried | AddressState::Tried(_) | AddressState::Connected=> {
                     return Some((id, peer));
                 }
 
@@ -393,8 +392,6 @@ impl AddressMan {
 
                     self.good_addresses.retain(|&x| x != id);
                 }
-
-                AddressState::Connected => {}
             }
         }
 

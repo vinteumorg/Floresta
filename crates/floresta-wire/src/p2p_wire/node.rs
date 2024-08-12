@@ -236,6 +236,7 @@ where
         mempool: Arc<Mutex<Mempool>>,
         block_filters: Option<Arc<NetworkFilters<FlatFiltersStore>>>,
         kill_signal: Arc<tokio::sync::RwLock<bool>>,
+        address_man: AddressMan,
     ) -> Result<Self, WireError> {
         let (node_tx, node_rx) = unbounded_channel();
         let socks5 = config.proxy.map(Socks5StreamBuilder::new);
@@ -264,7 +265,7 @@ where
                 network: config.network.into(),
                 node_rx,
                 node_tx,
-                address_man: AddressMan::default(),
+                address_man,
                 last_headers_request: Instant::now(),
                 last_tip_update: Instant::now(),
                 last_connection: Instant::now(),
