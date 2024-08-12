@@ -140,6 +140,13 @@ pub struct Config {
     pub user_agent: String,
     /// The value to use for assumeutreexo
     pub assumeutreexo_value: Option<AssumeUtreexoValue>,
+    /// Whehter we should backfill
+    ///
+    /// If we assumeutreexo or use pow fraud proofs, you have the option to download and validate
+    /// the blocks that were skipped. This will take a long time, but will run on the background
+    /// and won't affect the node's operation. You may notice that this will take a lot of CPU
+    /// and bandwidth to run.
+    pub backfill: bool,
 }
 
 pub struct Florestad {
