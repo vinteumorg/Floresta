@@ -200,7 +200,6 @@ impl AddressMan {
                 }
 
                 self.push_if_has_service(address, service_flags::UTREEXO.into());
-                self.push_if_has_service(address, service_flags::UTREEXO.into()); // UTREEXO_FILTER
                 self.push_if_has_service(address, ServiceFlags::NONE); // this means any peer
                 self.push_if_has_service(address, ServiceFlags::COMPACT_FILTERS);
             }
@@ -393,8 +392,6 @@ impl AddressMan {
 
                     self.good_addresses.retain(|&x| x != id);
                 }
-
-                AddressState::Connected => {}
             }
         }
 

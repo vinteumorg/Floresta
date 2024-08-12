@@ -3,7 +3,6 @@
 /// CPU to run, being bound by the number of blocks found in a given period.
 use std::collections::BTreeMap;
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 
@@ -175,6 +174,7 @@ where
             self.mempool.clone(),
             None,
             self.kill_signal.clone(),
+            self.address_man.clone(),
         )?;
 
         sync.run(|_| {}).await;
@@ -297,6 +297,7 @@ where
             self.mempool.clone(),
             None,
             self.kill_signal.clone(),
+            self.address_man.clone(),
         )
         .unwrap();
 
