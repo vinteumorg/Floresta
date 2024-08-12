@@ -508,7 +508,9 @@ mod tests {
 
     use bitcoin::block::Header;
     use bitcoin::consensus::deserialize;
+    use bitcoin::hashes::Hash;
     use bitcoin::Block;
+    use bitcoin::BlockHash;
     use rustreexo::accumulator::node_hash::NodeHash;
     use rustreexo::accumulator::proof::Proof;
     use rustreexo::accumulator::stump::Stump;
@@ -554,7 +556,6 @@ mod tests {
             final_height: 1,
             blocks,
             error: None,
-            initial_height: 0,
         }
         .into()
     }
@@ -600,12 +601,13 @@ mod tests {
         // accumulator to be what we expect after 100 blocks and after 150 blocks.
         let blocks = include_str!("./testdata/blocks.txt");
         let mut parsed_blocks = vec![];
+        let mut headers = vec![];
         for block in blocks.lines() {
             let block: Block = deserialize(&hex::decode(block).unwrap()).unwrap();
+            headers.push(block.header);
             parsed_blocks.push(block);
         }
         // The file contains 150 blocks, we split them into two chains.
-        let (blocks1, blocks2) = parsed_blocks.split_at(101);
         let mut chainstate1 = PartialChainStateInner {
             assume_valid: true,
             consensus: Consensus {
@@ -614,25 +616,22 @@ mod tests {
             current_height: 0,
             current_acc: Stump::default(),
             final_height: 100,
-            blocks: blocks1.iter().map(|block| block.header).collect(),
+            blocks: headers.clone(),
             error: None,
         };
+        let blocks1 = parsed_blocks.drain(..=100).collect::<Vec<_>>();
+        let blocks2 = parsed_blocks.drain(..50).collect::<Vec<_>>();
         // We need to add the last block of the first chain to the second chain, so that
         // the second chain can validate all its blocks.
-        let mut blocks2_headers = vec![blocks1.last().unwrap()];
-        blocks2_headers.extend(blocks2);
-
-        let blocks2_headers = blocks2_headers.iter().map(|block| block.header).collect();
-
-        let mut blocks1 = blocks1.iter();
-        blocks1.next();
-
         for block in blocks1 {
+            if block.header.prev_blockhash == BlockHash::all_zeros() {
+                continue;
+            }
             let proof = Proof::default();
             let inputs = HashMap::new();
             let del_hashes = vec![];
             chainstate1
-                .process_block(block, proof, inputs, del_hashes)
+                .process_block(&block, proof, inputs, del_hashes)
                 .unwrap();
         }
         // The state after 100 blocks, computed ahead of time.
@@ -661,7 +660,7 @@ mod tests {
             current_height: 100,
             current_acc: acc2,
             final_height: 150,
-            blocks: blocks2_headers,
+            blocks: headers,
             error: None,
         }
         .into();
@@ -671,7 +670,7 @@ mod tests {
             let inputs = HashMap::new();
             let del_hashes = vec![];
             chainstate2
-                .connect_block(block, proof, inputs, del_hashes)
+                .connect_block(&block, proof, inputs, del_hashes)
                 .unwrap();
         }
 
