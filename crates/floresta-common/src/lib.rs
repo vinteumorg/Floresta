@@ -7,7 +7,6 @@ use miniscript::Descriptor;
 #[cfg(feature = "descriptors")]
 use miniscript::DescriptorPublicKey;
 use sha2::Digest;
-pub mod constants;
 pub mod spsc;
 
 use prelude::*;

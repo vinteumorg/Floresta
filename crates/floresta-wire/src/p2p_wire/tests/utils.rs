@@ -172,6 +172,7 @@ pub fn get_node_config(
         assume_utreexo: None,
         backfill: false,
         filter_start_height: None,
+        user_agent: "node_test".to_string(),
     }
 }
 

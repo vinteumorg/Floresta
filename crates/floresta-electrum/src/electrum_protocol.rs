@@ -952,8 +952,7 @@ mod test {
             get_spk_hash(&transaction.output[0].script_pubkey),
         );
 
-        let cache = Arc::new(RwLock::new(cache));
-        cache
+        Arc::new(RwLock::new(cache))
     }
 
     fn get_test_address() -> (Address<NetworkUnchecked>, sha256::Hash) {
@@ -1019,6 +1018,7 @@ mod test {
             assume_utreexo: None,
             backfill: false,
             filter_start_height: None,
+            user_agent: "floresta".to_string(),
         };
 
         let chain_provider: UtreexoNode<RunningNode, Arc<ChainState<KvChainStore>>> =
@@ -1365,6 +1365,9 @@ mod test {
         );
         assert!(batch_response[4]["result"].as_array().unwrap().is_empty());
         assert!(batch_response[5]["result"].is_null());
-        assert_eq!(batch_response[6]["result"][0], "Floresta 0.1.0".to_string());
+        assert_eq!(
+            batch_response[6]["result"][0],
+            format!("Floresta {}", env!("CARGO_PKG_VERSION"))
+        );
     }
 }

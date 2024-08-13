@@ -19,7 +19,6 @@ use floresta_chain::AssumeValidArg;
 use floresta_chain::BlockchainError;
 use floresta_chain::ChainState;
 use floresta_chain::KvChainStore;
-use floresta_common::constants::DIR_NAME;
 use floresta_compact_filters::flat_filters_store::FlatFiltersStore;
 use floresta_compact_filters::network_filters::NetworkFilters;
 use floresta_electrum::electrum_protocol::client_accept_loop;
@@ -135,6 +134,8 @@ pub struct Config {
     pub assume_utreexo: bool,
     /// Whether we should post debug information to the console
     pub debug: bool,
+    /// The user agent that we will advertise to our peers
+    pub user_agent: String,
 }
 
 pub struct Florestad {
@@ -201,7 +202,7 @@ impl Florestad {
                     format!(
                         "{}/{}/",
                         x.to_str().unwrap_or_default().to_owned(),
-                        DIR_NAME,
+                        ".floresta",
                     )
                 })
             })
@@ -344,6 +345,7 @@ impl Florestad {
             assume_utreexo,
             backfill: false,
             filter_start_height: self.config.filters_start_height,
+            user_agent: self.config.user_agent.clone(),
         };
 
         // Chain Provider (p2p)
