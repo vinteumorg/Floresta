@@ -359,9 +359,8 @@ where
 
         info!("starting running node...");
         loop {
-            while let Some(notification) = timeout(Duration::from_millis(100), self.node_rx.recv())
-                .await
-                .unwrap()
+            while let Ok(Some(notification)) =
+                timeout(Duration::from_millis(100), self.node_rx.recv()).await
             {
                 try_and_log!(self.handle_notification(notification).await);
             }
@@ -704,7 +703,6 @@ where
                 &block.block.txdata,
                 &self.chain,
             )?;
-            tokio::task::yield_now().await;
             if let Err(e) = self
                 .chain
                 .connect_block(&block.block, proof, inputs, del_hashes)

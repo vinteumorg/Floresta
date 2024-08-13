@@ -539,15 +539,12 @@ where
     }
 
     pub(crate) async fn init_peers(&mut self) -> Result<(), WireError> {
-        let anchors = self
-            .0
-            .address_man
-            .start_addr_man(
-                self.datadir.clone(),
-                self.get_default_port(),
-                self.network,
-                &get_chain_dns_seeds(self.network),
-            )?;
+        let anchors = self.0.address_man.start_addr_man(
+            self.datadir.clone(),
+            self.get_default_port(),
+            self.network,
+            &get_chain_dns_seeds(self.network),
+        )?;
         for address in anchors {
             self.open_connection(false, address.id, address).await;
         }
