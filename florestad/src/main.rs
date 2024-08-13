@@ -48,7 +48,7 @@ async fn main() {
         electrum_address: params.electrum_address,
         wallet_descriptor: params.wallet_descriptor,
         filters_start_height: params.filters_start_height,
-        user_agent: format!("floresta:{}", env!("GIT_DESCRIBE")),
+        user_agent: format!("/floresta:{}/", env!("GIT_DESCRIBE")),
     };
 
     let florestad = Florestad::from(config);
