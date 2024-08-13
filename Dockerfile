@@ -15,4 +15,4 @@ RUN chmod +x /usr/local/bin/florestad
 
 EXPOSE 50001
 
-CMD [ "florestad", "run"]
+CMD [ "florestad" ]
