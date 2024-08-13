@@ -60,7 +60,7 @@ enum State {
 }
 
 pub struct P2PMessageHeader {
-    magic: Magic,
+    _magic: Magic,
     _command: [u8; 12],
     length: u32,
     _checksum: u32,
@@ -70,7 +70,7 @@ impl Decodable for P2PMessageHeader {
     fn consensus_decode<R: std::io::Read + ?Sized>(
         reader: &mut R,
     ) -> std::result::Result<Self, bitcoin::consensus::encode::Error> {
-        let magic = Magic::consensus_decode(reader)?;
+        let _magic = Magic::consensus_decode(reader)?;
         let _command = <[u8; 12]>::consensus_decode(reader)?;
         let length = u32::consensus_decode(reader)?;
         let _checksum = u32::consensus_decode(reader)?;
@@ -78,7 +78,7 @@ impl Decodable for P2PMessageHeader {
             _checksum,
             _command,
             length,
-            magic,
+            _magic,
         })
     }
 }
@@ -739,9 +739,4 @@ pub enum PeerMessages {
     Transaction(Transaction),
     UtreexoState(Vec<u8>),
     BlockFilter((BlockHash, floresta_compact_filters::BlockFilter)),
-}
-
-pub enum PeerMessage {
-    Block(UtreexoBlock),
-    Message(RawNetworkMessage),
 }

@@ -444,7 +444,7 @@ where
     ) -> Result<(), WireError> {
         if let Some(peer) = &self.peers.get(&peer_id) {
             if peer.state == PeerStatus::Ready {
-                peer.channel.send(req).map_err(WireError::ChannelSend)?;
+                peer.channel.send(req)?;
             }
         }
         Ok(())
@@ -468,7 +468,7 @@ where
         // This peer is misbehaving too often, ban it
         if peer.banscore >= self.0.max_banscore {
             warn!("banning peer {} for misbehaving", peer_id);
-            let _ = peer.channel.send(NodeRequest::Shutdown);
+            peer.channel.send(NodeRequest::Shutdown)?;
             self.0.address_man.update_set_state(
                 peer.address_id as usize,
                 AddressState::Banned(RunningNode::BAN_TIME),
@@ -547,8 +547,7 @@ where
                 self.get_default_port(),
                 self.network,
                 &get_chain_dns_seeds(self.network),
-            )
-            .map_err(WireError::Io)?;
+            )?;
         for address in anchors {
             self.open_connection(false, address.id, address).await;
         }
@@ -719,39 +718,35 @@ where
         network: bitcoin::Network,
         node_tx: UnboundedSender<NodeNotification>,
         user_agent: String,
-    ) {
+    ) -> Result<(), WireError> {
         let address = (address.get_net_address(), address.get_port());
-        let stream = timeout(Duration::from_secs(10), TcpStream::connect(address)).await;
+        let stream = TcpStream::connect(address).await?;
 
-        if let Ok(Ok(stream)) = stream {
-            stream.set_nodelay(true).unwrap();
-            let (reader, writer) = tokio::io::split(stream);
+        stream.set_nodelay(true)?;
 
-            let (actor_receiver, actor) = create_tcp_stream_actor(reader, network);
-            tokio::spawn(async move {
-                let _ = actor.run().await;
-            });
+        let (reader, writer) = tokio::io::split(stream);
 
-            // Use create_peer function instead of manually creating the peer
-            Peer::<WriteHalf>::create_peer(
-                peer_id_count,
-                mempool,
-                network,
-                node_tx,
-                requests_rx,
-                peer_id,
-                feeler,
-                actor_receiver,
-                writer,
-                user_agent,
+        let (actor_receiver, actor) = create_tcp_stream_actor(reader, network);
+        tokio::spawn(async move {
+            let _ = actor.run().await;
+        });
+
+        // Use create_peer function instead of manually creating the peer
+        Peer::<WriteHalf>::create_peer(
+            peer_id_count,
+            mempool,
+            network,
+            node_tx.clone(),
+            requests_rx,
+            peer_id,
+            feeler,
+            actor_receiver,
+            writer,
+            user_agent,
         )
-            .await;
-        } else {
-            let _ = node_tx.send(NodeNotification::FromPeer(
-                peer_id_count,
-                PeerMessages::Disconnected(peer_id),
-            ));
-        }
+        .await;
+
+        Ok(())
     }
     /// Opens a connection through a socks5 interface
     #[allow(clippy::too_many_arguments)]
@@ -830,16 +825,19 @@ where
                 ),
             ));
         } else {
-            spawn(Self::open_non_proxy_connection(
-                feeler,
-                peer_id,
-                address.clone(),
-                requests_rx,
-                self.peer_id_count,
-                self.mempool.clone(),
-                self.network.into(),
-                self.node_tx.clone(),
-                self.config.user_agent.clone(),
+            spawn(timeout(
+                Duration::from_secs(10),
+                Self::open_non_proxy_connection(
+                    feeler,
+                    peer_id,
+                    address.clone(),
+                    requests_rx,
+                    self.peer_id_count,
+                    self.mempool.clone(),
+                    self.network.into(),
+                    self.node_tx.clone(),
+                    self.config.user_agent.clone(),
+                ),
             ));
         }
 

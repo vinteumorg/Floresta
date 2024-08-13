@@ -363,7 +363,7 @@ where
                 .await
                 .unwrap()
             {
-                try_and_log!(self.handle_notification(Some(notification)).await);
+                try_and_log!(self.handle_notification(notification).await);
             }
 
             if *kill_signal.read().await {
@@ -776,10 +776,10 @@ where
 
     pub(crate) async fn handle_notification(
         &mut self,
-        notification: Option<NodeNotification>,
+        notification: NodeNotification,
     ) -> Result<(), WireError> {
         match notification {
-            Some(NodeNotification::FromPeer(peer, message)) => match message {
+            NodeNotification::FromPeer(peer, message) => match message {
                 PeerMessages::NewBlock(block) => {
                     debug!("We got an inv with block {block} requesting it");
                     self.handle_new_block().await?;
@@ -886,10 +886,6 @@ where
                     self.increase_banscore(peer, 5).await?;
                 }
             },
-            None => {
-                // We got a kill signal
-                return Ok(());
-            }
         }
         Ok(())
     }
