@@ -60,7 +60,7 @@ fn main() {
         .build()
         .unwrap();
 
-    let stop_signal = Arc::new(RwLock::new(true));
+    let stop_signal = Arc::new(RwLock::new(false));
     let florestad = Florestad::from(config);
 
     _rt.block_on(async {
@@ -75,6 +75,7 @@ fn main() {
 
         loop {
             if *_stop_signal.read().await {
+                florestad.stop();
                 florestad.wait_shutdown().await;
                 break;
             }
