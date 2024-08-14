@@ -41,8 +41,9 @@ impl<Storage: IteratableFilterStore> NetworkFilters<Storage> {
     pub fn push_filter(
         &self,
         filter: crate::BlockFilter,
+        height: u32,
     ) -> Result<(), IteratableFilterStoreError> {
-        self.filters.put_filter(filter)
+        self.filters.put_filter(filter, height)
     }
 
     pub fn get_height(&self) -> Result<u32, IteratableFilterStoreError> {
