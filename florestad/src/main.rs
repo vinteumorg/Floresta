@@ -30,8 +30,7 @@ use futures::executor::block_on;
 use tokio::sync::RwLock;
 use tokio::time::sleep;
 
-#[tokio::main]
-async fn main() {
+fn main() {
     let params = Cli::parse();
 
     let config = Config {
