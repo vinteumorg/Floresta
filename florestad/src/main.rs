@@ -19,15 +19,18 @@
 
 mod cli;
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use clap::Parser;
 use cli::Cli;
 use florestad::Config;
 use florestad::Florestad;
+use futures::executor::block_on;
+use tokio::sync::RwLock;
+use tokio::time::sleep;
 
-#[async_std::main]
-async fn main() {
+fn main() {
     let params = Cli::parse();
 
     let config = Config {
@@ -50,25 +53,38 @@ async fn main() {
         filters_start_height: params.filters_start_height,
         user_agent: format!("/floresta:{}/", env!("GIT_DESCRIBE")),
     };
+    let _rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .worker_threads(4)
+        .thread_name("florestad")
+        .build()
+        .unwrap();
 
+    let stop_signal = Arc::new(RwLock::new(false));
     let florestad = Florestad::from(config);
-    florestad.start();
 
-    let stop_signal = florestad.get_stop_signal();
-    let _stop_signal = stop_signal.clone();
-
-    ctrlc::set_handler(move || {
-        async_std::task::block_on(async {
-            *(stop_signal.write().await) = true;
+    _rt.block_on(async {
+        florestad.start();
+        let _stop_signal = stop_signal.clone();
+        ctrlc::set_handler(move || {
+            block_on(async {
+                *(stop_signal.write().await) = true;
+            })
         })
-    })
-    .expect("Could not setup ctr+c handler");
+        .expect("Could not setup ctr+c handler");
 
-    loop {
-        if *_stop_signal.read().await {
-            florestad.wait_shutdown().await;
-            break;
+        loop {
+            if *_stop_signal.read().await {
+                florestad.stop();
+                florestad.wait_shutdown().await;
+                break;
+            }
+            sleep(Duration::from_secs(5)).await;
         }
-        async_std::task::sleep(Duration::from_secs(5)).await;
-    }
+    });
+
+    // drop them outside the async block, so we won't cause a nested drop of the runtime
+    // due to the rpc server, causing a panic.
+    drop(florestad);
+    drop(_rt);
 }

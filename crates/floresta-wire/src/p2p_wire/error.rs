@@ -1,3 +1,5 @@
+use std::io;
+
 use floresta_chain::BlockchainError;
 use floresta_common::impl_error_from;
 use floresta_compact_filters::IteratableFilterStoreError;
@@ -11,7 +13,7 @@ pub enum WireError {
     #[error("Blockchain error")]
     Blockchain(BlockchainError),
     #[error("Error while writing into a channel")]
-    ChannelSend(async_std::channel::SendError<NodeRequest>),
+    ChannelSend(tokio::sync::mpsc::error::SendError<NodeRequest>),
     #[error("Peer error")]
     PeerError(PeerError),
     #[error("Coinbase didn't mature")]
@@ -22,8 +24,6 @@ pub enum WireError {
     NoPeersAvailable,
     #[error("Our peer is misbehaving")]
     PeerMisbehaving,
-    #[error("Error while reading from a channel")]
-    ChannelRecv(#[from] async_std::channel::RecvError),
     #[error("Generic io error")]
     Io(std::io::Error),
     #[error("We don't have any utreexo peers")]
@@ -43,3 +43,15 @@ impl_error_from!(
     IteratableFilterStoreError,
     CompactBlockFiltersError
 );
+
+impl From<tokio::sync::mpsc::error::SendError<NodeRequest>> for WireError {
+    fn from(error: tokio::sync::mpsc::error::SendError<NodeRequest>) -> Self {
+        WireError::ChannelSend(error)
+    }
+}
+
+impl From<io::Error> for WireError {
+    fn from(err: io::Error) -> WireError {
+        WireError::Io(err)
+    }
+}
