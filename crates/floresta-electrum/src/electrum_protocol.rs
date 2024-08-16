@@ -827,29 +827,6 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
     }
 }
 
-/// Each client gets one loop to deal with their requests
-// async fn client_broker_loop(
-//     client: Arc<Client>,
-//     message_transmitter: UnboundedSender<Message>,
-// ) -> Result<(), std::io::Error> {
-//     let mut _stream = &*client.stream;
-//     let mut lines = BufReader::new(_stream).lines();
-
-//     while let Some(Ok(line)) = lines.next().await {
-//         message_transmitter
-//             .send(Message::Message((client.client_id, line)))
-//             .expect("Main loop is broken");
-//     }
-
-//     info!("Lost client with ID: {}", client.client_id);
-
-//     message_transmitter
-//         .send(Message::Disconnect(client.client_id))
-//         .expect("Main loop is broken");
-
-//     Ok(())
-// }
-
 /// Listens to new TCP connections in a loop
 pub async fn client_accept_loop(
     listener: Arc<TcpListener>,
@@ -859,13 +836,7 @@ pub async fn client_accept_loop(
     loop {
         if let Ok((stream, _addr)) = listener.accept().await {
             info!("New client connection");
-            // let stream = Arc::new(stream);
             let client = Arc::new(Client::new(id_count, stream, message_transmitter.clone()));
-            // tokio::task::spawn(client_broker_loop(
-            //     client.clone(),
-            //     message_transmitter.clone(),
-            // ));
-
             message_transmitter
                 .send(Message::NewClient((client.client_id, client)))
                 .expect("Main loop is broken");
