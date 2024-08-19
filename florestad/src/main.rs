@@ -51,7 +51,8 @@ fn main() {
         electrum_address: params.electrum_address,
         wallet_descriptor: params.wallet_descriptor,
         filters_start_height: params.filters_start_height,
-        user_agent: format!("/floresta:{}/", env!("GIT_DESCRIBE")),
+        user_agent: format!("/Floresta:{}/", env!("GIT_DESCRIBE")),
+        assumeutreexo_value: None,
     };
     let _rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()

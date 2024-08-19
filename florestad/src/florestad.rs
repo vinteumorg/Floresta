@@ -12,6 +12,7 @@ use fern::colors::Color;
 use fern::colors::ColoredLevelConfig;
 use fern::FormatCallback;
 use floresta_chain::pruned_utreexo::BlockchainInterface;
+pub use floresta_chain::AssumeUtreexoValue;
 use floresta_chain::AssumeValidArg;
 use floresta_chain::BlockchainError;
 use floresta_chain::ChainState;
@@ -136,6 +137,8 @@ pub struct Config {
     pub debug: bool,
     /// The user agent that we will advertise to our peers
     pub user_agent: String,
+    /// The value to use for assumeutreexo
+    pub assumeutreexo_value: Option<AssumeUtreexoValue>,
 }
 
 pub struct Florestad {
@@ -342,7 +345,7 @@ impl Florestad {
             compact_filters: self.config.cfilters,
             max_outbound: 10,
             max_inflight: 20,
-            assume_utreexo,
+            assume_utreexo: self.config.assumeutreexo_value.clone().or(assume_utreexo),
             backfill: false,
             filter_start_height: self.config.filters_start_height,
             user_agent: self.config.user_agent.clone(),
