@@ -53,6 +53,7 @@ fn main() {
         filters_start_height: params.filters_start_height,
         user_agent: format!("/Floresta:{}/", env!("GIT_DESCRIBE")),
         assumeutreexo_value: None,
+        backfill: params.backfill,
     };
     let _rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()

@@ -934,6 +934,7 @@ mod test {
     use floresta_watch_only::kv_database::KvDatabase;
     use floresta_watch_only::merkle::MerkleProof;
     use floresta_watch_only::AddressCache;
+    use floresta_wire::address_man::AddressMan;
     use floresta_wire::mempool::Mempool;
     use floresta_wire::node::UtreexoNode;
     use floresta_wire::running_node::RunningNode;
@@ -1073,6 +1074,8 @@ mod test {
                 chain.clone(),
                 Arc::new(tokio::sync::RwLock::new(Mempool::new())),
                 None,
+                Arc::new(RwLock::new(true)),
+                AddressMan::default(),
             );
 
         let node_interface = chain_provider.get_handle();

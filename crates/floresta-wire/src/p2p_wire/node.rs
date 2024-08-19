@@ -14,6 +14,7 @@ use std::time::Instant;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
+use bitcoin::constants::genesis_block;
 use bitcoin::p2p::address::AddrV2;
 use bitcoin::p2p::address::AddrV2Message;
 use bitcoin::p2p::ServiceFlags;
@@ -158,6 +159,7 @@ pub struct NodeCommon<Chain: BlockchainInterface + UpdatableChainstate> {
     pub(crate) config: UtreexoNodeConfig,
     pub(crate) block_filters: Option<Arc<NetworkFilters<FlatFiltersStore>>>,
     pub(crate) last_filter: BlockHash,
+    pub(crate) kill_signal: Arc<RwLock<bool>>,
 }
 
 pub struct UtreexoNode<Context, Chain: BlockchainInterface + UpdatableChainstate>(
@@ -195,12 +197,17 @@ where
         chain: Chain,
         mempool: Arc<RwLock<Mempool>>,
         block_filters: Option<Arc<NetworkFilters<FlatFiltersStore>>>,
+        kill_signal: Arc<RwLock<bool>>,
+        address_man: AddressMan,
     ) -> Self {
         let (node_tx, node_rx) = unbounded_channel();
         let socks5 = config.proxy.map(Socks5StreamBuilder::new);
         UtreexoNode(
             NodeCommon {
-                last_filter: chain.get_block_hash(0).unwrap(),
+                kill_signal,
+                last_filter: chain
+                    .get_block_hash(0)
+                    .unwrap_or_else(|_| genesis_block(config.network).block_hash()),
                 block_filters,
                 inflight: HashMap::new(),
                 peer_id_count: 0,
@@ -213,7 +220,7 @@ where
                 network: config.network.into(),
                 node_rx,
                 node_tx,
-                address_man: AddressMan::default(),
+                address_man,
                 last_headers_request: Instant::now(),
                 last_tip_update: Instant::now(),
                 last_connection: Instant::now(),
@@ -677,6 +684,10 @@ where
 
     pub(crate) async fn create_connection(&mut self, feeler: bool) -> Option<()> {
         let required_services = self.get_required_services();
+        debug!(
+            "openning a new connection with required services: {:?}",
+            required_services
+        );
         let (peer_id, address) = match &self.fixed_peer {
             Some(address) => (0, address.clone()),
             None => self
@@ -687,7 +698,10 @@ where
         self.address_man
             .update_set_state(peer_id, AddressState::Connected);
 
-        debug!("attempting connection with: {}", address.get_net_address());
+        debug!(
+            "attempting connection with: {:?}",
+            address.get_net_address()
+        );
 
         // Don't connect to the same peer twice
         if self

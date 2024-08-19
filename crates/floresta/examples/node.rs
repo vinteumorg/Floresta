@@ -16,6 +16,7 @@ use floresta::chain::Network;
 use floresta::wire::mempool::Mempool;
 use floresta::wire::node::UtreexoNode;
 use floresta_chain::AssumeValidArg;
+use floresta_wire::address_man::AddressMan;
 use floresta_wire::node_interface::NodeMethods;
 use floresta_wire::running_node::RunningNode;
 use floresta_wire::UtreexoNodeConfig;
@@ -57,12 +58,17 @@ async fn main() {
     // Finally, we are using the chain state created above, the node will use it to determine
     // what blocks and headers to download, and hand them to it to validate.
     let config = UtreexoNodeConfig::default();
+    let kill_signal = Arc::new(RwLock::new(false));
+
     let p2p: UtreexoNode<RunningNode, Arc<ChainState<KvChainStore>>> = UtreexoNode::new(
         config,
         chain.clone(),
         Arc::new(RwLock::new(Mempool::new())),
         None,
+        kill_signal,
+        AddressMan::default(),
     );
+
     // A handle is a simple way to interact with the node. It implements a queue of requests
     // that will be processed by the node.
     let handle = p2p.get_handle();
@@ -73,7 +79,7 @@ async fn main() {
     // It will also start the mempool, which will start rebroadcasting our transactions every hour.
     // The node will keep running until the process is killed, by setting kill_signal to true. In
     // this example, we don't kill the node, so it will keep running forever.
-    p2p.run(Arc::new(RwLock::new(false)), sender).await;
+    p2p.run(sender).await;
 
     // That's it! The node is now running, and will keep running until the process is killed.
     // You can now use the chain state to query the current state of the accumulator, or the

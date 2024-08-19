@@ -18,6 +18,7 @@ If you want to use `libfloresta` to build your own Bitcoin application, you can 
   - [Building with nix](#building-with-nix)
 - [Running](#running)
   - [Assume Utreexo](#assume-utreexo)
+  - [Backfill](#backfill)
   - [Compact Filters](#compact-filters)
   - [Getting help](#getting-help)
   - [Wallet](#wallet)
@@ -40,21 +41,21 @@ You'll need Rust and Cargo, refer to [this](https://www.rust-lang.org/) for more
 Once you have Cargo, clone the repository with:
 
 ```bash
-git clone https://github.com/Davidson-Souza/Floresta.git
+$ git clone https://github.com/Davidson-Souza/Floresta.git
 ```
 
 go to the Floresta directory
 
 ```bash
-cd Floresta/
+$ cd Floresta/
 ```
 
 and build with cargo build
 
 ```bash
-cargo build --release
+$ cargo build --release
 # Optionally, you can add florestad to the path with
-cargo install --path ./florestad
+$ cargo install --path ./florestad
 ```
 
 ### Building with nix
@@ -100,26 +101,37 @@ $ nix run github:Davidson-Souza/Floresta
 
 After building, florestad and floresta-cli will be available in the target directory. You can run the full node with
 ```bash
-./target/release/florestad
+$ ./target/release/florestad
 # or, if you installed it with cargo install
-florestad
+$ florestad
 ```
 
 This will start the full node, and you can connect to it with an Electrum wallet or with the `floresta-cli` tool.
 
 ```bash
-floresta-cli getblockchaininfo
+$ floresta-cli getblockchaininfo
 ```
 
 For more information on how to use the `floresta-cli` tool, you can check the [api documentation](https://github.com/Davidson-Souza/Floresta/blob/master/crates/floresta-cli/README.md).
 
 #### Assume Utreexo
+
 If you want to skip the IBD process, you can use the `--assumeutreexo` flag. This flag will start the node at a given height, with the state
 provided by this implementation. Therefore, you're trusting that we are giving you the correct state. Everything after that height will be
 verified by the node just like any other node.
 
 ```bash
-florestad --assumeutreexo
+$ florestad --assumeutreexo
+```
+
+#### Backfill
+
+If you want to get a node up and running in a few minutes, but still want to validate everything, you can start `florestad` with `assumeutreexo` and pass the `--backfill` flag. This will download the blocks from genesis to the assumed height, validate them and compare with the provided value, all in the background. This way, you can start using the node right away, and it will be fully validated in a few hours/days depending on your hardware.
+
+This is the default behavior of `florestad` if no flags are provided.
+
+```bash
+$ florestad --assumeutreexo --backfill
 ```
 
 #### Compact Filters
@@ -127,7 +139,7 @@ florestad --assumeutreexo
 Floresta supports compact block filters, which can be used to scan for transactions in a block without downloading the entire block. You can start the node with the `--cfilters` flag to download the filters for the blocks that you're interested in. You can also use the `--filters-start-height` flag to specify the block height that you want to start downloading the filters from. This is useful if you want to download only the filters for a specific range of blocks.
 
 ```bash
-florestad --cfilters --filters-start-height 800000
+$ florestad --cfilters --filters-start-height 800000
 ```
 
 #### Getting help
@@ -135,12 +147,12 @@ florestad --cfilters --filters-start-height 800000
 You can get a list of all the available commands by running
 
 ```bash
-floresta-cli help
+$ floresta-cli help
 ```
 
 and you can get the cli parameters by running
 ```bash
-floresta-cli help <command>
+$ floresta-cli help <command>
 ```
 
 #### Wallet
@@ -152,7 +164,7 @@ call the `rescan` rpc after adding the wallet.
 You can add new descriptors to the wallet with the `importdescriptor` rpc.
 
 ```bash
-floresta-cli importdescriptor "wpkh(xpub6CFy3kRXorC3NMTt8qrsY9ucUfxVLXyFQ49JSLm3iEG5gfAmWewYFzjNYFgRiCjoB9WWEuJQiyYGCdZvUTwPEUPL9pPabT8bkbiD9Po47XG/<0;1>/*)"
+$ floresta-cli importdescriptor "wpkh(xpub6CFy3kRXorC3NMTt8qrsY9ucUfxVLXyFQ49JSLm3iEG5gfAmWewYFzjNYFgRiCjoB9WWEuJQiyYGCdZvUTwPEUPL9pPabT8bkbiD9Po47XG/<0;1>/*)"
 ```
 
 The rescan assumes that you have compact block filters for the blocks that you're scanning. You can either download all the filters 
@@ -160,13 +172,13 @@ The rescan assumes that you have compact block filters for the blocks that you'r
 using the `--filters-start-height` option. Let's you know that none of your wallets are older than block 800,000. Just start the node with.
 
 ```bash
-./target/release/florestad --cfilters --filters-start-height 800000
+$ ./target/release/florestad --cfilters --filters-start-height 800000
 ```
 
 if you add a wallet and want to rescan the blocks from 800,000 to the current height, you can use the `rescan` rpc.
 
 ```bash
-floresta-cli rescan 800000
+$ floresta-cli rescan 800000
 ```
 
 Once you have a transaction cached in your watch-only, you can use either the rpc or integrated electrum server to retrieve information about your wallet. You can use wallets like Electrum or Sparrow to connect to your node and retrieve information about your wallet. Just connect with the server running at `127.0.0.1:50001:t`. On electrum you may want to use the `--oneserver` flag to connect to a single server, for better privacy.
@@ -176,19 +188,19 @@ Once you have a transaction cached in your watch-only, you can use either the rp
 #### Requirements
 
 ```bash
-cargo build
+$ cargo build
 ```
 
 There's a set of unit tests that you can run with
 ```bash
-cargo test
+$ cargo test
 ```
 
 There's also a set of functional tests that you can run with
 
 ```bash
-pip3 install -r tests/requirements.txt
-python tests/run_tests.py
+$ pip3 install -r tests/requirements.txt
+$ python tests/run_tests.py
 ```
 
 ### Contributing

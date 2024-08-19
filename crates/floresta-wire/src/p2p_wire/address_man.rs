@@ -154,7 +154,7 @@ impl LocalAddress {
 }
 
 /// A module that keeps track of know addresses and serve them to our node to connect
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct AddressMan {
     addresses: HashMap<usize, LocalAddress>,
     good_addresses: Vec<usize>,
@@ -357,8 +357,10 @@ impl AddressMan {
             .as_secs();
 
         match peer.state {
-            AddressState::Banned(_) | AddressState::Connected => None,
-            AddressState::NeverTried | AddressState::Tried(_) => Some((id, peer)),
+            AddressState::Banned(_) => None,
+            AddressState::NeverTried | AddressState::Tried(_) | AddressState::Connected => {
+                Some((id, peer))
+            }
             AddressState::Failed(time) => {
                 if now - time > RETRY_TIME {
                     Some((id, peer))
@@ -389,6 +391,7 @@ impl AddressMan {
 
         let idx = rand::random::<usize>() % peers.len();
         let utreexo_peer = peers.get(idx)?;
+
         Some((*utreexo_peer, self.addresses.get(utreexo_peer)?.to_owned()))
     }
     fn get_net_seeds(network: Network) -> &'static str {
