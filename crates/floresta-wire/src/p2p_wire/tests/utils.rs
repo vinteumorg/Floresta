@@ -27,6 +27,7 @@ use crate::node::LocalPeerView;
 use crate::node::NodeNotification;
 use crate::node::NodeRequest;
 use crate::node::PeerStatus;
+use crate::p2p_wire::node::ConnectionKind;
 use crate::p2p_wire::peer::PeerMessages;
 use crate::p2p_wire::peer::Version;
 use crate::UtreexoNodeConfig;
@@ -83,7 +84,7 @@ impl TestPeer {
                 | ServiceFlags::WITNESS
                 | ServiceFlags::COMPACT_FILTERS
                 | ServiceFlags::from(1 << 25),
-            feeler: false,
+            kind: ConnectionKind::Regular,
         };
 
         self.node_tx
@@ -146,7 +147,7 @@ pub fn create_peer(
         state: PeerStatus::Ready,
         channel: sender,
         port: 8333,
-        feeler: false,
+        kind: ConnectionKind::Regular,
         banscore: 0,
         address_id: 0,
         _last_message: Instant::now(),

@@ -95,6 +95,13 @@ pub(crate) enum InflightRequests {
     GetFilters,
 }
 
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum ConnectionKind {
+    Feeler,
+    Regular,
+    Extra,
+}
+
 #[derive(Debug, Clone)]
 pub struct LocalPeerView {
     pub(crate) state: PeerStatus,
@@ -105,7 +112,7 @@ pub struct LocalPeerView {
     pub(crate) address: IpAddr,
     pub(crate) port: u16,
     pub(crate) _last_message: Instant,
-    pub(crate) feeler: bool,
+    pub(crate) kind: ConnectionKind,
     pub(crate) height: u32,
     pub(crate) banscore: u32,
 }
@@ -126,6 +133,7 @@ impl Default for RunningNode {
             user_requests: Arc::new(NodeInterface {
                 requests: Mutex::new(Vec::new()),
             }),
+            last_invs: HashMap::default(),
         }
     }
 }
@@ -248,7 +256,7 @@ where
     ) -> Result<(), WireError> {
         if let Some(p) = self.peers.remove(&peer) {
             std::mem::drop(p.channel);
-            if !p.feeler && p.state == PeerStatus::Ready {
+            if p.kind == ConnectionKind::Regular && p.state == PeerStatus::Ready {
                 info!("Peer disconnected: {}", peer);
             }
         }
@@ -349,7 +357,7 @@ where
         version: &Version,
     ) -> Result<(), WireError> {
         self.inflight.remove(&InflightRequests::Connect(peer));
-        if version.feeler {
+        if version.kind == ConnectionKind::Feeler {
             self.send_to_peer(peer, NodeRequest::Shutdown).await?;
             self.address_man.update_set_state(
                 version.address_id,
@@ -362,6 +370,16 @@ where
             );
             self.address_man
                 .update_set_service_flag(version.address_id, version.services);
+            return Ok(());
+        }
+
+        if version.kind == ConnectionKind::Extra {
+            let locator = self.chain.get_block_locator()?;
+            self.send_to_peer(peer, NodeRequest::GetHeaders(locator))
+                .await?;
+            self.inflight
+                .insert(InflightRequests::Headers, (peer, Instant::now()));
+
             return Ok(());
         }
 
@@ -464,9 +482,15 @@ where
         let Some(peer) = self.0.peers.get_mut(&peer_id) else {
             return Ok(());
         };
+
         peer.banscore += factor;
+
         // This peer is misbehaving too often, ban it
-        if peer.banscore >= self.0.max_banscore {
+        let is_missbehaving = peer.banscore >= self.0.max_banscore;
+        // extra peers should be banned immediately
+        let is_extra = peer.kind == ConnectionKind::Extra;
+
+        if is_missbehaving || is_extra {
             warn!("banning peer {} for misbehaving", peer_id);
             peer.channel.send(NodeRequest::Shutdown)?;
             self.0.address_man.update_set_state(
@@ -481,6 +505,7 @@ where
                 .filter(|k| self.inflight.get(k).unwrap().0 == peer_id)
                 .cloned()
                 .collect::<Vec<_>>();
+
             for peer in peer_req {
                 self.inflight.remove_entry(&peer);
             }
@@ -546,7 +571,8 @@ where
             &get_chain_dns_seeds(self.network),
         )?;
         for address in anchors {
-            self.open_connection(false, address.id, address).await;
+            self.open_connection(ConnectionKind::Regular, address.id, address)
+                .await;
         }
         Ok(())
     }
@@ -610,7 +636,7 @@ where
         let bypass =
             self.1.get_required_services().has(ServiceFlags::UTREEXO) && !self.has_utreexo_peers();
         if self.peers.len() < T::MAX_OUTGOING_PEERS || bypass {
-            self.create_connection(false).await;
+            self.create_connection(ConnectionKind::Regular).await;
         }
         Ok(())
     }
@@ -620,7 +646,7 @@ where
         if self.fixed_peer.is_some() {
             return Ok(());
         }
-        self.create_connection(true).await;
+        self.create_connection(ConnectionKind::Feeler).await;
         Ok(())
     }
 
@@ -675,13 +701,14 @@ where
         ServiceFlags::NONE
     }
 
-    pub(crate) async fn create_connection(&mut self, feeler: bool) -> Option<()> {
+    pub(crate) async fn create_connection(&mut self, kind: ConnectionKind) -> Option<()> {
         let required_services = self.get_required_services();
         let (peer_id, address) = match &self.fixed_peer {
             Some(address) => (0, address.clone()),
-            None => self
-                .address_man
-                .get_address_to_connect(required_services, feeler)?,
+            None => self.address_man.get_address_to_connect(
+                required_services,
+                matches!(kind, ConnectionKind::Feeler),
+            )?,
         };
 
         self.address_man
@@ -698,7 +725,7 @@ where
         {
             return None;
         }
-        self.open_connection(feeler, peer_id, address).await;
+        self.open_connection(kind, peer_id, address).await;
 
         Some(())
     }
@@ -706,7 +733,7 @@ where
     /// Opens a new connection that doesn't require a proxy and includes the functionalities of create_outbound_connection.
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn open_non_proxy_connection(
-        feeler: bool,
+        kind: ConnectionKind,
         peer_id: usize,
         address: LocalAddress,
         requests_rx: UnboundedReceiver<NodeRequest>,
@@ -736,7 +763,7 @@ where
             node_tx.clone(),
             requests_rx,
             peer_id,
-            feeler,
+            kind,
             actor_receiver,
             writer,
             user_agent,
@@ -749,7 +776,7 @@ where
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn open_proxy_connection(
         proxy: SocketAddr,
-        feeler: bool,
+        kind: ConnectionKind,
         mempool: Arc<RwLock<Mempool>>,
         network: bitcoin::Network,
         node_tx: UnboundedSender<NodeNotification>,
@@ -786,7 +813,7 @@ where
             node_tx,
             requests_rx,
             peer_id,
-            feeler,
+            kind,
             actor_receiver,
             writer,
             user_agent,
@@ -800,7 +827,7 @@ where
     /// handshake.
     pub(crate) async fn open_connection(
         &mut self,
-        feeler: bool,
+        kind: ConnectionKind,
         peer_id: usize,
         address: LocalAddress,
     ) {
@@ -810,7 +837,7 @@ where
                 Duration::from_secs(10),
                 Self::open_proxy_connection(
                     proxy.address,
-                    feeler,
+                    kind,
                     self.mempool.clone(),
                     self.network.into(),
                     self.node_tx.clone(),
@@ -825,7 +852,7 @@ where
             spawn(timeout(
                 Duration::from_secs(10),
                 Self::open_non_proxy_connection(
-                    feeler,
+                    kind,
                     peer_id,
                     address.clone(),
                     requests_rx,
@@ -855,7 +882,7 @@ where
                 channel: requests_tx,
                 services: ServiceFlags::NONE,
                 _last_message: Instant::now(),
-                feeler,
+                kind,
                 address_id: peer_id as u32,
                 height: 0,
                 banscore: 0,

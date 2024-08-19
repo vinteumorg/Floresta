@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 /// After a node catches-up with the network, we can start listening for new blocks, handing any
 /// request our user might make and keep our peers alive. This mode requires way less bandwidth and
 /// CPU to run, being bound by the number of blocks found in a given period.
@@ -10,6 +11,7 @@ use bitcoin::p2p::address::AddrV2;
 use bitcoin::p2p::address::AddrV2Message;
 use bitcoin::p2p::message_blockdata::Inventory;
 use bitcoin::p2p::ServiceFlags;
+use bitcoin::BlockHash;
 use floresta_chain::pruned_utreexo::partial_chain::PartialChainState;
 use floresta_chain::pruned_utreexo::BlockchainInterface;
 use floresta_chain::pruned_utreexo::UpdatableChainstate;
@@ -31,12 +33,14 @@ use crate::address_man::AddressState;
 use crate::address_man::LocalAddress;
 use crate::node::periodic_job;
 use crate::node::try_and_log;
+use crate::node::ConnectionKind;
 use crate::node::InflightRequests;
 use crate::node::NodeNotification;
 use crate::node::NodeRequest;
 use crate::node::RescanStatus;
 use crate::node::UtreexoNode;
 use crate::node_context::NodeContext;
+use crate::node_context::PeerId;
 use crate::node_interface::NodeInterface;
 use crate::node_interface::NodeResponse;
 use crate::node_interface::UserRequest;
@@ -49,6 +53,12 @@ pub struct RunningNode {
     pub(crate) last_feeler: Instant,
     pub(crate) last_address_rearrange: Instant,
     pub(crate) user_requests: Arc<NodeInterface>,
+    /// To find peers with a good connectivity, keep track of what peers sent us an inv message
+    /// for a block, in the first 5 seconds after we get the first inv message. If we ever decide
+    /// to disconnect a peer, we should disconnect the ones that didn't send us an inv message
+    /// in a timely manner, but keep the ones that notified us of a new blocks the fastest.
+    /// We also keep the moment we received the first inv message
+    pub(crate) last_invs: HashMap<BlockHash, (Instant, Vec<PeerId>)>,
 }
 
 impl NodeContext for RunningNode {
@@ -140,7 +150,8 @@ where
                         port,
                         self.peer_id_count as usize,
                     );
-                    self.open_connection(false, 0, local_addr).await;
+                    self.open_connection(ConnectionKind::Regular, 0, local_addr)
+                        .await;
                     self.peer_id_count += 1;
                     self.1.user_requests.send_answer(
                         UserRequest::Connect((addr, port)),
@@ -197,7 +208,7 @@ where
             };
 
             if !matches!(request, InflightRequests::Connect(_)) {
-                // Punnishing this peer for taking too long to respond
+                // Punishing this peer for taking too long to respond
                 self.increase_banscore(peer, 2).await?;
             }
 
@@ -586,6 +597,22 @@ where
         Ok(())
     }
 
+    /// If we think our tip is stale, we may disconnect one peer and try to get a new one.
+    /// In this process, if the extra peer gives us a new block, we should drop one of our
+    /// already connected peers to keep the number of connections stable. This function
+    /// decides which peer to drop based on whether they've timely inv-ed us about the last
+    /// 6 blocks.
+    fn get_peer_score(&self, peer: PeerId) -> u32 {
+        let mut score = 0;
+        for block in self.1.last_invs.keys() {
+            if self.1.last_invs[block].1.contains(&peer) {
+                score += 1;
+            }
+        }
+
+        score
+    }
+
     /// This function checks how many time has passed since our last tip update, if it's
     /// been more than 15 minutes, try to update it.
     async fn check_for_stale_tip(&mut self) -> Result<(), WireError> {
@@ -598,7 +625,8 @@ where
         // update this or we'll get this warning every second after 15 minutes without a block,
         // until we get a new block.
         self.last_tip_update = Instant::now();
-        self.create_connection(false).await;
+        self.create_connection(ConnectionKind::Extra).await;
+
         self.send_to_random_peer(
             NodeRequest::GetHeaders(self.chain.get_block_locator().unwrap()),
             ServiceFlags::NONE,
@@ -607,19 +635,24 @@ where
         Ok(())
     }
 
-    async fn handle_new_block(&mut self) -> Result<(), WireError> {
-        if self.inflight.contains_key(&InflightRequests::Headers) {
+    async fn handle_new_block(&mut self, block: BlockHash) -> Result<(), WireError> {
+        if self.inflight.contains_key(&InflightRequests::Blocks(block)) {
             return Ok(());
         }
 
-        let locator = self.0.chain.get_block_locator().unwrap();
+        if self.chain.get_block_header(&block).is_ok() {
+            return Ok(());
+        }
 
         let peer = self
-            .send_to_random_peer(NodeRequest::GetHeaders(locator), ServiceFlags::NONE)
+            .send_to_random_peer(
+                NodeRequest::GetBlock((vec![block], true)),
+                ServiceFlags::UTREEXO,
+            )
             .await?;
 
         self.inflight
-            .insert(InflightRequests::Headers, (peer, Instant::now()));
+            .insert(InflightRequests::Blocks(block), (peer, Instant::now()));
 
         Ok(())
     }
@@ -780,13 +813,30 @@ where
             NodeNotification::FromPeer(peer, message) => match message {
                 PeerMessages::NewBlock(block) => {
                     debug!("We got an inv with block {block} requesting it");
-                    self.handle_new_block().await?;
+                    self.1
+                        .last_invs
+                        .entry(block)
+                        .and_modify(|(when, peers)| {
+                            if peers.contains(&peer) {
+                                return;
+                            }
+                            // if it's been less than 5 seconds since we got the first inv message
+                            // for this block, we should mark as this peer sent us in a timely manner
+                            if when.elapsed() < Duration::from_secs(5) {
+                                peers.push(peer);
+                            }
+                        })
+                        .or_insert_with(|| (Instant::now(), Vec::new()));
+
+                    self.handle_new_block(block).await?;
                 }
                 PeerMessages::Block(block) => {
                     debug!(
                         "Got data for block {} from peer {peer}",
                         block.block.block_hash()
                     );
+
+                    self.chain.accept_header(block.block.header)?;
                     self.handle_block_data(block, peer).await?;
                 }
                 PeerMessages::Headers(headers) => {
@@ -795,6 +845,37 @@ where
                         headers.len()
                     );
                     self.inflight.remove(&InflightRequests::Headers);
+
+                    let peer_info = self.peers.get(&peer).cloned().expect("Peer not found");
+                    let is_extra = matches!(peer_info.kind, ConnectionKind::Extra);
+
+                    if is_extra {
+                        // if this is an extra peer, and the headers message is empty, disconnect it
+                        if headers.is_empty() {
+                            self.increase_banscore(peer, 5).await?;
+                            return Ok(());
+                        }
+
+                        // this peer got us a new block, we should disconnect one of our regular peers
+                        // and keep this one.
+                        let peer_to_disconnect = self
+                            .peers
+                            .iter()
+                            .filter(|(_, info)| matches!(info.kind, ConnectionKind::Regular))
+                            .min_by_key(|(k, _)| self.get_peer_score(**k))
+                            .map(|(peer, _)| *peer);
+
+                        // disconnect the peer with the lowest score
+                        if let Some(peer) = peer_to_disconnect {
+                            self.send_to_peer(peer, NodeRequest::Shutdown).await?;
+                        }
+
+                        // update the peer info
+                        self.peers.entry(peer).and_modify(|info| {
+                            info.kind = ConnectionKind::Regular;
+                        });
+                    }
+
                     for header in headers.iter() {
                         self.chain.accept_header(*header)?;
                     }
@@ -806,8 +887,8 @@ where
                 }
                 PeerMessages::Ready(version) => {
                     debug!(
-                        "handshake with peer={peer} succeeded feeler={}",
-                        version.feeler
+                        "handshake with peer={peer} succeeded feeler={:?}",
+                        version.kind
                     );
                     self.handle_peer_ready(peer, &version).await?;
                 }

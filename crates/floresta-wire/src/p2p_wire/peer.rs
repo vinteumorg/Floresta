@@ -42,6 +42,7 @@ use self::peer_utils::make_pong;
 use super::mempool::Mempool;
 use super::node::NodeNotification;
 use super::node::NodeRequest;
+use crate::node::ConnectionKind;
 
 /// If we send a ping, and our peer takes more than PING_TIMEOUT to
 /// reply, disconnect.
@@ -158,7 +159,7 @@ pub struct Peer<T: AsyncWrite + Unpin> {
     send_headers: bool,
     node_requests: UnboundedReceiver<NodeRequest>,
     address_id: usize,
-    feeler: bool,
+    kind: ConnectionKind,
     wants_addrv2: bool,
     shutdown: bool,
     actor_receiver: UnboundedReceiver<ReaderMessage>, // Add the receiver for messages from TcpStreamActor
@@ -215,7 +216,6 @@ impl From<RawNetworkMessage> for ReaderMessage {
 impl<T: AsyncWrite + Unpin> Debug for Peer<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.id)?;
-        // write!(f, "{:?}", self.stream.peer_addr())?;
         Ok(())
     }
 }
@@ -225,20 +225,20 @@ type Result<T> = std::result::Result<T, PeerError>;
 impl<T: AsyncWrite + Unpin> Peer<T> {
     pub async fn read_loop(mut self) -> Result<()> {
         let err = self.peer_loop_inner().await;
+        self.send_to_node(PeerMessages::Disconnected(self.address_id))
+            .await;
         // force the stream to shutdown to prevent leaking resources
-
         if let Err(shutdown_err) = self.writer.shutdown().await {
             debug!(
                 "Failed to shutdown writer for Peer {}: {shutdown_err:?}",
                 self.id
             );
         }
+
         if let Err(err) = err {
             debug!("Peer {} connection loop closed: {err:?}", self.id);
         }
 
-        self.send_to_node(PeerMessages::Disconnected(self.address_id))
-            .await;
         Ok(())
     }
 
@@ -247,27 +247,34 @@ impl<T: AsyncWrite + Unpin> Peer<T> {
         let version = peer_utils::build_version_message(self.our_user_agent.clone());
         self.write(version).await?;
         self.state = State::SentVersion(Instant::now());
-
         loop {
             futures::select! {
-                request = self.node_requests.recv().fuse() => {
-                    if let Some(request) = request {
-                        self.handle_node_request(request).await?;
+                request = tokio::time::timeout(Duration::from_secs(10), self.node_requests.recv()).fuse() => {
+                    match request {
+                        Ok(None) => {
+                            return Err(PeerError::Channel);
+                        },
+                        Ok(Some(request)) => {
+                            self.handle_node_request(request).await?;
+                        },
+                        Err(_) => {
+                            // Timeout, do nothing
+                        }
                     }
                 },
-
                 message = self.actor_receiver.recv().fuse() => {
-                    if let Some(message) = message {
-                        match message {
-                            ReaderMessage::Message(msg) => {
-                                self.handle_peer_message(msg).await?;
-                            }
-                            ReaderMessage::Block(block) => {
-                                self.send_to_node(PeerMessages::Block(block)).await;
-                            }
-                            ReaderMessage::Error(e) => {
-                                return Err(e);
-                            }
+                    match message {
+                        None => {
+                            return Err(PeerError::Channel);
+                        }
+                        Some(ReaderMessage::Error(e)) => {
+                            return Err(e);
+                        }
+                        Some(ReaderMessage::Block(block)) => {
+                            self.send_to_node(PeerMessages::Block(block)).await;
+                        }
+                        Some(ReaderMessage::Message(msg)) => {
+                            self.handle_peer_message(msg).await?;
                         }
                     }
                 }
@@ -528,10 +535,10 @@ impl<T: AsyncWrite + Unpin> Peer<T> {
                         blocks: self.current_best_block.unsigned_abs(),
                         address_id: self.address_id,
                         services: self.services,
-                        feeler: self.feeler,
+                        kind: self.kind,
                     }))
                     .await;
-                    if self.feeler {
+                    if self.kind == ConnectionKind::Feeler {
                         self.shutdown = true;
                     }
                 }
@@ -591,7 +598,7 @@ impl<T: AsyncWrite + Unpin> Peer<T> {
         node_tx: UnboundedSender<NodeNotification>,
         node_requests: UnboundedReceiver<NodeRequest>,
         address_id: usize,
-        feeler: bool,
+        kind: ConnectionKind,
         actor_receiver: UnboundedReceiver<ReaderMessage>,
         writer: WriteHalf<TcpStream>,
         our_user_agent: String,
@@ -613,7 +620,7 @@ impl<T: AsyncWrite + Unpin> Peer<T> {
             state: State::None,
             send_headers: false,
             node_requests,
-            feeler,
+            kind,
             wants_addrv2: false,
             shutdown: false,
             actor_receiver, // Add the receiver for messages from TcpStreamActor
@@ -714,7 +721,7 @@ pub struct Version {
     pub id: u32,
     pub address_id: usize,
     pub services: ServiceFlags,
-    pub feeler: bool,
+    pub kind: ConnectionKind,
 }
 /// Messages passed from different modules to the main node to process. They should minimal
 /// and only if it requires global states, everything else should be handled by the module

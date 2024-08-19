@@ -68,6 +68,7 @@ use super::peer::PeerMessages;
 use crate::address_man::AddressState;
 use crate::node::periodic_job;
 use crate::node::try_and_log;
+use crate::node::ConnectionKind;
 use crate::node::InflightRequests;
 use crate::node::NodeNotification;
 use crate::node::NodeRequest;
@@ -652,7 +653,7 @@ where
     }
 
     pub async fn run(&mut self, stop_signal: Arc<RwLock<bool>>) -> Result<(), WireError> {
-        self.create_connection(false).await;
+        self.create_connection(ConnectionKind::Regular).await;
 
         info!("Starting ibd, selecting the best chain");
 
