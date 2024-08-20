@@ -288,7 +288,7 @@ impl Florestad {
             let cfilters = Arc::new(NetworkFilters::new(filter_store));
             info!(
                 "loaded compact filters store at height: {:?}",
-                cfilters.get_height()
+                cfilters.get_height().unwrap()
             );
             Some(cfilters)
         } else {
