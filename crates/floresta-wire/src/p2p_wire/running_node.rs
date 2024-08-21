@@ -295,6 +295,7 @@ where
         kill_signal: Arc<RwLock<bool>>,
         stop_signal: futures::channel::oneshot::Sender<()>,
     ) {
+        println!("RUNNING NODE");
         try_and_log!(self.init_peers().await);
         let startup_tip = self.chain.get_height().unwrap();
 

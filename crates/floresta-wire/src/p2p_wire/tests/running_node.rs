@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests_utils {
     use std::collections::HashMap;
+    use std::mem::ManuallyDrop;
     use std::sync::Arc;
     use std::time::Duration;
 
@@ -60,6 +61,7 @@ mod tests_utils {
             node.peers.insert(i as u32, peer);
         }
         // let mut node = ManuallyDrop::new(Box::new(node));
+        let node = Box::new(node);
 
         let kill_signal = Arc::new(RwLock::new(false));
         // FIXME: This doesn't look very safe, but we need to coerce a &mut reference of the node
@@ -76,7 +78,7 @@ mod tests_utils {
 
         task::spawn(node.run(kill_signal.clone(), sender));
 
-        task::sleep(Duration::from_secs(3)).await;
+        task::sleep(Duration::from_secs(4)).await;
 
         let mut kill_guard = kill_signal.write().await;
         *kill_guard = true;

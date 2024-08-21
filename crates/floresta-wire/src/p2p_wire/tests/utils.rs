@@ -94,6 +94,7 @@ impl TestPeer {
             .unwrap();
 
         loop {
+            println!("RECEIVING");
             let req = self.node_rx.recv().await.unwrap();
 
             match req {
