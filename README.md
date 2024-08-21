@@ -114,12 +114,12 @@ floresta-cli getblockchaininfo
 For more information on how to use the `floresta-cli` tool, you can check the [api documentation](https://github.com/Davidson-Souza/Floresta/blob/master/crates/floresta-cli/README.md).
 
 #### Assume Utreexo
-If you want to skip the IBD process, you can use the `--assumeutreexo` flag. This flag will start the node at a given height, with the state
+If you want to skip the IBD process, you can use the `--assume-utreexo` flag. This flag will start the node at a given height, with the state
 provided by this implementation. Therefore, you're trusting that we are giving you the correct state. Everything after that height will be
 verified by the node just like any other node.
 
 ```bash
-florestad --assumeutreexo
+florestad --assume-utreexo
 ```
 
 #### Compact Filters
