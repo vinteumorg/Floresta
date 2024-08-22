@@ -38,7 +38,7 @@ mod tests_utils {
         let chain = Arc::new(chain);
 
         // Adding 9 signet headers in the chain-state prior validation
-        let mut headers = get_test_headers();
+        let (mut headers, _) = get_test_headers().unwrap();
         headers.remove(0);
         headers.truncate(9);
         for header in headers {
@@ -98,7 +98,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_sync_valid_blocks() {
-        let (headers, blocks, _, _, _) = get_essentials();
+        let (headers, _, blocks, _, _, _, _) = get_essentials();
         let chain = setup_node(
             vec![(Vec::new(), blocks.clone(), HashMap::new())],
             false,
@@ -119,7 +119,7 @@ mod tests {
         // THIS SIMULATION WILL TEST:
         // 1) SENDING BLOCK WITH A BADMERKLEROOT: 7TH BLOCK WILL BE INVALIDATED.
 
-        let (headers, mut blocks, _, _, invalid_block) = get_essentials();
+        let (headers, regtest_headers, mut blocks, _, _, _, invalid_block) = get_essentials();
         blocks.insert(headers[7].block_hash(), invalid_block);
 
         let peer = vec![(Vec::new(), blocks.clone(), HashMap::new())];
@@ -142,7 +142,7 @@ mod tests {
         //
         // SO FINALLY THE LAST VALIDATED BLOCK WILL BE 9.
 
-        let (headers, mut blocks, _, _, _) = get_essentials();
+        let (headers, _, mut blocks, _, _, _, _) = get_essentials();
         let v_blocks = blocks.clone();
 
         let u_block = blocks.get(&headers[3].block_hash().clone()).unwrap();

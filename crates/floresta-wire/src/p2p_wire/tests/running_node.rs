@@ -1,18 +1,17 @@
 #[cfg(test)]
 mod tests_utils {
     use std::collections::HashMap;
-    use std::mem::ManuallyDrop;
     use std::sync::Arc;
     use std::time::Duration;
 
-    use async_std::sync::RwLock;
-    use async_std::task;
     use bitcoin::block::Header;
     use bitcoin::BlockHash;
     use floresta_chain::AssumeValidArg;
     use floresta_chain::ChainState;
     use floresta_chain::KvChainStore;
     use floresta_chain::UtreexoBlock;
+    use tokio::sync::RwLock;
+    use tokio::task;
 
     use crate::mempool::Mempool;
     use crate::node::UtreexoNode;
@@ -45,7 +44,7 @@ mod tests_utils {
         );
 
         for (i, peer) in peers.into_iter().enumerate() {
-            let (sender, receiver) = async_std::channel::bounded(10);
+            let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
             let peer = create_peer(
                 peer.0,
                 peer.1,
@@ -60,25 +59,13 @@ mod tests_utils {
 
             node.peers.insert(i as u32, peer);
         }
-        // let mut node = ManuallyDrop::new(Box::new(node));
         let node = Box::new(node);
 
         let kill_signal = Arc::new(RwLock::new(false));
-        // FIXME: This doesn't look very safe, but we need to coerce a &mut reference of the node
-        //        to live for the static lifetime, or it can't be spawn-ed by async-std::task
-
-        // let _node: &'static mut UtreexoNode<RunningNode, Arc<ChainState<KvChainStore>>> =
-        //     unsafe { std::mem::transmute(&mut **node) };
-
         let (sender, _) = futures::channel::oneshot::channel();
-
-        // future::timeout(Duration::from_secs(10), _node.run(kill_signal, sender))
-        //     .await
-        //     .unwrap();
-
         task::spawn(node.run(kill_signal.clone(), sender));
 
-        task::sleep(Duration::from_secs(4)).await;
+        tokio::time::sleep(Duration::from_secs(4)).await;
 
         let mut kill_guard = kill_signal.write().await;
         *kill_guard = true;
@@ -96,9 +83,9 @@ mod tests {
     use super::tests_utils::setup_node;
     use crate::p2p_wire::tests::utils::get_essentials;
 
-    #[async_std::test]
-    async fn test_one() {
-        let (mut headers, blocks, _, _, _) = get_essentials();
+    #[tokio::test]
+    async fn send_headers() {
+        let (_, mut headers, _, blocks, _, _, _) = get_essentials();
 
         // GONNA WORK WITH ONLY 5 BLOCKS:
         // CREATE A PEER WITH 5 BLOCK HEADERS AND 5 BLOCKS. POW_FRAUD_PROOFS GONNA BE OFF !!
@@ -111,12 +98,12 @@ mod tests {
         headers.truncate(5);
 
         let chain = setup_node(
-            vec![(headers, blocks.clone(), HashMap::new())],
+            vec![(headers.clone(), blocks.clone(), HashMap::new())],
             false,
-            floresta_chain::Network::Signet,
+            floresta_chain::Network::Regtest,
         )
         .await;
 
-        println!("BEST HEIGTH: {:?}", chain.get_best_block().unwrap());
+        assert_eq!(chain.get_best_block().unwrap().1, headers[4].block_hash());
     }
 }

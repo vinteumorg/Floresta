@@ -70,6 +70,8 @@ where
 
     pub async fn run(&mut self, kill_signal: Arc<RwLock<bool>>, done_cb: impl FnOnce(&Chain)) {
         info!("Starting sync node");
+
+        println!("SYNC NODE");
         self.1.last_block_requested = self.chain.get_validation_index().unwrap();
 
         loop {
@@ -150,6 +152,11 @@ where
             .remove(&InflightRequests::Blocks(block.block.block_hash()));
 
         self.blocks.insert(block.block.block_hash(), (peer, block));
+
+        println!(
+            "CHAIN INDEX VALID: {}",
+            self.chain.get_validation_index().unwrap()
+        );
 
         let next_block = self.chain.get_validation_index()? + 1;
         let mut next_block = self.chain.get_block_hash(next_block)?;
