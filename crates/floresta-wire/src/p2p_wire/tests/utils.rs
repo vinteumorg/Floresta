@@ -42,6 +42,11 @@ struct Block {
     block: String,
 }
 
+#[derive(Deserialize, Debug)]
+struct Regtest_headers {
+    block: String,
+}
+
 #[derive(Debug)]
 pub struct TestPeer {
     headers: Vec<Header>,
@@ -97,6 +102,31 @@ impl TestPeer {
             let req = self.node_rx.recv().await.unwrap();
 
             match req {
+                NodeRequest::GetHeaders(hashes) => {
+                    let pos = hashes.first().unwrap();
+                    let pos = self.headers.iter().position(|h| h.block_hash() == *pos);
+                    let headers = match pos {
+                        None => vec![],
+                        Some(pos) => self.headers[(pos + 1)..].to_vec(),
+                    };
+
+                    self.node_tx
+                        .send(NodeNotification::FromPeer(
+                            self.peer_id,
+                            PeerMessages::Headers(headers),
+                        ))
+                        .unwrap();
+                }
+                NodeRequest::GetUtreexoState((hash, _)) => {
+                    let filters = self.filters.get(&hash).unwrap().clone();
+                    self.node_tx
+                        .send(NodeNotification::FromPeer(
+                            self.peer_id,
+                            PeerMessages::UtreexoState(filters),
+                        ))
+                        .unwrap();
+                }
+
                 NodeRequest::GetBlock((hashes, _)) => {
                     for hash in hashes {
                         let block = self.blocks.get(&hash).unwrap().clone();
@@ -200,26 +230,54 @@ pub fn create_false_acc(tip: usize) -> Vec<u8> {
     serialize(utreexo_root)
 }
 
-pub fn get_test_headers() -> Vec<Header> {
+pub fn get_test_headers() -> io::Result<(Vec<Header>, Vec<Header>)> {
     let file =
         include_bytes!("../../../../floresta-chain/src/pruned_utreexo/testdata/signet_headers.zst");
 
+    let regtest_file = "./src/p2p_wire/tests/test_data/regtest_headers.json";
+
+    let mut signet_headers: Vec<Header> = Vec::new();
+
+    // EXTRACTING SIGNET HEADERS
     let uncompressed: Vec<u8> = zstd::decode_all(std::io::Cursor::new(file)).unwrap();
     let mut cursor = Cursor::new(uncompressed);
-    let mut headers: Vec<Header> = Vec::new();
+
     while let Ok(header) = Header::consensus_decode(&mut cursor) {
-        headers.push(header);
+        signet_headers.push(header);
     }
-    headers
+
+    // EXTRACTING REGTEST HEADERS
+    let mut contents = String::new();
+    File::open(regtest_file)?.read_to_string(&mut contents)?;
+    let r_headers: Vec<Regtest_headers> = serde_json::from_str(&contents).unwrap();
+    let mut regtest_headers: Vec<Header> = Vec::new();
+
+    for header in r_headers {
+        let header = Vec::from_hex(&header.block).unwrap();
+        let header: Header = deserialize(&header).unwrap();
+        regtest_headers.push(header);
+    }
+
+    Ok((signet_headers, regtest_headers))
 }
 
-pub fn get_test_blocks() -> io::Result<HashMap<BlockHash, UtreexoBlock>> {
+pub fn get_test_blocks() -> io::Result<(
+    HashMap<BlockHash, UtreexoBlock>,
+    HashMap<BlockHash, UtreexoBlock>,
+)> {
     let dir = "./src/p2p_wire/tests/test_data/blocks.json";
+    let regtest_dir = "./src/p2p_wire/tests/test_data/regtest_blocks.json";
     let mut contents = String::new();
+    let mut regtest_contents = String::new();
+
+    File::open(regtest_dir)?.read_to_string(&mut regtest_contents)?;
     File::open(dir)?.read_to_string(&mut contents)?;
 
     let blocks: Vec<Block> = serde_json::from_str(&contents).unwrap();
+    let regtest_blocks: Vec<Block> = serde_json::from_str(&regtest_contents).unwrap();
+
     let mut u_blocks = HashMap::new();
+    let mut regtest_u_blocks = HashMap::new();
 
     for block_str in blocks {
         let block = Vec::from_hex(&block_str.block).unwrap();
@@ -227,7 +285,13 @@ pub fn get_test_blocks() -> io::Result<HashMap<BlockHash, UtreexoBlock>> {
         u_blocks.insert(block.block.block_hash(), block);
     }
 
-    Ok(u_blocks)
+    for block_str in regtest_blocks {
+        let block = Vec::from_hex(&block_str.block).unwrap();
+        let block: UtreexoBlock = deserialize(&block).unwrap();
+        regtest_u_blocks.insert(block.block.block_hash(), block);
+    }
+
+    Ok((u_blocks, regtest_u_blocks))
 }
 
 pub fn get_test_filters() -> io::Result<HashMap<BlockHash, Vec<u8>>> {
@@ -237,7 +301,7 @@ pub fn get_test_filters() -> io::Result<HashMap<BlockHash, Vec<u8>>> {
         .read_to_string(&mut contents)
         .unwrap();
     let roots: Vec<UtreexoRoots> = serde_json::from_str(&contents).unwrap();
-    let headers = get_test_headers();
+    let (headers, _) = get_test_headers().unwrap();
     let mut filters = HashMap::new();
 
     for root in roots.into_iter() {
@@ -260,13 +324,15 @@ pub fn generate_invalid_block() -> UtreexoBlock {
 
 pub fn get_essentials() -> (
     Vec<Header>,
+    Vec<Header>,
+    HashMap<BlockHash, UtreexoBlock>,
     HashMap<BlockHash, UtreexoBlock>,
     HashMap<BlockHash, Vec<u8>>,
     BlockHash,
     UtreexoBlock,
 ) {
-    let headers = get_test_headers();
-    let blocks = get_test_blocks().unwrap();
+    let (signet_headers, regtest_headers) = get_test_headers().unwrap();
+    let (blocks, regtest_blocks) = get_test_blocks().unwrap();
     let true_filters = get_test_filters().unwrap();
     let invalid_block = generate_invalid_block();
 
@@ -275,5 +341,13 @@ pub fn get_essentials() -> (
         BlockHash::from_str("0000035f0e5513b26bba7cead874fdf06241a934e4bc4cf7a0381c60e4cdd2bb")
             .unwrap();
 
-    (headers, blocks, true_filters, tip_hash, invalid_block)
+    (
+        signet_headers,
+        regtest_headers,
+        blocks,
+        regtest_blocks,
+        true_filters,
+        tip_hash,
+        invalid_block,
+    )
 }

@@ -652,6 +652,7 @@ where
     }
 
     pub async fn run(&mut self, stop_signal: Arc<RwLock<bool>>) -> Result<(), WireError> {
+        println!("CHAIN SELECTOR");
         self.create_connection(false).await;
 
         info!("Starting ibd, selecting the best chain");
@@ -675,6 +676,8 @@ where
                 if !self.peer_ids.is_empty() {
                     let new_sync_peer = rand::random::<usize>() % self.peer_ids.len();
                     self.1.sync_peer = *self.peer_ids.get(new_sync_peer).unwrap();
+
+                    println!("REQUESTING BLOCKS");
 
                     try_and_log!(
                         self.request_headers(self.chain.get_best_block()?.1, self.1.sync_peer)
@@ -780,6 +783,7 @@ where
                 }
 
                 PeerMessages::Ready(version) => {
+                    println!("FROM PEER: READY");
                     self.handle_peer_ready(peer, &version).await?;
                 }
 
