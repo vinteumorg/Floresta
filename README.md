@@ -35,6 +35,12 @@ a security vulnerability, please email `Davidson Souza at me AT dlsouza DOT lol`
 
 ## Building
 
+### (Prerequisites) 
+```bash
+sudo apt update
+sudo apt install gcc build-essential pkg-config libssl-dev
+```
+
 You'll need Rust and Cargo, refer to [this](https://www.rust-lang.org/) for more details. Minimum support version is rustc 1.74 and newer.
 
 Once you have Cargo, clone the repository with:
