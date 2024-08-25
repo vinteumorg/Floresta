@@ -1,4 +1,7 @@
 use std::fmt::Arguments;
+use std::fs::File;
+use std::io::BufReader;
+use std::io::{self};
 use std::path::PathBuf;
 use std::process::exit;
 use std::str::FromStr;
@@ -36,6 +39,11 @@ use log::info;
 use log::Record;
 use tokio::sync::RwLock;
 use tokio::task;
+use tokio_rustls::rustls::internal::pemfile::certs;
+use tokio_rustls::rustls::internal::pemfile::rsa_private_keys;
+use tokio_rustls::rustls::NoClientAuth;
+use tokio_rustls::rustls::ServerConfig;
+use tokio_rustls::TlsAcceptor;
 
 use crate::config_file::ConfigFile;
 #[cfg(feature = "json-rpc")]
@@ -139,6 +147,10 @@ pub struct Config {
     pub user_agent: String,
     /// The value to use for assumeutreexo
     pub assumeutreexo_value: Option<AssumeUtreexoValue>,
+    /// Path to the SSL certificate file
+    pub ssl_cert_path: Option<String>,
+    /// Path to the SSL private key file
+    pub ssl_key_path: Option<String>,
 }
 
 pub struct Florestad {
@@ -407,6 +419,21 @@ impl Florestad {
             .clone()
             .unwrap_or("0.0.0.0:50001".into());
 
+        // Load TLS configuration
+        let cert_path = self
+            .config
+            .ssl_cert_path
+            .clone()
+            .unwrap_or_else(|| "ssl/cert.pem".into());
+        let key_path = self
+            .config
+            .ssl_key_path
+            .clone()
+            .unwrap_or_else(|| "ssl/key.pem".into());
+        let tls_config =
+            create_tls_config(&cert_path, &key_path).expect("Failed to create TLS config");
+        let tls_acceptor = TlsAcceptor::from(tls_config);
+
         let electrum_server = block_on(ElectrumServer::new(
             electrum_address,
             wallet,
@@ -422,6 +449,7 @@ impl Florestad {
         task::spawn(client_accept_loop(
             electrum_server.tcp_listener.clone(),
             electrum_server.message_transmitter.clone(),
+            tls_acceptor,
         ));
         // Electrum main loop
         task::spawn(electrum_server.main_loop());
@@ -637,4 +665,14 @@ impl From<Config> for Florestad {
             json_rpc: OnceLock::new(),
         }
     }
+}
+
+fn create_tls_config(cert_path: &str, key_path: &str) -> io::Result<Arc<ServerConfig>> {
+    let cert_file = File::open(cert_path)?;
+    let key_file = File::open(key_path)?;
+    let cert_chain = certs(&mut BufReader::new(cert_file)).unwrap();
+    let mut keys = rsa_private_keys(&mut BufReader::new(key_file)).unwrap();
+    let mut config = ServerConfig::new(Arc::new(NoClientAuth));
+    config.set_single_cert(cert_chain, keys.remove(0)).unwrap();
+    Ok(Arc::new(config))
 }

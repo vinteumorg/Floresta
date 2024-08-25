@@ -162,6 +162,14 @@ pub struct Cli {
     /// height will be fully validated.
     pub assume_utreexo: bool,
 
+    #[arg(long, value_name = "PATH")]
+    /// Path to the SSL certificate file
+    pub ssl_cert_path: Option<String>,
+
+    #[arg(long, value_name = "PATH")]
+    /// Path to the SSL private key file
+    pub ssl_key_path: Option<String>,
+
     #[cfg(unix)]
     #[arg(long, default_value = "false")]
     /// Whether we should run as a daemon
