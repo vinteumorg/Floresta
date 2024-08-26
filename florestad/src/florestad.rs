@@ -41,7 +41,7 @@ use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 use tokio::task;
 use tokio_rustls::rustls::internal::pemfile::certs;
-use tokio_rustls::rustls::internal::pemfile::rsa_private_keys;
+use tokio_rustls::rustls::internal::pemfile::pkcs8_private_keys;
 use tokio_rustls::rustls::NoClientAuth;
 use tokio_rustls::rustls::ServerConfig;
 use tokio_rustls::TlsAcceptor;
@@ -442,7 +442,6 @@ impl Florestad {
         let tls_acceptor = tls_config.map(TlsAcceptor::from);
 
         let electrum_server = block_on(ElectrumServer::new(
-            electrum_address.clone(),
             wallet,
             blockchain_state,
             cfilters,
@@ -694,7 +693,7 @@ fn create_tls_config(cert_path: &str, key_path: &str) -> io::Result<Arc<ServerCo
     let cert_file = File::open(cert_path)?;
     let key_file = File::open(key_path)?;
     let cert_chain = certs(&mut BufReader::new(cert_file)).unwrap();
-    let mut keys = rsa_private_keys(&mut BufReader::new(key_file)).unwrap();
+    let mut keys = pkcs8_private_keys(&mut BufReader::new(key_file)).unwrap();
     let mut config = ServerConfig::new(Arc::new(NoClientAuth));
     config.set_single_cert(cert_chain, keys.remove(0)).unwrap();
     Ok(Arc::new(config))
