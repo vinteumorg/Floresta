@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+
 //! # Floresta Chain
 //! This crate provides the core validation logic for a full node using libfloresta.
 //! It is maintained as a separate crate to allow other projects to build on it,

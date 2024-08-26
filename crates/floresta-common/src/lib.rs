@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 #![no_std]
 use bitcoin::hashes::sha256;
 use bitcoin::hashes::Hash;

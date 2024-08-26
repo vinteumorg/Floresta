@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+
 //! # Floresta Wire
 //! This crate provides the core networking logic for a full node using libfloresta,
 //! including the P2P network and the mempool. You can easily integrate it with any
