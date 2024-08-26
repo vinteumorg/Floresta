@@ -22,6 +22,7 @@ use super::peer::PeerMessages;
 use crate::address_man::AddressState;
 use crate::node::periodic_job;
 use crate::node::try_and_log;
+use crate::node::ConnectionKind;
 use crate::node::InflightRequests;
 use crate::node::NodeNotification;
 use crate::node::NodeRequest;
@@ -100,7 +101,7 @@ where
                 > SyncNode::ASSUME_STALE
             {
                 self.1.last_block_requested = self.chain.get_validation_index().unwrap();
-                self.create_connection(false).await;
+                self.create_connection(ConnectionKind::Regular).await;
                 self.last_tip_update = Instant::now();
                 continue;
             }
