@@ -170,6 +170,10 @@ pub struct Cli {
     /// Path to the SSL private key file
     pub ssl_key_path: Option<String>,
 
+    #[arg(long, default_value_t = false)]
+    /// Whether to disable SSL
+    pub no_ssl: bool,
+
     #[cfg(unix)]
     #[arg(long, default_value = "false")]
     /// Whether we should run as a daemon

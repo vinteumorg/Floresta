@@ -27,15 +27,17 @@ use log::trace;
 use serde_json::json;
 use serde_json::Value;
 use tokio::io::AsyncBufReadExt;
+use tokio::io::AsyncRead;
+use tokio::io::AsyncWrite;
 use tokio::io::AsyncWriteExt;
 use tokio::io::BufReader;
 use tokio::net::TcpListener;
-use tokio::net::TcpStream;
+// use tokio::net::TcpStream;
 use tokio::sync::mpsc::unbounded_channel;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::RwLock;
-use tokio_rustls::server::TlsStream;
+// use tokio_rustls::server::TlsStream;
 use tokio_rustls::TlsAcceptor;
 
 use crate::get_arg;
@@ -50,14 +52,17 @@ pub enum SenderMessage {
     Shutdown,
 }
 
-struct TcpActor {
-    stream: TlsStream<TcpStream>,
+pub trait AsyncStream: AsyncRead + AsyncWrite + Unpin + Send {}
+impl<S: AsyncRead + AsyncWrite + Unpin + Send> AsyncStream for S {}
+
+struct TcpActor<S: AsyncStream> {
+    stream: S,
     receiver: UnboundedReceiver<SenderMessage>,
     message_transmitter: UnboundedSender<Message>,
     client_id: ClientId,
 }
 
-impl TcpActor {
+impl<S: AsyncStream> TcpActor<S> {
     async fn run(&mut self) {
         let (reader, mut writer) = tokio::io::split(&mut self.stream);
         let mut lines = BufReader::new(reader).lines();
@@ -124,9 +129,9 @@ impl Client {
         Ok(())
     }
     /// Create a new client from a stream
-    pub fn new(
+    pub fn new<S: AsyncStream + 'static>(
         client_id: ClientId,
-        stream: TlsStream<TcpStream>,
+        stream: S,
         message_transmitter: UnboundedSender<Message>,
     ) -> Self {
         let (sender, receiver) = unbounded_channel();
@@ -833,29 +838,36 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
 pub async fn client_accept_loop(
     listener: Arc<TcpListener>,
     message_transmitter: UnboundedSender<Message>,
-    tls_acceptor: TlsAcceptor,
+    tls_acceptor: Option<TlsAcceptor>,
 ) {
     let mut id_count = 0;
     loop {
         if let Ok((stream, _addr)) = listener.accept().await {
             info!("New client connection");
-            let acceptor = tls_acceptor.clone();
             let message_transmitter = message_transmitter.clone();
-            match acceptor.accept(stream).await {
-                Ok(tls_stream) => {
-                    let client = Arc::new(Client::new(
-                        id_count,
-                        tls_stream,
-                        message_transmitter.clone(),
-                    ));
-                    message_transmitter
-                        .send(Message::NewClient((client.client_id, client)))
-                        .expect("Main loop is broken");
-                    id_count += 1;
+            if let Some(acceptor) = tls_acceptor.clone() {
+                match acceptor.accept(stream).await {
+                    Ok(tls_stream) => {
+                        let client = Arc::new(Client::new(
+                            id_count,
+                            tls_stream,
+                            message_transmitter.clone(),
+                        ));
+                        message_transmitter
+                            .send(Message::NewClient((client.client_id, client)))
+                            .expect("Main loop is broken");
+                        id_count += 1;
+                    }
+                    Err(e) => {
+                        error!("TLS accept error: {:?}", e);
+                    }
                 }
-                Err(e) => {
-                    error!("TLS accept error: {:?}", e);
-                }
+            } else {
+                let client = Arc::new(Client::new(id_count, stream, message_transmitter.clone()));
+                message_transmitter
+                    .send(Message::NewClient((client.client_id, client)))
+                    .expect("Main loop is broken");
+                id_count += 1;
             }
         }
     }
@@ -962,6 +974,7 @@ mod test {
     use serde_json::Value;
     use tokio::io::AsyncReadExt;
     use tokio::io::AsyncWriteExt;
+    use tokio::net::TcpListener;
     use tokio::net::TcpStream;
     use tokio::sync::RwLock;
     use tokio::task::{self};
@@ -1100,12 +1113,11 @@ mod test {
 
         let node_interface = chain_provider.get_handle();
 
-        let cert_path =
-            String::from("/home/wsl-ubuntu/blockchain/bitcoin/Floresta/ssl/certificate.pem");
-        let key_path = String::from("/home/wsl-ubuntu/blockchain/bitcoin/Floresta/ssl/key.pem");
+        let cert_path = String::from("ssl/certificate.pem");
+        let key_path = String::from("ssl/key.pem");
         let tls_config =
-            create_tls_config(&cert_path, &key_path).expect("Failed to create TLS config");
-        let tls_acceptor = TlsAcceptor::from(tls_config);
+            Some(create_tls_config(&cert_path, &key_path).expect("Failed to create TLS config"));
+        let tls_acceptor = tls_config.map(TlsAcceptor::from);
 
         let electrum_server: ElectrumServer<ChainState<KvChainStore>> = block_on(
             ElectrumServer::new(e_addr, wallet, chain, None, node_interface),
@@ -1115,8 +1127,19 @@ mod test {
         task::spawn(client_accept_loop(
             electrum_server.tcp_listener.clone(),
             electrum_server.message_transmitter.clone(),
-            tls_acceptor,
+            None,
         ));
+
+        // TLS Electrum accept loop
+        if let Some(tls_acceptor) = tls_acceptor {
+            let tls_listener = Arc::new(TcpListener::bind("0.0.0.0:50002").await.unwrap());
+            task::spawn(client_accept_loop(
+                tls_listener,
+                electrum_server.message_transmitter.clone(),
+                Some(tls_acceptor),
+            ));
+        }
+
         // Electrum main loop
         task::spawn(electrum_server.main_loop());
     }

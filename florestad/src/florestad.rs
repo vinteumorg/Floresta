@@ -37,6 +37,7 @@ use log::debug;
 use log::error;
 use log::info;
 use log::Record;
+use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 use tokio::task;
 use tokio_rustls::rustls::internal::pemfile::certs;
@@ -151,6 +152,8 @@ pub struct Config {
     pub ssl_cert_path: Option<String>,
     /// Path to the SSL private key file
     pub ssl_key_path: Option<String>,
+    /// Whether to disable SSL for the Electrum server
+    pub no_ssl: bool,
 }
 
 pub struct Florestad {
@@ -206,7 +209,7 @@ impl Florestad {
 
     /// Actually runs florestad, spawning all modules and waiting util
     /// someone asks to stop.
-    pub fn start(&self) {
+    pub async fn start(&self) {
         // Setup global logger
         let data_dir = self
             .config
@@ -419,23 +422,27 @@ impl Florestad {
             .clone()
             .unwrap_or("0.0.0.0:50001".into());
 
-        // Load TLS configuration
-        let cert_path = self
-            .config
-            .ssl_cert_path
-            .clone()
-            .unwrap_or_else(|| "ssl/cert.pem".into());
-        let key_path = self
-            .config
-            .ssl_key_path
-            .clone()
-            .unwrap_or_else(|| "ssl/key.pem".into());
-        let tls_config =
-            create_tls_config(&cert_path, &key_path).expect("Failed to create TLS config");
-        let tls_acceptor = TlsAcceptor::from(tls_config);
+        // Load TLS configuration if needed
+        let tls_config = if !self.config.no_ssl {
+            let cert_path = self
+                .config
+                .ssl_cert_path
+                .clone()
+                .unwrap_or_else(|| "ssl/cert.pem".into());
+            let key_path = self
+                .config
+                .ssl_key_path
+                .clone()
+                .unwrap_or_else(|| "ssl/key.pem".into());
+            Some(create_tls_config(&cert_path, &key_path).expect("Failed to create TLS config"))
+        } else {
+            None
+        };
+
+        let tls_acceptor = tls_config.map(TlsAcceptor::from);
 
         let electrum_server = block_on(ElectrumServer::new(
-            electrum_address,
+            electrum_address.clone(),
             wallet,
             blockchain_state,
             cfilters,
@@ -445,15 +452,31 @@ impl Florestad {
 
         // Spawn all services
 
-        // Electrum accept loop
+        // Non-TLS Electrum accept loop
+        let non_tls_listener = Arc::new(TcpListener::bind(electrum_address.clone()).await.unwrap());
         task::spawn(client_accept_loop(
-            electrum_server.tcp_listener.clone(),
+            non_tls_listener,
             electrum_server.message_transmitter.clone(),
-            tls_acceptor,
+            None,
         ));
+
+        // TLS Electrum accept loop
+        if let Some(tls_acceptor) = tls_acceptor {
+            let tls_listener = Arc::new(TcpListener::bind("0.0.0.0:50002").await.unwrap());
+            task::spawn(client_accept_loop(
+                tls_listener,
+                electrum_server.message_transmitter.clone(),
+                Some(tls_acceptor),
+            ));
+        }
+
         // Electrum main loop
         task::spawn(electrum_server.main_loop());
-        info!("Server running on: 0.0.0.0:50001");
+        info!("Server running on: {}", electrum_address);
+
+        if !self.config.no_ssl {
+            info!("TLS server running on: 0.0.0.0:50002");
+        }
 
         // Chain provider
         let kill_signal = self.stop_signal.clone();

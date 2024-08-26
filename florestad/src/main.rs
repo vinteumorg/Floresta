@@ -59,6 +59,7 @@ fn main() {
         assumeutreexo_value: None,
         ssl_cert_path: params.ssl_cert_path,
         ssl_key_path: params.ssl_key_path,
+        no_ssl: params.no_ssl,
     };
 
     #[cfg(unix)]
@@ -81,7 +82,7 @@ fn main() {
     let florestad = Florestad::from(config);
 
     _rt.block_on(async {
-        florestad.start();
+        florestad.start().await;
         let _stop_signal = stop_signal.clone();
         ctrlc::set_handler(move || {
             block_on(async {
