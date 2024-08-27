@@ -542,6 +542,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "daemonize"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ab8bfdaacb3c887a54d41bdf48d3af8873b3f5566469f8ba21b92057509f116e"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "derive_more"
 version = "0.99.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -691,7 +700,7 @@ dependencies = [
  "log",
  "rand 0.8.5",
  "rustreexo",
- "secp256k1 0.27.0",
+ "secp256k1 0.28.2",
  "serde",
  "serde_json",
  "sha2",
@@ -811,6 +820,7 @@ dependencies = [
  "chrono",
  "clap",
  "ctrlc",
+ "daemonize",
  "dirs",
  "fern",
  "floresta-chain",
