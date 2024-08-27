@@ -20,7 +20,8 @@ class TestFramework:
             "florestad",
             "--",
             "--network",
-            net
+            net,
+            "--no-ssl"
         ])
         self.nodes.append(FlorestaRPC(node))
 

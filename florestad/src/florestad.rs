@@ -137,6 +137,8 @@ pub struct Config {
     pub json_rpc_address: Option<String>,
     /// The address our electrum server should listen to
     pub electrum_address: Option<String>,
+    /// The address for ssl electrum server
+    pub ssl_electrum_address: Option<String>,
     /// Whether we should write logs to the stdio
     pub log_to_stdout: bool,
     //// Whether we should log to a fs file
@@ -422,7 +424,13 @@ impl Florestad {
             .electrum_address
             .clone()
             .unwrap_or("0.0.0.0:50001".into());
-        println!("{}", data_dir.clone());
+
+        let ssl_electrum_address = self
+            .config
+            .ssl_electrum_address
+            .clone()
+            .unwrap_or("0.0.0.0:50002".into());
+
         // Load TLS configuration if needed
         let tls_config = if !self.config.no_ssl {
             let cert_path = self
@@ -463,7 +471,8 @@ impl Florestad {
 
         // TLS Electrum accept loop
         if let Some(tls_acceptor) = tls_acceptor {
-            let tls_listener = Arc::new(block_on(TcpListener::bind("0.0.0.0:50002")).unwrap());
+            let tls_listener =
+                Arc::new(block_on(TcpListener::bind(ssl_electrum_address.clone())).unwrap());
             task::spawn(client_accept_loop(
                 tls_listener,
                 electrum_server.message_transmitter.clone(),

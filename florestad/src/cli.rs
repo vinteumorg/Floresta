@@ -146,8 +146,12 @@ pub struct Cli {
     pub rpc_address: Option<String>,
 
     #[arg(long, value_name = "address[:<port>]")]
-    /// The address where our electrum server should listen to tin the format <address>[:<port>]
+    /// The address where our electrum server should listen to in the format <address>[:<port>]
     pub electrum_address: Option<String>,
+
+    #[arg(long, value_name = "address[:<port>]")]
+    /// The address where our ssl electrum server should listen to in the format <address>[:<port>]
+    pub ssl_electrum_address: Option<String>,
 
     #[arg(long, value_name = "HEIGHT")]
     /// Download block filters starting at this height. Negative numbers are relative to the current tip.

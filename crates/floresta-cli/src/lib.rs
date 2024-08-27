@@ -81,7 +81,7 @@ mod tests {
             .args(["--data-dir", &dirname])
             .args(["--rpc-address", &format!("127.0.0.1:{}", port)])
             .args(["--electrum-address", &format!("127.0.0.1:{}", port + 1)])
-            .args(["--no-ssl"])
+            .args(["--ssl-electrum-address", &format!("127.0.0.1:{}", port + 2)])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()

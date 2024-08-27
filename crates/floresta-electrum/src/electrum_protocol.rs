@@ -1068,6 +1068,7 @@ mod test {
 
     async fn start_electrum(port: u16) {
         let e_addr = format!("0.0.0.0:{}", port);
+        let ssl_e_addr = format!("0.0.0.0:{}", port + 1);
         let wallet = get_test_cache();
 
         // Create test_chain_state
@@ -1123,7 +1124,7 @@ mod test {
         // TLS Electrum accept loop
         if let Some(tls_acceptor) = tls_acceptor {
             let tls_listener: Arc<TcpListener> =
-                Arc::new(block_on(TcpListener::bind("0.0.0.0:50002")).unwrap());
+                Arc::new(block_on(TcpListener::bind(ssl_e_addr.clone())).unwrap());
             task::spawn(client_accept_loop(
                 tls_listener,
                 electrum_server.message_transmitter.clone(),

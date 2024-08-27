@@ -53,6 +53,7 @@ fn main() {
         log_to_stdout: true,
         json_rpc_address: params.rpc_address,
         electrum_address: params.electrum_address,
+        ssl_electrum_address: params.ssl_electrum_address,
         wallet_descriptor: params.wallet_descriptor,
         filters_start_height: params.filters_start_height,
         user_agent: format!("/Floresta:{}/", env!("GIT_DESCRIBE")),
