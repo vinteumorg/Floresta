@@ -738,6 +738,7 @@ dependencies = [
  "bitcoin 0.31.0",
  "clap",
  "rand 0.8.5",
+ "rcgen",
  "reqwest",
  "serde",
  "serde_json",

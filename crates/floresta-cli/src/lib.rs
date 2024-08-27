@@ -29,6 +29,8 @@ mod tests {
 
     use bitcoin::BlockHash;
     use bitcoin::Txid;
+    use rcgen::generate_simple_self_signed;
+    use rcgen::CertifiedKey;
 
     use crate::reqwest_client::ReqwestClient;
     use crate::rpc::FlorestaRPC;
@@ -65,11 +67,21 @@ mod tests {
             .create(dirname.clone())
             .unwrap();
 
+        // Generate SSL certificate and key using rcgen
+        let CertifiedKey { cert, key_pair } =
+            generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+        let cert_pem = cert.pem();
+        let key_pem = key_pair.serialize_pem();
+        fs::create_dir_all(format!("{dirname}/regtest/ssl")).unwrap();
+        fs::write(format!("{dirname}/regtest/ssl/cert.pem"), cert_pem).unwrap();
+        fs::write(format!("{dirname}/regtest/ssl/key.pem"), key_pem).unwrap();
+
         let fld = Command::new(format!("{here}/target/debug/florestad"))
             .args(["-n", "regtest"])
             .args(["--data-dir", &dirname])
             .args(["--rpc-address", &format!("127.0.0.1:{}", port)])
             .args(["--electrum-address", &format!("127.0.0.1:{}", port + 1)])
+            .args(["--no-ssl"])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()

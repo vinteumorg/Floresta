@@ -1,3 +1,4 @@
+use core::panic;
 use std::fmt::Arguments;
 use std::fs::File;
 use std::io::BufReader;
@@ -209,7 +210,7 @@ impl Florestad {
 
     /// Actually runs florestad, spawning all modules and waiting util
     /// someone asks to stop.
-    pub async fn start(&self) {
+    pub fn start(&self) {
         // Setup global logger
         let data_dir = self
             .config
@@ -353,7 +354,7 @@ impl Florestad {
                 .proxy
                 .as_ref()
                 .map(|address| address.parse().expect("Invalid address")),
-            datadir: data_dir,
+            datadir: data_dir.clone(),
             fixed_peer: connect,
             max_banscore: 50,
             compact_filters: self.config.cfilters,
@@ -421,19 +422,19 @@ impl Florestad {
             .electrum_address
             .clone()
             .unwrap_or("0.0.0.0:50001".into());
-
+        println!("{}", data_dir.clone());
         // Load TLS configuration if needed
         let tls_config = if !self.config.no_ssl {
             let cert_path = self
                 .config
                 .ssl_cert_path
                 .clone()
-                .unwrap_or_else(|| "ssl/cert.pem".into());
+                .unwrap_or_else(|| (data_dir.clone() + "ssl/cert.pem").into());
             let key_path = self
                 .config
                 .ssl_key_path
                 .clone()
-                .unwrap_or_else(|| "ssl/key.pem".into());
+                .unwrap_or_else(|| (data_dir.clone() + "ssl/key.pem").into());
             Some(create_tls_config(&cert_path, &key_path).expect("Failed to create TLS config"))
         } else {
             None
@@ -452,7 +453,8 @@ impl Florestad {
         // Spawn all services
 
         // Non-TLS Electrum accept loop
-        let non_tls_listener = Arc::new(TcpListener::bind(electrum_address.clone()).await.unwrap());
+        let non_tls_listener =
+            Arc::new(block_on(TcpListener::bind(electrum_address.clone())).unwrap());
         task::spawn(client_accept_loop(
             non_tls_listener,
             electrum_server.message_transmitter.clone(),
@@ -461,7 +463,7 @@ impl Florestad {
 
         // TLS Electrum accept loop
         if let Some(tls_acceptor) = tls_acceptor {
-            let tls_listener = Arc::new(TcpListener::bind("0.0.0.0:50002").await.unwrap());
+            let tls_listener = Arc::new(block_on(TcpListener::bind("0.0.0.0:50002")).unwrap());
             task::spawn(client_accept_loop(
                 tls_listener,
                 electrum_server.message_transmitter.clone(),

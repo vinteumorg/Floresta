@@ -29,6 +29,7 @@ with-reqwest = ["reqwest"]
 [dev-dependencies]
 rand = "0.8.5"
 tempfile = "3.9.0"
+rcgen = "0.13"
 
 [lib]
 name = "floresta_cli"

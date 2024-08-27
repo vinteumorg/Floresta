@@ -82,7 +82,7 @@ fn main() {
     let florestad = Florestad::from(config);
 
     _rt.block_on(async {
-        florestad.start().await;
+        florestad.start();
         let _stop_signal = stop_signal.clone();
         ctrlc::set_handler(move || {
             block_on(async {

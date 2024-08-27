@@ -1113,7 +1113,7 @@ mod test {
         let electrum_server: ElectrumServer<ChainState<KvChainStore>> =
             block_on(ElectrumServer::new(wallet, chain, None, node_interface)).unwrap();
 
-        let non_tls_listener = Arc::new(TcpListener::bind(e_addr.clone()).await.unwrap());
+        let non_tls_listener = Arc::new(block_on(TcpListener::bind(e_addr.clone())).unwrap());
         task::spawn(client_accept_loop(
             non_tls_listener,
             electrum_server.message_transmitter.clone(),
@@ -1122,7 +1122,8 @@ mod test {
 
         // TLS Electrum accept loop
         if let Some(tls_acceptor) = tls_acceptor {
-            let tls_listener = Arc::new(TcpListener::bind("0.0.0.0:50002").await.unwrap());
+            let tls_listener: Arc<TcpListener> =
+                Arc::new(block_on(TcpListener::bind("0.0.0.0:50002")).unwrap());
             task::spawn(client_accept_loop(
                 tls_listener,
                 electrum_server.message_transmitter.clone(),
