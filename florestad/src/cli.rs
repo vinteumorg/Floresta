@@ -70,7 +70,7 @@ pub struct Cli {
     /// Option for saving log into data_Dir
     ///
     /// if set, log will be saved into $DATA_DIR/output.log.
-    pub log_file: bool,
+    pub log_to_file: bool,
 
     #[arg(long, value_name = "PATH")]
     /// Where should we store data. This is the directory where we'll store the chainstate,
@@ -161,4 +161,18 @@ pub struct Cli {
     /// trust in the developer that the utreexo state is correct. Everything after the assumed
     /// height will be fully validated.
     pub assume_utreexo: bool,
+
+    #[cfg(unix)]
+    #[arg(long, default_value = "false")]
+    /// Whether we should run as a daemon
+    pub daemon: bool,
+
+    #[cfg(unix)]
+    #[arg(long, value_name = "FILE", requires = "daemon")]
+    /// A file to write the process id to
+    ///
+    /// In case you're using the daemon option, and you want to know the process id, you can
+    /// write it to a file. This option should be an absolute path to a file. Usually, you'd
+    /// write it to $DATA_DIR/florestad.pid
+    pub pid_file: Option<String>,
 }

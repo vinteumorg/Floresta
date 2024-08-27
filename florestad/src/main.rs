@@ -23,6 +23,8 @@ use std::time::Duration;
 
 use clap::Parser;
 use cli::Cli;
+#[cfg(unix)]
+use daemonize::Daemonize;
 use florestad::Config;
 use florestad::Florestad;
 use futures::executor::block_on;
@@ -35,7 +37,7 @@ fn main() {
     let config = Config {
         network: params.network.into(),
         debug: params.debug,
-        data_dir: params.data_dir,
+        data_dir: params.data_dir.clone(),
         cfilters: params.cfilters,
         proxy: params.proxy,
         rescan: params.rescan,
@@ -43,7 +45,10 @@ fn main() {
         connect: params.connect,
         wallet_xpub: params.wallet_xpub,
         config_file: params.config_file,
-        log_to_file: params.log_file,
+        #[cfg(unix)]
+        log_to_file: params.log_to_file || params.daemon,
+        #[cfg(not(unix))]
+        log_to_file: params.log_to_file,
         assume_valid: params.assume_valid,
         log_to_stdout: true,
         json_rpc_address: params.rpc_address,
@@ -53,6 +58,16 @@ fn main() {
         user_agent: format!("/Floresta:{}/", env!("GIT_DESCRIBE")),
         assumeutreexo_value: None,
     };
+
+    #[cfg(unix)]
+    if params.daemon {
+        let mut daemon = Daemonize::new();
+        if let Some(pid_file) = params.pid_file {
+            daemon = daemon.pid_file(pid_file);
+        }
+        daemon.start().expect("Failed to daemonize");
+    }
+
     let _rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .worker_threads(4)

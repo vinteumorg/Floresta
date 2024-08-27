@@ -210,7 +210,6 @@ impl Florestad {
                 })
             })
             .unwrap_or("floresta".into());
-
         let data_dir = match self.config.network {
             crate::Network::Bitcoin => data_dir,
             crate::Network::Signet => data_dir + "/signet/",

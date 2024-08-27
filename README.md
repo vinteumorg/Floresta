@@ -111,6 +111,12 @@ After building, florestad and floresta-cli will be available in the target direc
 florestad
 ```
 
+You may run it as a background process with the `--daemon` flag.
+
+```bash
+florestad --daemon
+```
+
 This will start the full node, and you can connect to it with an Electrum wallet or with the `floresta-cli` tool.
 
 ```bash
