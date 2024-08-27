@@ -37,7 +37,9 @@ jsonrpc-core-client = { version = "18.0.0", features = [
 ], optional = true }
 zmq = { version = "0.10.0", optional = true }
 latest = "0.1.1"
-daemonize = "0.5.0"
+
+[target.'cfg(unix)'.dependencies]
+daemonize = { version = "0.5.0" }
 
 [lib]
 name = "florestad"

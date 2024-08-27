@@ -23,6 +23,7 @@ use std::time::Duration;
 
 use clap::Parser;
 use cli::Cli;
+#[cfg(unix)]
 use daemonize::Daemonize;
 use florestad::Config;
 use florestad::Florestad;
@@ -44,7 +45,10 @@ fn main() {
         connect: params.connect,
         wallet_xpub: params.wallet_xpub,
         config_file: params.config_file,
+        #[cfg(unix)]
         log_to_file: params.log_to_file || params.daemon,
+        #[cfg(not(unix))]
+        log_to_file: params.log_to_file,
         assume_valid: params.assume_valid,
         log_to_stdout: true,
         json_rpc_address: params.rpc_address,
@@ -55,6 +59,7 @@ fn main() {
         assumeutreexo_value: None,
     };
 
+    #[cfg(unix)]
     if params.daemon {
         let mut daemon = Daemonize::new();
         if let Some(pid_file) = params.pid_file {

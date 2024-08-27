@@ -162,10 +162,12 @@ pub struct Cli {
     /// height will be fully validated.
     pub assume_utreexo: bool,
 
+    #[cfg(unix)]
     #[arg(long, default_value = "false")]
     /// Whether we should run as a daemon
     pub daemon: bool,
 
+    #[cfg(unix)]
     #[arg(long, value_name = "FILE", requires = "daemon")]
     /// A file to write the process id to
     ///
