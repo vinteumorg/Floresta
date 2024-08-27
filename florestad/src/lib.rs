@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 mod config_file;
 mod error;
 mod florestad;

@@ -1,5 +1,4 @@
-// Written in 2022 by Davidson Souza.
-// SPDX-License-Identifier: CC0-1.0
+// SPDX-License-Identifier: MIT
 
 //! This is a modular-(ish) utreexo powered wallet backend and fully validating node, it's
 //! developed as an experiment to showcase utreexo. This wallet also comes with an Electrum

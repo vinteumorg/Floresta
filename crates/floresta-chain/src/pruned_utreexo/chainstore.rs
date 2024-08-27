@@ -1,7 +1,6 @@
-// Written in 2022 by Davidson Souza
-
 //! This is a basic kv database that stores all metadata about our blockchain and utreexo
 //! state.
+
 use bitcoin::block::Header as BlockHeader;
 use bitcoin::consensus::deserialize;
 use bitcoin::consensus::serialize;
