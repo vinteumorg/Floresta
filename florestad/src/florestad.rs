@@ -1,8 +1,8 @@
 use core::panic;
 use std::fmt::Arguments;
 use std::fs::File;
+use std::io;
 use std::io::BufReader;
-use std::io::{self};
 use std::path::PathBuf;
 use std::process::exit;
 use std::str::FromStr;
@@ -433,17 +433,13 @@ impl Florestad {
 
         // Load TLS configuration if needed
         let tls_config = if !self.config.no_ssl {
-            let cert_path = self
-                .config
-                .ssl_cert_path
-                .clone()
-                .unwrap_or_else(|| (data_dir.clone() + "ssl/cert.pem").into());
-            let key_path = self
-                .config
-                .ssl_key_path
-                .clone()
-                .unwrap_or_else(|| (data_dir.clone() + "ssl/key.pem").into());
-            Some(create_tls_config(&cert_path, &key_path).expect("Failed to create TLS config"))
+            match self.create_tls_config(&data_dir) {
+                Ok(config) => Some(config),
+                Err(_) => {
+                    error!("Failed to load SSL certificates, ignoring SSL");
+                    None
+                }
+            }
         } else {
             None
         };
@@ -680,6 +676,27 @@ impl Florestad {
         }
         result
     }
+
+    fn create_tls_config(&self, data_dir: &String) -> io::Result<Arc<ServerConfig>> {
+        let cert_path = self
+            .config
+            .ssl_cert_path
+            .clone()
+            .unwrap_or_else(|| (data_dir.clone() + "ssl/cert.pem").into());
+        let key_path = self
+            .config
+            .ssl_cert_path
+            .clone()
+            .unwrap_or_else(|| (data_dir.clone() + "ssl/key.pem").into());
+
+        let cert_file = File::open(cert_path)?;
+        let key_file = File::open(key_path)?;
+        let cert_chain = certs(&mut BufReader::new(cert_file)).unwrap();
+        let mut keys = pkcs8_private_keys(&mut BufReader::new(key_file)).unwrap();
+        let mut config = ServerConfig::new(Arc::new(NoClientAuth));
+        config.set_single_cert(cert_chain, keys.remove(0)).unwrap();
+        Ok(Arc::new(config))
+    }
 }
 
 impl Default for Florestad {
@@ -698,14 +715,4 @@ impl From<Config> for Florestad {
             json_rpc: OnceLock::new(),
         }
     }
-}
-
-fn create_tls_config(cert_path: &str, key_path: &str) -> io::Result<Arc<ServerConfig>> {
-    let cert_file = File::open(cert_path)?;
-    let key_file = File::open(key_path)?;
-    let cert_chain = certs(&mut BufReader::new(cert_file)).unwrap();
-    let mut keys = pkcs8_private_keys(&mut BufReader::new(key_file)).unwrap();
-    let mut config = ServerConfig::new(Arc::new(NoClientAuth));
-    config.set_single_cert(cert_chain, keys.remove(0)).unwrap();
-    Ok(Arc::new(config))
 }
