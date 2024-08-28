@@ -15,7 +15,6 @@ use crate::IteratableFilterStoreError;
 
 pub struct FiltersIterator {
     reader: BufReader<File>,
-    current: u32,
 }
 
 impl Iterator for FiltersIterator {
@@ -23,22 +22,25 @@ impl Iterator for FiltersIterator {
 
     fn next(&mut self) -> Option<Self::Item> {
         let mut buf = [0; 4];
+
+        self.reader.read_exact(&mut buf).ok()?;
+        let height = u32::from_le_bytes(buf);
+
         self.reader.read_exact(&mut buf).ok()?;
         let length = u32::from_le_bytes(buf);
 
         debug_assert!(
             length < 1_000_000,
             "filter for block {} has length {}",
-            self.current,
-            length
+            height,
+            length,
         );
 
         let mut buf = vec![0_u8; length as usize];
         self.reader.read_exact(&mut buf).ok()?;
         let filter = crate::bip158::BlockFilter::new(&buf);
-        self.current += 1;
 
-        Some((self.current - 1, filter))
+        Some((height, filter))
     }
 }
 
@@ -95,7 +97,7 @@ impl IntoIterator for FlatFiltersStore {
         let mut inner = self.0.lock().unwrap();
         inner.file.seek(SeekFrom::Start(4)).unwrap();
         let reader = BufReader::new(inner.file.try_clone().unwrap());
-        FiltersIterator { reader, current: 0 }
+        FiltersIterator { reader }
     }
 }
 
@@ -124,21 +126,24 @@ impl IteratableFilterStore for FlatFiltersStore {
         let new_file = File::open(inner.path.clone())?;
         let mut reader = BufReader::new(new_file);
         reader.seek(SeekFrom::Start(4))?;
-        Ok(FiltersIterator { reader, current: 1 })
+        Ok(FiltersIterator { reader })
     }
 
     fn put_filter(
         &self,
         block_filter: crate::bip158::BlockFilter,
+        height: u32,
     ) -> Result<(), IteratableFilterStoreError> {
         let length = block_filter.content.len() as u32;
 
         if length > 1_000_000 {
             return Err(IteratableFilterStoreError::FilterTooLarge);
         }
+
         let mut inner = self.0.lock()?;
 
         inner.file.seek(SeekFrom::End(0))?;
+        inner.file.write_all(&height.to_le_bytes())?;
         inner.file.write_all(&length.to_le_bytes())?;
         inner.file.write_all(&block_filter.content)?;
 
@@ -166,7 +171,7 @@ mod tests {
 
         let filter = BlockFilter::new(&[10, 11, 12, 13]);
         store
-            .put_filter(filter.clone())
+            .put_filter(filter.clone(), 1)
             .expect("could not put filter");
 
         let mut iter = store.iter().expect("could not get iterator");

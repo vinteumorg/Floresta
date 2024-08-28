@@ -97,6 +97,7 @@ pub trait IteratableFilterStore:
     fn put_filter(
         &self,
         block_filter: bip158::BlockFilter,
+        height: u32,
     ) -> Result<(), IteratableFilterStoreError>;
     /// Persists the height of the last filter we have
     fn set_height(&self, height: u32) -> Result<(), IteratableFilterStoreError>;

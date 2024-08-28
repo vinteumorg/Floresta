@@ -1,6 +1,7 @@
 //! Main file for this blockchain. A node is the central task that runs and handles important
 //! events, such as new blocks, peer connection/disconnection, new addresses, etc.
 //! A node should not care about peer-specific messages, peers'll handle things like pings.
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::net::IpAddr;
@@ -134,6 +135,7 @@ impl Default for RunningNode {
                 requests: Mutex::new(Vec::new()),
             }),
             last_invs: HashMap::default(),
+            inflight_filters: BTreeMap::new(),
         }
     }
 }

@@ -630,6 +630,18 @@ where
         }
 
         for request in failed {
+            match request {
+                InflightRequests::Headers => {
+                    let new_sync_peer = rand::random::<usize>() % self.peer_ids.len();
+                    let new_sync_peer = *self.peer_ids.get(new_sync_peer).unwrap();
+                    self.1.sync_peer = new_sync_peer;
+                    self.request_headers(self.chain.get_best_block()?.1, self.1.sync_peer)
+                        .await?;
+                    self.inflight
+                        .insert(InflightRequests::Headers, (new_sync_peer, Instant::now()));
+                }
+                _ => {}
+            }
             self.inflight.remove(&request);
         }
 
@@ -676,7 +688,6 @@ where
                 if !self.peer_ids.is_empty() {
                     let new_sync_peer = rand::random::<usize>() % self.peer_ids.len();
                     self.1.sync_peer = *self.peer_ids.get(new_sync_peer).unwrap();
-
                     try_and_log!(
                         self.request_headers(self.chain.get_best_block()?.1, self.1.sync_peer)
                             .await

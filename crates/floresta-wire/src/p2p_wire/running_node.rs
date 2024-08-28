@@ -1,7 +1,8 @@
-use std::collections::HashMap;
 /// After a node catches-up with the network, we can start listening for new blocks, handing any
 /// request our user might make and keep our peers alive. This mode requires way less bandwidth and
 /// CPU to run, being bound by the number of blocks found in a given period.
+use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -18,6 +19,7 @@ use floresta_chain::pruned_utreexo::UpdatableChainstate;
 use floresta_chain::BlockValidationErrors;
 use floresta_chain::BlockchainError;
 use floresta_chain::UtreexoBlock;
+use floresta_compact_filters::BlockFilter;
 use log::debug;
 use log::error;
 use log::info;
@@ -59,6 +61,7 @@ pub struct RunningNode {
     /// in a timely manner, but keep the ones that notified us of a new blocks the fastest.
     /// We also keep the moment we received the first inv message
     pub(crate) last_invs: HashMap<BlockHash, (Instant, Vec<PeerId>)>,
+    pub(crate) inflight_filters: BTreeMap<u32, BlockFilter>,
 }
 
 impl NodeContext for RunningNode {
@@ -455,7 +458,6 @@ where
                 ASSUME_STALE,
                 RunningNode
             );
-
             try_and_log!(self.request_rescan_block().await);
             try_and_log!(self.download_filters().await);
 
@@ -497,7 +499,7 @@ where
             } else {
                 user_height as u32
             };
-
+            height -= 1;
             filters.save_height(height)?;
         }
 
@@ -506,10 +508,10 @@ where
         }
 
         info!("Downloading filters from height {}", filters.get_height()?);
-        let stop = if height + 1000 > best_height {
+        let stop = if height + 500 > best_height {
             best_height
         } else {
-            height + 1000
+            height + 500
         };
 
         let stop_hash = self.chain.get_block_hash(stop)?;
@@ -904,28 +906,29 @@ where
                 PeerMessages::BlockFilter((hash, filter)) => {
                     debug!("Got a block filter for block {hash} from peer {peer}");
 
-                    if let Some(filters) = self.block_filters.as_ref() {
-                        let current_height = filters.get_height()?;
+                    if let Some(filters) = self.0.block_filters.as_ref() {
+                        let mut current_height = filters.get_height()?;
                         let Some(this_height) = self.chain.get_block_height(&hash)? else {
                             warn!("Filter for block {} received, but we don't have it", hash);
                             return Ok(());
                         };
 
-                        // we expect to receive them in order
                         if current_height + 1 != this_height {
-                            warn!(
-                                "Expected filter for height {}, got filter for height {}",
-                                current_height + 1,
-                                this_height
-                            );
-                            self.increase_banscore(peer, 10).await?;
+                            self.1.inflight_filters.insert(this_height, filter);
                             return Ok(());
                         }
 
-                        filters.save_height(current_height + 1)?;
-                        filters.push_filter(filter)?;
+                        filters.push_filter(filter, current_height + 1)?;
+                        current_height += 1;
 
-                        if self.last_filter == hash {
+                        while let Some(filter) = self.1.inflight_filters.remove(&(current_height)) {
+                            filters.push_filter(filter, current_height)?;
+                            current_height += 1;
+                        }
+
+                        filters.save_height(current_height)?;
+
+                        if self.last_filter == hash && self.1.inflight_filters.is_empty() {
                             self.inflight.remove(&InflightRequests::GetFilters);
                             self.download_filters().await?;
                         }
