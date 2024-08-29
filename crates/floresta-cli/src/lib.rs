@@ -95,6 +95,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "tarpaulin"]
     fn test_stop() {
         let (mut _proc, client) = start_florestad();
 
@@ -103,6 +104,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "tarpaulin"]
     fn test_get_blockchaininfo() {
         let (_proc, client) = start_florestad();
 
@@ -116,6 +118,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "tarpaulin"]
     fn test_get_roots() {
         let (_proc, client) = start_florestad();
 
@@ -125,6 +128,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "tarpaulin"]
     fn test_get_block() {
         let (_proc, client) = start_florestad();
 
@@ -141,6 +145,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "tarpaulin"]
     fn test_get_block_hash() {
         let (_proc, client) = start_florestad();
 
@@ -155,6 +160,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "tarpaulin"]
     fn test_get_block_header() {
         let (_proc, client) = start_florestad();
 
@@ -165,6 +171,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "tarpaulin"]
     fn test_get_height() {
         let (_proc, client) = start_florestad();
 
@@ -173,6 +180,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "tarpaulin"]
     fn test_send_raw_transaction() {
         let (_proc, client) = start_florestad();
 

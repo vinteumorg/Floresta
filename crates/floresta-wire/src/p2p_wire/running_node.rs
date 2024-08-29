@@ -347,6 +347,8 @@ where
             .await;
         }
 
+        println!("IBG COMPLETED: NOW STARTING RUNNING NODE");
+
         self = self.catch_up(kill_signal.clone()).await;
 
         self.last_block_request = self.chain.get_validation_index().unwrap_or(0);

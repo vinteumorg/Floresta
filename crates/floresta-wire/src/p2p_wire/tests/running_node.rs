@@ -85,14 +85,14 @@ mod tests {
 
     #[tokio::test]
     async fn send_headers() {
-        let (_, mut headers, _, blocks, _, _, _) = get_essentials();
+        let (signet_headers, mut headers, signet_blocks, blocks, _, _, _) = get_essentials();
 
         // GONNA WORK WITH ONLY 5 BLOCKS:
         // CREATE A PEER WITH 5 BLOCK HEADERS AND 5 BLOCKS. POW_FRAUD_PROOFS GONNA BE OFF !!
         // FIRST THE CHAIN SELECTOR WILL COMPLETE RUNNING
         // SECONDLY THE SYNC NODE WILL COMPLETE RUNNING
         // THEN FIGURE OUT FOR THE RUNNING NODE
-
+        
         // FOR DEMO GONNA WORK WITH ONLY ONE PEER
 
         headers.truncate(5);
@@ -105,5 +105,12 @@ mod tests {
         .await;
 
         assert_eq!(chain.get_best_block().unwrap().1, headers[4].block_hash());
+
+        println!(
+            "SIGNET_BLOCK{:?} \n",
+            signet_blocks[&signet_headers[1].block_hash()]
+        );
+        println!("REGTEST_BLOCK{:?}", blocks[&headers[1].block_hash()]);
+
     }
 }
