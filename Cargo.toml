@@ -2,6 +2,19 @@
 resolver = "2"
 members = [
     "florestad",
+    "fuzz",
+    "crates/floresta",
+    "crates/floresta-chain",
+    "crates/floresta-cli",
+    "crates/floresta-common",
+    "crates/floresta-compact-filters",
+    "crates/floresta-electrum",
+    "crates/floresta-watch-only",
+    "crates/floresta-wire",
+]
+
+default-members = [ 
+    "florestad",
     "crates/floresta",
     "crates/floresta-chain",
     "crates/floresta-cli",
