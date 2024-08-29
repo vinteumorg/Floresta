@@ -146,8 +146,12 @@ pub struct Cli {
     pub rpc_address: Option<String>,
 
     #[arg(long, value_name = "address[:<port>]")]
-    /// The address where our electrum server should listen to tin the format <address>[:<port>]
+    /// The address where our electrum server should listen to in the format <address>[:<port>]
     pub electrum_address: Option<String>,
+
+    #[arg(long, value_name = "address[:<port>]")]
+    /// The address where our ssl electrum server should listen to in the format <address>[:<port>]
+    pub ssl_electrum_address: Option<String>,
 
     #[arg(long, value_name = "HEIGHT")]
     /// Download block filters starting at this height. Negative numbers are relative to the current tip.
@@ -161,6 +165,18 @@ pub struct Cli {
     /// trust in the developer that the utreexo state is correct. Everything after the assumed
     /// height will be fully validated.
     pub assume_utreexo: bool,
+
+    #[arg(long, value_name = "PATH")]
+    /// Path to the SSL certificate file
+    pub ssl_cert_path: Option<String>,
+
+    #[arg(long, value_name = "PATH")]
+    /// Path to the SSL private key file
+    pub ssl_key_path: Option<String>,
+
+    #[arg(long, default_value_t = false)]
+    /// Whether to disable SSL
+    pub no_ssl: bool,
 
     #[cfg(unix)]
     #[arg(long, default_value = "false")]

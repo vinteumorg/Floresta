@@ -27,14 +27,16 @@ use log::trace;
 use serde_json::json;
 use serde_json::Value;
 use tokio::io::AsyncBufReadExt;
+use tokio::io::AsyncRead;
+use tokio::io::AsyncWrite;
 use tokio::io::AsyncWriteExt;
 use tokio::io::BufReader;
 use tokio::net::TcpListener;
-use tokio::net::TcpStream;
 use tokio::sync::mpsc::unbounded_channel;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::RwLock;
+use tokio_rustls::TlsAcceptor;
 
 use crate::get_arg;
 use crate::json_rpc_res;
@@ -48,14 +50,17 @@ pub enum SenderMessage {
     Shutdown,
 }
 
-struct TcpActor {
-    stream: TcpStream,
+pub trait AsyncStream: AsyncRead + AsyncWrite + Unpin + Send {}
+impl<S: AsyncRead + AsyncWrite + Unpin + Send> AsyncStream for S {}
+
+struct TcpActor<S: AsyncStream> {
+    stream: S,
     receiver: UnboundedReceiver<SenderMessage>,
     message_transmitter: UnboundedSender<Message>,
     client_id: ClientId,
 }
 
-impl TcpActor {
+impl<S: AsyncStream> TcpActor<S> {
     async fn run(&mut self) {
         let (reader, mut writer) = tokio::io::split(&mut self.stream);
         let mut lines = BufReader::new(reader).lines();
@@ -122,9 +127,9 @@ impl Client {
         Ok(())
     }
     /// Create a new client from a stream
-    pub fn new(
+    pub fn new<S: AsyncStream + 'static>(
         client_id: ClientId,
-        stream: TcpStream,
+        stream: S,
         message_transmitter: UnboundedSender<Message>,
     ) -> Self {
         let (sender, receiver) = unbounded_channel();
@@ -161,8 +166,7 @@ pub struct ElectrumServer<Blockchain: BlockchainInterface> {
     /// The address cache is used to store addresses and transactions, like a
     /// watch-only wallet, but it is adapted to the electrum protocol.
     pub address_cache: Arc<RwLock<AddressCache<KvDatabase>>>,
-    /// The TCP listener is used to accept new connections to our server.
-    pub tcp_listener: Arc<TcpListener>,
+
     /// The clients are the clients connected to our server, we keep track of them
     /// using a unique id.
     pub clients: HashMap<ClientId, Arc<Client>>,
@@ -192,13 +196,11 @@ pub struct ElectrumServer<Blockchain: BlockchainInterface> {
 
 impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
     pub async fn new(
-        address: String,
         address_cache: Arc<RwLock<AddressCache<KvDatabase>>>,
         chain: Arc<Blockchain>,
         block_filters: Option<Arc<NetworkFilters<FlatFiltersStore>>>,
         node_interface: Arc<NodeInterface>,
     ) -> Result<ElectrumServer<Blockchain>, Box<dyn std::error::Error>> {
-        let listener = Arc::new(TcpListener::bind(address).await?);
         let (tx, rx) = unbounded_channel();
         let unconfirmed = address_cache.read().await.find_unconfirmed().unwrap();
         for tx in unconfirmed {
@@ -209,7 +211,6 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
             address_cache,
             block_filters,
             node_interface,
-            tcp_listener: listener,
             clients: HashMap::new(),
             message_receiver: rx,
             message_transmitter: tx,
@@ -831,16 +832,37 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
 pub async fn client_accept_loop(
     listener: Arc<TcpListener>,
     message_transmitter: UnboundedSender<Message>,
+    tls_acceptor: Option<TlsAcceptor>,
 ) {
     let mut id_count = 0;
     loop {
         if let Ok((stream, _addr)) = listener.accept().await {
             info!("New client connection");
-            let client = Arc::new(Client::new(id_count, stream, message_transmitter.clone()));
-            message_transmitter
-                .send(Message::NewClient((client.client_id, client)))
-                .expect("Main loop is broken");
-            id_count += 1;
+            let message_transmitter = message_transmitter.clone();
+            if let Some(acceptor) = tls_acceptor.clone() {
+                match acceptor.accept(stream).await {
+                    Ok(tls_stream) => {
+                        let client = Arc::new(Client::new(
+                            id_count,
+                            tls_stream,
+                            message_transmitter.clone(),
+                        ));
+                        message_transmitter
+                            .send(Message::NewClient((client.client_id, client)))
+                            .expect("Main loop is broken");
+                        id_count += 1;
+                    }
+                    Err(e) => {
+                        error!("TLS accept error: {:?}", e);
+                    }
+                }
+            } else {
+                let client = Arc::new(Client::new(id_count, stream, message_transmitter.clone()));
+                message_transmitter
+                    .send(Message::NewClient((client.client_id, client)))
+                    .expect("Main loop is broken");
+                id_count += 1;
+            }
         }
     }
 }
@@ -939,15 +961,23 @@ mod test {
     use floresta_wire::running_node::RunningNode;
     use floresta_wire::UtreexoNodeConfig;
     use futures::executor::block_on;
+    use rcgen::generate_simple_self_signed;
+    use rcgen::CertifiedKey;
     use serde_json::json;
     use serde_json::Number;
     use serde_json::Value;
     use tokio::io::AsyncReadExt;
     use tokio::io::AsyncWriteExt;
+    use tokio::net::TcpListener;
     use tokio::net::TcpStream;
     use tokio::sync::RwLock;
     use tokio::task::{self};
     use tokio::time::timeout;
+    use tokio_rustls::rustls::Certificate;
+    use tokio_rustls::rustls::NoClientAuth;
+    use tokio_rustls::rustls::PrivateKey;
+    use tokio_rustls::rustls::ServerConfig;
+    use tokio_rustls::TlsAcceptor;
 
     use super::client_accept_loop;
     use super::ElectrumServer;
@@ -1038,6 +1068,7 @@ mod test {
 
     async fn start_electrum(port: u16) {
         let e_addr = format!("0.0.0.0:{}", port);
+        let ssl_e_addr = format!("0.0.0.0:{}", port + 1);
         let wallet = get_test_cache();
 
         // Create test_chain_state
@@ -1077,17 +1108,53 @@ mod test {
 
         let node_interface = chain_provider.get_handle();
 
-        let electrum_server: ElectrumServer<ChainState<KvChainStore>> = block_on(
-            ElectrumServer::new(e_addr, wallet, chain, None, node_interface),
-        )
-        .unwrap();
+        let tls_config = Some(create_tls_config().expect("Failed to create TLS config"));
+        let tls_acceptor = tls_config.map(TlsAcceptor::from);
 
+        let electrum_server: ElectrumServer<ChainState<KvChainStore>> =
+            block_on(ElectrumServer::new(wallet, chain, None, node_interface)).unwrap();
+
+        let non_tls_listener = Arc::new(block_on(TcpListener::bind(e_addr.clone())).unwrap());
         task::spawn(client_accept_loop(
-            electrum_server.tcp_listener.clone(),
+            non_tls_listener,
             electrum_server.message_transmitter.clone(),
+            None,
         ));
+
+        // TLS Electrum accept loop
+        if let Some(tls_acceptor) = tls_acceptor {
+            let tls_listener: Arc<TcpListener> =
+                Arc::new(block_on(TcpListener::bind(ssl_e_addr.clone())).unwrap());
+            task::spawn(client_accept_loop(
+                tls_listener,
+                electrum_server.message_transmitter.clone(),
+                Some(tls_acceptor),
+            ));
+        }
+
         // Electrum main loop
         task::spawn(electrum_server.main_loop());
+    }
+
+    fn generate_self_signed_cert() -> Result<(Certificate, PrivateKey), Box<dyn std::error::Error>>
+    {
+        let CertifiedKey { cert, key_pair } =
+            generate_simple_self_signed(vec!["localhost".into()])?;
+        let der_encoded_certificate = cert.der();
+        let der_bytes: &[u8] = der_encoded_certificate.as_ref();
+        Ok((
+            Certificate(der_bytes.to_vec()),
+            PrivateKey(key_pair.serialized_der().to_vec()),
+        ))
+    }
+
+    fn create_tls_config() -> io::Result<Arc<ServerConfig>> {
+        let (cert, key) = generate_self_signed_cert().unwrap();
+
+        let mut config = ServerConfig::new(Arc::new(NoClientAuth));
+        config.set_single_cert(vec![cert], key).unwrap();
+
+        Ok(Arc::new(config))
     }
 
     /// server.banner                           *
@@ -1112,7 +1179,6 @@ mod test {
     /// sserver.peers.subscribe                 *
     /// server.ping                             *
     /// server.version                          *
-
     fn generate_request(req_params: &mut Vec<Value>) -> Value {
         let params: Vec<Value>;
         let binding = req_params.pop().unwrap();

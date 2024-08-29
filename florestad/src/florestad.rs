@@ -1,4 +1,8 @@
+use core::panic;
 use std::fmt::Arguments;
+use std::fs::File;
+use std::io;
+use std::io::BufReader;
 use std::path::PathBuf;
 use std::process::exit;
 use std::str::FromStr;
@@ -34,8 +38,14 @@ use log::debug;
 use log::error;
 use log::info;
 use log::Record;
+use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 use tokio::task;
+use tokio_rustls::rustls::internal::pemfile::certs;
+use tokio_rustls::rustls::internal::pemfile::pkcs8_private_keys;
+use tokio_rustls::rustls::NoClientAuth;
+use tokio_rustls::rustls::ServerConfig;
+use tokio_rustls::TlsAcceptor;
 
 use crate::config_file::ConfigFile;
 #[cfg(feature = "json-rpc")]
@@ -127,6 +137,8 @@ pub struct Config {
     pub json_rpc_address: Option<String>,
     /// The address our electrum server should listen to
     pub electrum_address: Option<String>,
+    /// The address for ssl electrum server
+    pub ssl_electrum_address: Option<String>,
     /// Whether we should write logs to the stdio
     pub log_to_stdout: bool,
     //// Whether we should log to a fs file
@@ -139,6 +151,12 @@ pub struct Config {
     pub user_agent: String,
     /// The value to use for assumeutreexo
     pub assumeutreexo_value: Option<AssumeUtreexoValue>,
+    /// Path to the SSL certificate file
+    pub ssl_cert_path: Option<String>,
+    /// Path to the SSL private key file
+    pub ssl_key_path: Option<String>,
+    /// Whether to disable SSL for the Electrum server
+    pub no_ssl: bool,
 }
 
 pub struct Florestad {
@@ -338,7 +356,7 @@ impl Florestad {
                 .proxy
                 .as_ref()
                 .map(|address| address.parse().expect("Invalid address")),
-            datadir: data_dir,
+            datadir: data_dir.clone(),
             fixed_peer: connect,
             max_banscore: 50,
             compact_filters: self.config.cfilters,
@@ -407,8 +425,28 @@ impl Florestad {
             .clone()
             .unwrap_or("0.0.0.0:50001".into());
 
+        let ssl_electrum_address = self
+            .config
+            .ssl_electrum_address
+            .clone()
+            .unwrap_or("0.0.0.0:50002".into());
+
+        // Load TLS configuration if needed
+        let tls_config = if !self.config.no_ssl {
+            match self.create_tls_config(&data_dir) {
+                Ok(config) => Some(config),
+                Err(_) => {
+                    error!("Failed to load SSL certificates, ignoring SSL");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        let tls_acceptor = tls_config.map(TlsAcceptor::from);
+
         let electrum_server = block_on(ElectrumServer::new(
-            electrum_address,
             wallet,
             blockchain_state,
             cfilters,
@@ -418,14 +456,33 @@ impl Florestad {
 
         // Spawn all services
 
-        // Electrum accept loop
+        // Non-TLS Electrum accept loop
+        let non_tls_listener =
+            Arc::new(block_on(TcpListener::bind(electrum_address.clone())).unwrap());
         task::spawn(client_accept_loop(
-            electrum_server.tcp_listener.clone(),
+            non_tls_listener,
             electrum_server.message_transmitter.clone(),
+            None,
         ));
+
+        // TLS Electrum accept loop
+        if let Some(tls_acceptor) = tls_acceptor {
+            let tls_listener =
+                Arc::new(block_on(TcpListener::bind(ssl_electrum_address.clone())).unwrap());
+            task::spawn(client_accept_loop(
+                tls_listener,
+                electrum_server.message_transmitter.clone(),
+                Some(tls_acceptor),
+            ));
+        }
+
         // Electrum main loop
         task::spawn(electrum_server.main_loop());
-        info!("Server running on: 0.0.0.0:50001");
+        info!("Server running on: {}", electrum_address);
+
+        if !self.config.no_ssl {
+            info!("TLS server running on: 0.0.0.0:50002");
+        }
 
         // Chain provider
         let kill_signal = self.stop_signal.clone();
@@ -618,6 +675,27 @@ impl Florestad {
             result.extend(b);
         }
         result
+    }
+
+    fn create_tls_config(&self, data_dir: &String) -> io::Result<Arc<ServerConfig>> {
+        let cert_path = self
+            .config
+            .ssl_cert_path
+            .clone()
+            .unwrap_or_else(|| (data_dir.clone() + "ssl/cert.pem").into());
+        let key_path = self
+            .config
+            .ssl_cert_path
+            .clone()
+            .unwrap_or_else(|| (data_dir.clone() + "ssl/key.pem").into());
+
+        let cert_file = File::open(cert_path)?;
+        let key_file = File::open(key_path)?;
+        let cert_chain = certs(&mut BufReader::new(cert_file)).unwrap();
+        let mut keys = pkcs8_private_keys(&mut BufReader::new(key_file)).unwrap();
+        let mut config = ServerConfig::new(Arc::new(NoClientAuth));
+        config.set_single_cert(cert_chain, keys.remove(0)).unwrap();
+        Ok(Arc::new(config))
     }
 }
 
