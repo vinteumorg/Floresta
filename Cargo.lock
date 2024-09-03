@@ -807,6 +807,7 @@ name = "floresta-fuzz"
 version = "0.0.0"
 dependencies = [
  "bitcoin 0.31.0",
+ "floresta-chain",
  "floresta-wire",
  "libfuzzer-sys",
 ]
