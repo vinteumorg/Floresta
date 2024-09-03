@@ -1,0 +1,20 @@
+[package]
+name = "floresta-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+bitcoin = { version = "0.31", features = ["serde", "std"] }
+floresta-wire = { path = "../crates/floresta-wire" }
+
+[[bin]]
+name = "local_address_str"
+path = "fuzz_targets/local_address_str.rs"
+test = false
+doc = false
+bench = false

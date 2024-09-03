@@ -13,20 +13,22 @@ If you want to use `libfloresta` to build your own Bitcoin application, you can 
 
 ### ToC
 
-- [Community](#community)
 - [Building](#building)
+  - [(Prerequisites)](#prerequisites)
   - [Building with nix](#building-with-nix)
-- [Running](#running)
-  - [Assume Utreexo](#assume-utreexo)
-  - [Compact Filters](#compact-filters)
-  - [Getting help](#getting-help)
-  - [Wallet](#wallet)
-- [Running the tests](#running-the-tests)
-- [Contributing](#contributing)
-- [Using Nix](#using-nix)
-- [License](#license)
-- [Acknowledgments](#acknowledgments)
-- [Consensus implementation](#consensus-implementation)
+  - [Running](#running)
+    - [Assume Utreexo](#assume-utreexo)
+    - [Compact Filters](#compact-filters)
+    - [Getting help](#getting-help)
+    - [Wallet](#wallet)
+  - [Running the tests](#running-the-tests)
+    - [Requirements](#requirements)
+  - [Fuzzing](#fuzzing)
+  - [Contributing](#contributing)
+  - [Using Nix](#using-nix)
+  - [License](#license)
+  - [Acknowledgments](#acknowledgments)
+  - [Consensus implementation](#consensus-implementation)
 
 ### Community
 
@@ -202,6 +204,15 @@ There's also a set of functional tests that you can run with
 pip3 install -r tests/requirements.txt
 python tests/run_tests.py
 ```
+
+### Fuzzing
+
+This project uses `cargo-fuzz` (libfuzzer) for fuzzing, you can run a fuzz target with:
+```bash
+cargo +nightly fuzz run local_address_str
+```
+
+You can replace `local_address_str` with the name of any other target you want to run.
 
 ### Contributing
 Contributions are welcome, feel free to open an issue or a pull request.
