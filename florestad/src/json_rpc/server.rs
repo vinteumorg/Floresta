@@ -103,6 +103,15 @@ impl Rpc for RpcImpl {
                     .any(|input| input.previous_output == expected_input)
             })
         }
+
+        if self.chain.is_in_idb() {
+            return Err(jsonrpc_core::Error {
+                code: Error::InInitialBlockDownload.into(),
+                message: Error::InInitialBlockDownload.to_string(),
+                data: None,
+            });
+        }
+
         // can't proceed without block filters
         if self.block_filter_storage.is_none() {
             return Err(jsonrpc_core::Error {
@@ -175,6 +184,14 @@ impl Rpc for RpcImpl {
     }
 
     fn add_node(&self, node: String) -> Result<bool> {
+        if self.chain.is_in_idb() {
+            return Err(jsonrpc_core::Error {
+                code: Error::InInitialBlockDownload.into(),
+                message: Error::InInitialBlockDownload.to_string(),
+                data: None,
+            });
+        }
+
         let node = node.split(':').collect::<Vec<&str>>();
         let (ip, port) = if node.len() == 2 {
             (node[0], node[1].parse().map_err(|_| Error::InvalidPort)?)
@@ -368,9 +385,18 @@ impl Rpc for RpcImpl {
     }
 
     fn get_block(&self, hash: BlockHash, verbosity: Option<u8>) -> Result<Value> {
+        let is_genesis = self.chain.get_block_hash(0).unwrap().eq(&hash);
+        if self.chain.is_in_idb() && !is_genesis {
+            return Err(jsonrpc_core::Error {
+                code: Error::InInitialBlockDownload.into(),
+                message: Error::InInitialBlockDownload.to_string(),
+                data: None,
+            });
+        }
+
         let verbosity = verbosity.unwrap_or(1);
 
-        let block = if self.chain.get_block_hash(0).unwrap().eq(&hash) {
+        let block = if is_genesis {
             Some(genesis_block(self.network))
         } else {
             self.node.get_block(hash).map_err(|_| Error::Chain)?
@@ -438,6 +464,14 @@ impl Rpc for RpcImpl {
     }
 
     fn get_peer_info(&self) -> Result<Vec<PeerInfo>> {
+        if self.chain.is_in_idb() {
+            return Err(jsonrpc_core::Error {
+                code: Error::InInitialBlockDownload.into(),
+                message: Error::InInitialBlockDownload.to_string(),
+                data: None,
+            });
+        }
+
         let peers = self.node.get_peer_info();
         if let Ok(peers) = peers {
             return Ok(peers);
