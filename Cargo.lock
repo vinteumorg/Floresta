@@ -817,6 +817,7 @@ name = "floresta-watch-only"
 version = "0.2.0"
 dependencies = [
  "bitcoin 0.31.0",
+ "floresta-chain",
  "floresta-common",
  "hex",
  "kv",

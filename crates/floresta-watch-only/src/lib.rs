@@ -6,6 +6,7 @@ use core::fmt::Debug;
 
 use bitcoin::hashes::sha256;
 use bitcoin::ScriptBuf;
+use floresta_chain::BlockConsumer;
 use floresta_common::get_spk_hash;
 use floresta_common::parse_descriptors;
 use floresta_common::prelude::ToString;
@@ -553,13 +554,19 @@ pub struct AddressCache<D: AddressCacheDatabase> {
     inner: RwLock<AddressCacheInner<D>>,
 }
 
-impl<D: AddressCacheDatabase> AddressCache<D> { 
+impl<D: AddressCacheDatabase + Sync + Send + 'static> BlockConsumer for AddressCache<D> {
+    fn consume_block(&self, block: &Block, height: u32) {
+        self.block_process(block, height);
+    }
+}
+
+impl<D: AddressCacheDatabase> AddressCache<D> {
     pub fn new(database: D) -> AddressCache<D> {
         AddressCache {
             inner: RwLock::new(AddressCacheInner::new(database)),
         }
     }
-    
+
     pub fn n_cached_addresses(&self) -> usize {
         let inner = self.inner.read().expect("poisoned lock");
         inner.address_map.len()
