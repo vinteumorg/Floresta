@@ -8,7 +8,7 @@ description = """
     A command line interface for Florestad. You can use this client to interact
     with a running Florestad node.
 """
-repository = "https://github.com/Davidson-Souza/Floresta"
+repository = "https://github.com/vinteumorg/Floresta"
 readme = "README.md"
 keywords = ["bitcoin", "utreexo", "node", "blockchain", "rust"]
 categories = ["bitcoin", "blockchain", "node"]
