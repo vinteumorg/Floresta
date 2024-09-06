@@ -1,13 +1,13 @@
-[![Docker Publish](https://github.com/Davidson-Souza/Floresta/actions/workflows/docker.yml/badge.svg)](https://github.com/Davidson-Souza/Floresta/actions/workflows/docker.yml)
-[![Docker Publish](https://github.com/Davidson-Souza/Floresta/actions/workflows/docker.yml/badge.svg)](https://github.com/Davidson-Souza/Floresta/actions/workflows/docker.yml)
-[![functional](https://github.com/Davidson-Souza/Floresta/actions/workflows/functional.yml/badge.svg)](https://github.com/Davidson-Souza/Floresta/actions/workflows/functional.yml)
+[![Docker Publish](https://github.com/vinteumorg/Floresta/actions/workflows/docker.yml/badge.svg)](https://github.com/vinteumorg/Floresta/actions/workflows/docker.yml)
+[![Docker Publish](https://github.com/vinteumorg/Floresta/actions/workflows/docker.yml/badge.svg)](https://github.com/vinteumorg/Floresta/actions/workflows/docker.yml)
+[![functional](https://github.com/vinteumorg/Floresta/actions/workflows/functional.yml/badge.svg)](https://github.com/vinteumorg/Floresta/actions/workflows/functional.yml)
 
 ### Floresta
 
 Welcome to Floresta, a lightweight Bitcoin full node implementation written in Rust, powered by [Utreexo](https://eprint.iacr.org/2019/611) a novel dynamic accumulator  designed for the Bitcoin UTXO set.
 
 This project is composed of two parts, `libfloresta` and `florestad`. `libfloresta` is
-a set of reusable components that can be used to build Bitcoin applications. `florestad` is built on top of `libfloresta` to provide a full node implementation, including a watch-only wallet and an Electrum server. If you just want to run a full node, you can use `florestad` directly, either by building it from source or by downloading a pre-built binary from the [releases](https://github.com/Davidson-Souza/Floresta/releases/tag/v0.4.0).
+a set of reusable components that can be used to build Bitcoin applications. `florestad` is built on top of `libfloresta` to provide a full node implementation, including a watch-only wallet and an Electrum server. If you just want to run a full node, you can use `florestad` directly, either by building it from source or by downloading a pre-built binary from the [releases](https://github.com/vinteumorg/Floresta/releases/tag/v0.4.0).
 
 If you want to use `libfloresta` to build your own Bitcoin application, you can find the documentation [here](https://docs.getfloresta.sh/floresta/).
 
@@ -48,7 +48,7 @@ You'll need Rust and Cargo, refer to [this](https://www.rust-lang.org/) for more
 Once you have Cargo, clone the repository with:
 
 ```bash
-git clone https://github.com/Davidson-Souza/Floresta.git
+git clone https://github.com/vinteumorg/Floresta.git
 ```
 
 go to the Floresta directory
@@ -73,7 +73,7 @@ If you're using Nix, you can add Florestad to your system with its overlay.
 {
   #Here you declare the import for your flake
   inputs.florestad = {
-    url = "github:Davidson-Souza/Floresta";
+    url = "github:vinteumorg/Floresta";
     inputs = {
       nixpkgs.follows = "nixpkgs";
       flake-parts.follows = "flake-parts";
@@ -101,7 +101,7 @@ pkgs.florestad
 
 But if you just want to test it or quickly run a instance you can do 
 ```bash
-$ nix run github:Davidson-Souza/Floresta
+$ nix run github:vinteumorg/Floresta
 ```
 
 ### Running
@@ -125,7 +125,7 @@ This will start the full node, and you can connect to it with an Electrum wallet
 floresta-cli getblockchaininfo
 ```
 
-For more information on how to use the `floresta-cli` tool, you can check the [api documentation](https://github.com/Davidson-Souza/Floresta/blob/master/crates/floresta-cli/README.md).
+For more information on how to use the `floresta-cli` tool, you can check the [api documentation](https://github.com/vinteumorg/Floresta/blob/master/crates/floresta-cli/README.md).
 
 #### Assume Utreexo
 If you want to skip the IBD process, you can use the `--assume-utreexo` flag. This flag will start the node at a given height, with the state
