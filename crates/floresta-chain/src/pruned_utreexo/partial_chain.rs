@@ -360,10 +360,6 @@ impl UpdatableChainstate for PartialChainState {
         unimplemented!("we don't do transactions")
     }
 
-    fn process_rescan_block(&self, _block: &bitcoin::Block) -> Result<(), BlockchainError> {
-        unimplemented!("we don't do rescan")
-    }
-
     fn mark_chain_as_assumed(&self, _acc: Stump, _tip: BlockHash) -> Result<bool, BlockchainError> {
         unimplemented!("no need to mark as valid")
     }
@@ -466,10 +462,6 @@ impl BlockchainInterface for PartialChainState {
         unimplemented!("partialChainState::get_tx")
     }
 
-    fn rescan(&self, _start_height: u32) -> Result<(), Self::Error> {
-        unimplemented!("partialChainState::rescan")
-    }
-
     fn broadcast(&self, _tx: &bitcoin::Transaction) -> Result<(), Self::Error> {
         unimplemented!("partialChainState::broadcast")
     }
@@ -480,10 +472,6 @@ impl BlockchainInterface for PartialChainState {
 
     fn estimate_fee(&self, _target: usize) -> Result<f64, Self::Error> {
         unimplemented!("partialChainState::estimate_fee")
-    }
-
-    fn get_rescan_index(&self) -> Option<u32> {
-        unimplemented!("partialChainState::get_rescan_index")
     }
 
     fn get_block_height(&self, _hash: &bitcoin::BlockHash) -> Result<Option<u32>, Self::Error> {

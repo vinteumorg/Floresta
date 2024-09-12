@@ -15,7 +15,6 @@ pub use bitcoin::Network;
 use fern::colors::Color;
 use fern::colors::ColoredLevelConfig;
 use fern::FormatCallback;
-use floresta_chain::pruned_utreexo::BlockchainInterface;
 pub use floresta_chain::AssumeUtreexoValue;
 use floresta_chain::AssumeValidArg;
 use floresta_chain::BlockchainError;
@@ -88,11 +87,6 @@ pub struct Config {
     /// This should be a list of ouptut descriptors that we should add to our watch-only wallet.
     /// This works just like wallet_xpub, but with a descriptor.
     pub wallet_descriptor: Option<Vec<String>>,
-    /// Whether we should rescan for wallet transactions
-    ///
-    /// If your wallet is missing some transaction (e.g. you've just added a new address), you can
-    /// set this value to some height, and we'll rescan from this block to the tip.
-    pub rescan: Option<u32>,
     /// Where should we read from a config file
     ///
     /// This is a toml-encoded file with floresta's configs. For a sample of how this file looks
@@ -291,12 +285,6 @@ impl Florestad {
                 .as_ref()
                 .map(|value| value.parse().expect("invalid assumevalid")),
         ));
-
-        if let Some(height) = self.config.rescan {
-            blockchain_state
-                .rescan(height)
-                .expect("Fail while setting rescan");
-        }
 
         #[cfg(feature = "compact-filters")]
         let cfilters = if self.config.cfilters {

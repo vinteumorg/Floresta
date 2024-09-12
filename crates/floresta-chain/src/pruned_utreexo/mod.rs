@@ -71,10 +71,6 @@ pub trait BlockchainInterface {
     fn get_block_locator_for_tip(&self, tip: BlockHash) -> Result<Vec<BlockHash>, BlockchainError>;
     /// Returns the last block we validated
     fn get_validation_index(&self) -> Result<u32, Self::Error>;
-    /// Triggers a rescan, downloading (but not validating) all blocks in [start_height:tip]
-    fn rescan(&self, start_height: u32) -> Result<(), Self::Error>;
-    /// Returns where we are in the rescan
-    fn get_rescan_index(&self) -> Option<u32>;
     /// Returns the height of a block, given it's hash
     fn get_block_height(&self, hash: &BlockHash) -> Result<Option<u32>, Self::Error>;
     fn update_acc(
@@ -134,8 +130,6 @@ pub trait UpdatableChainstate {
     /// Marks one block as being fully validated, this overrides a block that was explicitly
     /// marked as invalid.
     fn mark_block_as_valid(&self, block: BlockHash) -> Result<(), BlockchainError>;
-    /// Gives a requested block for rescan
-    fn process_rescan_block(&self, block: &Block) -> Result<(), BlockchainError>;
     /// Returns the root hashes of our utreexo forest
     fn get_root_hashes(&self) -> Vec<NodeHash>;
     /// Returns a partial chainstate from a range of blocks.
@@ -253,10 +247,6 @@ impl<T: UpdatableChainstate> UpdatableChainstate for Arc<T> {
         T::switch_chain(self, new_tip)
     }
 
-    fn process_rescan_block(&self, block: &Block) -> Result<(), BlockchainError> {
-        T::process_rescan_block(self, block)
-    }
-
     fn mark_block_as_valid(&self, block: BlockHash) -> Result<(), BlockchainError> {
         T::mark_block_as_valid(self, block)
     }
@@ -271,10 +261,6 @@ impl<T: BlockchainInterface> BlockchainInterface for Arc<T> {
 
     fn get_tx(&self, txid: &bitcoin::Txid) -> Result<Option<bitcoin::Transaction>, Self::Error> {
         T::get_tx(self, txid)
-    }
-
-    fn rescan(&self, start_height: u32) -> Result<(), Self::Error> {
-        T::rescan(self, start_height)
     }
 
     fn broadcast(&self, tx: &bitcoin::Transaction) -> Result<(), Self::Error> {
@@ -311,10 +297,6 @@ impl<T: BlockchainInterface> BlockchainInterface for Arc<T> {
 
     fn get_block_header(&self, hash: &BlockHash) -> Result<BlockHeader, Self::Error> {
         T::get_block_header(self, hash)
-    }
-
-    fn get_rescan_index(&self) -> Option<u32> {
-        T::get_rescan_index(self)
     }
 
     fn get_block_height(&self, hash: &BlockHash) -> Result<Option<u32>, Self::Error> {

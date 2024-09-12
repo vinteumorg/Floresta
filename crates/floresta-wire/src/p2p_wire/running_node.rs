@@ -25,7 +25,6 @@ use log::error;
 use log::info;
 use log::warn;
 use rustreexo::accumulator::stump::Stump;
-use tokio::sync::mpsc::error::SendError;
 use tokio::sync::RwLock;
 use tokio::time::timeout;
 
@@ -39,7 +38,6 @@ use crate::node::ConnectionKind;
 use crate::node::InflightRequests;
 use crate::node::NodeNotification;
 use crate::node::NodeRequest;
-use crate::node::RescanStatus;
 use crate::node::UtreexoNode;
 use crate::node_context::NodeContext;
 use crate::node_context::PeerId;
@@ -51,7 +49,6 @@ use crate::p2p_wire::sync_node::SyncNode;
 
 #[derive(Debug, Clone)]
 pub struct RunningNode {
-    pub(crate) last_rescan_request: RescanStatus,
     pub(crate) last_feeler: Instant,
     pub(crate) last_address_rearrange: Instant,
     pub(crate) user_requests: Arc<NodeInterface>,
@@ -87,35 +84,23 @@ where
         self.1.user_requests.clone()
     }
 
-    #[allow(clippy::result_large_err)]
-    fn check_request_timeout(&mut self) -> Result<(), SendError<NodeResponse>> {
-        let mutex = self.1.user_requests.requests.lock().unwrap();
-        let mut to_remove = Vec::new();
-        for req in mutex.iter() {
-            if req.time.elapsed() > Duration::from_secs(10) {
-                to_remove.push(req.req);
-            }
-        }
-        drop(mutex);
-        for request in to_remove {
-            self.1.user_requests.send_answer(request, None);
-        }
-
-        Ok(())
-    }
-
-    async fn handle_user_request(&mut self) {
-        let mut requests = Vec::new();
-
-        for request in self.1.user_requests.requests.lock().unwrap().iter() {
-            if !self
-                .inflight
-                .contains_key(&InflightRequests::UserRequest(request.req))
-            {
-                requests.push(request.req);
-            }
-        }
+    async fn handle_user_request(&mut self) -> Result<(), WireError> {
+        let requests = self
+            .1
+            .user_requests
+            .requests
+            .lock()
+            .map_err(|_| WireError::PoisonedLock)?
+            .iter()
+            .filter(|req| {
+                !self
+                    .inflight
+                    .contains_key(&InflightRequests::UserRequest(req.req))
+            })
+            .map(|req| req.req.clone())
+            .collect();
         self.perform_user_request(requests).await;
+        Ok(())
     }
 
     fn handle_get_peer_info(&self) {
@@ -132,6 +117,11 @@ where
 
     async fn perform_user_request(&mut self, user_req: Vec<UserRequest>) {
         for user_req in user_req {
+            debug!("Performing user request {user_req:?}");
+            if self.inflight.len() >= RunningNode::MAX_INFLIGHT_REQUESTS {
+                return;
+            }
+
             let req = match user_req {
                 UserRequest::Block(block) => NodeRequest::GetBlock((vec![block], false)),
                 UserRequest::UtreexoBlock(block) => NodeRequest::GetBlock((vec![block], true)),
@@ -193,9 +183,15 @@ where
 
     async fn check_for_timeout(&mut self) -> Result<(), WireError> {
         let mut timed_out = Vec::new();
-        for request in self.inflight.keys() {
-            let (_, time) = self.inflight.get(request).unwrap();
+        for (request, (_, time)) in self.inflight.iter() {
             if time.elapsed() > Duration::from_secs(RunningNode::REQUEST_TIMEOUT) {
+                if timed_out.contains(request) {
+                    debug!(
+                        "Request {:?} timed out, but it's already in the list",
+                        request
+                    );
+                    continue;
+                }
                 timed_out.push(request.clone());
                 debug!("Request {:?} timed out", request);
             }
@@ -230,16 +226,6 @@ where
                     self.inflight
                         .insert(InflightRequests::Blocks(block), (peer, Instant::now()));
                 }
-                InflightRequests::RescanBlock(block) => {
-                    let peer = self
-                        .send_to_random_peer(
-                            NodeRequest::GetBlock((vec![block], false)),
-                            ServiceFlags::NONE,
-                        )
-                        .await?;
-                    self.inflight
-                        .insert(InflightRequests::RescanBlock(block), (peer, Instant::now()));
-                }
                 InflightRequests::Headers => {
                     let peer = self
                         .send_to_random_peer(NodeRequest::GetAddresses, ServiceFlags::NONE)
@@ -248,39 +234,9 @@ where
                     self.inflight
                         .insert(InflightRequests::Headers, (peer, Instant::now()));
                 }
-                InflightRequests::UserRequest(req) => match req {
-                    UserRequest::Block(block) => {
-                        let peer = self
-                            .send_to_random_peer(
-                                NodeRequest::GetBlock((vec![block], true)),
-                                ServiceFlags::NONE,
-                            )
-                            .await?;
-                        self.inflight
-                            .insert(InflightRequests::UserRequest(req), (peer, Instant::now()));
-                    }
-                    UserRequest::MempoolTransaction(txid) => {
-                        let peer = self
-                            .send_to_random_peer(
-                                NodeRequest::MempoolTransaction(txid),
-                                ServiceFlags::NONE,
-                            )
-                            .await?;
-                        self.inflight
-                            .insert(InflightRequests::UserRequest(req), (peer, Instant::now()));
-                    }
-                    UserRequest::UtreexoBlock(block) => {
-                        let peer = self
-                            .send_to_random_peer(
-                                NodeRequest::GetBlock((vec![block], true)),
-                                ServiceFlags::NONE,
-                            )
-                            .await?;
-                        self.inflight
-                            .insert(InflightRequests::UserRequest(req), (peer, Instant::now()));
-                    }
-                    _ => {}
-                },
+                InflightRequests::UserRequest(req) => {
+                    self.1.user_requests.send_answer(req, None);
+                }
                 InflightRequests::Connect(peer) => {
                     self.send_to_peer(peer, NodeRequest::Shutdown).await?
                 }
@@ -383,7 +339,6 @@ where
                 self.shutdown().await;
                 break;
             }
-
             // Jobs that don't need a connected peer
 
             // Save our peers db
@@ -412,8 +367,7 @@ where
             );
 
             // Requests using the node handle
-            try_and_log!(self.check_request_timeout());
-            self.handle_user_request().await;
+            try_and_log!(self.handle_user_request().await);
 
             // Check if some of our peers have timed out a request
             try_and_log!(self.check_for_timeout().await);
@@ -458,7 +412,6 @@ where
                 ASSUME_STALE,
                 RunningNode
             );
-            try_and_log!(self.request_rescan_block().await);
             try_and_log!(self.download_filters().await);
 
             // requests that need a utreexo peer
@@ -492,14 +445,15 @@ where
         let best_height = self.chain.get_height()?;
 
         if height == 0 {
-            let user_height = self.config.filter_start_height.unwrap_or(0);
+            let user_height = self.config.filter_start_height.unwrap_or(1);
 
             height = if user_height < 0 {
                 best_height.saturating_sub(user_height.unsigned_abs())
             } else {
                 user_height as u32
             };
-            height -= 1;
+
+            height = height.saturating_sub(1);
             filters.save_height(height)?;
         }
 
@@ -544,6 +498,10 @@ where
                 continue;
             }
 
+            if blocks.len() >= RunningNode::MAX_INFLIGHT_REQUESTS {
+                break;
+            }
+
             // already downloaded
             if self.blocks.contains_key(&hash) {
                 continue;
@@ -557,45 +515,6 @@ where
         }
 
         self.request_blocks(blocks).await?;
-        Ok(())
-    }
-
-    async fn request_rescan_block(&mut self) -> Result<(), WireError> {
-        let tip = self.chain.get_height().unwrap();
-        if self.inflight.len() + 10 > RunningNode::MAX_INFLIGHT_REQUESTS {
-            return Ok(());
-        }
-        // We use a grace period to avoid looping at the end of rescan
-        if let RescanStatus::Completed(time) = self.1.last_rescan_request {
-            if time.elapsed() > Duration::from_secs(60) {
-                self.1.last_rescan_request = RescanStatus::None;
-            }
-        }
-        if self.1.last_rescan_request == RescanStatus::None
-            && self.chain.get_rescan_index().is_some()
-        {
-            self.1.last_rescan_request =
-                RescanStatus::InProgress(self.chain.get_rescan_index().unwrap());
-        }
-        if let RescanStatus::InProgress(height) = self.1.last_rescan_request {
-            for i in (height + 1)..=(height + 10) {
-                if i > tip {
-                    self.1.last_rescan_request = RescanStatus::Completed(Instant::now());
-                    break;
-                }
-                self.1.last_rescan_request = RescanStatus::InProgress(i);
-                let hash = self.chain.get_block_hash(i)?;
-                let peer = self
-                    .send_to_random_peer(
-                        NodeRequest::GetBlock((vec![hash], false)),
-                        ServiceFlags::NONE,
-                    )
-                    .await?;
-                self.inflight
-                    .insert(InflightRequests::RescanBlock(hash), (peer, Instant::now()));
-            }
-        }
-
         Ok(())
     }
 
@@ -637,8 +556,8 @@ where
         Ok(())
     }
 
-    async fn handle_new_block(&mut self, block: BlockHash) -> Result<(), WireError> {
-        if self.inflight.contains_key(&InflightRequests::Blocks(block)) {
+    async fn handle_new_block(&mut self, block: BlockHash, peer: u32) -> Result<(), WireError> {
+        if self.inflight.contains_key(&InflightRequests::Headers) {
             return Ok(());
         }
 
@@ -646,15 +565,12 @@ where
             return Ok(());
         }
 
-        let peer = self
-            .send_to_random_peer(
-                NodeRequest::GetBlock((vec![block], true)),
-                ServiceFlags::UTREEXO,
-            )
+        let locator = self.chain.get_block_locator().unwrap();
+        self.send_to_peer(peer, NodeRequest::GetHeaders(locator))
             .await?;
 
         self.inflight
-            .insert(InflightRequests::Blocks(block), (peer, Instant::now()));
+            .insert(InflightRequests::Headers, (peer, Instant::now()));
 
         Ok(())
     }
@@ -663,16 +579,6 @@ where
     /// This block may be a rescan block, a user request or a new block that we
     /// need to process.
     async fn handle_block_data(&mut self, block: UtreexoBlock, peer: u32) -> Result<(), WireError> {
-        // Rescan block, a block that the wallet is interested in to check if it contains
-        // any transaction that we are interested in.
-        if self
-            .inflight
-            .remove(&InflightRequests::RescanBlock(block.block.block_hash()))
-            .is_some()
-        {
-            self.request_rescan_block().await?;
-            return Ok(self.chain.process_rescan_block(&block.block)?);
-        }
         // If this block is a request made through the user interface, send it back to the
         // user.
         if self
@@ -682,6 +588,10 @@ where
             )))
             .is_some()
         {
+            debug!(
+                "answering user request for block {}",
+                block.block.block_hash()
+            );
             if block.udata.is_some() {
                 self.1.user_requests.send_answer(
                     UserRequest::UtreexoBlock(block.block.block_hash()),
@@ -707,12 +617,6 @@ where
             .is_none()
         {
             // We didn't request this block, so we should disconnect the peer.
-            if let Some(peer) = self.peers.get(&peer).cloned() {
-                self.address_man.update_set_state(
-                    peer.address_id as usize,
-                    AddressState::Banned(RunningNode::BAN_TIME),
-                );
-            }
             error!(
                 "Peer {peer} sent us block {} which we didn't request",
                 block.block.block_hash()
@@ -830,7 +734,7 @@ where
                         })
                         .or_insert_with(|| (Instant::now(), Vec::new()));
 
-                    self.handle_new_block(block).await?;
+                    self.handle_new_block(block, peer).await?;
                 }
                 PeerMessages::Block(block) => {
                     debug!(
@@ -838,7 +742,6 @@ where
                         block.block.block_hash()
                     );
 
-                    self.chain.accept_header(block.block.header)?;
                     self.handle_block_data(block, peer).await?;
                 }
                 PeerMessages::Headers(headers) => {

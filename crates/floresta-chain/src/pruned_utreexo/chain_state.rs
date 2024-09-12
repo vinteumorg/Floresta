@@ -112,9 +112,6 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
                     write_lock!(self).best_block = best_chain;
                 }
             }
-            DiskBlockHeader::FullyValid(header, _) => {
-                self.inner.write().best_block.validation_index = header.block_hash();
-            }
             _ => {}
         }
     }
@@ -503,7 +500,6 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
                     best_block: genesis.block_hash(),
                     depth: 0,
                     validation_index: genesis.block_hash(),
-                    rescan_index: None,
                     alternative_tips: Vec::new(),
                     assume_valid_index: 0,
                 },
@@ -587,7 +583,6 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             best_block,
             depth,
             validation_index,
-            rescan_index: None,
             alternative_tips: Vec::new(),
             assume_valid_index: 0,
         }
@@ -649,23 +644,6 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
 
         if !matches!(validation_index, DiskBlockHeader::FullyValid(_, _)) {
             self.reindex_chain();
-        }
-
-        // make sure our rescan index is pointing to a valid block
-        let rescan_index = read_lock!(self).best_block.rescan_index;
-        if let Some(rescan_index) = rescan_index {
-            let hash = self
-                .get_block_hash(rescan_index)
-                .expect("should have this loaded");
-
-            let rescan_index = self
-                .get_disk_block_header(&hash)
-                .expect("should have this loaded");
-
-            match rescan_index {
-                DiskBlockHeader::FullyValid(_, _) | DiskBlockHeader::HeadersOnly(_, _) => {}
-                _ => write_lock!(self).best_block.rescan_index = None,
-            }
         }
     }
 
@@ -954,19 +932,12 @@ impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedSta
         }
         Err(BlockchainError::BlockNotPresent)
     }
-    fn get_rescan_index(&self) -> Option<u32> {
-        read_lock!(self).best_block.rescan_index
-    }
-    fn rescan(&self, start_height: u32) -> Result<(), Self::Error> {
-        let mut inner = write_lock!(self);
-        info!("Rescanning from block {start_height}");
-        inner.best_block.rescan_index = Some(start_height);
-        Ok(())
-    }
+
     fn subscribe(&self, tx: Arc<dyn BlockConsumer>) {
         let mut inner = self.inner.write();
         inner.subscribers.push(tx);
     }
+
     fn get_block_locator(&self) -> Result<Vec<BlockHash>, BlockchainError> {
         let top_height = self.get_height()?;
         let mut indexes = Vec::new();
@@ -1050,7 +1021,6 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
 
         let mut guard = write_lock!(self);
         guard.best_block.validation_index = assumed_hash;
-        guard.best_block.rescan_index = None;
         guard.acc = acc;
 
         Ok(true)
@@ -1083,24 +1053,6 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
     fn toggle_ibd(&self, is_ibd: bool) {
         let mut inner = write_lock!(self);
         inner.ibd = is_ibd;
-    }
-
-    fn process_rescan_block(&self, block: &Block) -> Result<(), BlockchainError> {
-        let header = self.get_disk_block_header(&block.block_hash())?;
-        let height = header.height().expect("Recaning in an invalid tip");
-        self.notify(block, height);
-        if self.get_height().unwrap() == height {
-            info!("Rescan completed");
-            write_lock!(self).best_block.rescan_index = None;
-            self.flush()?;
-            return Ok(());
-        }
-        if height % 10_000 == 0 {
-            info!("Rescanning at block height={height}");
-            write_lock!(self).best_block.rescan_index = Some(height);
-            self.flush()?;
-        }
-        Ok(())
     }
 
     fn connect_block(
@@ -1296,9 +1248,6 @@ pub struct BestChain {
     depth: u32,
     /// We actually validated blocks up to this point
     validation_index: BlockHash,
-    /// We may rescan even after we validate all blocks, this index saves the position
-    /// we are while re-scanning
-    rescan_index: Option<u32>,
     /// Blockchains are not fast-forward only, they might have "forks", sometimes it's useful
     /// to keep track of them, in case they become the best one. This keeps track of some
     /// tips we know about, but are not the best one. We don't keep tips that are too deep
@@ -1323,11 +1272,6 @@ impl Encodable for BestChain {
         len += self.depth.consensus_encode(writer)?;
         len += self.validation_index.consensus_encode(writer)?;
         len += self.assume_valid_index.consensus_encode(writer)?;
-
-        match self.rescan_index {
-            Some(height) => len += height.consensus_encode(writer)?,
-            None => len += 0_u32.consensus_encode(writer)?,
-        }
         len += self.alternative_tips.consensus_encode(writer)?;
         Ok(len)
     }
@@ -1338,7 +1282,6 @@ impl From<(BlockHash, u32)> for BestChain {
             best_block,
             depth,
             validation_index: best_block,
-            rescan_index: None,
             assume_valid_index: 0,
             alternative_tips: Vec::new(),
         }
@@ -1351,20 +1294,13 @@ impl Decodable for BestChain {
         let best_block = BlockHash::consensus_decode(reader)?;
         let depth = u32::consensus_decode(reader)?;
         let validation_index = BlockHash::consensus_decode(reader)?;
-        let rescan_index = u32::consensus_decode(reader)?;
         let assume_valid_index = u32::consensus_decode(reader)?;
 
-        let rescan_index = if rescan_index == 0 {
-            None
-        } else {
-            Some(rescan_index)
-        };
         let alternative_tips = <Vec<BlockHash>>::consensus_decode(reader)?;
         Ok(Self {
             alternative_tips,
             best_block,
             depth,
-            rescan_index,
             validation_index,
             assume_valid_index,
         })

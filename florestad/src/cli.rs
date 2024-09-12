@@ -90,13 +90,6 @@ pub struct Cli {
     /// The url of a proxy we should open p2p connections through (e.g. 127.0.0.1:9050)
     pub proxy: Option<String>,
 
-    #[arg(long, short, default_value = None, value_name = "HEIGHT")]
-    /// Instruct the node to rescan for our wallet on startup.
-    ///
-    /// This is useful if the node already did IBD, but you add a new descriptor with
-    /// balance, you'll need to rescan to find the old transactions.
-    pub rescan: Option<u32>,
-
     #[arg(long, value_name = "XPUB")]
     /// Add a xpub to our wallet
     ///
