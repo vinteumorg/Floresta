@@ -395,7 +395,7 @@ impl Florestad {
         }
 
         info!("Starting server");
-        let wallet = Arc::new(RwLock::new(wallet));
+        let wallet = Arc::new(wallet);
 
         // JSON-RPC
         #[cfg(feature = "json-rpc")]

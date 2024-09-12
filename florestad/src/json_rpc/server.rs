@@ -89,7 +89,7 @@ pub struct RpcImpl {
     block_filter_storage: Option<Arc<NetworkFilters<FlatFiltersStore>>>,
     network: Network,
     chain: Arc<ChainState<KvChainStore<'static>>>,
-    wallet: Arc<RwLock<AddressCache<KvDatabase>>>,
+    wallet: Arc<AddressCache<KvDatabase>>,
     node: Arc<NodeInterface>,
     kill_signal: Arc<RwLock<bool>>,
 }
@@ -262,14 +262,13 @@ impl Rpc for RpcImpl {
     }
 
     fn get_transaction(&self, tx_id: Txid, verbosity: Option<bool>) -> Result<Value> {
-        let wallet = block_on(self.wallet.read());
         if verbosity == Some(true) {
-            if let Some(tx) = wallet.get_transaction(&tx_id) {
+            if let Some(tx) = self.wallet.get_transaction(&tx_id) {
                 return Ok(serde_json::to_value(serialize(&tx.tx)).unwrap());
             }
             return Err(Error::TxNotFound.into());
         }
-        if let Some(tx) = wallet.get_transaction(&tx_id) {
+        if let Some(tx) = self.wallet.get_transaction(&tx_id) {
             return Ok(serde_json::to_value(self.make_raw_transaction(tx)).unwrap());
         }
         Err(Error::TxNotFound.into())
@@ -308,7 +307,7 @@ impl Rpc for RpcImpl {
             addresses
         );
 
-        let addresses = block_on(self.wallet.read()).get_cached_addresses();
+        let addresses = self.wallet.get_cached_addresses();
         let wallet = self.wallet.clone();
         if self.block_filter_storage.is_none() {
             return Err(jsonrpc_core::Error {
@@ -339,7 +338,7 @@ impl Rpc for RpcImpl {
             });
         }
 
-        let addresses = block_on(self.wallet.read()).get_cached_addresses();
+        let addresses = self.wallet.get_cached_addresses();
         let wallet = self.wallet.clone();
         if self.block_filter_storage.is_none() {
             return Err(jsonrpc_core::Error {
@@ -378,7 +377,7 @@ impl Rpc for RpcImpl {
     }
 
     fn get_tx_proof(&self, tx_id: Txid) -> Result<Vec<String>> {
-        if let Some((proof, _)) = block_on(self.wallet.read()).get_merkle_proof(&tx_id) {
+        if let Some((proof, _)) = self.wallet.get_merkle_proof(&tx_id) {
             return Ok(proof);
         }
         Err(Error::TxNotFound.into())
@@ -489,11 +488,10 @@ impl RpcImpl {
     fn rescan_with_block_filters(
         addresses: &[ScriptBuf],
         chain: Arc<ChainState<KvChainStore<'static>>>,
-        wallet: Arc<RwLock<AddressCache<KvDatabase>>>,
+        wallet: Arc<AddressCache<KvDatabase>>,
         cfilters: Arc<NetworkFilters<FlatFiltersStore>>,
         node: Arc<NodeInterface>,
     ) -> Result<()> {
-        let mut wallet = block_on(async { wallet.write().await });
         let tip = cfilters.get_height().unwrap();
         let blocks = cfilters
             .match_any(
@@ -504,18 +502,17 @@ impl RpcImpl {
             .unwrap();
 
         info!("rescan filter hits: {:?}", blocks);
+
         for block in blocks {
-            loop {
-                if let Ok(Some(block)) = node.get_block(block) {
-                    let height = chain
-                        .get_block_height(&block.block_hash())
-                        .unwrap()
-                        .unwrap();
-                    wallet.block_process(&block, height);
-                    break;
-                }
+            if let Ok(Some(block)) = node.get_block(block) {
+                let height = chain
+                    .get_block_height(&block.block_hash())
+                    .unwrap()
+                    .unwrap();
+                wallet.block_process(&block, height);
             }
         }
+
         Ok(())
     }
     fn make_vin(&self, input: TxIn) -> TxInJson {
@@ -634,7 +631,7 @@ impl RpcImpl {
     #[allow(clippy::too_many_arguments)]
     pub fn create(
         chain: Arc<ChainState<KvChainStore<'static>>>,
-        wallet: Arc<RwLock<AddressCache<KvDatabase>>>,
+        wallet: Arc<AddressCache<KvDatabase>>,
         node: Arc<NodeInterface>,
         kill_signal: Arc<RwLock<bool>>,
         network: Network,
