@@ -34,6 +34,8 @@ pub enum WireError {
     PeerTimeout,
     #[error("Compact block filters error")]
     CompactBlockFiltersError(IteratableFilterStoreError),
+    #[error("Poisoned lock")]
+    PoisonedLock,
 }
 
 impl_error_from!(WireError, PeerError, PeerError);

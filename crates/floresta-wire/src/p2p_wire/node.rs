@@ -90,7 +90,6 @@ pub(crate) enum InflightRequests {
     Headers,
     UtreexoState(PeerId),
     Blocks(BlockHash),
-    RescanBlock(BlockHash),
     UserRequest(UserRequest),
     Connect(u32),
     GetFilters,
@@ -128,7 +127,6 @@ pub enum RescanStatus {
 impl Default for RunningNode {
     fn default() -> Self {
         RunningNode {
-            last_rescan_request: RescanStatus::None,
             last_feeler: Instant::now(),
             last_address_rearrange: Instant::now(),
             user_requests: Arc::new(NodeInterface {
@@ -325,16 +323,6 @@ where
                 self.inflight
                     .insert(InflightRequests::UtreexoState(peer), (peer, Instant::now()));
             }
-            InflightRequests::RescanBlock(block) => {
-                let peer = self
-                    .send_to_random_peer(
-                        NodeRequest::GetBlock((vec![block], false)),
-                        ServiceFlags::UTREEXO,
-                    )
-                    .await?;
-                self.inflight
-                    .insert(InflightRequests::RescanBlock(block), (peer, Instant::now()));
-            }
             InflightRequests::GetFilters => {
                 let peer = self
                     .send_to_random_peer(
@@ -484,7 +472,7 @@ where
         let Some(peer) = self.0.peers.get_mut(&peer_id) else {
             return Ok(());
         };
-
+        debug!("increasing banscore for peer {}", peer_id);
         peer.banscore += factor;
 
         // This peer is misbehaving too often, ban it

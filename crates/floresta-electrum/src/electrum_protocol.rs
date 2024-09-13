@@ -557,16 +557,12 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
     ) -> Result<(), super::error::Error> {
         // If compact block filters are enabled, use them. Otherwise, fallback
         // to the "old-school" rescaning.
-        match &self.block_filters {
-            Some(cfilters) => {
-                self.rescan_with_block_filters(cfilters.clone(), addresses)
-                    .await
-            }
-            None => self
-                .chain
-                .rescan(1)
-                .map_err(|e| super::error::Error::Blockchain(Box::new(e))),
+        if let Some(cfilters) = &self.block_filters {
+            self.rescan_with_block_filters(cfilters.clone(), addresses)
+                .await?;
         }
+
+        Ok(())
     }
 
     /// If we have compact block filters enabled, this method will use them to

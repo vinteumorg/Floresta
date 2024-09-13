@@ -40,7 +40,6 @@ fn main() {
         data_dir: params.data_dir.clone(),
         cfilters: params.cfilters,
         proxy: params.proxy,
-        rescan: params.rescan,
         assume_utreexo: params.assume_utreexo,
         connect: params.connect,
         wallet_xpub: params.wallet_xpub,
