@@ -670,12 +670,12 @@ impl Florestad {
             .config
             .ssl_cert_path
             .clone()
-            .unwrap_or_else(|| (data_dir.clone() + "ssl/cert.pem").into());
+            .unwrap_or_else(|| (data_dir.clone() + "ssl/cert.pem"));
         let key_path = self
             .config
             .ssl_cert_path
             .clone()
-            .unwrap_or_else(|| (data_dir.clone() + "ssl/key.pem").into());
+            .unwrap_or_else(|| (data_dir.clone() + "ssl/key.pem"));
 
         let cert_file = File::open(cert_path)?;
         let key_file = File::open(key_path)?;

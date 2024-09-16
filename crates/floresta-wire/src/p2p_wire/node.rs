@@ -30,6 +30,8 @@ use floresta_compact_filters::network_filters::NetworkFilters;
 use log::debug;
 use log::info;
 use log::warn;
+use serde::Deserialize;
+use serde::Serialize;
 use tokio::net::tcp::WriteHalf;
 use tokio::net::TcpStream;
 use tokio::spawn;
@@ -95,7 +97,7 @@ pub(crate) enum InflightRequests {
     GetFilters,
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone, Copy, Deserialize, Serialize)]
 pub enum ConnectionKind {
     Feeler,
     Regular,
@@ -186,10 +188,11 @@ impl<T, Chain: BlockchainInterface + UpdatableChainstate> DerefMut for UtreexoNo
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
-pub(crate) enum PeerStatus {
+#[derive(Debug, PartialEq, Clone, Copy, Deserialize, Serialize)]
+pub enum PeerStatus {
     Awaiting,
     Ready,
+    Banned,
 }
 
 impl<T, Chain> UtreexoNode<T, Chain>
@@ -243,6 +246,8 @@ where
     pub(crate) fn get_peer_info(&self, peer: &u32) -> Option<PeerInfo> {
         let peer = self.peers.get(peer)?;
         Some(PeerInfo {
+            state: peer.state,
+            kind: peer.kind,
             address: format!("{}:{}", peer.address, peer.port),
             services: peer.services.to_string(),
             user_agent: peer.user_agent.clone(),
@@ -259,22 +264,32 @@ where
             if p.kind == ConnectionKind::Regular && p.state == PeerStatus::Ready {
                 info!("Peer disconnected: {}", peer);
             }
+
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+
+            match p.state {
+                PeerStatus::Ready => {
+                    self.address_man
+                        .update_set_state(idx, AddressState::Tried(now));
+                }
+                PeerStatus::Awaiting => {
+                    self.address_man
+                        .update_set_state(idx, AddressState::Failed(now));
+                }
+                PeerStatus::Banned => {
+                    self.address_man
+                        .update_set_state(idx, AddressState::Banned(RunningNode::BAN_TIME));
+                }
+            }
         }
 
         self.peer_ids.retain(|&id| id != peer);
         for (_, v) in self.peer_by_service.iter_mut() {
             v.retain(|&id| id != peer);
         }
-
-        self.address_man.update_set_state(
-            idx,
-            AddressState::Tried(
-                SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs(),
-            ),
-        );
 
         let inflight = self
             .inflight
@@ -348,16 +363,11 @@ where
     ) -> Result<(), WireError> {
         self.inflight.remove(&InflightRequests::Connect(peer));
         if version.kind == ConnectionKind::Feeler {
+            self.peers.entry(peer).and_modify(|p| {
+                p.state = PeerStatus::Ready;
+            });
+
             self.send_to_peer(peer, NodeRequest::Shutdown).await?;
-            self.address_man.update_set_state(
-                version.address_id,
-                AddressState::Tried(
-                    SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs(),
-                ),
-            );
             self.address_man
                 .update_set_service_flag(version.address_id, version.services);
             return Ok(());
@@ -451,9 +461,10 @@ where
         req: NodeRequest,
     ) -> Result<(), WireError> {
         if let Some(peer) = &self.peers.get(&peer_id) {
-            if peer.state == PeerStatus::Ready {
-                peer.channel.send(req)?;
+            if peer.state == PeerStatus::Awaiting {
+                return Ok(());
             }
+            peer.channel.send(req)?;
         }
         Ok(())
     }
@@ -472,7 +483,7 @@ where
         let Some(peer) = self.0.peers.get_mut(&peer_id) else {
             return Ok(());
         };
-        debug!("increasing banscore for peer {}", peer_id);
+
         peer.banscore += factor;
 
         // This peer is misbehaving too often, ban it
@@ -483,23 +494,11 @@ where
         if is_missbehaving || is_extra {
             warn!("banning peer {} for misbehaving", peer_id);
             peer.channel.send(NodeRequest::Shutdown)?;
-            self.0.address_man.update_set_state(
-                peer.address_id as usize,
-                AddressState::Banned(RunningNode::BAN_TIME),
-            );
-
-            // remove all inflight requests for that peer
-            let peer_req = self
-                .inflight
-                .keys()
-                .filter(|k| self.inflight.get(k).unwrap().0 == peer_id)
-                .cloned()
-                .collect::<Vec<_>>();
-
-            for peer in peer_req {
-                self.inflight.remove_entry(&peer);
-            }
+            peer.state = PeerStatus::Banned;
+            return Ok(());
         }
+
+        debug!("increasing banscore for peer {}", peer_id);
 
         Ok(())
     }
@@ -625,9 +624,11 @@ where
         // we don't have any utreexo peers
         let bypass =
             self.1.get_required_services().has(ServiceFlags::UTREEXO) && !self.has_utreexo_peers();
+
         if self.peers.len() < T::MAX_OUTGOING_PEERS || bypass {
             self.create_connection(ConnectionKind::Regular).await;
         }
+
         Ok(())
     }
 
@@ -693,18 +694,26 @@ where
 
     pub(crate) async fn create_connection(&mut self, kind: ConnectionKind) -> Option<()> {
         let required_services = self.get_required_services();
-        let (peer_id, address) = match &self.fixed_peer {
-            Some(address) => (0, address.clone()),
-            None => self.address_man.get_address_to_connect(
-                required_services,
-                matches!(kind, ConnectionKind::Feeler),
-            )?,
+        let address = match &self.fixed_peer {
+            Some(address) => Some((0, address.clone())),
+            None => self
+                .address_man
+                .get_address_to_connect(required_services, matches!(kind, ConnectionKind::Feeler)),
         };
 
-        self.address_man
-            .update_set_state(peer_id, AddressState::Connected);
+        debug!(
+            "attempting connection with address={:?} kind={:?}",
+            address, kind
+        );
+        let (peer_id, address) = address?;
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
 
-        debug!("attempting connection with: {}", address.get_net_address());
+        // Defaults to failed, if the connection is successful, we'll update the state
+        self.address_man
+            .update_set_state(peer_id, AddressState::Failed(now));
 
         // Don't connect to the same peer twice
         if self
@@ -737,10 +746,9 @@ where
         let stream = TcpStream::connect(address).await?;
 
         stream.set_nodelay(true)?;
-
         let (reader, writer) = tokio::io::split(stream);
 
-        let (actor_receiver, actor) = create_tcp_stream_actor(reader, network);
+        let (actor_receiver, actor) = create_tcp_stream_actor(reader);
         tokio::spawn(async move {
             let _ = actor.run().await;
         });
@@ -791,7 +799,7 @@ where
         let proxy = TcpStream::connect(proxy).await?;
         let stream = Socks5StreamBuilder::connect(proxy, addr, address.get_port()).await?;
         let (reader, writer) = tokio::io::split(stream);
-        let (actor_receiver, actor) = create_tcp_stream_actor(reader, network);
+        let (actor_receiver, actor) = create_tcp_stream_actor(reader);
         tokio::spawn(async move {
             let _ = actor.run().await;
         });

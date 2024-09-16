@@ -124,14 +124,15 @@ where
     }
 
     async fn handle_timeout(&mut self) {
-        let mut to_remove = Vec::new();
-        for (block, (peer, when)) in self.inflight.iter() {
-            if when.elapsed().as_secs() > SyncNode::REQUEST_TIMEOUT {
-                to_remove.push((*peer, block.clone()));
-            }
-        }
+        let to_remove = self
+            .0
+            .inflight
+            .iter()
+            .filter(|(_, (_, instant))| instant.elapsed().as_secs() > SyncNode::REQUEST_TIMEOUT)
+            .map(|(req, (peer, _))| (req.clone(), *peer))
+            .collect::<Vec<_>>();
 
-        for (peer, block) in to_remove {
+        for (block, peer) in to_remove {
             self.inflight.remove(&block);
             try_and_log!(self.increase_banscore(peer, 1).await);
 

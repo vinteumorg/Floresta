@@ -88,7 +88,6 @@ impl Decodable for P2PMessageHeader {
 pub struct TcpStreamActor<T: AsyncRead + Unpin> {
     pub stream: T,
     pub sender: UnboundedSender<ReaderMessage>,
-    pub network: Network,
 }
 
 impl<T: AsyncRead + Unpin> TcpStreamActor<T> {
@@ -136,7 +135,6 @@ impl<T: AsyncRead + Unpin> TcpStreamActor<T> {
 // Function to create a new actor and a sender
 pub fn create_tcp_stream_actor(
     stream: impl AsyncRead + Unpin,
-    network: Network,
 ) -> (
     UnboundedReceiver<ReaderMessage>,
     TcpStreamActor<impl AsyncRead + Unpin>,
@@ -145,7 +143,6 @@ pub fn create_tcp_stream_actor(
     let actor = TcpStreamActor {
         stream,
         sender: actor_sender,
-        network,
     };
     (actor_receiver, actor)
 }
@@ -549,9 +546,6 @@ impl<T: AsyncWrite + Unpin> Peer<T> {
                         kind: self.kind,
                     }))
                     .await;
-                    if self.kind == ConnectionKind::Feeler {
-                        self.shutdown = true;
-                    }
                 }
                 bitcoin::p2p::message::NetworkMessage::SendAddrV2 => {
                     self.wants_addrv2 = true;

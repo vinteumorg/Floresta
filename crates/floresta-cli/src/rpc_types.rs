@@ -161,6 +161,16 @@ pub struct PeerInfo {
     pub user_agent: String,
     /// This peer's height at the time we've openned a connection with them
     pub initial_height: u32,
+    /// The connection type of this peer
+    ///
+    /// We can connect with peers for different reasons. E.g. we can connect to a peer to
+    /// see if it has a block we're missing, or just to check if that address is still alive.
+    /// Possible values are: Feeler, Regular and Extra
+    pub kind: String,
+    /// The state of this peer
+    ///
+    /// Can be either Ready, Connecting or Banned
+    pub state: String,
 }
 
 /// A full bitcoin block, returned by get_block
