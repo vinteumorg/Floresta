@@ -158,6 +158,7 @@ impl LocalAddress {
 pub struct AddressMan {
     addresses: HashMap<usize, LocalAddress>,
     good_addresses: Vec<usize>,
+    good_peers_by_service: HashMap<ServiceFlags, Vec<usize>>,
     peers_by_service: HashMap<ServiceFlags, Vec<usize>>,
 }
 
@@ -189,16 +190,25 @@ impl AddressMan {
             }
 
             if let std::collections::hash_map::Entry::Vacant(e) = self.addresses.entry(id) {
-                e.insert(address.to_owned());
-                // For now we assume that all addresses are valid, until proven otherwise.
-                self.good_addresses.push(id);
-
+                e.insert(address.clone());
+                if Self::is_good_peer(address) {
+                    self.good_addresses.push(id);
+                }
                 self.push_if_has_service(address, ServiceFlags::UTREEXO);
                 self.push_if_has_service(address, ServiceFlags::from(1 << 25)); // UTREEXO_FILTER
                 self.push_if_has_service(address, ServiceFlags::NONE); // this means any peer
                 self.push_if_has_service(address, ServiceFlags::COMPACT_FILTERS);
             }
         }
+    }
+
+    fn is_good_peer(address: &LocalAddress) -> bool {
+        if Self::is_private(address) {
+            return false;
+        }
+
+        matches!(address.state, AddressState::Connected)
+            || matches!(address.state, AddressState::Tried(_))
     }
 
     fn is_private(address: &LocalAddress) -> bool {
@@ -219,6 +229,13 @@ impl AddressMan {
 
     fn push_if_has_service(&mut self, address: &LocalAddress, service: ServiceFlags) {
         if address.services.has(service) {
+            if Self::is_good_peer(address) {
+                self.good_peers_by_service
+                    .entry(service)
+                    .or_default()
+                    .push(address.id);
+            }
+
             self.peers_by_service
                 .entry(service)
                 .or_default()
@@ -228,26 +245,19 @@ impl AddressMan {
 
     pub fn get_addresses_to_send(&self) -> AddressToSend {
         let addresses = self
-            .addresses
+            .good_addresses
             .iter()
-            .flat_map(|(time, v)| match v.state {
-                AddressState::Tried(time) => {
-                    let timeout = time + RETRY_TIME;
-                    let now_as_sec = SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs();
-                    if timeout < now_as_sec {
-                        return Some((v.address.clone(), time, v.services, v.port));
-                    }
-                    None
-                }
-                AddressState::Connected => {
-                    Some((v.address.clone(), *time as u64, v.services, v.port))
-                }
-                _ => None,
+            .filter_map(|id| {
+                let address = self.addresses.get(id)?;
+                Some((
+                    address.address.clone(),
+                    address.last_connected,
+                    address.services,
+                    address.port,
+                ))
             })
             .collect();
+
         addresses
     }
 
@@ -350,24 +360,18 @@ impl AddressMan {
             return Some((*peer, address));
         };
 
-        let (id, peer) = self.get_address_by_service(required_service)?;
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        let (id, peer) = self
+            .get_address_by_service(required_service)
+            .or_else(|| self.get_random_address(required_service))?;
 
         match peer.state {
             AddressState::Banned(_) | AddressState::Connected => None,
-            AddressState::NeverTried | AddressState::Tried(_) => Some((id, peer)),
-            AddressState::Failed(time) => {
-                if now - time > RETRY_TIME {
-                    Some((id, peer))
-                } else {
-                    None
-                }
+            AddressState::NeverTried | AddressState::Tried(_) | AddressState::Failed(_) => {
+                Some((id, peer))
             }
         }
     }
+
     pub fn dump_peers(&self, datadir: &str) -> std::io::Result<()> {
         let peers: Vec<_> = self
             .addresses
@@ -381,8 +385,9 @@ impl AddressMan {
         }
         Ok(())
     }
+
     fn get_address_by_service(&self, service: ServiceFlags) -> Option<(usize, LocalAddress)> {
-        let peers = self.peers_by_service.get(&service)?;
+        let peers = self.good_peers_by_service.get(&service)?;
         if peers.is_empty() {
             return None;
         }
@@ -391,6 +396,7 @@ impl AddressMan {
         let utreexo_peer = peers.get(idx)?;
         Some((*utreexo_peer, self.addresses.get(utreexo_peer)?.to_owned()))
     }
+
     fn get_net_seeds(network: Network) -> &'static str {
         match network {
             Network::Bitcoin => include_str!("seeds/mainnet_seeds.json"),
@@ -399,6 +405,7 @@ impl AddressMan {
             Network::Regtest => include_str!("seeds/regtest_seeds.json"),
         }
     }
+
     pub fn start_addr_man(
         &mut self,
         datadir: String,
@@ -443,9 +450,9 @@ impl AddressMan {
             .cloned()
             .map(Into::<LocalAddress>::into)
             .collect::<Vec<_>>();
-
         Ok(anchors)
     }
+
     /// This function moves addresses between buckets, like if the ban time of a peer expired,
     /// or if we tried to connect to a peer and it failed in the past, but now it might be online
     /// again.
@@ -475,12 +482,22 @@ impl AddressMan {
             }
         }
     }
+
+    fn get_random_address(&self, service: ServiceFlags) -> Option<(usize, LocalAddress)> {
+        if self.addresses.is_empty() {
+            return None;
+        }
+        if let Some(peers) = self.peers_by_service.get(&service) {
+            let idx = rand::random::<usize>() % peers.len();
+            let utreexo_peer = peers.get(idx)?;
+            Some((*utreexo_peer, self.addresses.get(utreexo_peer)?.to_owned()))
+        } else {
+            None
+        }
+    }
+
     /// Updates the state of an address
     pub fn update_set_state(&mut self, idx: usize, state: AddressState) -> &mut Self {
-        if matches!(state, AddressState::Banned(_)) {
-            return self;
-        }
-
         match state {
             AddressState::Banned(_) => {
                 self.good_addresses.retain(|&x| x != idx);
@@ -489,6 +506,15 @@ impl AddressMan {
                 if !self.good_addresses.contains(&idx) {
                     self.good_addresses.push(idx);
                 }
+
+                self.addresses.get(&idx).cloned().map(|address| {
+                    self.push_if_has_service(&address, ServiceFlags::UTREEXO);
+                    self.push_if_has_service(&address, ServiceFlags::from(1 << 25)); // UTREEXO_FILTER
+                    self.push_if_has_service(&address, ServiceFlags::NONE); // this means any peer
+                    self.push_if_has_service(&address, ServiceFlags::COMPACT_FILTERS);
+
+                    address
+                });
             }
             AddressState::NeverTried => {
                 self.good_addresses.retain(|&x| x != idx);
@@ -502,11 +528,14 @@ impl AddressMan {
                 self.good_addresses.retain(|&x| x != idx);
             }
         }
+
         if let Some(address) = self.addresses.get_mut(&idx) {
             address.state = state;
         };
+
         self
     }
+
     /// Updates the service flags after we receive a version message
     pub fn update_set_service_flag(&mut self, idx: usize, flags: ServiceFlags) -> &mut Self {
         if let Some(address) = self.addresses.get_mut(&idx) {

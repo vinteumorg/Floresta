@@ -77,7 +77,7 @@ impl TestPeer {
             user_agent: "node_test".to_string(),
             protocol_version: 0,
             blocks: rand::random::<u32>() % 23,
-            id: self.peer_id as u32,
+            id: self.peer_id,
             address_id: rand::random::<usize>(),
             services: ServiceFlags::UTREEXO
                 | ServiceFlags::NETWORK
@@ -253,7 +253,7 @@ pub fn get_test_filters() -> io::Result<HashMap<BlockHash, Vec<u8>>> {
 pub fn generate_invalid_block() -> UtreexoBlock {
     let invalid_block_str = "00000020daf3b60d374b19476461f97540498dcfa2eb7016238ec6b1d022f82fb60100007a7ae65b53cb988c2ec92d2384996713821d5645ffe61c9acea60da75cd5edfa1a944d5fae77031e9dbb050001010000000001010000000000000000000000000000000000000000000000000000000000000000ffffffff025751feffffff0200f2052a01000000160014ef2dceae02e35f8137de76768ae3345d99ca68860000000000000000776a24aa21a9ede2f61c3f71d1defd3fa999dfa36953755c690689799962b48bebd836974e8cf94c4fecc7daa2490047304402202b3f946d6447f9bf17d00f3696cede7ee70b785495e5498274ee682a493befd5022045fc0bcf9331073168b5d35507175f9f374a8eba2336873885d12aada67ea5f60100012000000000000000000000000000000000000000000000000000000000000000000000000000000000";
 
-    let block = Vec::from_hex(&invalid_block_str).unwrap();
+    let block = Vec::from_hex(invalid_block_str).unwrap();
     let block: UtreexoBlock = deserialize(&block).unwrap();
 
     block

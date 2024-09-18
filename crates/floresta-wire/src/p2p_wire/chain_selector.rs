@@ -64,11 +64,11 @@ use tokio::sync::RwLock;
 use tokio::time::timeout;
 
 use super::error::WireError;
+use super::node::PeerStatus;
 use super::peer::PeerMessages;
 use crate::address_man::AddressState;
 use crate::node::periodic_job;
 use crate::node::try_and_log;
-use crate::node::ConnectionKind;
 use crate::node::InflightRequests;
 use crate::node::NodeNotification;
 use crate::node::NodeRequest;
@@ -103,7 +103,7 @@ pub enum ChainSelectorState {
     /// We've downloaded all headers, and now we are checking with our peers if they
     /// have an alternative tip with more PoW. Very unlikely, but we shouldn't trust
     /// only one peer...
-    LookingForForks,
+    LookingForForks(Instant),
     /// We've downloaded all headers
     Done,
 }
@@ -114,7 +114,7 @@ pub enum FindAccResult {
 }
 
 impl NodeContext for ChainSelector {
-    const REQUEST_TIMEOUT: u64 = 10; // Ban peers stalling our IBD
+    const REQUEST_TIMEOUT: u64 = 60; // Ban peers stalling our IBD
     const TRY_NEW_CONNECTION: u64 = 10; // Try creating connections more aggressively
 
     fn get_required_services(&self) -> ServiceFlags {
@@ -454,10 +454,12 @@ where
     async fn empty_headers_message(&mut self, peer: PeerId) -> Result<(), WireError> {
         match self.1.state {
             ChainSelectorState::DownloadingHeaders => {
+                info!("Finished downloading headers from peer={peer}, checking if our peers agree");
                 self.poke_peers().await?;
-                self.1.state = ChainSelectorState::LookingForForks;
+                self.1.state = ChainSelectorState::LookingForForks(Instant::now());
+                self.1.done_peers.insert(peer);
             }
-            ChainSelectorState::LookingForForks => {
+            ChainSelectorState::LookingForForks(_) => {
                 self.1.done_peers.insert(peer);
                 for peer in self.0.peer_ids.iter() {
                     // at least one peer haven't finished
@@ -620,18 +622,19 @@ where
     ///
     /// If it does, we disconnect and ban this peer
     async fn check_for_timeout(&mut self) -> Result<(), WireError> {
-        let mut failed = vec![];
-
-        for (request, (peer, instant)) in self.inflight.clone() {
-            if instant.elapsed().as_secs() > ChainSelector::REQUEST_TIMEOUT {
-                self.increase_banscore(peer, 2).await?;
-                failed.push(request)
-            }
-        }
+        let (failed, mut peers) = self
+            .0
+            .inflight
+            .iter()
+            .filter(|(_, (_, instant))| {
+                instant.elapsed().as_secs() > ChainSelector::REQUEST_TIMEOUT
+            })
+            .map(|(req, (peer, _))| (req.clone(), *peer))
+            .unzip::<_, _, Vec<_>, Vec<_>>();
 
         for request in failed {
-            match request {
-                InflightRequests::Headers => {
+            if let InflightRequests::Headers = request {
+                if self.1.state == ChainSelectorState::DownloadingHeaders {
                     let new_sync_peer = rand::random::<usize>() % self.peer_ids.len();
                     let new_sync_peer = *self.peer_ids.get(new_sync_peer).unwrap();
                     self.1.sync_peer = new_sync_peer;
@@ -640,9 +643,22 @@ where
                     self.inflight
                         .insert(InflightRequests::Headers, (new_sync_peer, Instant::now()));
                 }
-                _ => {}
             }
             self.inflight.remove(&request);
+        }
+
+        peers.sort();
+        peers.dedup();
+
+        for peer in peers {
+            self.0.peers.entry(peer).and_modify(|e| {
+                if e.state != PeerStatus::Awaiting {
+                    e.state = PeerStatus::Banned;
+                }
+            });
+
+            self.send_to_peer(peer, NodeRequest::Shutdown).await?;
+            self.0.peers.remove(&peer);
         }
 
         Ok(())
@@ -665,13 +681,10 @@ where
     }
 
     pub async fn run(&mut self, stop_signal: Arc<RwLock<bool>>) -> Result<(), WireError> {
-        self.create_connection(ConnectionKind::Regular).await;
-
         info!("Starting ibd, selecting the best chain");
 
         loop {
-            while let Ok(notification) =
-                timeout(Duration::from_millis(10), self.node_rx.recv()).await
+            while let Ok(notification) = timeout(Duration::from_secs(1), self.node_rx.recv()).await
             {
                 try_and_log!(self.handle_notification(notification).await);
             }
@@ -682,6 +695,13 @@ where
                 TRY_NEW_CONNECTION,
                 ChainSelector
             );
+
+            if let ChainSelectorState::LookingForForks(start) = self.1.state {
+                if start.elapsed().as_secs() > 30 {
+                    self.1.state = ChainSelectorState::LookingForForks(Instant::now());
+                    self.poke_peers().await?;
+                }
+            }
 
             if self.1.state == ChainSelectorState::CreatingConnections {
                 // If we have enough peers, try to download headers
@@ -784,8 +804,8 @@ where
         &mut self,
         notification: Option<NodeNotification>,
     ) -> Result<(), WireError> {
-        match notification {
-            Some(NodeNotification::FromPeer(peer, message)) => match message {
+        if let Some(NodeNotification::FromPeer(peer, message)) = notification {
+            match message {
                 PeerMessages::Headers(headers) => {
                     self.inflight.remove(&InflightRequests::Headers);
                     return self.handle_headers(peer, headers).await;
@@ -793,6 +813,11 @@ where
 
                 PeerMessages::Ready(version) => {
                     self.handle_peer_ready(peer, &version).await?;
+                    if matches!(self.1.state, ChainSelectorState::LookingForForks(_)) {
+                        let locator = self.chain.get_block_locator().unwrap();
+                        self.send_to_peer(peer, NodeRequest::GetHeaders(locator))
+                            .await?;
+                    }
                 }
 
                 PeerMessages::Disconnected(idx) => {
@@ -809,9 +834,7 @@ where
                 }
 
                 _ => {}
-            },
-
-            None => {}
+            }
         }
         Ok(())
     }

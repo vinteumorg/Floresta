@@ -88,11 +88,10 @@ impl Decodable for P2PMessageHeader {
 pub struct TcpStreamActor<T: AsyncRead + Unpin> {
     pub stream: T,
     pub sender: UnboundedSender<ReaderMessage>,
-    pub network: Network,
 }
 
 impl<T: AsyncRead + Unpin> TcpStreamActor<T> {
-    pub async fn run(mut self) -> Result<()> {
+    async fn inner(&mut self) -> std::result::Result<(), PeerError> {
         loop {
             let mut data: Vec<u8> = vec![0; 24];
 
@@ -123,12 +122,19 @@ impl<T: AsyncRead + Unpin> TcpStreamActor<T> {
             self.sender.send(ReaderMessage::Message(message))?;
         }
     }
+
+    pub async fn run(mut self) -> Result<()> {
+        let err = self.inner().await;
+        if let Err(err) = err {
+            self.sender.send(ReaderMessage::Error(err))?;
+        }
+        Ok(())
+    }
 }
 
 // Function to create a new actor and a sender
 pub fn create_tcp_stream_actor(
     stream: impl AsyncRead + Unpin,
-    network: Network,
 ) -> (
     UnboundedReceiver<ReaderMessage>,
     TcpStreamActor<impl AsyncRead + Unpin>,
@@ -137,7 +143,6 @@ pub fn create_tcp_stream_actor(
     let actor = TcpStreamActor {
         stream,
         sender: actor_sender,
-        network,
     };
     (actor_receiver, actor)
 }
@@ -225,6 +230,9 @@ type Result<T> = std::result::Result<T, PeerError>;
 impl<T: AsyncWrite + Unpin> Peer<T> {
     pub async fn read_loop(mut self) -> Result<()> {
         let err = self.peer_loop_inner().await;
+        if err.is_err() {
+            error!("Peer {} connection loop closed: {err:?}", self.id);
+        }
         self.send_to_node(PeerMessages::Disconnected(self.address_id))
             .await;
         // force the stream to shutdown to prevent leaking resources
@@ -538,9 +546,6 @@ impl<T: AsyncWrite + Unpin> Peer<T> {
                         kind: self.kind,
                     }))
                     .await;
-                    if self.kind == ConnectionKind::Feeler {
-                        self.shutdown = true;
-                    }
                 }
                 bitcoin::p2p::message::NetworkMessage::SendAddrV2 => {
                     self.wants_addrv2 = true;
@@ -569,6 +574,7 @@ impl<T: AsyncWrite + Unpin> Peer<T> {
         let data = &mut RawNetworkMessage::new(self.network.magic(), msg);
         let data = serialize(&data);
         self.writer.write_all(&data).await?;
+        self.writer.flush().await?;
         Ok(())
     }
 

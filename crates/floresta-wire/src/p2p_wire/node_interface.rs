@@ -10,6 +10,9 @@ use floresta_chain::UtreexoBlock;
 use serde::Deserialize;
 use serde::Serialize;
 
+use super::node::ConnectionKind;
+use super::node::PeerStatus;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum UserRequest {
     Block(BlockHash),
@@ -24,6 +27,8 @@ pub struct PeerInfo {
     pub services: String,
     pub user_agent: String,
     pub initial_height: u32,
+    pub kind: ConnectionKind,
+    pub state: PeerStatus,
 }
 
 #[derive(Debug, Clone)]

@@ -108,7 +108,7 @@ mod tests {
 
         assert_eq!(chain.get_validation_index().unwrap(), 9);
         assert_eq!(chain.get_best_block().unwrap().1, headers[9].block_hash());
-        assert_eq!(chain.is_in_idb(), false);
+        assert!(!chain.is_in_idb());
     }
 
     #[tokio::test]
@@ -127,7 +127,7 @@ mod tests {
 
         assert_eq!(chain.get_validation_index().unwrap(), 6);
         assert_eq!(chain.get_best_block().unwrap().1, headers[6].block_hash());
-        assert_eq!(chain.is_in_idb(), false);
+        assert!(!chain.is_in_idb());
     }
 
     #[tokio::test]
@@ -165,6 +165,6 @@ mod tests {
 
         assert_eq!(chain.get_validation_index().unwrap(), 9);
         assert_eq!(chain.get_best_block().unwrap().1, headers[9].block_hash());
-        assert_eq!(chain.is_in_idb(), false);
+        assert!(!chain.is_in_idb());
     }
 }

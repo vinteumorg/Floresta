@@ -62,7 +62,7 @@ pub struct RunningNode {
 }
 
 impl NodeContext for RunningNode {
-    const REQUEST_TIMEOUT: u64 = 30;
+    const REQUEST_TIMEOUT: u64 = 2 * 60;
     fn get_required_services(&self) -> ServiceFlags {
         ServiceFlags::UTREEXO
             | ServiceFlags::NETWORK
@@ -97,7 +97,7 @@ where
                     .inflight
                     .contains_key(&InflightRequests::UserRequest(req.req))
             })
-            .map(|req| req.req.clone())
+            .map(|req| req.req)
             .collect();
         self.perform_user_request(requests).await;
         Ok(())
@@ -182,20 +182,15 @@ where
     }
 
     async fn check_for_timeout(&mut self) -> Result<(), WireError> {
-        let mut timed_out = Vec::new();
-        for (request, (_, time)) in self.inflight.iter() {
-            if time.elapsed() > Duration::from_secs(RunningNode::REQUEST_TIMEOUT) {
-                if timed_out.contains(request) {
-                    debug!(
-                        "Request {:?} timed out, but it's already in the list",
-                        request
-                    );
-                    continue;
-                }
-                timed_out.push(request.clone());
-                debug!("Request {:?} timed out", request);
-            }
-        }
+        let timed_out = self
+            .0
+            .inflight
+            .iter()
+            .filter(|(_, (_, instant))| {
+                instant.elapsed().as_secs() > ChainSelector::REQUEST_TIMEOUT
+            })
+            .map(|(req, (_, _))| req.clone())
+            .collect::<Vec<_>>();
 
         for request in timed_out {
             let Some((peer, _)) = self.inflight.remove(&request) else {
@@ -238,7 +233,7 @@ where
                     self.1.user_requests.send_answer(req, None);
                 }
                 InflightRequests::Connect(peer) => {
-                    self.send_to_peer(peer, NodeRequest::Shutdown).await?
+                    self.peers.remove(&peer);
                 }
                 InflightRequests::GetFilters => {
                     if let Some(ref block_filters) = self.block_filters {
@@ -372,22 +367,24 @@ where
             // Check if some of our peers have timed out a request
             try_and_log!(self.check_for_timeout().await);
 
-            // Those jobs bellow needs a connected peer to work
-            if self.peer_ids.is_empty() {
-                continue;
-            }
-            // Aks our peers for new addresses
-            periodic_job!(
-                self.ask_for_addresses().await,
-                self.last_get_address_request,
-                ASK_FOR_PEERS_INTERVAL,
-                RunningNode
-            );
             // Open new feeler connection periodically
             periodic_job!(
                 self.open_feeler_connection().await,
                 self.1.last_feeler,
                 FEELER_INTERVAL,
+                RunningNode
+            );
+
+            // Those jobs bellow needs a connected peer to work
+            if self.peer_ids.is_empty() {
+                continue;
+            }
+
+            // Aks our peers for new addresses
+            periodic_job!(
+                self.ask_for_addresses().await,
+                self.last_get_address_request,
+                ASK_FOR_PEERS_INTERVAL,
                 RunningNode
             );
             // Try broadcast transactions
@@ -830,8 +827,8 @@ where
                         }
 
                         filters.save_height(current_height)?;
-
-                        if self.last_filter == hash && self.1.inflight_filters.is_empty() {
+                        let current_hash = self.chain.get_block_hash(current_height)?;
+                        if self.last_filter == current_hash && self.1.inflight_filters.is_empty() {
                             self.inflight.remove(&InflightRequests::GetFilters);
                             self.download_filters().await?;
                         }
