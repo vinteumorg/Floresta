@@ -10,7 +10,6 @@ use bitcoin::hashes::hex::FromHex;
 use bitcoin::hashes::Hash;
 use bitcoin::hex::DisplayHex;
 use bitcoin::Address;
-use bitcoin::Block;
 use bitcoin::BlockHash;
 use bitcoin::Network;
 use bitcoin::OutPoint;
@@ -79,6 +78,8 @@ pub trait Rpc {
     fn get_block(&self, hash: BlockHash, verbosity: Option<u8>) -> Result<Value>;
     #[rpc(name = "gettxout", returns = "TxOut")]
     fn get_tx_out(&self, tx_id: Txid, outpoint: u32) -> Result<Value>;
+    #[rpc(name = "findtxout", returns = "TxOut")]
+    fn find_tx_out(&self, tx_id: Txid, vout: u32, script: ScriptBuf, height: u32) -> Result<Value>;
     #[rpc(name = "stop")]
     fn stop(&self) -> Result<bool>;
     #[rpc(name = "addnode")]
@@ -95,13 +96,27 @@ pub struct RpcImpl {
 }
 
 impl Rpc for RpcImpl {
-    fn get_tx_out(&self, tx_id: Txid, outpoint: u32) -> Result<Value> {
-        fn has_input(block: &Block, expected_input: OutPoint) -> bool {
-            block.txdata.iter().any(|tx| {
-                tx.input
-                    .iter()
-                    .any(|input| input.previous_output == expected_input)
-            })
+    fn get_tx_out(&self, txid: Txid, outpoint: u32) -> Result<Value> {
+        let utxo = self.wallet.get_utxo(&OutPoint {
+            txid,
+            vout: outpoint,
+        });
+
+        let res = match utxo {
+            Some(utxo) => ::serde_json::to_value(utxo),
+            None => Ok(json!({})),
+        };
+
+        res.map_err(|e| jsonrpc_core::Error {
+            code: Error::Encode.into(),
+            message: Error::Encode.to_string(),
+            data: Some(::serde_json::Value::String(e.to_string())),
+        })
+    }
+
+    fn find_tx_out(&self, txid: Txid, vout: u32, script: ScriptBuf, _height: u32) -> Result<Value> {
+        if let Some(txout) = self.wallet.get_utxo(&OutPoint { txid, vout }) {
+            return Ok(serde_json::to_value(txout).unwrap());
         }
 
         if self.chain.is_in_idb() {
@@ -113,70 +128,59 @@ impl Rpc for RpcImpl {
         }
 
         // can't proceed without block filters
-        if self.block_filter_storage.is_none() {
+        let Some(cfilters) = self.block_filter_storage.as_ref() else {
             return Err(jsonrpc_core::Error {
                 code: Error::NoBlockFilters.into(),
                 message: Error::NoBlockFilters.to_string(),
                 data: None,
             });
-        }
-        // this variable will be set to the UTXO iff (i) it have been created
-        // (ii) it haven't been spent
-        let mut txout = None;
+        };
+
         let tip = self.chain.get_height().unwrap();
 
-        if let Some(ref cfilters) = self.block_filter_storage {
-            let vout = OutPoint {
-                txid: tx_id,
-                vout: outpoint,
-            };
+        self.wallet.cache_address(script.clone());
+        let filter_key = script.to_bytes();
+        let candidates = cfilters.match_any(vec![filter_key.as_slice()], tip, self.chain.clone());
 
-            let filter_outpoint = bitcoin::consensus::serialize(&vout);
-            let filter_txid = bitcoin::consensus::serialize(&tx_id);
+        let candidates = candidates
+            .unwrap_or_default()
+            .into_iter()
+            .map(|hash| self.node.get_block(hash));
 
-            let candidates = cfilters.match_any(
-                vec![filter_outpoint.as_slice(), filter_txid.as_slice()],
-                tip,
-                self.chain.clone(),
-            );
-
-            let candidates = candidates
-                .unwrap_or_default()
-                .into_iter()
-                .map(|hash| self.node.get_block(hash));
-
-            for candidate in candidates {
-                let candidate = match candidate {
-                    Err(e) => {
-                        return Err(jsonrpc_core::Error {
-                            code: Error::Node.into(),
-                            message: format!("error while downloading block {candidate:?}"),
-                            data: Some(jsonrpc_core::Value::String(e.to_string())),
-                        });
-                    }
-                    Ok(None) => {
-                        return Err(jsonrpc_core::Error {
+        for candidate in candidates {
+            let candidate = match candidate {
+                Err(e) => {
+                    return Err(jsonrpc_core::Error {
+                        code: Error::Node.into(),
+                        message: format!("error while downloading block {candidate:?}"),
+                        data: Some(jsonrpc_core::Value::String(e.to_string())),
+                    });
+                }
+                Ok(None) => {
+                    return Err(jsonrpc_core::Error {
                             code: Error::Node.into(),
                             message: format!("BUG: block {candidate:?} is a match in our filters, but we can't get it?"),
                             data: None,
                         });
-                    }
-                    Ok(Some(candidate)) => candidate,
-                };
-
-                if let Some(tx) = candidate.txdata.iter().position(|tx| tx.txid() == tx_id) {
-                    txout = candidate.txdata[tx].output.get(outpoint as usize).cloned();
                 }
+                Ok(Some(candidate)) => candidate,
+            };
 
-                if has_input(&candidate, vout) {
-                    txout = None;
-                }
-            }
+            let Ok(Some(height)) = self.chain.get_block_height(&candidate.block_hash()) else {
+                return Err(jsonrpc_core::Error {
+                    code: Error::Chain.into(),
+                    message: format!(
+                        "BUG: block {} is a match in our filters, but we can't get it?",
+                        candidate.block_hash()
+                    ),
+                    data: None,
+                });
+            };
+
+            self.wallet.block_process(&candidate, height);
         }
-        match txout {
-            Some(txout) => Ok(json!({ "txout": txout })),
-            None => Ok(json!({})),
-        }
+
+        self.get_tx_out(txid, vout)
     }
 
     fn get_height(&self) -> Result<u32> {
@@ -655,7 +659,7 @@ impl RpcImpl {
         });
         info!("Starting JSON-RPC server on {:?}", address);
         ServerBuilder::new(io)
-            .threads(1)
+            .threads(2)
             .start_http(&address)
             .unwrap()
     }

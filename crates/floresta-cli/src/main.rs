@@ -66,6 +66,17 @@ fn do_request(cmd: &Cli, client: ReqwestClient) -> anyhow::Result<String> {
         Methods::GetPeerInfo => serde_json::to_string_pretty(&client.get_peer_info()?)?,
         Methods::Stop => serde_json::to_string_pretty(&client.stop()?)?,
         Methods::AddNode { node } => serde_json::to_string_pretty(&client.add_node(node)?)?,
+        Methods::FindTxOut {
+            txid,
+            vout,
+            script,
+            height_hint,
+        } => serde_json::to_string_pretty(&client.find_tx_out(
+            txid,
+            vout,
+            script,
+            height_hint.unwrap_or(0),
+        )?)?,
     })
 }
 
@@ -147,4 +158,11 @@ pub enum Methods {
     /// Usage: addnode <ip:[port]>
     #[command(name = "addnode")]
     AddNode { node: String },
+    #[command(name = "findtxout")]
+    FindTxOut {
+        txid: Txid,
+        vout: u32,
+        script: String,
+        height_hint: Option<u32>,
+    },
 }

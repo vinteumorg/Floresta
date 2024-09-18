@@ -567,6 +567,15 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
         }
     }
 
+    pub fn get_utxo(&self, outpoint: &OutPoint) -> Option<TxOut> {
+        let inner = self.inner.read().expect("poisoned lock");
+        // a dirty way to check if the utxo is still unspent
+        let _ = inner.utxo_index.get(outpoint)?;
+        let tx = inner.get_transaction(&outpoint.txid)?;
+
+        Some(tx.tx.output[outpoint.vout as usize].clone())
+    }
+
     pub fn n_cached_addresses(&self) -> usize {
         let inner = self.inner.read().expect("poisoned lock");
         inner.address_map.len()

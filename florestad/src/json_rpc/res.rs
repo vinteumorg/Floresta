@@ -99,6 +99,7 @@ pub struct BlockJson {
 #[derive(Debug)]
 pub enum Error {
     TxNotFound,
+    InvalidScript,
     InvalidDescriptor,
     BlockNotFound,
     Chain,
@@ -108,6 +109,7 @@ pub enum Error {
     NoBlockFilters,
     InvalidNetwork,
     InInitialBlockDownload,
+    Encode,
 }
 
 impl Display for Error {
@@ -123,6 +125,8 @@ impl Display for Error {
             Error::NoBlockFilters => "You don't have block filters enabled, please start florestad with --cfilters to run this RPC",
             Error::InvalidNetwork => "Invalid network",
             Error::InInitialBlockDownload => "Node is in initial block download, wait until it's finished",
+            Error::Encode => "Error encoding response",
+            Error::InvalidScript => "Invalid script",
         };
         write!(f, "{}", msg)
     }
@@ -141,6 +145,8 @@ impl From<Error> for i64 {
             Error::NoBlockFilters => 8,
             Error::InvalidNetwork => 9,
             Error::InInitialBlockDownload => 10,
+            Error::Encode => 11,
+            Error::InvalidScript => 12,
         }
     }
 }
