@@ -114,7 +114,7 @@ impl Rpc for RpcImpl {
         })
     }
 
-    fn find_tx_out(&self, txid: Txid, vout: u32, script: ScriptBuf, _height: u32) -> Result<Value> {
+    fn find_tx_out(&self, txid: Txid, vout: u32, script: ScriptBuf, height: u32) -> Result<Value> {
         if let Some(txout) = self.wallet.get_utxo(&OutPoint { txid, vout }) {
             return Ok(serde_json::to_value(txout).unwrap());
         }
@@ -136,11 +136,13 @@ impl Rpc for RpcImpl {
             });
         };
 
-        let tip = self.chain.get_height().unwrap();
-
         self.wallet.cache_address(script.clone());
         let filter_key = script.to_bytes();
-        let candidates = cfilters.match_any(vec![filter_key.as_slice()], tip, self.chain.clone());
+        let candidates = cfilters.match_any(
+            vec![filter_key.as_slice()],
+            Some(height as usize),
+            self.chain.clone(),
+        );
 
         let candidates = candidates
             .unwrap_or_default()
@@ -496,11 +498,10 @@ impl RpcImpl {
         cfilters: Arc<NetworkFilters<FlatFiltersStore>>,
         node: Arc<NodeInterface>,
     ) -> Result<()> {
-        let tip = cfilters.get_height().unwrap();
         let blocks = cfilters
             .match_any(
                 addresses.iter().map(|a| a.as_bytes()).collect(),
-                tip,
+                Some(0),
                 chain.clone(),
             )
             .unwrap();

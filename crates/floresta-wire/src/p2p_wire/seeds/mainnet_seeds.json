@@ -31,5 +31,16 @@
         },
         "services": 50331657,
         "port": 8333
+    },
+    {
+        "address": {
+            "V4": "[2804:4308:8c:6700:ee8e:b5ff:fe78:cbcf]"
+        },
+        "last_connected": 1678986166,
+        "state": {
+            "Tried": 0
+        },
+        "services": 73,
+        "port": 8333
     }
 ]
