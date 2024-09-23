@@ -92,7 +92,7 @@ pub trait IteratableFilterStore:
     type I: Iterator<Item = (u32, bip158::BlockFilter)>;
     /// Fetches the first filter and sets our internal cursor to the first filter,
     /// succeeding calls to [next] will return the next filter until we reach the end
-    fn iter(&self) -> Result<Self::I, IteratableFilterStoreError>;
+    fn iter(&self, start_height: Option<usize>) -> Result<Self::I, IteratableFilterStoreError>;
     /// Writes a new filter to the store
     fn put_filter(
         &self,

@@ -46,6 +46,7 @@ impl Iterator for FiltersIterator {
 
 struct FlatFiltersStoreInner {
     file: std::fs::File,
+    index: std::fs::File,
     path: PathBuf,
 }
 
@@ -67,7 +68,19 @@ impl FlatFiltersStore {
             .open(&path)
             .unwrap();
 
-        Self(Mutex::new(FlatFiltersStoreInner { file, path }))
+        let index = format!("{}-index", path.to_string_lossy());
+        let mut index = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(index)
+            .unwrap();
+
+        index.seek(SeekFrom::Start(0)).unwrap();
+        index.write_all(&4_u64.to_le_bytes()).unwrap();
+
+        Self(Mutex::new(FlatFiltersStoreInner { file, path, index }))
     }
 }
 
@@ -82,8 +95,20 @@ impl TryFrom<&PathBuf> for FlatFiltersStore {
             .truncate(false)
             .open(path)?;
 
+        let index = format!("{}-index", path.to_string_lossy());
+        let mut index = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(index)?;
+
+        index.seek(SeekFrom::Start(0))?;
+        index.write_all(&4_u64.to_le_bytes())?;
+
         Ok(Self(Mutex::new(FlatFiltersStoreInner {
             file,
+            index,
             path: path.clone(),
         })))
     }
@@ -121,11 +146,29 @@ impl IteratableFilterStore for FlatFiltersStore {
         Ok(u32::from_le_bytes(buf))
     }
 
-    fn iter(&self) -> Result<Self::I, IteratableFilterStoreError> {
-        let inner = self.0.lock()?;
+    fn iter(&self, start_height: Option<usize>) -> Result<Self::I, IteratableFilterStoreError> {
+        let mut inner = self.0.lock()?;
         let new_file = File::open(inner.path.clone())?;
         let mut reader = BufReader::new(new_file);
-        reader.seek(SeekFrom::Start(4))?;
+
+        let start_height = start_height.unwrap_or(0) as u32;
+
+        // round down to the nearest 50_000
+        let start_height = start_height - (start_height % 50_000);
+
+        // take the index by dividing by 50_000
+        let index = (start_height / 50_000) * 8;
+
+        // seek to the index
+        inner.index.seek(SeekFrom::Start(index as u64))?;
+
+        // read the position of the file
+        let mut buf = [0; 8];
+        inner.index.read_exact(&mut buf)?;
+        let pos = u64::from_le_bytes(buf);
+
+        // seek to the position
+        reader.seek(SeekFrom::Start(pos))?;
         Ok(FiltersIterator { reader })
     }
 
@@ -142,7 +185,17 @@ impl IteratableFilterStore for FlatFiltersStore {
 
         let mut inner = self.0.lock()?;
 
-        inner.file.seek(SeekFrom::End(0))?;
+        let offset = inner.file.seek(SeekFrom::End(0))?;
+        // save the position of the file for every 50_000 blocks, so we can
+        // start the rescan from a given height
+        if height % 50_000 == 0 {
+            let index_offset = height / 50_000;
+            inner
+                .index
+                .seek(SeekFrom::Start((index_offset * 8) as u64))?;
+            inner.index.write_all(&offset.to_le_bytes())?;
+        }
+
         inner.file.write_all(&height.to_le_bytes())?;
         inner.file.write_all(&length.to_le_bytes())?;
         inner.file.write_all(&block_filter.content)?;
@@ -174,10 +227,11 @@ mod tests {
             .put_filter(filter.clone(), 1)
             .expect("could not put filter");
 
-        let mut iter = store.iter().expect("could not get iterator");
+        let mut iter = store.iter(Some(0)).expect("could not get iterator");
         assert_eq!((1, filter), iter.next().unwrap());
 
         assert_eq!(iter.next(), None);
         remove_file(path).expect("could not remove file after test");
+        remove_file(format!("{}-index", path)).expect("could not remove index after test");
     }
 }

@@ -574,14 +574,13 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
         addresses: Vec<ScriptBuf>,
     ) -> Result<(), super::error::Error> {
         // By default, we look from 1..tip
-        let height = cfilters.get_height().unwrap();
         let mut _addresses = addresses
             .iter()
             .map(|address| address.as_bytes())
             .collect::<Vec<_>>();
 
         // TODO (Davidson): Let users select what the starting and end height is
-        let blocks = cfilters.match_any(_addresses, height, self.chain.clone());
+        let blocks = cfilters.match_any(_addresses, Some(0), self.chain.clone());
         if blocks.is_err() {
             error!("error while rescanning with block filters: {:?}", blocks);
             self.addresses_to_scan.extend(addresses); // push them back to get a retry

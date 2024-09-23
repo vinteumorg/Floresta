@@ -91,11 +91,11 @@ pub trait FlorestaRPC {
     /// is returned as a hexadecimal string. If the verbosity flag is 1, the block is returned
     /// as a json object.
     fn get_block(&self, hash: BlockHash) -> Result<GetBlockRes>;
-    /// Finds an specific utxo in the chain
+    /// Return a cached transaction output
     ///
-    /// You can use this to look for a utxo. If it exists, it will return the amount and
-    /// scriptPubKey of this utxo. It returns an empty object if the utxo doesn't exist.
-    /// You must have enabled block filters by setting the `blockfilters=1` option.
+    /// This method returns a cached transaction output. If the output is not in the cache,
+    /// or is spent, an empty object is returned. If you want to find a utxo that's not in
+    /// the cache, you can use the findtxout method.
     fn get_tx_out(&self, tx_id: Txid, outpoint: u32) -> Result<Value>;
     /// Stops the florestad process
     ///
@@ -105,6 +105,18 @@ pub trait FlorestaRPC {
     ///
     /// You can use this to connect with a given node, providing it's IP address and port.
     fn add_node(&self, node: String) -> Result<bool>;
+    /// Finds an specific utxo in the chain
+    ///
+    /// You can use this to look for a utxo. If it exists, it will return the amount and
+    /// scriptPubKey of this utxo. It returns an empty object if the utxo doesn't exist.
+    /// You must have enabled block filters by setting the `blockfilters=1` option.
+    fn find_tx_out(
+        &self,
+        tx_id: Txid,
+        outpoint: u32,
+        script: String,
+        height_hint: u32,
+    ) -> Result<Value>;
 }
 
 /// Since the workflow for jsonrpc is the same for all methods, we can implement a trait
@@ -120,6 +132,23 @@ pub trait JsonRPCClient: Sized {
 }
 
 impl<T: JsonRPCClient> FlorestaRPC for T {
+    fn find_tx_out(
+        &self,
+        tx_id: Txid,
+        outpoint: u32,
+        script: String,
+        height_hint: u32,
+    ) -> Result<Value> {
+        self.call(
+            "findtxout",
+            &[
+                Value::String(tx_id.to_string()),
+                Value::Number(Number::from(outpoint)),
+                Value::String(script),
+                Value::Number(Number::from(height_hint)),
+            ],
+        )
+    }
     fn add_node(&self, node: String) -> Result<bool> {
         self.call("addnode", &[Value::String(node)])
     }
