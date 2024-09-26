@@ -19,7 +19,6 @@ log = "0.4"
 thiserror = "1.0"
 floresta-common = { path = "../floresta-common" }
 floresta-chain = { path = "../floresta-chain" }
-hex = "0.4.3"
 
 [dev-dependencies]
 rand = "0.8.5"
