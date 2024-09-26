@@ -8,8 +8,8 @@
 //! ready-to-use library for interacting with florestad's json-rpc interface in your rust
 //! application.
 
-#[cfg(feature = "with-reqwest")]
-pub mod reqwest_client;
+#[cfg(feature = "with-jsonrpc")]
+pub mod jsonrpc_client;
 
 pub mod rpc;
 pub mod rpc_types;
@@ -32,7 +32,7 @@ mod tests {
     use rcgen::generate_simple_self_signed;
     use rcgen::CertifiedKey;
 
-    use crate::reqwest_client::ReqwestClient;
+    use crate::jsonrpc_client::Client;
     use crate::rpc::FlorestaRPC;
 
     struct Florestad {
@@ -55,7 +55,7 @@ mod tests {
     /// The process created by this method will run in a random datadir and use random ports
     /// for both RPC and Electrum. The datadir will be in the current dir, under a `tmp` subdir.
     /// If you're at $HOME/floresta it will run on $HOME/floresta/tmp/<random_name>/
-    fn start_florestad() -> (Florestad, ReqwestClient) {
+    fn start_florestad() -> (Florestad, Client) {
         let here = env!("PWD");
         let port = rand::random::<u16>() % 1000 + 18443;
 
@@ -87,7 +87,7 @@ mod tests {
             .spawn()
             .unwrap();
 
-        let client = ReqwestClient::new(format!("http://127.0.0.1:{port}"));
+        let client = Client::new(format!("http://127.0.0.1:{port}"));
 
         let mut retries = 10;
 
