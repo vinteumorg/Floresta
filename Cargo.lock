@@ -720,7 +720,6 @@ dependencies = [
  "bitcoin 0.31.0",
  "core2 0.4.0",
  "floresta-common",
- "futures 0.3.30",
  "hashbrown",
  "hex",
  "kv",
@@ -732,7 +731,6 @@ dependencies = [
  "serde_json",
  "sha2",
  "spin 0.9.8",
- "tokio",
  "zstd 0.12.4",
 ]
 
@@ -784,13 +782,11 @@ dependencies = [
  "floresta-watch-only",
  "floresta-wire",
  "futures 0.3.30",
- "hex",
  "kv",
  "log",
  "miniscript 11.0.0",
  "rand 0.8.5",
  "rcgen",
- "rustls 0.20.9",
  "rustreexo",
  "serde",
  "serde_json",
@@ -819,7 +815,6 @@ dependencies = [
  "bitcoin 0.31.0",
  "floresta-chain",
  "floresta-common",
- "hex",
  "kv",
  "log",
  "rand 0.8.5",
@@ -877,12 +872,10 @@ dependencies = [
  "jsonrpc-derive",
  "jsonrpc-http-server",
  "kv",
- "latest",
  "log",
  "miniscript 11.0.0",
  "pretty_assertions",
  "rand 0.8.5",
- "rustls 0.20.9",
  "rustreexo",
  "serde",
  "serde_json",
@@ -1475,12 +1468,6 @@ dependencies = [
  "thiserror",
  "toml 0.5.11",
 ]
-
-[[package]]
-name = "latest"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dbcecbffc965131a019eb69ad21f897fedd12cc2a22577c63767721ec99ddb0a"
 
 [[package]]
 name = "lazy_static"
@@ -2190,20 +2177,8 @@ dependencies = [
  "base64 0.13.1",
  "log",
  "ring 0.16.20",
- "sct 0.6.1",
- "webpki 0.21.4",
-]
-
-[[package]]
-name = "rustls"
-version = "0.20.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1b80e3dec595989ea8510028f30c408a4630db12c9cbb8de34203b89d6577e99"
-dependencies = [
- "log",
- "ring 0.16.20",
- "sct 0.7.1",
- "webpki 0.22.4",
+ "sct",
+ "webpki",
 ]
 
 [[package]]
@@ -2280,16 +2255,6 @@ checksum = "b362b83898e0e69f38515b82ee15aa80636befe47c3b6d3d89a911e78fc228ce"
 dependencies = [
  "ring 0.16.20",
  "untrusted 0.7.1",
-]
-
-[[package]]
-name = "sct"
-version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "da046153aa2352493d6cb7da4b6e5c0c057d8a1d0a9aa8560baffdd945acd414"
-dependencies = [
- "ring 0.17.8",
- "untrusted 0.9.0",
 ]
 
 [[package]]
@@ -2703,9 +2668,9 @@ version = "0.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bc6844de72e57df1980054b38be3a9f4702aba4858be64dd700181a8a6d0e1b6"
 dependencies = [
- "rustls 0.19.1",
+ "rustls",
  "tokio",
- "webpki 0.21.4",
+ "webpki",
 ]
 
 [[package]]
@@ -3081,16 +3046,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "webpki"
-version = "0.22.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ed63aea5ce73d0ff405984102c42de94fc55a6b75765d621c65262469b3c9b53"
-dependencies = [
- "ring 0.17.8",
- "untrusted 0.9.0",
-]
-
-[[package]]
 name = "winapi"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3372,7 +3327,7 @@ version = "0.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fcf2b778a664581e31e389454a7072dab1647606d44f7feea22cd5abb9c9f3f9"
 dependencies = [
- "zstd-safe 7.1.0",
+ "zstd-safe 7.2.1",
 ]
 
 [[package]]
@@ -3387,9 +3342,9 @@ dependencies = [
 
 [[package]]
 name = "zstd-safe"
-version = "7.1.0"
+version = "7.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1cd99b45c6bc03a018c8b8a86025678c87e55526064e38f9df301989dce7ec0a"
+checksum = "54a3ab4db68cea366acc5c897c7b4d4d1b8994a9cd6e6f841f8964566a419059"
 dependencies = [
  "zstd-sys",
 ]
