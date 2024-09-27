@@ -6,13 +6,13 @@ use bitcoin::Network;
 use bitcoin::Txid;
 use clap::Parser;
 use clap::Subcommand;
-use floresta_cli::reqwest_client::ReqwestClient;
+use floresta_cli::jsonrpc_client::Client;
 use floresta_cli::rpc::FlorestaRPC;
 
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
-    let client = ReqwestClient::new(get_host(&cli));
+    let client = Client::new(get_host(&cli));
     let res = do_request(&cli, client)?;
 
     println!("{}", res);
@@ -34,7 +34,7 @@ fn get_host(cmd: &Cli) -> String {
     }
 }
 
-fn do_request(cmd: &Cli, client: ReqwestClient) -> anyhow::Result<String> {
+fn do_request(cmd: &Cli, client: Client) -> anyhow::Result<String> {
     Ok(match cmd.methods.clone() {
         Methods::GetBlockchainInfo => serde_json::to_string_pretty(&client.get_blockchain_info()?)?,
         Methods::GetBlockHash { height } => {

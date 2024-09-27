@@ -263,9 +263,9 @@ pub struct GetBlockRes {
 pub enum Error {
     /// An error while deserializing our response
     Serde(serde_json::Error),
-    #[cfg(feature = "with-reqwest")]
+    #[cfg(feature = "with-jsonrpc")]
     /// An internal reqwest error
-    Reqwest(reqwest::Error),
+    JsonRpc(jsonrpc::Error),
     /// An error internal to our jsonrpc server
     Api(serde_json::Value),
     /// The server sent an empty response
@@ -278,16 +278,16 @@ impl From<serde_json::Error> for Error {
     }
 }
 
-impl From<reqwest::Error> for Error {
-    fn from(value: reqwest::Error) -> Self {
-        Error::Reqwest(value)
+impl From<jsonrpc::Error> for Error {
+    fn from(value: jsonrpc::Error) -> Self {
+        Error::JsonRpc(value)
     }
 }
 
 impl Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Error::Reqwest(e) => write!(f, "reqwest returned an error {e}"),
+            Error::JsonRpc(e) => write!(f, "JsonRpc returned an error {e}"),
             Error::Api(e) => write!(f, "general jsonrpc error: {e}"),
             Error::Serde(e) => write!(f, "error while deserializing the response: {e}"),
             Error::EmtpyResponse => write!(f, "got an empty response from server"),
