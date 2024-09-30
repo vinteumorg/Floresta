@@ -227,7 +227,7 @@ where
             .fixed_peer
             .as_ref()
             .map(|address| {
-                Self::resolve_connect_host(&address, Self::get_port(config.network.into()))
+                Self::resolve_connect_host(address, Self::get_port(config.network.into()))
             })
             .transpose()?;
 

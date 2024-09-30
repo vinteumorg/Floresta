@@ -27,8 +27,8 @@ use bitcoin::Transaction;
 use bitcoin::TxOut;
 use bitcoin::Work;
 use floresta_common::Channel;
+use log::debug;
 use log::info;
-use log::trace;
 use log::warn;
 #[cfg(feature = "metrics")]
 use metrics;
@@ -40,7 +40,6 @@ use spin::RwLock;
 use super::chain_state_builder::ChainStateBuilder;
 use super::chainparams::ChainParams;
 use super::chainstore::DiskBlockHeader;
-use super::chainstore::KvChainStore;
 use super::consensus::Consensus;
 use super::error::BlockValidationErrors;
 use super::error::BlockchainError;
@@ -94,9 +93,18 @@ pub struct ChainStateInner<PersistedState: ChainStore> {
     /// is still validated.
     assume_valid: Option<BlockHash>,
 }
+
 pub struct ChainState<PersistedState: ChainStore> {
     inner: RwLock<ChainStateInner<PersistedState>>,
 }
+
+/// Force chainstate to be Sync, even if the underlying chainstore isn't
+///
+/// This is safe because we only access the chainstore through the inner lock, and we don't
+/// expose the chainstore to the outside world. We could use a lock for the chainstore, but
+/// that would be overkill and would make a big performance hit.
+unsafe impl<T: ChainStore + Send + 'static> Sync for ChainState<T> {}
+
 #[derive(Debug, Copy, Clone)]
 pub enum AssumeValidArg {
     Disabled,
@@ -561,10 +569,10 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         }
     }
     pub fn load_chain_state(
-        chainstore: KvChainStore,
+        chainstore: PersistedState,
         network: Network,
         assume_valid: AssumeValidArg,
-    ) -> Result<ChainState<KvChainStore>, BlockchainError> {
+    ) -> Result<ChainState<PersistedState>, BlockchainError> {
         let acc = Self::load_acc(&chainstore);
 
         let best_chain = chainstore.load_height()?;
@@ -796,6 +804,10 @@ impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedSta
 
     fn get_params(&self) -> bitcoin::params::Params {
         self.chain_params().params
+    }
+
+    fn acc(&self) -> Stump {
+        read_lock!(self).acc.to_owned()
     }
 
     fn get_fork_point(&self, block: BlockHash) -> Result<BlockHash, Self::Error> {
@@ -1129,7 +1141,7 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
     }
 
     fn accept_header(&self, header: BlockHeader) -> Result<(), BlockchainError> {
-        trace!("Accepting header {header:?}");
+        debug!("Accepting header {header:?}");
         let disk_header = self.get_disk_block_header(&header.block_hash());
 
         match disk_header {
@@ -1155,7 +1167,7 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
         // Update our current tip
         if header.prev_blockhash == best_block.1 {
             let height = best_block.0 + 1;
-            trace!("Header builds on top of our best chain");
+            debug!("Header builds on top of our best chain");
 
             let mut inner = write_lock!(self);
             inner.best_block.new_block(block_hash, height);
@@ -1167,7 +1179,7 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
 
             inner.chainstore.update_block_index(height, block_hash)?;
         } else {
-            trace!("Header not in the best chain");
+            debug!("Header not in the best chain");
             self.maybe_reorg(header)?;
         }
 
@@ -1251,23 +1263,24 @@ macro_rules! write_lock {
     };
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 /// Internal representation of the chain we are in
 pub struct BestChain {
     /// Hash of the last block in the chain we believe has more work on
-    best_block: BlockHash,
+    pub best_block: BlockHash,
     /// How many blocks are pilled on this chain?
-    depth: u32,
+    pub depth: u32,
     /// We actually validated blocks up to this point
-    validation_index: BlockHash,
+    pub validation_index: BlockHash,
     /// Blockchains are not fast-forward only, they might have "forks", sometimes it's useful
     /// to keep track of them, in case they become the best one. This keeps track of some
     /// tips we know about, but are not the best one. We don't keep tips that are too deep
     /// or has too little work if compared to our best one
-    alternative_tips: Vec<BlockHash>,
+    pub alternative_tips: Vec<BlockHash>,
     /// Saves the height occupied by the assume valid block
-    assume_valid_index: u32,
+    pub assume_valid_index: u32,
 }
+
 impl BestChain {
     fn new_block(&mut self, block_hash: BlockHash, height: u32) {
         self.best_block = block_hash;
