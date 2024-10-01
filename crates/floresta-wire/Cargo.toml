@@ -12,7 +12,7 @@ repository = "https://github.com/vinteumorg/Floresta"
 license = "MIT"
 readme = "README.md"
 keywords = ["bitcoin", "utreexo", "p2p", "networking"]
-categories = ["bitcoin", "blockchain", "node"]
+categories = ["cryptography::cryptocurrencies", "network-programming"]
 
 
 [dependencies]

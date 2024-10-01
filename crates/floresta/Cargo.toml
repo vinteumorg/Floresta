@@ -20,7 +20,7 @@ repository = "https://github.com/vinteumorg/Floresta"
 license = "MIT"
 readme = "README.md"
 keywords = ["bitcoin", "utreexo", "node", "blockchain", "rust"]
-categories = ["bitcoin", "blockchain", "node"]
+categories = ["cryptography::cryptocurrencies"]
 
 [dependencies]
 floresta-common = { path = "../floresta-common", version = "0.2.0" }

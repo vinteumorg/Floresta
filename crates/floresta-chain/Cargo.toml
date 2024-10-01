@@ -12,7 +12,7 @@ repository = "https://github.com/vinteumorg/Floresta"
 license = "MIT"
 readme = "README.md"
 keywords = ["bitcoin", "utreexo", "node", "consensus"]
-categories = ["bitcoin", "blockchain", "node"]
+categories = ["cryptography::cryptocurrencies", "database"]
 
 [lib]
 crate-type = ["cdylib", "rlib"]
