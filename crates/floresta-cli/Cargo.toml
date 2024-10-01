@@ -11,7 +11,7 @@ description = """
 repository = "https://github.com/vinteumorg/Floresta"
 readme = "README.md"
 keywords = ["bitcoin", "utreexo", "node", "blockchain", "rust"]
-categories = ["bitcoin", "blockchain", "node"]
+categories = ["cryptography::cryptocurrencies", "command-line-utilities"]
 
 
 [dependencies]
