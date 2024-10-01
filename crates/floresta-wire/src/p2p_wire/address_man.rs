@@ -709,6 +709,15 @@ mod test {
         let loc_adr_1 = LocalAddress::from(signet_address[random].address.clone());
         assert_eq!(loc_adr_1.address, signet_address[random].address);
     }
+
+    #[test]
+    fn test_fixed_peers() {
+        let _ = load_addresses_from_json("./src/p2p_wire/seeds/signet_seeds.json").unwrap();
+        let _ = load_addresses_from_json("./src/p2p_wire/seeds/mainnet_seeds.json").unwrap();
+        let _ = load_addresses_from_json("./src/p2p_wire/seeds/testnet_seeds.json").unwrap();
+        let _ = load_addresses_from_json("./src/p2p_wire/seeds/regtest_seeds.json").unwrap();
+    }
+
     #[test]
     fn test_address_man() {
         let mut address_man = AddressMan::default();
