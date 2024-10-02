@@ -63,3 +63,6 @@ json-rpc = [
     "jsonrpc-core-client",
 ]
 default = ["experimental-p2p", "json-rpc", "compact-filters"]
+
+[build-dependencies]
+toml = "0.5.10"

@@ -1,0 +1,10 @@
+/target
+# ignores perf data and generated performance graphs
+perf.*
+*.svg
+config.toml
+/builds
+data/
+output.log
+tmp/
+.pre-commit-config.yaml
