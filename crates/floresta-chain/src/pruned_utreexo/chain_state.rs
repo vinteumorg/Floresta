@@ -105,14 +105,11 @@ pub enum AssumeValidArg {
 
 impl<PersistedState: ChainStore> ChainState<PersistedState> {
     fn maybe_reindex(&self, potential_tip: &DiskBlockHeader) {
-        match potential_tip {
-            DiskBlockHeader::HeadersOnly(_, height) => {
-                if *height > self.get_best_block().unwrap().0 {
-                    let best_chain = self.reindex_chain();
-                    write_lock!(self).best_block = best_chain;
-                }
+        if let DiskBlockHeader::HeadersOnly(_, height) = potential_tip {
+            if *height > self.get_best_block().unwrap().0 {
+                let best_chain = self.reindex_chain();
+                write_lock!(self).best_block = best_chain;
             }
-            _ => {}
         }
     }
 
@@ -1064,10 +1061,7 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
     ) -> Result<u32, BlockchainError> {
         let header = self.get_disk_block_header(&block.block_hash())?;
         let height = match header {
-            DiskBlockHeader::FullyValid(_, height) => {
-                self.maybe_reindex(&header);
-                return Ok(height);
-            }
+            DiskBlockHeader::FullyValid(_, height) => return Ok(height),
             // If it's valid or orphan, we don't validate
             DiskBlockHeader::Orphan(_)
             | DiskBlockHeader::AssumedValid(_, _) // this will be validated by a partial chain
