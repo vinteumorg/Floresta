@@ -488,7 +488,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             .update_block_index(0, genesis.block_hash())
             .expect("Error updating index");
 
-        let assume_valid = Self::get_assume_valid_value(network, assume_valid);
+        let assume_valid = ChainParams::get_assume_valid(network, assume_valid);
         ChainState {
             inner: RwLock::new(ChainStateInner {
                 chainstore,
@@ -509,33 +509,6 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
                 },
                 assume_valid,
             }),
-        }
-    }
-    fn get_assume_valid_value(network: Network, arg: AssumeValidArg) -> Option<BlockHash> {
-        fn get_hash(hash: &str) -> BlockHash {
-            BlockHash::from_str(hash).expect("hardcoded hash should not fail")
-        }
-        match arg {
-            AssumeValidArg::Disabled => None,
-            AssumeValidArg::UserInput(hash) => Some(hash),
-            AssumeValidArg::Hardcoded => match network {
-                Network::Bitcoin => {
-                    get_hash("00000000000000000000569f4d863c27e667cbee8acc8da195e7e5551658e6e9")
-                        .into()
-                }
-                Network::Testnet => {
-                    get_hash("000000000000001142ad197bff16a1393290fca09e4ca904dd89e7ae98a90fcd")
-                        .into()
-                }
-                Network::Signet => {
-                    get_hash("0000003ed17b9c93954daab00d73ccbd0092074c4ebfc751c7458d58b827dfea")
-                        .into()
-                }
-                Network::Regtest => {
-                    get_hash("0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206")
-                        .into()
-                }
-            },
         }
     }
     fn get_disk_block_header(&self, hash: &BlockHash) -> Result<DiskBlockHeader, BlockchainError> {
@@ -606,7 +579,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             consensus: Consensus {
                 parameters: network.into(),
             },
-            assume_valid: Self::get_assume_valid_value(network, assume_valid),
+            assume_valid: ChainParams::get_assume_valid(network, assume_valid),
         };
         info!(
             "Chainstate loaded at height: {}, checking if we have all blocks",
