@@ -1,1 +1,2 @@
 jsonrpclib==0.2.1
+requests==2.32.3
