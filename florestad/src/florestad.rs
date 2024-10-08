@@ -15,6 +15,8 @@ pub use bitcoin::Network;
 use fern::colors::Color;
 use fern::colors::ColoredLevelConfig;
 use fern::FormatCallback;
+#[cfg(feature = "zmq-server")]
+use floresta_chain::pruned_utreexo::BlockchainInterface;
 pub use floresta_chain::AssumeUtreexoValue;
 use floresta_chain::AssumeValidArg;
 use floresta_chain::BlockchainError;
@@ -330,7 +332,7 @@ impl Florestad {
 
         // If this network already allows pow fraud proofs, we should use it instead of assumeutreexo
         let assume_utreexo = match (pow_fraud_proofs, self.config.assume_utreexo) {
-            (false, true) => Some(floresta_chain::ChainParams::get_assumeutreexo_value(
+            (false, true) => Some(floresta_chain::ChainParams::get_assume_utreexo(
                 Self::get_net(&self.config.network).into(),
             )),
             _ => None,
@@ -665,17 +667,17 @@ impl Florestad {
         result
     }
 
-    fn create_tls_config(&self, data_dir: &String) -> io::Result<Arc<ServerConfig>> {
+    fn create_tls_config(&self, data_dir: &str) -> io::Result<Arc<ServerConfig>> {
         let cert_path = self
             .config
             .ssl_cert_path
             .clone()
-            .unwrap_or_else(|| (data_dir.clone() + "ssl/cert.pem"));
+            .unwrap_or_else(|| data_dir.to_owned() + "ssl/cert.pem");
         let key_path = self
             .config
             .ssl_cert_path
             .clone()
-            .unwrap_or_else(|| (data_dir.clone() + "ssl/key.pem"));
+            .unwrap_or_else(|| data_dir.to_owned() + "ssl/key.pem");
 
         let cert_file = File::open(cert_path)?;
         let key_file = File::open(key_path)?;

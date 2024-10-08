@@ -1,21 +1,26 @@
 # runs our functinal tests from tests/
 
 on:
-    push:
-      branches: [ "master" ]
-    pull_request:
-      branches: [ "master" ]
+  push:
+  pull_request:
+    branches: ["master"]
 
 jobs:
-    functional:
-        name: functional
-        runs-on: ubuntu-latest
+  functional:
+    name: Functional
+    runs-on: ubuntu-latest
 
-        steps:
-            - uses: actions/checkout@v3
-            - name: prepare environment
-              run: sudo apt-get install -y python3-pip && pip3 install -r tests/requirements.txt
-            - name: build
-              run: cargo build
-            - name: run functional tests
-              run: python tests/run_tests.py
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare environment
+        run: sudo apt-get install -y python3-pip && pip3 install -r tests/requirements.txt
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build Floresta
+        run: cargo build
+
+      - name: Run functional tests
+        run: python tests/run_tests.py
