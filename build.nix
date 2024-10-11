@@ -30,7 +30,7 @@ buildRustPackage {
   inherit buildInputs;
 
   meta = with lib; {
-    description = "A full bitcoin node with Utreexo";
+    description = "A lightweight bitcoin full node";
     homepage = "https://github.com/vinteumorg/Floresta";
     license = licenses.mit;
     maintainers = [ maintainers.Davidson maintainers.jaoleal ];
