@@ -24,24 +24,22 @@
         lib = pkgs.lib;
         stdenv = pkgs.stdenv;
 
-        isDarwin = stdenv.isDarwin;
-        libsDarwin = with pkgs.darwin.apple_sdk.frameworks; lib.optionals isDarwin [
-          # Additional darwin specific inputs can be set here
-          Security
+        libsDarwin = with pkgs.darwin.apple_sdk.frameworks; lib.optionals isDarwin [ Security ];
+
+        devTools = with pkgs; [
+          rustup
+          just
         ];
 
-        msrv = pkgs.rust-bin.stable."1.74.0".default;
-
-        buildInputs = with pkgs; [
-          msrv
-          openssl
-          pkg-config
-        ] ++ libsDarwin;
-        nativeBuildInputs = with pkgs;
-          [
-            pkg-config
-            openssl
+        buildInputs =
+          if system then [
+            pkgs.openssl
+            pkgs.pkg-config
+          ] ++ libsDarwin else [
+            pkgs.openssl
+            pkgs.pkg-config
           ];
+
       in
       with pkgs;
       {
@@ -60,11 +58,12 @@
           };
         };
 
-
         packages.default = import ./build.nix {
           inherit (pkgs) lib rustPlatform;
-          inherit buildInputs nativeBuildInputs;
-          rust = msrv;
+          inherit buildInputs libsDarwin;
+
+          rust = pkgs.rust;
+          rust-overlay = rust-overlay;
         };
 
         flake.overlays.default = (final: prev: {
@@ -73,13 +72,16 @@
 
         devShells.default =
           let
-            #pre-commit-checks
             _shellHook = (self.checks.${system}.pre-commit-check.shellHook or "");
           in
           mkShell {
             inherit buildInputs;
+            inherit devTools;
 
-            shellHook = "${ _shellHook}";
+            shellHook = ''
+              		${ _shellHook}
+              		echo "Floresta Nix-shell"
+              	'';
           };
       });
 }
