@@ -1,5 +1,5 @@
 {
-  description = "Flake for Floresta development";
+  description = "A full bitcoin node with Utreexo";
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-23.11";
     rust-overlay = {
@@ -22,17 +22,17 @@
         };
 
         lib = pkgs.lib;
-        stdenv = pkgs.stdenv;
 
-        libsDarwin = with pkgs.darwin.apple_sdk.frameworks; lib.optionals isDarwin [ Security ];
+        libsDarwin = with pkgs.darwin.apple_sdk.frameworks; lib.optionals( system == "x86_64-darwin" || system  == "aarch64-darwin") [ Security ];
 
+        #This is the dev tools used while developing in Floresta.
         devTools = with pkgs; [
           rustup
           just
         ];
 
         buildInputs =
-          if system then [
+          if system == "x86_64-darwin" || system  == "aarch64-darwin" then [
             pkgs.openssl
             pkgs.pkg-config
           ] ++ libsDarwin else [
@@ -40,6 +40,7 @@
             pkgs.pkg-config
           ];
 
+        florestaRust = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
       in
       with pkgs;
       {
@@ -58,16 +59,14 @@
           };
         };
 
-        packages.default = import ./build.nix {
-          inherit (pkgs) lib rustPlatform;
-          inherit buildInputs libsDarwin;
-
-          rust = pkgs.rust;
-          rust-overlay = rust-overlay;
+        packages = {
+            default = import ./build.nix {
+                inherit lib rustPlatform florestaRust buildInputs;
+            };
         };
 
         flake.overlays.default = (final: prev: {
-          florestad = self.packages.${final.system}.default;
+          floresta-node = self.packages.${final.system}.default;
         });
 
         devShells.default =
