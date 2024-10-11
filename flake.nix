@@ -1,5 +1,5 @@
 {
-  description = "Flake for Floresta development";
+  description = "A full bitcoin node with Utreexo";
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-23.11";
     rust-overlay = {
@@ -22,26 +22,25 @@
         };
 
         lib = pkgs.lib;
-        stdenv = pkgs.stdenv;
 
-        isDarwin = stdenv.isDarwin;
-        libsDarwin = with pkgs.darwin.apple_sdk.frameworks; lib.optionals isDarwin [
-          # Additional darwin specific inputs can be set here
-          Security
+        libsDarwin = with pkgs.darwin.apple_sdk.frameworks; lib.optionals( system == "x86_64-darwin" || system  == "aarch64-darwin") [ Security ];
+
+        #This is the dev tools used while developing in Floresta.
+        devTools = with pkgs; [
+          rustup
+          just
         ];
 
-        msrv = pkgs.rust-bin.stable."1.74.0".default;
-
-        buildInputs = with pkgs; [
-          msrv
-          openssl
-          pkg-config
-        ] ++ libsDarwin;
-        nativeBuildInputs = with pkgs;
-          [
-            pkg-config
-            openssl
+        buildInputs =
+          if system == "x86_64-darwin" || system  == "aarch64-darwin" then [
+            pkgs.openssl
+            pkgs.pkg-config
+          ] ++ libsDarwin else [
+            pkgs.openssl
+            pkgs.pkg-config
           ];
+
+        florestaRust = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
       in
       with pkgs;
       {
@@ -60,26 +59,28 @@
           };
         };
 
-
-        packages.default = import ./build.nix {
-          inherit (pkgs) lib rustPlatform;
-          inherit buildInputs nativeBuildInputs;
-          rust = msrv;
+        packages = {
+            default = import ./build.nix {
+                inherit lib rustPlatform florestaRust buildInputs;
+            };
         };
 
         flake.overlays.default = (final: prev: {
-          florestad = self.packages.${final.system}.default;
+          floresta-node = self.packages.${final.system}.default;
         });
 
         devShells.default =
           let
-            #pre-commit-checks
             _shellHook = (self.checks.${system}.pre-commit-check.shellHook or "");
           in
           mkShell {
             inherit buildInputs;
+            inherit devTools;
 
-            shellHook = "${ _shellHook}";
+            shellHook = ''
+              		${ _shellHook}
+              		echo "Floresta Nix-shell"
+              	'';
           };
       });
 }
