@@ -160,7 +160,7 @@ floresta-cli help <command>
 #### Wallet
 
 Floresta comes with a watch-only wallet that you can use to track your transactions. You just need to provide the wallet 
-information, either as a configuration file or as a command line argument. See the [sample configuration file](florestad/config.toml) for an example config. Floresta supports SLIP-132 extended public keys (xpubs) and output descriptors. You can add new wallets to follow at any time, just
+information, either as a configuration file or as a command line argument. See the [sample configuration file](config.toml.sample) for an example config. Floresta supports SLIP-132 extended public keys (xpubs) and output descriptors. You can add new wallets to follow at any time, just
 call the `rescan` rpc after adding the wallet.
 
 You can add new descriptors to the wallet with the `importdescriptor` rpc.
