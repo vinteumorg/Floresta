@@ -185,8 +185,9 @@ dependencies = [
 
 [[package]]
 name = "bitcoin"
-version = "0.31.0"
-source = "git+https://github.com/Davidson-Souza/rust-bitcoin?rev=eb5d7a3896fff0ebf6394dabc882d46e439695be#eb5d7a3896fff0ebf6394dabc882d46e439695be"
+version = "0.31.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c85783c2fe40083ea54a33aa2f0ba58831d90fcd190f5bdc47e74e84d2a96ae"
 dependencies = [
  "bech32 0.10.0-beta",
  "bitcoin-internals",
@@ -675,7 +676,7 @@ dependencies = [
 name = "floresta"
 version = "0.2.0"
 dependencies = [
- "bitcoin 0.31.0",
+ "bitcoin 0.31.2",
  "floresta",
  "floresta-chain",
  "floresta-common",
@@ -692,7 +693,7 @@ dependencies = [
 name = "floresta-chain"
 version = "0.2.0"
 dependencies = [
- "bitcoin 0.31.0",
+ "bitcoin 0.31.2",
  "core2 0.4.0",
  "floresta-common",
  "hashbrown",
@@ -714,7 +715,7 @@ name = "floresta-cli"
 version = "0.2.0"
 dependencies = [
  "anyhow",
- "bitcoin 0.31.0",
+ "bitcoin 0.31.2",
  "clap",
  "jsonrpc",
  "rand 0.8.5",
@@ -728,7 +729,7 @@ dependencies = [
 name = "floresta-common"
 version = "0.2.0"
 dependencies = [
- "bitcoin 0.31.0",
+ "bitcoin 0.31.2",
  "miniscript 11.0.0",
  "sha2",
  "spin 0.9.8",
@@ -738,7 +739,7 @@ dependencies = [
 name = "floresta-compact-filters"
 version = "0.2.0"
 dependencies = [
- "bitcoin 0.31.0",
+ "bitcoin 0.31.2",
  "floresta-chain",
  "floresta-common",
  "kv",
@@ -749,7 +750,7 @@ dependencies = [
 name = "floresta-electrum"
 version = "0.2.0"
 dependencies = [
- "bitcoin 0.31.0",
+ "bitcoin 0.31.2",
  "core2 0.4.0",
  "floresta-chain",
  "floresta-common",
@@ -777,7 +778,7 @@ dependencies = [
 name = "floresta-fuzz"
 version = "0.0.0"
 dependencies = [
- "bitcoin 0.31.0",
+ "bitcoin 0.31.2",
  "floresta-chain",
  "floresta-wire",
  "libfuzzer-sys",
@@ -787,7 +788,7 @@ dependencies = [
 name = "floresta-watch-only"
 version = "0.2.0"
 dependencies = [
- "bitcoin 0.31.0",
+ "bitcoin 0.31.2",
  "floresta-chain",
  "floresta-common",
  "kv",
@@ -802,7 +803,7 @@ dependencies = [
 name = "floresta-wire"
 version = "0.2.0"
 dependencies = [
- "bitcoin 0.31.0",
+ "bitcoin 0.31.2",
  "dns-lookup",
  "floresta-chain",
  "floresta-common",
@@ -828,7 +829,7 @@ name = "florestad"
 version = "0.6.0"
 dependencies = [
  "anyhow",
- "bitcoin 0.31.0",
+ "bitcoin 0.31.2",
  "chrono",
  "clap",
  "ctrlc",
@@ -1490,7 +1491,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "86a23dd3ad145a980e231185d114399f25a0a307d2cd918010ddda6334323df9"
 dependencies = [
  "bech32 0.10.0-beta",
- "bitcoin 0.31.0",
+ "bitcoin 0.31.2",
  "bitcoin-internals",
 ]
 

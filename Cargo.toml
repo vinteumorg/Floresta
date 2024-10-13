@@ -13,7 +13,7 @@ members = [
     "crates/floresta-wire",
 ]
 
-default-members = [ 
+default-members = [
     "florestad",
     "crates/floresta",
     "crates/floresta-chain",
@@ -26,7 +26,3 @@ default-members = [
 ]
 
 [patch."https://github.com/rust-lang/crates.io-index"]
-
-# we use a fork of the bitcoin crate, which is not published on crates.io
-# because it doesn't have utreexo support (yet?)
-bitcoin = { git = "https://github.com/Davidson-Souza/rust-bitcoin", rev = "eb5d7a3896fff0ebf6394dabc882d46e439695be" }
