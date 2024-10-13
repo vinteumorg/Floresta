@@ -11,7 +11,6 @@ use bitcoin::block::Header as BlockHeader;
 use bitcoin::consensus::Encodable;
 use bitcoin::hashes::sha256;
 use bitcoin::hashes::Hash;
-use bitcoin::pow::U256;
 use bitcoin::Block;
 use bitcoin::BlockHash;
 use bitcoin::OutPoint;
@@ -22,6 +21,7 @@ use bitcoin::TxIn;
 use bitcoin::TxOut;
 use bitcoin::Txid;
 use bitcoin::WitnessVersion;
+use ethereum_types::U256;
 use floresta_common::prelude::*;
 use rustreexo::accumulator::node_hash::NodeHash;
 use rustreexo::accumulator::proof::Proof;
@@ -291,23 +291,22 @@ impl Consensus {
         first_block: &BlockHeader,
         params: ChainParams,
     ) -> Target {
-        let cur_target = last_block.target().0;
+        let cur_target = U256::from_little_endian(&last_block.target().to_le_bytes());
 
-        let expected_timespan = U256::from(params.pow_target_timespan);
-        let mut actual_timespan = last_block.time - first_block.time;
+        let expected_timespan = params.pow_target_timespan;
+        let mut actual_timestamp: u64 = u64::from(last_block.time - first_block.time);
 
         // Difficulty adjustments are limited, to prevent large swings in difficulty
         // caused by malicious miners.
-        if actual_timespan < params.pow_target_timespan as u32 / 4 {
-            actual_timespan = params.pow_target_timespan as u32 / 4;
+        if actual_timestamp < params.pow_target_timespan / 4 {
+            actual_timestamp = params.pow_target_timespan / 4;
         }
-        if actual_timespan > params.pow_target_timespan as u32 * 4 {
-            actual_timespan = params.pow_target_timespan as u32 * 4;
+        if actual_timestamp > params.pow_target_timespan * 4 {
+            actual_timestamp = params.pow_target_timespan * 4;
         }
-
-        let new_target = cur_target.mul(actual_timespan.into());
+        let new_target: U256 = cur_target.mul(actual_timestamp);
         let new_target = new_target / expected_timespan;
-        Target(new_target)
+        Target::from_be_bytes(new_target.to_big_endian())
     }
     /// Updates our accumulator with the new block. This is done by calculating the new
     /// root hash of the accumulator, and then verifying the proof of inclusion of the
