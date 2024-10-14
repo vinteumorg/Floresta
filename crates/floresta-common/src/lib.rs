@@ -26,6 +26,15 @@ pub fn get_spk_hash(spk: &ScriptBuf) -> sha256::Hash {
     sha256::Hash::from_slice(hash.as_slice()).expect("Engines shouldn't be Err")
 }
 
+/// Non-standard service flags that aren't in rust-bitcoin yet
+pub mod service_flags {
+    /// This peer supports UTREEXO messages
+    pub const UTREEXO: u64 = 1 << 24;
+
+    /// This peer supports UTREEXO filter messages
+    pub const UTREEXO_FILTER: u64 = 1 << 25;
+}
+
 #[cfg(feature = "descriptors")]
 pub fn parse_descriptors(
     descriptors: &[String],
@@ -43,6 +52,7 @@ pub fn parse_descriptors(
         .collect::<Vec<_>>();
     Ok(descriptors)
 }
+
 #[cfg(feature = "no-std")]
 pub mod prelude {
     extern crate alloc;

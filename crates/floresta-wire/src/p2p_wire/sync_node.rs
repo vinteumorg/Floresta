@@ -10,6 +10,7 @@ use floresta_chain::pruned_utreexo::UpdatableChainstate;
 use floresta_chain::BlockValidationErrors;
 use floresta_chain::BlockchainError;
 use floresta_chain::UtreexoBlock;
+use floresta_common::service_flags;
 use log::debug;
 use log::error;
 use log::info;
@@ -37,7 +38,7 @@ pub struct SyncNode {
 
 impl NodeContext for SyncNode {
     fn get_required_services(&self) -> bitcoin::p2p::ServiceFlags {
-        ServiceFlags::WITNESS | ServiceFlags::UTREEXO | ServiceFlags::NETWORK
+        ServiceFlags::WITNESS | service_flags::UTREEXO.into() | ServiceFlags::NETWORK
     }
 
     const MAX_OUTGOING_PEERS: usize = 5; // don't need many peers, half the default
@@ -163,7 +164,7 @@ where
                 let next_peer = self
                     .send_to_random_peer(
                         NodeRequest::GetBlock((vec![block.block.block_hash()], true)),
-                        ServiceFlags::UTREEXO,
+                        service_flags::UTREEXO.into(),
                     )
                     .await?;
                 self.inflight.insert(

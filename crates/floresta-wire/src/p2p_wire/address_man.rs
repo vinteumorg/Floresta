@@ -15,6 +15,7 @@ use bitcoin::p2p::address::AddrV2Message;
 use bitcoin::p2p::ServiceFlags;
 use floresta_chain::DnsSeed;
 use floresta_chain::Network;
+use floresta_common::service_flags;
 use log::info;
 use serde::Deserialize;
 use serde::Serialize;
@@ -194,8 +195,9 @@ impl AddressMan {
                 if Self::is_good_peer(address) {
                     self.good_addresses.push(id);
                 }
-                self.push_if_has_service(address, ServiceFlags::UTREEXO);
-                self.push_if_has_service(address, ServiceFlags::from(1 << 25)); // UTREEXO_FILTER
+
+                self.push_if_has_service(address, service_flags::UTREEXO.into());
+                self.push_if_has_service(address, service_flags::UTREEXO.into()); // UTREEXO_FILTER
                 self.push_if_has_service(address, ServiceFlags::NONE); // this means any peer
                 self.push_if_has_service(address, ServiceFlags::COMPACT_FILTERS);
             }
@@ -283,15 +285,16 @@ impl AddressMan {
         let mut seed_address_count = 0;
 
         // ask for utreexo peers (if filtering is available)
-        if seed.filters.has(ServiceFlags::UTREEXO) {
+        if seed.filters.has(service_flags::UTREEXO.into()) {
             let address = format!("x1000000.{}", seed.seed);
             let _addresses = Self::do_lookup(&address, default_port).unwrap_or_default();
             seed_address_count += _addresses.len();
             _addresses
                 .into_iter()
                 .map(|mut x| {
-                    x.services =
-                        ServiceFlags::UTREEXO | ServiceFlags::NETWORK | ServiceFlags::WITNESS;
+                    x.services = ServiceFlags::NETWORK
+                        | service_flags::UTREEXO.into()
+                        | ServiceFlags::WITNESS;
                     x
                 })
                 .for_each(|x| {
@@ -508,7 +511,7 @@ impl AddressMan {
                 }
 
                 self.addresses.get(&idx).cloned().map(|address| {
-                    self.push_if_has_service(&address, ServiceFlags::UTREEXO);
+                    self.push_if_has_service(&address, service_flags::UTREEXO.into());
                     self.push_if_has_service(&address, ServiceFlags::from(1 << 25)); // UTREEXO_FILTER
                     self.push_if_has_service(&address, ServiceFlags::NONE); // this means any peer
                     self.push_if_has_service(&address, ServiceFlags::COMPACT_FILTERS);
@@ -640,6 +643,7 @@ mod test {
     use bitcoin::p2p::ServiceFlags;
     use floresta_chain::get_chain_dns_seeds;
     use floresta_chain::Network;
+    use floresta_common::service_flags;
     use rand::Rng;
     use serde::Deserialize;
     use serde::Serialize;
@@ -746,7 +750,7 @@ mod test {
             .is_some());
 
         assert!(address_man
-            .get_address_to_connect(ServiceFlags::UTREEXO, false)
+            .get_address_to_connect(service_flags::UTREEXO.into(), false)
             .is_some());
 
         assert!(!AddressMan::get_net_seeds(Network::Signet).is_empty());
