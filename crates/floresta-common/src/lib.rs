@@ -1,12 +1,23 @@
 // SPDX-License-Identifier: MIT
 
 #![no_std]
+// Ensure that both `std` and `no-std` are not enabled simultaneously
+#[cfg(all(feature = "std", feature = "no-std"))]
+compile_error!("Features `std` and `no-std` cannot be enabled simultaneously.");
+
+// Ensure that one of `std` or `no-std` is enabled
+#[cfg(not(any(feature = "std", feature = "no-std")))]
+compile_error!("One of the `std` or `no-std` features must be enabled.");
+
+#[cfg(all(feature = "no-std", feature = "descriptors"))]
+compile_error!("For `no-std` enable the `descriptors-no-std` feature instead of `descriptors`.");
+
 use bitcoin::hashes::sha256;
 use bitcoin::hashes::Hash;
 use bitcoin::ScriptBuf;
-#[cfg(feature = "descriptors")]
+#[cfg(any(feature = "descriptors", feature = "descriptors-no-std"))]
 use miniscript::Descriptor;
-#[cfg(feature = "descriptors")]
+#[cfg(any(feature = "descriptors", feature = "descriptors-no-std"))]
 use miniscript::DescriptorPublicKey;
 use sha2::Digest;
 pub mod spsc;
@@ -35,7 +46,7 @@ pub mod service_flags {
     pub const UTREEXO_FILTER: u64 = 1 << 25;
 }
 
-#[cfg(feature = "descriptors")]
+#[cfg(any(feature = "descriptors", feature = "descriptors-no-std"))]
 pub fn parse_descriptors(
     descriptors: &[String],
 ) -> Result<Vec<Descriptor<DescriptorPublicKey>>, miniscript::Error> {
@@ -64,7 +75,6 @@ pub mod prelude {
     pub use alloc::vec::Vec;
     pub use core::cmp;
     pub use core::convert;
-    pub use core::core::str::FromStr;
     pub use core::fmt;
     pub use core::fmt::Display;
     pub use core::iter;
@@ -76,6 +86,7 @@ pub mod prelude {
     pub use core::result;
     pub use core::slice;
     pub use core::str;
+    pub use core::str::FromStr;
 
     pub use core2::error::Error;
     pub use core2::io::Error as ioError;
@@ -84,7 +95,7 @@ pub mod prelude {
     pub use hashbrown::HashMap;
     pub use hashbrown::HashSet;
 }
-#[cfg(not(feature = "no-std"))]
+#[cfg(feature = "std")]
 pub mod prelude {
     extern crate alloc;
     extern crate std;
