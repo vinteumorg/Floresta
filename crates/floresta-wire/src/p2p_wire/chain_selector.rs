@@ -56,6 +56,7 @@ use bitcoin::BlockHash;
 use floresta_chain::pruned_utreexo::BlockchainInterface;
 use floresta_chain::pruned_utreexo::UpdatableChainstate;
 use floresta_chain::UtreexoBlock;
+use floresta_common::service_flags;
 use log::info;
 use log::warn;
 use rustreexo::accumulator::node_hash::NodeHash;
@@ -118,7 +119,7 @@ impl NodeContext for ChainSelector {
     const TRY_NEW_CONNECTION: u64 = 10; // Try creating connections more aggressively
 
     fn get_required_services(&self) -> ServiceFlags {
-        ServiceFlags::NETWORK | ServiceFlags::UTREEXO | ServiceFlags::from(1 << 25)
+        ServiceFlags::NETWORK | service_flags::UTREEXO.into() | service_flags::UTREEXO_FILTER.into()
     }
 }
 
@@ -507,7 +508,7 @@ where
         let fork = self.chain.get_fork_point(other_tip)?;
         self.send_to_random_peer(
             NodeRequest::GetBlock((vec![fork], true)),
-            ServiceFlags::UTREEXO,
+            service_flags::UTREEXO.into(),
         )
         .await?;
 

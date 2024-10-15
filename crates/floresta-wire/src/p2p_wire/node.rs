@@ -25,6 +25,7 @@ use floresta_chain::pruned_utreexo::BlockchainInterface;
 use floresta_chain::pruned_utreexo::UpdatableChainstate;
 use floresta_chain::Network;
 use floresta_chain::UtreexoBlock;
+use floresta_common::service_flags;
 use floresta_compact_filters::flat_filters_store::FlatFiltersStore;
 use floresta_compact_filters::network_filters::NetworkFilters;
 use log::debug;
@@ -315,7 +316,7 @@ where
                 let peer = self
                     .send_to_random_peer(
                         NodeRequest::GetBlock((vec![block], true)),
-                        ServiceFlags::UTREEXO,
+                        service_flags::UTREEXO.into(),
                     )
                     .await?;
                 self.inflight
@@ -323,7 +324,10 @@ where
             }
             InflightRequests::Headers => {
                 let peer = self
-                    .send_to_random_peer(NodeRequest::GetHeaders(vec![]), ServiceFlags::UTREEXO)
+                    .send_to_random_peer(
+                        NodeRequest::GetHeaders(vec![]),
+                        service_flags::UTREEXO.into(),
+                    )
                     .await?;
                 self.inflight
                     .insert(InflightRequests::Headers, (peer, Instant::now()));
@@ -332,7 +336,7 @@ where
                 let peer = self
                     .send_to_random_peer(
                         NodeRequest::GetUtreexoState((self.chain.get_block_hash(0).unwrap(), 0)),
-                        ServiceFlags::UTREEXO,
+                        service_flags::UTREEXO.into(),
                     )
                     .await?;
                 self.inflight
@@ -413,10 +417,10 @@ where
             peer_data.user_agent.clone_from(&version.user_agent);
             peer_data.height = version.blocks;
 
-            if peer_data.services.has(ServiceFlags::UTREEXO) {
+            if peer_data.services.has(service_flags::UTREEXO.into()) {
                 self.0
                     .peer_by_service
-                    .entry(ServiceFlags::UTREEXO)
+                    .entry(service_flags::UTREEXO.into())
                     .or_default()
                     .push(peer);
             }
@@ -506,7 +510,7 @@ where
     pub(crate) fn has_utreexo_peers(&self) -> bool {
         !self
             .peer_by_service
-            .get(&ServiceFlags::UTREEXO)
+            .get(&service_flags::UTREEXO.into())
             .unwrap_or(&Vec::new())
             .is_empty()
     }
@@ -622,8 +626,11 @@ where
         }
         // if we need utreexo peers, we can bypass our max outgoing peers limit in case
         // we don't have any utreexo peers
-        let bypass =
-            self.1.get_required_services().has(ServiceFlags::UTREEXO) && !self.has_utreexo_peers();
+        let bypass = self
+            .1
+            .get_required_services()
+            .has(service_flags::UTREEXO.into())
+            && !self.has_utreexo_peers();
 
         if self.peers.len() < T::MAX_OUTGOING_PEERS || bypass {
             self.create_connection(ConnectionKind::Regular).await;
@@ -654,7 +661,7 @@ where
         let peer = self
             .send_to_random_peer(
                 NodeRequest::GetBlock((blocks.clone(), true)),
-                ServiceFlags::UTREEXO,
+                service_flags::UTREEXO.into(),
             )
             .await?;
 
@@ -679,7 +686,7 @@ where
 
         // we need at least one utreexo peer
         if !self.has_utreexo_peers() {
-            return ServiceFlags::UTREEXO;
+            return service_flags::UTREEXO.into();
         }
 
         // we need at least one peer with compact filters

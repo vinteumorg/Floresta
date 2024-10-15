@@ -186,7 +186,7 @@ dependencies = [
 [[package]]
 name = "bitcoin"
 version = "0.31.0"
-source = "git+https://github.com/Davidson-Souza/rust-bitcoin?rev=eb5d7a3896fff0ebf6394dabc882d46e439695be#eb5d7a3896fff0ebf6394dabc882d46e439695be"
+source = "git+https://github.com/Davidson-Souza/rust-bitcoin?rev=5a089f01131cfdf778769224ded792fd9194a334#5a089f01131cfdf778769224ded792fd9194a334"
 dependencies = [
  "bech32 0.10.0-beta",
  "bitcoin-internals",

@@ -13,6 +13,7 @@ use bitcoin::hex::FromHex;
 use bitcoin::p2p::ServiceFlags;
 use bitcoin::BlockHash;
 use floresta_chain::UtreexoBlock;
+use floresta_common::service_flags;
 use hex;
 use rand::rngs::OsRng;
 use rand::RngCore;
@@ -79,8 +80,8 @@ impl TestPeer {
             blocks: rand::random::<u32>() % 23,
             id: self.peer_id,
             address_id: rand::random::<usize>(),
-            services: ServiceFlags::UTREEXO
-                | ServiceFlags::NETWORK
+            services: ServiceFlags::NETWORK
+                | service_flags::UTREEXO.into()
                 | ServiceFlags::WITNESS
                 | ServiceFlags::COMPACT_FILTERS
                 | ServiceFlags::from(1 << 25),
@@ -141,7 +142,7 @@ pub fn create_peer(
 
     LocalPeerView {
         address: "127.0.0.1".parse().unwrap(),
-        services: ServiceFlags::UTREEXO,
+        services: service_flags::UTREEXO.into(),
         user_agent: "/utreexo:0.1.0/".to_string(),
         height: 0,
         state: PeerStatus::Ready,

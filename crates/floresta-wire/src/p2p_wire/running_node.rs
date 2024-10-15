@@ -19,6 +19,7 @@ use floresta_chain::pruned_utreexo::UpdatableChainstate;
 use floresta_chain::BlockValidationErrors;
 use floresta_chain::BlockchainError;
 use floresta_chain::UtreexoBlock;
+use floresta_common::service_flags;
 use floresta_compact_filters::BlockFilter;
 use log::debug;
 use log::error;
@@ -64,8 +65,8 @@ pub struct RunningNode {
 impl NodeContext for RunningNode {
     const REQUEST_TIMEOUT: u64 = 2 * 60;
     fn get_required_services(&self) -> ServiceFlags {
-        ServiceFlags::UTREEXO
-            | ServiceFlags::NETWORK
+        ServiceFlags::NETWORK
+            | service_flags::UTREEXO.into()
             | ServiceFlags::WITNESS
             | ServiceFlags::COMPACT_FILTERS
     }
@@ -215,7 +216,7 @@ where
                     let peer = self
                         .send_to_random_peer(
                             NodeRequest::GetBlock((vec![block], true)),
-                            ServiceFlags::UTREEXO,
+                            service_flags::UTREEXO.into(),
                         )
                         .await?;
                     self.inflight
@@ -838,8 +839,6 @@ where
                     Inventory::Error => {}
                     Inventory::Block(block)
                     | Inventory::WitnessBlock(block)
-                    | Inventory::UtreexoBlock(block)
-                    | Inventory::UtreexoWitnessBlock(block)
                     | Inventory::CompactBlock(block) => {
                         self.1
                             .user_requests
