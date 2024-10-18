@@ -954,8 +954,7 @@ mod test {
     }
 
     fn get_test_signet_headers() -> Vec<BlockHeader> {
-        let file =
-            include_bytes!("../../floresta-chain/src/pruned_utreexo/testdata/signet_headers.zst");
+        let file = include_bytes!("../../floresta-chain/testdata/signet_headers.zst");
         let uncompressed: Vec<u8> = zstd::decode_all(std::io::Cursor::new(file)).unwrap();
         let mut cursor = Cursor::new(uncompressed);
         let mut headers: Vec<BlockHeader> = Vec::new();

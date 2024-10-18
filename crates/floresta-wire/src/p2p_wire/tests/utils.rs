@@ -203,8 +203,7 @@ pub fn create_false_acc(tip: usize) -> Vec<u8> {
 }
 
 pub fn get_test_headers() -> Vec<Header> {
-    let file =
-        include_bytes!("../../../../floresta-chain/src/pruned_utreexo/testdata/signet_headers.zst");
+    let file = include_bytes!("../../../../floresta-chain/testdata/signet_headers.zst");
 
     let uncompressed: Vec<u8> = zstd::decode_all(std::io::Cursor::new(file)).unwrap();
     let mut cursor = Cursor::new(uncompressed);
