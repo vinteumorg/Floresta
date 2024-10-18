@@ -53,6 +53,7 @@ use bitcoin::block::Header;
 use bitcoin::consensus::deserialize;
 use bitcoin::p2p::ServiceFlags;
 use bitcoin::BlockHash;
+use floresta_chain::pruned_utreexo::nodetime::DisableTime;
 use floresta_chain::pruned_utreexo::BlockchainInterface;
 use floresta_chain::pruned_utreexo::UpdatableChainstate;
 use floresta_chain::UtreexoBlock;
@@ -150,7 +151,7 @@ where
         );
 
         for header in headers.iter() {
-            if let Err(e) = self.chain.accept_header(*header) {
+            if let Err(e) = self.chain.accept_header(*header, &DisableTime) {
                 log::error!("Error while downloading headers from peer={peer} err={e}");
 
                 self.send_to_peer(peer, NodeRequest::Shutdown).await?;
@@ -385,7 +386,7 @@ where
     fn update_acc(&self, acc: Stump, block: UtreexoBlock, height: u32) -> Result<Stump, WireError> {
         let (proof, del_hashes, _) = floresta_chain::proof_util::process_proof(
             block.udata.as_ref().unwrap(),
-            &block.block.txdata,
+            &block.block,
             &self.chain,
         )?;
 
@@ -527,15 +528,13 @@ where
 
         let (proof, del_hashes, inputs) = floresta_chain::proof_util::process_proof(
             block.udata.as_ref().unwrap(),
-            &block.block.txdata,
+            &block.block,
             &self.chain,
         )?;
 
-        let fork_height = self.chain.get_block_height(&fork)?.unwrap_or(0);
-        let acc = self.find_accumulator_for_block(fork_height, fork).await?;
         let is_valid = self
             .chain
-            .validate_block(&block.block, proof, inputs, del_hashes, acc);
+            .validate_block(&block.block, proof, inputs, del_hashes);
 
         if is_valid.is_err() {
             let best_block = self.chain.get_best_block()?.1;
