@@ -37,7 +37,7 @@ a security vulnerability, please email `Davidson Souza at me AT dlsouza DOT lol`
 
 ## Building
 
-### (Prerequisites) 
+### (Prerequisites)
 ```bash
 sudo apt update
 sudo apt install gcc build-essential pkg-config libssl-dev
@@ -71,37 +71,31 @@ If you're using Nix, you can add Florestad to your system with its overlay.
 
 ```nix
 {
-  #Here you declare the import for your flake
-  inputs.florestad = {
+  #Here you declare the floresta set for your flake
+  inputs.floresta-node = {
     url = "github:vinteumorg/Floresta";
     inputs = {
       nixpkgs.follows = "nixpkgs";
       flake-parts.follows = "flake-parts";
     };
   };
-
-  outputs = inputs @ { self, ... }:
+  #Pass floresta-node as a input to "output".
+  outputs = { self, floresta-node }:
   {
     imports = [
       {
-        nixpkgs.overlays = [
-          # Here you use the floresta overlay with your others
-          inputs.florestad.overlays.default
+        overlays = [
+            # Here you use the floresta overlay with your others
+            floresta-node.overlay.default
         ];
       }
     ];
   };
 ```
-then Florestad will be available just like any other package with
+then `florestad` and `floresta-cli` will be available just like any other package with
 
 ```nix
-pkgs.florestad
-```
-
-
-But if you just want to test it or quickly run a instance you can do 
-```bash
-$ nix run github:vinteumorg/Floresta
+pkgs.floresta-node
 ```
 
 ### Running
@@ -159,7 +153,7 @@ floresta-cli help <command>
 
 #### Wallet
 
-Floresta comes with a watch-only wallet that you can use to track your transactions. You just need to provide the wallet 
+Floresta comes with a watch-only wallet that you can use to track your transactions. You just need to provide the wallet
 information, either as a configuration file or as a command line argument. See the [sample configuration file](config.toml.sample) for an example config. Floresta supports SLIP-132 extended public keys (xpubs) and output descriptors. You can add new wallets to follow at any time, just
 call the `rescan` rpc after adding the wallet.
 
@@ -169,7 +163,7 @@ You can add new descriptors to the wallet with the `importdescriptor` rpc.
 floresta-cli importdescriptor "wpkh(xpub6CFy3kRXorC3NMTt8qrsY9ucUfxVLXyFQ49JSLm3iEG5gfAmWewYFzjNYFgRiCjoB9WWEuJQiyYGCdZvUTwPEUPL9pPabT8bkbiD9Po47XG/<0;1>/*)"
 ```
 
-The rescan assumes that you have compact block filters for the blocks that you're scanning. You can either download all the filters 
+The rescan assumes that you have compact block filters for the blocks that you're scanning. You can either download all the filters
 (about 11GB on mainnet) or, if you know the block range that you're interested in, you can download only the filters for that range
 using the `--filters-start-height` option. Let's you know that none of your wallets are older than block 800,000. Just start the node with.
 
@@ -226,7 +220,7 @@ Here's some Guidelines:
 
 You can accomplish that using our flake.nix for development.
 
-### Using Nix
+### Developing on Floresta with Nix
 
 If you already have [Nix](https://nixos.org/) you just need to do:
 
@@ -236,13 +230,13 @@ $ nix develop
 
 and use our flake for development which include
 
-- nix(fmt) and rust(fmt) pre-commit.
-- Rust Msrv(1.74.0).
-- Clippy and some libs so rust can compile.
-- Typos for good spelling.
+- nix(fmt) and rust(fmt)  in pre-commit.
+- [pre-commit](https://pre-commit.com/).
+- [rustup](https://rustup.rs/).
+- Typos in pre-commit.
+- [Just, the command runner](https://just.systems/).
 
-If you do not have Nix
-[Check their guide](https://nixos.org/download/).
+If you do not have Nix you can [Check their guide](https://nixos.org/download/).
 
 ### License
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details

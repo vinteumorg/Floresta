@@ -1,15 +1,18 @@
-{ lib, rustPlatform, rust, buildInputs, nativeBuildInputs, ... }:
+{ lib, rustPlatform, florestaRust, buildInputs }:
 
 let
-  pname = "florestad";
-  version = "0.5.1";
+    # Pname defines the name of the package and will decide the output of this expression
+    pname = "floresta-node";
+    version = "0.6.0";
 
-  buildRustPackage = rustPlatform.buildRustPackage.override {
-    rustc = rust;
-    cargo = rust;
-  };
+    # This sets the rustc and cargo to the ones from the florestaRust.
+    #
+    # Defined in Flake.nix directly from the rust-toolchain.
+    buildRustPackage = rustPlatform.buildRustPackage.override {
+        rustc = florestaRust;
+        cargo = florestaRust;
+    };
 in
-
 buildRustPackage {
   inherit pname version;
 
@@ -24,17 +27,13 @@ buildRustPackage {
     };
   };
 
-  inherit buildInputs nativeBuildInputs;
-
-  # Override the Rust compiler used
-  rustc = "${rust}/bin/rustc";
-  cargo = "${rust}/bin/cargo";
+  inherit buildInputs;
 
   meta = with lib; {
-    description = "A full bitcoin node with Utreexo";
-    homepage = "https://github.com/Davidson-Souza/Floresta";
+    description = "A lightweight bitcoin full node";
+    homepage = "https://github.com/vinteumorg/Floresta";
     license = licenses.mit;
-    maintainers = [ maintainers.Davidson maintainers.afm maintainers.jaoleal ];
-    platforms = platforms.all;
+    maintainers = [ maintainers.Davidson maintainers.jaoleal ];
+    platforms = [ "aarch64-linux" "x86_64-linux" "aarch64-darwin" "x86_64-darwin" ];
   };
 }
