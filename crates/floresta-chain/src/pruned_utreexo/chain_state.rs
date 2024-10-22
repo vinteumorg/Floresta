@@ -22,10 +22,8 @@ use bitcoin::hashes::sha256;
 use bitcoin::hashes::Hash;
 use bitcoin::Block;
 use bitcoin::BlockHash;
-use bitcoin::OutPoint;
 use bitcoin::Target;
 use bitcoin::Transaction;
-use bitcoin::TxOut;
 use bitcoin::Work;
 use floresta_common::Channel;
 use log::info;
@@ -43,8 +41,11 @@ use super::chainstore::KvChainStore;
 use super::consensus::Consensus;
 use super::error::BlockValidationErrors;
 use super::error::BlockchainError;
+use super::nodetime::NodeTime;
+use super::nodetime::HOUR;
 use super::partial_chain::PartialChainState;
 use super::partial_chain::PartialChainStateInner;
+use super::utxo_data::UtxoMap;
 use super::BlockchainInterface;
 use super::ChainStore;
 use super::UpdatableChainstate;
@@ -169,13 +170,25 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
     fn update_header(&self, header: &DiskBlockHeader) -> Result<(), BlockchainError> {
         Ok(read_lock!(self).chainstore.save_header(header)?)
     }
-    fn validate_header(&self, block_header: &BlockHeader) -> Result<BlockHash, BlockchainError> {
+    /// Validates a given header.
+    fn validate_header(
+        &self,
+        block_header: &BlockHeader,
+        node_time: &impl NodeTime,
+    ) -> Result<BlockHash, BlockchainError> {
         let prev_block = self.get_disk_block_header(&block_header.prev_blockhash)?;
         let prev_block_height = prev_block.height();
         if prev_block_height.is_none() {
             return Err(BlockValidationErrors::BlockExtendsAnOrphanChain.into());
         }
         let height = prev_block_height.unwrap() + 1;
+
+        // Check the time.
+        //
+        // The block can only be 2 hours ahead the node.
+        if node_time.get_time() + 2 * HOUR < block_header.time && node_time.get_time() != 0 {
+            return Err(BlockValidationErrors::BlockTimeTooNew.into());
+        }
 
         // Check pow
         let expected_target = self.get_next_required_work(&prev_block, height, block_header);
@@ -314,7 +327,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
                         header.block_hash()
                     ))));
                 }
-                None => {
+                _ => {
                     return Err(BlockchainError::InvalidTip(format(format_args!(
                         "Block {} isn't in our storage",
                         header.block_hash()
@@ -663,7 +676,9 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         inner.best_block.best_block = best_block;
         inner.best_block.depth = height;
     }
-    fn verify_script(&self, height: u32) -> bool {
+
+    /// Returns whether we should validate signatures in this block.
+    fn validate_signatures(&self, height: u32) -> bool {
         let inner = self.inner.read();
 
         inner.assume_valid.map_or(true, |hash| {
@@ -714,42 +729,13 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         &self,
         block: &Block,
         height: u32,
-        inputs: HashMap<OutPoint, TxOut>,
+        inputs: UtxoMap,
+        validate_script: bool,
     ) -> Result<(), BlockchainError> {
-        if !block.check_merkle_root() {
-            return Err(BlockchainError::BlockValidation(
-                BlockValidationErrors::BadMerkleRoot,
-            ));
-        }
-        if height >= self.chain_params().bip34_activation_height
-            && block.bip34_block_height() != Ok(height as u64)
-        {
-            return Err(BlockchainError::BlockValidation(
-                BlockValidationErrors::BadBip34,
-            ));
-        }
-        if !block.check_witness_commitment() {
-            return Err(BlockchainError::BlockValidation(
-                BlockValidationErrors::BadWitnessCommitment,
-            ));
-        }
-
-        // Validate block transactions
-        let subsidy = read_lock!(self).consensus.get_subsidy(height);
-        let verify_script = self.verify_script(height);
-        #[cfg(feature = "bitcoinconsensus")]
+        let consensus = &self.inner.read().consensus;
         let flags = self.get_validation_flags(height);
-        #[cfg(not(feature = "bitcoinconsensus"))]
-        let flags = 0;
-        Consensus::verify_block_transactions(
-            height,
-            inputs,
-            &block.txdata,
-            subsidy,
-            verify_script,
-            flags,
-        )?;
-        Ok(())
+        let prev_block = self.get_block_header(&block.header.prev_blockhash)?;
+        consensus.validate_block(block, &prev_block, height, inputs, flags, validate_script)
     }
 }
 
@@ -786,25 +772,23 @@ impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedSta
         &self,
         block: &Block,
         proof: Proof,
-        inputs: HashMap<OutPoint, TxOut>,
+        inputs: UtxoMap,
         del_hashes: Vec<sha256::Hash>,
-        acc: Stump,
     ) -> Result<(), Self::Error> {
         // verify the proof
         let del_hashes = del_hashes
             .iter()
             .map(|hash| NodeHash::from(hash.as_byte_array()))
             .collect::<Vec<_>>();
-
-        if !acc.verify(&proof, &del_hashes)? {
+        let acc = self.acc();
+        if acc.verify(&proof, &del_hashes)? {
             return Err(BlockValidationErrors::InvalidProof.into());
         }
-
         let height = self
             .get_block_height(&block.block_hash())?
             .ok_or(BlockchainError::BlockNotPresent)?;
-
-        self.validate_block(block, height, inputs)
+        let validate_script = self.validate_signatures(height);
+        self.validate_block(block, height, inputs, validate_script)
     }
 
     fn get_block_locator_for_tip(&self, tip: BlockHash) -> Result<Vec<BlockHash>, BlockchainError> {
@@ -1029,8 +1013,9 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
         &self,
         block: &Block,
         proof: Proof,
-        inputs: HashMap<OutPoint, TxOut>,
+        inputs: UtxoMap,
         del_hashes: Vec<sha256::Hash>,
+        chain_time: &impl NodeTime,
     ) -> Result<u32, BlockchainError> {
         let header = self.get_disk_block_header(&block.block_hash())?;
         let height = match header {
@@ -1042,6 +1027,11 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
             | DiskBlockHeader::InvalidChain(_) => return Ok(0),
             DiskBlockHeader::HeadersOnly(_, height) => height,
         };
+        // Here we check if the block isnt too much in the future.
+
+        if block.header.time > chain_time.get_time() + 2 * HOUR {
+            return Ok(height);
+        }
 
         // Check if this block is the next one in our chain, if we try
         // to add them out-of-order, we'll have consensus issues with our
@@ -1051,7 +1041,7 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
             return Ok(height);
         }
 
-        self.validate_block(block, height, inputs)?;
+        self.validate_block(block, height, inputs, true)?;
         let acc = Consensus::update_acc(&self.acc(), block, height, proof, del_hashes)?;
 
         self.update_view(height, &block.header, acc)?;
@@ -1083,7 +1073,11 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
         Ok(())
     }
 
-    fn accept_header(&self, header: BlockHeader) -> Result<(), BlockchainError> {
+    fn accept_header(
+        &self,
+        header: BlockHeader,
+        node_time: &impl NodeTime,
+    ) -> Result<(), BlockchainError> {
         trace!("Accepting header {header:?}");
         let disk_header = self.get_disk_block_header(&header.block_hash());
 
@@ -1105,7 +1099,7 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
         let best_block = self.get_best_block()?;
 
         // Do validation in this header
-        let block_hash = self.validate_header(&header)?;
+        let block_hash = self.validate_header(&header, node_time)?;
 
         // Update our current tip
         if header.prev_blockhash == best_block.1 {
@@ -1161,7 +1155,7 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
             },
             current_acc: acc,
             final_height,
-            assume_valid: false,
+            validate_signatures: false,
             initial_height,
             current_height: initial_height,
         };
@@ -1298,6 +1292,7 @@ mod test {
     use super::UpdatableChainstate;
     use crate::prelude::HashMap;
     use crate::pruned_utreexo::consensus::Consensus;
+    use crate::pruned_utreexo::nodetime::DisableTime;
     use crate::AssumeValidArg;
     use crate::KvChainStore;
     use crate::Network;
@@ -1320,7 +1315,7 @@ mod test {
 
         let chain = setup_test_chain(Network::Bitcoin, AssumeValidArg::Hardcoded);
         while let Ok(header) = BlockHeader::consensus_decode(&mut cursor) {
-            chain.accept_header(header).unwrap();
+            chain.accept_header(header, &DisableTime).unwrap();
         }
     }
     #[test]
@@ -1332,7 +1327,7 @@ mod test {
 
         let chain = setup_test_chain(Network::Signet, AssumeValidArg::Hardcoded);
         while let Ok(header) = BlockHeader::consensus_decode(&mut cursor) {
-            chain.accept_header(header).unwrap();
+            chain.accept_header(header, &DisableTime).unwrap();
         }
     }
     #[test]
@@ -1357,12 +1352,13 @@ mod test {
         let blocks = include_str!("../../testdata/test_reorg.json");
         let blocks: Vec<Vec<&str>> = serde_json::from_str(blocks).unwrap();
 
+        let time = crate::pruned_utreexo::nodetime::DisableTime;
         for block in blocks[0].iter() {
             let block = Vec::from_hex(block).unwrap();
             let block: Block = deserialize(&block).unwrap();
-            chain.accept_header(block.header).unwrap();
+            chain.accept_header(block.header, &DisableTime).unwrap();
             chain
-                .connect_block(&block, Proof::default(), HashMap::new(), Vec::new())
+                .connect_block(&block, Proof::default(), HashMap::new(), Vec::new(), &time)
                 .unwrap();
         }
         assert_eq!(
@@ -1379,7 +1375,7 @@ mod test {
         for fork in blocks[1].iter() {
             let block = Vec::from_hex(fork).unwrap();
             let block: Block = deserialize(&block).unwrap();
-            chain.accept_header(block.header).unwrap();
+            chain.accept_header(block.header, &DisableTime).unwrap();
         }
         let best_block = chain.get_best_block().unwrap();
         assert_eq!(
