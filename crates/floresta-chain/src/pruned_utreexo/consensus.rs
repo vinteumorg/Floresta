@@ -121,7 +121,6 @@ impl Consensus {
         verify_script: bool,
         flags: c_uint,
     ) -> Result<(), BlockchainError> {
-        // TODO: RETURN A GENERIC WRAPPER TYPE.
         // Blocks must contain at least one transaction
         if transactions.is_empty() {
             return Err(BlockValidationErrors::EmptyBlock.into());
@@ -131,40 +130,42 @@ impl Consensus {
         // Skip the coinbase tx
         for (n, transaction) in transactions.iter().enumerate() {
             // We don't need to verify the coinbase inputs, as it spends newly generated coins
-            if transaction.is_coinbase() && n == 0 {
-                Self::verify_coinbase(transaction.clone(), n as u16).map_err(|err| {
-                    TransactionError {
+            if n == 0 {
+                if transaction.is_coinbase() {
+                    Self::verify_coinbase(transaction).map_err(|err| TransactionError {
                         txid: transaction.txid(),
                         error: err,
-                    }
-                });
-                continue;
+                    })?;
+                    continue;
+                } else {
+                    return Err(BlockValidationErrors::FirstTxIsnNotCoinbase.into());
+                }
             }
             // Amount of all outputs
             let mut output_value = 0;
             for output in transaction.output.iter() {
-                Self::get_out_value(output, &mut output_value).map_err(|err| TransactionError {
-                    txid: transaction.txid(),
-                    error: err,
-                });
-                Self::validate_script_size(&output.script_pubkey).map_err(|err| TransactionError {
-                    txid: transaction.txid(),
-                    error: err,
-                });
-            }
-            // Amount of all inputs
-            let mut in_value = 0;
-            for input in transaction.input.iter() {
-                Self::consume_utxos(input, &mut utxos, &mut in_value).map_err(|err| {
+                output_value += output.value.to_sat();
+
+                Self::validate_script_size(&output.script_pubkey).map_err(|err| {
                     TransactionError {
                         txid: transaction.txid(),
                         error: err,
                     }
-                });
+                })?;
+            }
+            // Amount of all inputs
+            let mut in_value = 0;
+            for input in transaction.input.iter() {
+                in_value +=
+                    Self::get_utxo_amount(input, &utxos).map_err(|err| TransactionError {
+                        txid: transaction.txid(),
+                        error: err,
+                    })?;
+
                 Self::validate_script_size(&input.script_sig).map_err(|err| TransactionError {
                     txid: transaction.txid(),
                     error: err,
-                });
+                })?;
             }
             // Value in should be greater or equal to value out. Otherwise, inflation.
             if output_value > in_value {
@@ -187,7 +188,7 @@ impl Consensus {
                     .map_err(|err| TransactionError {
                         txid: transaction.txid(),
                         error: BlockValidationErrors::ScriptValidationError(err.to_string()),
-                    });
+                    })?;
             };
 
             //checks vbytes validation
@@ -212,26 +213,19 @@ impl Consensus {
     /// Consumes the UTXOs from the hashmap, and returns the value of the consumed UTXOs.
     /// If we do not find the UTXO, we return an error invalidating the input that tried to
     /// consume that UTXO.
-    fn consume_utxos(
+    fn get_utxo_amount(
         input: &TxIn,
-        utxos: &mut HashMap<OutPoint, TxOut>,
-        value_var: &mut u64,
-    ) -> Result<(), BlockValidationErrors> {
+        utxos: &HashMap<OutPoint, TxOut>,
+    ) -> Result<u64, BlockValidationErrors> {
         match utxos.get(&input.previous_output) {
-            Some(prevout) => {
-                *value_var += prevout.value.to_sat();
-                utxos.remove(&input.previous_output);
-            }
-            None => {
-                return Err(BlockValidationErrors::UtxoAlreadySpent(
-                    //This is the case when the spender:
-                    // - Spends an UTXO that doesn't exist
-                    // - Spends an UTXO that was already spent
-                    input.previous_output.txid,
-                ));
-            }
-        };
-        Ok(())
+            Some(txout) => Ok(txout.value.to_sat()),
+            None => Err(
+                // This is the case when the spender:
+                // - Spends an UTXO that doesn't exist
+                // - Spends an UTXO that was already spent
+                BlockValidationErrors::UtxoAlreadySpent(input.previous_output.txid),
+            ),
+        }
     }
     #[allow(unused)]
     fn validate_locktime(
@@ -255,29 +249,16 @@ impl Consensus {
         }
         Ok(())
     }
-    fn get_out_value(out: &TxOut, value_var: &mut u64) -> Result<(), BlockValidationErrors> {
-        if out.value.to_sat() > 0 {
-            *value_var += out.value.to_sat()
-        } else {
-            return Err(BlockValidationErrors::InvalidOutput);
-        }
-        Ok(())
-    }
-    fn verify_coinbase(transaction: Transaction, index: u16) -> Result<(), BlockValidationErrors> {
-        if index != 0 {
-            // A block must contain only one coinbase, and it should be the fist thing inside it
-            return Err(BlockValidationErrors::FirstTxIsnNotCoinbase);
-        }
-        //the prevout input of a coinbase must be all zeroes
+    fn verify_coinbase(transaction: &Transaction) -> Result<(), BlockValidationErrors> {
+        // The prevout input of a coinbase must be all zeroes
         if transaction.input[0].previous_output.txid != Txid::all_zeros() {
             return Err(BlockValidationErrors::InvalidCoinbase(
                 "Invalid coinbase txid".to_string(),
             ));
         }
-        let scriptsig = transaction.input[0].script_sig.clone();
-        let scriptsigsize = scriptsig.clone().into_bytes().len();
-        if !(2..=100).contains(&scriptsigsize) {
-            //the scriptsig size must be between 2 and 100 bytes
+        let scriptsig_size = transaction.input[0].script_sig.as_bytes().len();
+        if !(2..=100).contains(&scriptsig_size) {
+            // The scriptsig size must be between 2 and 100 bytes
             return Err(BlockValidationErrors::InvalidCoinbase(
                 "Invalid ScriptSig size".to_string(),
             ));
@@ -376,6 +357,7 @@ impl Consensus {
 #[cfg(test)]
 mod tests {
     use bitcoin::absolute::LockTime;
+    use bitcoin::consensus::deserialize;
     use bitcoin::hashes::sha256d::Hash;
     use bitcoin::transaction::Version;
     use bitcoin::Amount;
@@ -391,7 +373,7 @@ mod tests {
     use super::*;
 
     fn coinbase(is_valid: bool) -> Transaction {
-        //This coinbase transactions was retrieved from https://learnmeabitcoin.com/explorer/block/0000000000000a0f82f8be9ec24ebfca3d5373fde8dc4d9b9a949d538e9ff679
+        // This coinbase transactions was retrieved from https://learnmeabitcoin.com/explorer/block/0000000000000a0f82f8be9ec24ebfca3d5373fde8dc4d9b9a949d538e9ff679
         // Create inputs
         let input_txid = Txid::from_raw_hash(Hash::from_str(&format!("{:0>64}", "")).unwrap());
 
@@ -400,7 +382,7 @@ mod tests {
         let input_script_sig = if is_valid {
             ScriptBuf::from_hex("03f0a2a4d9f0a2").unwrap()
         } else {
-            //This should invalidate the coinbase transaction since is a big, really big, script.
+            // This should invalidate the coinbase transaction since is a big, really big, script.
             ScriptBuf::from_hex(&format!("{:0>420}", "")).unwrap()
         };
 
@@ -433,21 +415,10 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_get_out_value() {
-        let output = TxOut {
-            value: Amount::from_sat(5_000_350_000),
-            script_pubkey: ScriptBuf::from_hex("41047eda6bd04fb27cab6e7c28c99b94977f073e912f25d1ff7165d9c95cd9bbe6da7e7ad7f2acb09e0ced91705f7616af53bee51a238b7dc527f2be0aa60469d140ac").unwrap(),
-        };
-        let mut value_var = 0;
-        assert!(Consensus::get_out_value(&output, &mut value_var).is_ok());
-        assert_eq!(value_var, 5_000_350_000);
-    }
-
-    #[test]
     fn test_validate_script_size() {
-        //the case when the script is too big
+        // The case when the script is too big
         let invalid_script = ScriptBuf::from_hex(&format!("{:0>1220}", "")).unwrap();
-        //the valid script < 520 bytes
+        // The valid script < 520 bytes
         let valid_script =
             ScriptBuf::from_hex("76a9149206a30c09cc853bb03bd917a4f9f29b089c1bc788ac").unwrap();
         assert!(Consensus::validate_script_size(&valid_script).is_ok());
@@ -458,63 +429,56 @@ mod tests {
     fn test_validate_coinbase() {
         let valid_one = coinbase(true);
         let invalid_one = coinbase(false);
-        //The case that should be valid
-        assert!(Consensus::verify_coinbase(valid_one.clone(), 0).is_ok());
-        //Coinbase at wrong index
+        // The case that should be valid
+        assert!(Consensus::verify_coinbase(&valid_one).is_ok());
+        // Invalid coinbase script
         assert_eq!(
-            Consensus::verify_coinbase(valid_one, 1)
-                .unwrap_err()
-                .to_string(),
-            "The first transaction in a block isn't a coinbase"
-        );
-        //Invalid coinbase script
-        assert_eq!(
-            Consensus::verify_coinbase(invalid_one, 0)
+            Consensus::verify_coinbase(&invalid_one)
                 .unwrap_err()
                 .to_string(),
             "Invalid coinbase: \"Invalid ScriptSig size\""
         );
     }
+
     #[test]
+    #[cfg(feature = "bitcoinconsensus")]
     fn test_consume_utxos() {
         // Transaction extracted from https://learnmeabitcoin.com/explorer/tx/0094492b6f010a5e39c2aacc97396ce9b6082dc733a7b4151ccdbd580f789278
         // Mock data for testing
 
         let mut utxos = HashMap::new();
-        let outpoint1 = OutPoint::new(
-            Txid::from_raw_hash(
-                Hash::from_str("5baf640769ebdf2b79868d0a259db69a2c1587232f83ba226ecf3dd0737759bd")
-                    .unwrap(),
-            ),
+        let tx: Transaction = deserialize(
+            &hex::decode("0100000001bd597773d03dcf6e22ba832f2387152c9ab69d250a8d86792bdfeb690764af5b010000006c493046022100841d4f503f44dd6cef8781270e7260db73d0e3c26c4f1eea61d008760000b01e022100bc2675b8598773984bcf0bb1a7cad054c649e8a34cb522a118b072a453de1bf6012102de023224486b81d3761edcd32cedda7cbb30a4263e666c87607883197c914022ffffffff021ee16700000000001976a9144883bb595608dcfe882aea5f7c579ef107a4fb5b88ac52a0aa00000000001976a914782231de72adb5c9df7367ab0c21c7b44bbd743188ac00000000").unwrap()
+        ).unwrap();
+
+        assert_eq!(
+            tx.input.len(),
             1,
+            "We only spend one utxo in this transaction"
         );
-        let input = TxIn {
-            previous_output: outpoint1,
-            script_sig: ScriptBuf::from_hex("493046022100841d4f503f44dd6cef8781270e7260db73d0e3c26c4f1eea61d008760000b01e022100bc2675b8598773984bcf0bb1a7cad054c649e8a34cb522a118b072a453de1bf6012102de023224486b81d3761edcd32cedda7cbb30a4263e666c87607883197c914022").unwrap(),
-            sequence: Sequence::MAX,
-            witness: Witness::new(),
-        };
-        let prevout = TxOut {
+        let outpoint = tx.input[0].previous_output;
+
+        let txout = TxOut {
             value: Amount::from_sat(18000000),
             script_pubkey: ScriptBuf::from_hex(
                 "76a9149206a30c09cc853bb03bd917a4f9f29b089c1bc788ac",
             )
             .unwrap(),
         };
-
-        utxos.insert(outpoint1, prevout.clone());
+        utxos.insert(outpoint, txout);
 
         // Test consuming UTXOs
-        let mut value_var: u64 = 0;
-        assert!(Consensus::consume_utxos(&input, &mut utxos, &mut value_var).is_ok());
-        assert_eq!(value_var, prevout.value.to_sat());
+        let flags = bitcoin::bitcoinconsensus::VERIFY_P2SH;
+        tx.verify_with_flags(|outpoint| utxos.remove(outpoint), flags)
+            .unwrap();
 
+        assert!(utxos.is_empty(), "Utxo should have been consumed");
         // Test double consuming UTXOs
         assert_eq!(
-            Consensus::consume_utxos(&input, &mut utxos, &mut value_var)
-                .unwrap_err()
-                .to_string(),
-            "Utxo 0x5baf640769ebdf2b79868d0a259db69a2c1587232f83ba226ecf3dd0737759bd already spent"
+            tx.verify_with_flags(|outpoint| utxos.remove(outpoint), flags),
+            Err(bitcoin::transaction::TxVerifyError::UnknownSpentOutput(
+                outpoint
+            )),
         );
     }
 }
