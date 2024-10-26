@@ -65,6 +65,37 @@ cargo build --release
 cargo install --path ./florestad
 ```
 
+### Instructions for macOS users
+The following steps should be executed in a Terminal application. Tip: press `Command (⌘) + Space` and search for `terminal`. 
+
+#### 1. Xcode command line tools
+
+To install, run the following command from your terminal:
+
+``` bash
+xcode-select --install
+```
+
+Upon running the command, you should see a popup appear.
+Click on `Install` to continue the installation process.
+
+#### 2. Homebrew Package Manager
+
+Homebrew is a package manager for macOS that allows one to install packages from the command line easily. You can use the package manager of your preference.
+
+To install the Homebrew package manager, see: https://brew.sh
+
+Note: If you run into issues while installing Homebrew or pulling packages, refer to [Homebrew's troubleshooting page](https://docs.brew.sh/Troubleshooting).
+
+#### 3. Install Required Dependencies
+
+On the Terminal, using Homebrew, run the following:
+```bash
+brew update
+brew install gcc pkg-config openssl
+```
+* At this point you can proceed from cargo and rust at the previous section.
+
 ### Building with nix
 
 If you're using Nix, you can add Florestad to your system with its overlay.
@@ -120,6 +151,8 @@ floresta-cli getblockchaininfo
 ```
 
 For more information on how to use the `floresta-cli` tool, you can check the [api documentation](https://github.com/vinteumorg/Floresta/blob/master/crates/floresta-cli/README.md).
+
+Before running you can create the SSL certificates. If you don't do it, it will display an logging `Failed to load SSL certificates, ignoring SSL`. However, it is not mandatory to have the certificates to run the full node.
 
 #### Assume Utreexo
 If you want to skip the IBD process, you can use the `--assume-utreexo` flag. This flag will start the node at a given height, with the state
