@@ -38,6 +38,7 @@ use futures::executor::block_on;
 use log::debug;
 use log::error;
 use log::info;
+use log::warn;
 use log::Record;
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
@@ -426,7 +427,7 @@ impl Florestad {
             match self.create_tls_config(&data_dir) {
                 Ok(config) => Some(config),
                 Err(_) => {
-                    error!("Failed to load SSL certificates, ignoring SSL");
+                    warn!("Failed to load SSL certificates, ignoring SSL");
                     None
                 }
             }
