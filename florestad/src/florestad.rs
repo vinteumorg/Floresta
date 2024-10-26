@@ -38,6 +38,7 @@ use futures::executor::block_on;
 use log::debug;
 use log::error;
 use log::info;
+use log::warn;
 use log::Record;
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
@@ -426,7 +427,7 @@ impl Florestad {
             match self.create_tls_config(&data_dir) {
                 Ok(config) => Some(config),
                 Err(_) => {
-                    error!("Failed to load SSL certificates, ignoring SSL");
+                    warn!("Failed to load SSL certificates, ignoring SSL");
                     None
                 }
             }
@@ -554,7 +555,7 @@ impl Florestad {
         Self::from_config(Config::default())
     }
 
-    /// Loads a config file from disk, returns default if some error happens
+    /// Loads a config file from disk, returns default if it cannot load it
     fn get_config_file(path: &str) -> ConfigFile {
         let data = ConfigFile::from_file(path);
 
@@ -563,12 +564,12 @@ impl Florestad {
         } else {
             match data.unwrap_err() {
                 crate::error::Error::TomlParsing(e) => {
-                    error!("Error while parsing config file, ignoring it");
+                    warn!("Could not parse config file, ignoring it");
                     debug!("{e}");
                     ConfigFile::default()
                 }
                 crate::error::Error::Io(e) => {
-                    error!("Error reading config file, ignoring it");
+                    warn!("Could not read config file, ignoring it");
                     debug!("{e}");
                     ConfigFile::default()
                 }
