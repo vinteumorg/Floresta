@@ -152,6 +152,8 @@ floresta-cli getblockchaininfo
 
 For more information on how to use the `floresta-cli` tool, you can check the [api documentation](https://github.com/vinteumorg/Floresta/blob/master/crates/floresta-cli/README.md).
 
+Before running you can create the SSL certificates. If you don't do it, it will display an logging `Failed to load SSL certificates, ignoring SSL`. However, it is not mandatory to have the certificates to run the full node.
+
 #### Assume Utreexo
 If you want to skip the IBD process, you can use the `--assume-utreexo` flag. This flag will start the node at a given height, with the state
 provided by this implementation. Therefore, you're trusting that we are giving you the correct state. Everything after that height will be
