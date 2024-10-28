@@ -450,7 +450,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         let inner = read_lock!(self);
         let mut ser_acc: Vec<u8> = Vec::new();
         inner.acc.leaves.consensus_encode(&mut ser_acc)?;
-        #[allow(clippy::significant_drop_in_scrutinee)]
+
         for root in inner.acc.roots.iter() {
             ser_acc
                 .write_all(&**root)
@@ -463,7 +463,6 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             .expect("Chain store is not working");
         Ok(())
     }
-    #[allow(clippy::await_holding_lock)]
     fn notify(&self, block: &Block, height: u32) {
         let inner = self.inner.read();
         let subs = inner.subscribers.iter();

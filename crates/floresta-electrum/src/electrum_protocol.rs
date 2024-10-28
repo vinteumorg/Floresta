@@ -830,18 +830,18 @@ pub async fn client_accept_loop(
 /// 1. order confirmed transactions to the script hash by increasing height (and position in the block if there are more than one in a block)
 ///
 /// 2. form a string that is the concatenation of strings "tx_hash:height:" for each
-/// transaction in order, where:
+///    transaction in order, where:
 ///
 ///  tx_hash is the transaction hash in hexadecimal
 ///  height is the height of the block it is in.
 ///
 /// 3. Next, with mempool transactions in any order, append a similar string for those
-/// transactions, but where height is -1 if the transaction has at least one unconfirmed
-/// input, and 0 if all inputs are confirmed.
+///    transactions, but where height is -1 if the transaction has at least one unconfirmed
+///    input, and 0 if all inputs are confirmed.
 ///
 /// 4. The status of the script hash is the sha256() hash of the full string expressed
-/// as a hexadecimal string, or null if the string is empty because there are no
-/// transactions.
+///    as a hexadecimal string, or null if the string is empty because there are no
+///    transactions.
 fn get_status(transactions: Vec<CachedTransaction>) -> sha256::Hash {
     let mut status_preimage = String::new();
     for transaction in transactions {
@@ -1011,7 +1011,7 @@ mod test {
             )),
             Ok(Ok(n)) => {
                 let response: std::borrow::Cow<str> = String::from_utf8_lossy(&response[..n]);
-                let response: Value = serde_json::from_str(&response).unwrap();
+                let response: Value = serde_json::from_str(&response)?;
                 Ok(response)
             }
             Ok(Err(e)) => {
@@ -1136,30 +1136,29 @@ mod test {
     /// server.ping                             *
     /// server.version                          *
     fn generate_request(req_params: &mut Vec<Value>) -> Value {
-        let params: Vec<Value>;
         let binding = req_params.pop().unwrap();
         let method = binding.as_str().unwrap();
 
-        match method {
-            "server.banner" => params = vec![],
-            "blockchain.block.header" => params = vec![req_params.pop().unwrap()],
+        let params = match method {
+            "server.banner" => vec![],
+            "blockchain.block.header" => vec![req_params.pop().unwrap()],
             "blockchain.block.headers" => {
-                params = vec![req_params.pop().unwrap(), req_params.pop().unwrap()]
+                vec![req_params.pop().unwrap(), req_params.pop().unwrap()]
             }
-            "blockchain.estimatefee" => params = vec![],
-            "blockchain.relayfee" => params = vec![],
-            "blockchain.scripthash.subscribe" => params = vec![req_params.pop().unwrap()],
-            "blockchain.scripthash.unsubscribe" => params = vec![req_params.pop().unwrap()],
-            "blockchain.scripthash.get_mempool" => params = vec![],
-            "blockchain.scripthash.get_balance" => params = vec![req_params.pop().unwrap()],
-            "blockchain.scripthash.get_history" => params = vec![req_params.pop().unwrap()],
-            "blockchain.scripthash.listunspent" => params = vec![req_params.pop().unwrap()],
-            "blockchain.transaction.broadcast" => params = vec![req_params.pop().unwrap()],
-            "blockchain.transaction.get" => params = vec![req_params.pop().unwrap()],
-            "blockchain.transaction.get_merkle" => params = vec![req_params.pop().unwrap()],
+            "blockchain.estimatefee" => vec![],
+            "blockchain.relayfee" => vec![],
+            "blockchain.scripthash.subscribe" => vec![req_params.pop().unwrap()],
+            "blockchain.scripthash.unsubscribe" => vec![req_params.pop().unwrap()],
+            "blockchain.scripthash.get_mempool" => vec![],
+            "blockchain.scripthash.get_balance" => vec![req_params.pop().unwrap()],
+            "blockchain.scripthash.get_history" => vec![req_params.pop().unwrap()],
+            "blockchain.scripthash.listunspent" => vec![req_params.pop().unwrap()],
+            "blockchain.transaction.broadcast" => vec![req_params.pop().unwrap()],
+            "blockchain.transaction.get" => vec![req_params.pop().unwrap()],
+            "blockchain.transaction.get_merkle" => vec![req_params.pop().unwrap()],
 
-            _ => params = vec![],
-        }
+            _ => vec![],
+        };
 
         json!({
             "id": rand::random::<u32>(),
