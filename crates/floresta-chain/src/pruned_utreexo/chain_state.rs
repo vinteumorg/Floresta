@@ -130,13 +130,9 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
     }
     #[cfg(feature = "bitcoinconsensus")]
     /// Returns the validation flags, given the current block height
-    fn get_validation_flags(&self, height: u32) -> c_uint {
+    fn get_validation_flags(&self, height: u32, hash: BlockHash) -> c_uint {
         let chains_params = &read_lock!(self).consensus.parameters;
-        let hash = read_lock!(self)
-            .chainstore
-            .get_block_hash(height)
-            .unwrap()
-            .unwrap();
+
         if let Some(flag) = chains_params.exceptions.get(&hash) {
             return *flag;
         }
@@ -709,7 +705,12 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         }
         last_block.target()
     }
-    fn validate_block(
+    /// Validates the block without checking whether the inputs are present in the UTXO set. This
+    /// function contains the core validation logic.
+    ///
+    /// The methods `BlockchainInterface::validate_block` and `UpdatableChainstate::connect_block`
+    /// call this and additionally verify the inclusion proof (i.e., they perform full validation).
+    pub fn validate_block_no_acc(
         &self,
         block: &Block,
         height: u32,
@@ -737,7 +738,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         let subsidy = read_lock!(self).consensus.get_subsidy(height);
         let verify_script = self.verify_script(height);
         #[cfg(feature = "bitcoinconsensus")]
-        let flags = self.get_validation_flags(height);
+        let flags = self.get_validation_flags(height, block.header.block_hash());
         #[cfg(not(feature = "bitcoinconsensus"))]
         let flags = 0;
         Consensus::verify_block_transactions(
@@ -803,7 +804,7 @@ impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedSta
             .get_block_height(&block.block_hash())?
             .ok_or(BlockchainError::BlockNotPresent)?;
 
-        self.validate_block(block, height, inputs)
+        self.validate_block_no_acc(block, height, inputs)
     }
 
     fn get_block_locator_for_tip(&self, tip: BlockHash) -> Result<Vec<BlockHash>, BlockchainError> {
@@ -1050,7 +1051,7 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
             return Ok(height);
         }
 
-        self.validate_block(block, height, inputs)?;
+        self.validate_block_no_acc(block, height, inputs)?;
         let acc = Consensus::update_acc(&self.acc(), block, height, proof, del_hashes)?;
 
         self.update_view(height, &block.header, acc)?;
@@ -1278,6 +1279,7 @@ mod test {
     extern crate std;
     use core::str::FromStr;
     use std::format;
+    use std::fs::File;
     use std::io::Cursor;
     use std::vec::Vec;
 
@@ -1287,6 +1289,8 @@ mod test {
     use bitcoin::hashes::hex::FromHex;
     use bitcoin::Block;
     use bitcoin::BlockHash;
+    use bitcoin::OutPoint;
+    use bitcoin::TxOut;
     use rand::Rng;
     use rustreexo::accumulator::proof::Proof;
 
@@ -1301,7 +1305,7 @@ mod test {
     use crate::KvChainStore;
     use crate::Network;
 
-    pub fn setup_test_chain<'a>(
+    fn setup_test_chain<'a>(
         network: Network,
         assume_valid_arg: AssumeValidArg,
     ) -> ChainState<KvChainStore<'a>> {
@@ -1310,6 +1314,68 @@ mod test {
         ChainState::new(chainstore, network, assume_valid_arg)
     }
 
+    fn decode_block_and_inputs(
+        block_file: File,
+        stxos_file: File,
+    ) -> (Block, HashMap<OutPoint, TxOut>) {
+        let block_bytes = zstd::decode_all(block_file).unwrap();
+        let block: Block = deserialize(&block_bytes).unwrap();
+
+        // Get txos spent in the block
+        let stxos_bytes = zstd::decode_all(stxos_file).unwrap();
+        let mut stxos: Vec<TxOut> =
+            serde_json::from_slice(&stxos_bytes).expect("Failed to deserialize JSON");
+
+        let inputs = block
+            .txdata
+            .iter()
+            .skip(1) // Skip the coinbase transaction
+            .flat_map(|tx| &tx.input)
+            .map(|txin| (txin.previous_output, stxos.remove(0)))
+            .collect();
+
+        assert!(stxos.is_empty(), "Moved all stxos to the inputs map");
+
+        (block, inputs)
+    }
+
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "this test is very slow in debug mode")]
+    fn test_validate_many_inputs_block() {
+        let block_file = File::open("./testdata/block_367891/raw.zst").unwrap();
+        let stxos_file = File::open("./testdata/block_367891/spent_txos.zst").unwrap();
+        let (block, inputs) = decode_block_and_inputs(block_file, stxos_file);
+
+        assert_eq!(
+            block.block_hash(),
+            BlockHash::from_str("000000000000000012ea0ca9579299ec120e3f57e7c309216884872592b29970")
+                .unwrap(),
+        );
+
+        // Check whether the block validation passes or not
+        let chain = setup_test_chain(Network::Bitcoin, AssumeValidArg::Disabled);
+        chain
+            .validate_block_no_acc(&block, 367891, inputs)
+            .expect("Block must be valid");
+    }
+    #[test]
+    fn test_validate_full_block() {
+        let block_file = File::open("./testdata/block_866342/raw.zst").unwrap();
+        let stxos_file = File::open("./testdata/block_866342/spent_txos.zst").unwrap();
+        let (block, inputs) = decode_block_and_inputs(block_file, stxos_file);
+
+        assert_eq!(
+            block.block_hash(),
+            BlockHash::from_str("000000000000000000014ce9ba7c6760053c3c82ce6ab43d60afb101d3c8f1f1")
+                .unwrap(),
+        );
+
+        // Check whether the block validation passes or not
+        let chain = setup_test_chain(Network::Bitcoin, AssumeValidArg::Disabled);
+        chain
+            .validate_block_no_acc(&block, 866342, inputs)
+            .expect("Block must be valid");
+    }
     #[test]
     fn accept_mainnet_headers() {
         // Accepts the first 10235 mainnet headers
