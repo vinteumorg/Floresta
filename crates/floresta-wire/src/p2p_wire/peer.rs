@@ -286,7 +286,7 @@ impl<T: AsyncWrite + Unpin> Peer<T> {
                         }
                     }
                 }
-            };
+            }
 
             if self.shutdown {
                 return Ok(());
@@ -597,6 +597,7 @@ impl<T: AsyncWrite + Unpin> Peer<T> {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn create_peer(
         id: u32,
         mempool: Arc<RwLock<Mempool>>,

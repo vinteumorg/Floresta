@@ -46,9 +46,9 @@ struct Block {
 
 #[derive(Debug)]
 pub struct TestPeer {
-    headers: Vec<Header>,
+    _headers: Vec<Header>,
     blocks: HashMap<BlockHash, UtreexoBlock>,
-    filters: HashMap<BlockHash, Vec<u8>>,
+    _filters: HashMap<BlockHash, Vec<u8>>,
     node_tx: UnboundedSender<NodeNotification>,
     node_rx: UnboundedReceiver<NodeRequest>,
     peer_id: u32,
@@ -64,9 +64,9 @@ impl TestPeer {
         peer_id: u32,
     ) -> Self {
         TestPeer {
-            headers,
+            _headers: headers,
             blocks,
-            filters,
+            _filters: filters,
             node_tx,
             node_rx,
             peer_id,

@@ -732,6 +732,7 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn cache_transaction(
         &self,
         transaction: &Transaction,
