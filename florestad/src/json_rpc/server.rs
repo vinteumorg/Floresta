@@ -250,7 +250,7 @@ impl Rpc for RpcImpl {
 
     fn get_roots(&self) -> Result<Vec<String>> {
         let hashes = self.chain.get_root_hashes();
-        return Ok(hashes.iter().map(|h| h.to_string()).collect());
+        Ok(hashes.iter().map(|h| h.to_string()).collect())
     }
 
     fn get_block_hash(&self, height: u32) -> Result<BlockHash> {
@@ -301,10 +301,12 @@ impl Rpc for RpcImpl {
         let addresses = parsed.pop().unwrap();
         let addresses = (0..100)
             .map(|index| {
-                addresses
+                let address = addresses
                     .at_derivation_index(index)
                     .unwrap()
-                    .script_pubkey()
+                    .script_pubkey();
+                self.wallet.cache_address(address.clone());
+                address
             })
             .collect::<Vec<_>>();
 
@@ -322,6 +324,7 @@ impl Rpc for RpcImpl {
                 data: None,
             });
         };
+
         let cfilters = self.block_filter_storage.as_ref().unwrap().clone();
         let node = self.node.clone();
         let chain = self.chain.clone();
