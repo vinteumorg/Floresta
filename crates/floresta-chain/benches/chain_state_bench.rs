@@ -70,11 +70,11 @@ fn accept_mainnet_headers_benchmark(c: &mut Criterion) {
     // Accepts the first 10235 mainnet headers
     let file = include_bytes!("../testdata/headers.zst");
     let uncompressed: Vec<u8> = zstd::decode_all(Cursor::new(file)).unwrap();
-    let mut cursor = Cursor::new(uncompressed);
+    let mut buffer = uncompressed.as_slice();
 
     // Read all headers into a vector
     let mut headers = Vec::new();
-    while let Ok(header) = BlockHeader::consensus_decode(&mut cursor) {
+    while let Ok(header) = BlockHeader::consensus_decode(&mut buffer) {
         headers.push(header);
     }
 

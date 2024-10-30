@@ -5,15 +5,14 @@
 extern crate alloc;
 
 use core::ffi::c_uint;
-use core::ops::Mul;
 
 use bitcoin::block::Header as BlockHeader;
 use bitcoin::consensus::Encodable;
 use bitcoin::hashes::sha256;
 use bitcoin::hashes::Hash;
-use bitcoin::pow::U256;
 use bitcoin::Block;
 use bitcoin::BlockHash;
+use bitcoin::CompactTarget;
 use bitcoin::OutPoint;
 use bitcoin::ScriptBuf;
 use bitcoin::Target;
@@ -94,7 +93,7 @@ impl Consensus {
             .chain_update(UTREEXO_TAG_V1)
             .chain_update(UTREEXO_TAG_V1)
             .chain_update(block_hash)
-            .chain_update(transaction.txid())
+            .chain_update(transaction.compute_txid())
             .chain_update(vout.to_le_bytes())
             .chain_update(header_code.to_le_bytes())
             .chain_update(ser_utxo)
@@ -134,7 +133,7 @@ impl Consensus {
             if transaction.is_coinbase() && n == 0 {
                 Self::verify_coinbase(transaction.clone(), n as u16).map_err(|err| {
                     TransactionError {
-                        txid: transaction.txid(),
+                        txid: transaction.compute_txid(),
                         error: err,
                     }
                 });
@@ -144,11 +143,11 @@ impl Consensus {
             let mut output_value = 0;
             for output in transaction.output.iter() {
                 Self::get_out_value(output, &mut output_value).map_err(|err| TransactionError {
-                    txid: transaction.txid(),
+                    txid: transaction.compute_txid(),
                     error: err,
                 });
                 Self::validate_script_size(&output.script_pubkey).map_err(|err| TransactionError {
-                    txid: transaction.txid(),
+                    txid: transaction.compute_txid(),
                     error: err,
                 });
             }
@@ -157,19 +156,19 @@ impl Consensus {
             for input in transaction.input.iter() {
                 Self::consume_utxos(input, &mut utxos, &mut in_value).map_err(|err| {
                     TransactionError {
-                        txid: transaction.txid(),
+                        txid: transaction.compute_txid(),
                         error: err,
                     }
                 });
                 Self::validate_script_size(&input.script_sig).map_err(|err| TransactionError {
-                    txid: transaction.txid(),
+                    txid: transaction.compute_txid(),
                     error: err,
                 });
             }
             // Value in should be greater or equal to value out. Otherwise, inflation.
             if output_value > in_value {
                 return Err(TransactionError {
-                    txid: transaction.txid(),
+                    txid: transaction.compute_txid(),
                     error: BlockValidationErrors::NotEnoughMoney,
                 }
                 .into());
@@ -185,7 +184,7 @@ impl Consensus {
                 transaction
                     .verify_with_flags(|outpoint| utxos.remove(outpoint), flags)
                     .map_err(|err| TransactionError {
-                        txid: transaction.txid(),
+                        txid: transaction.compute_txid(),
                         error: BlockValidationErrors::ScriptValidationError(err.to_string()),
                     });
             };
@@ -291,23 +290,10 @@ impl Consensus {
         first_block: &BlockHeader,
         params: ChainParams,
     ) -> Target {
-        let cur_target = last_block.target().0;
+        let actual_timespan = last_block.time - first_block.time;
 
-        let expected_timespan = U256::from(params.pow_target_timespan);
-        let mut actual_timespan = last_block.time - first_block.time;
-
-        // Difficulty adjustments are limited, to prevent large swings in difficulty
-        // caused by malicious miners.
-        if actual_timespan < params.pow_target_timespan as u32 / 4 {
-            actual_timespan = params.pow_target_timespan as u32 / 4;
-        }
-        if actual_timespan > params.pow_target_timespan as u32 * 4 {
-            actual_timespan = params.pow_target_timespan as u32 * 4;
-        }
-
-        let new_target = cur_target.mul(actual_timespan.into());
-        let new_target = new_target / expected_timespan;
-        Target(new_target)
+        CompactTarget::from_next_work_required(first_block.bits, actual_timespan as u64, params)
+            .into()
     }
     /// Updates our accumulator with the new block. This is done by calculating the new
     /// root hash of the accumulator, and then verifying the proof of inclusion of the
@@ -340,7 +326,7 @@ impl Consensus {
         for transaction in block.txdata.iter() {
             for (i, output) in transaction.output.iter().enumerate() {
                 if !Self::is_unspendable(&output.script_pubkey)
-                    && !block_inputs.contains(&(transaction.txid(), i as u32))
+                    && !block_inputs.contains(&(transaction.compute_txid(), i as u32))
                 {
                     leaf_hashes.push(Self::get_leaf_hashes(
                         transaction,
@@ -514,7 +500,7 @@ mod tests {
             Consensus::consume_utxos(&input, &mut utxos, &mut value_var)
                 .unwrap_err()
                 .to_string(),
-            "Utxo 0x5baf640769ebdf2b79868d0a259db69a2c1587232f83ba226ecf3dd0737759bd already spent"
+            "Utxo 5baf640769ebdf2b79868d0a259db69a2c1587232f83ba226ecf3dd0737759bd already spent"
         );
     }
 }

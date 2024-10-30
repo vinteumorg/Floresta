@@ -12,7 +12,6 @@ use core::cell::UnsafeCell;
 use core::ffi::c_uint;
 
 #[cfg(feature = "bitcoinconsensus")]
-use bitcoin::bitcoinconsensus;
 use bitcoin::block::Header as BlockHeader;
 use bitcoin::blockdata::constants::genesis_block;
 use bitcoin::consensus::deserialize_partial;
@@ -20,6 +19,7 @@ use bitcoin::consensus::Decodable;
 use bitcoin::consensus::Encodable;
 use bitcoin::hashes::sha256;
 use bitcoin::hashes::Hash;
+use bitcoin::script;
 use bitcoin::Block;
 use bitcoin::BlockHash;
 use bitcoin::OutPoint;
@@ -131,11 +131,12 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
     #[cfg(feature = "bitcoinconsensus")]
     /// Returns the validation flags, given the current block height
     fn get_validation_flags(&self, height: u32, hash: BlockHash) -> c_uint {
-        let chains_params = &read_lock!(self).consensus.parameters;
+        let chain_params = &read_lock!(self).consensus.parameters;
 
-        if let Some(flag) = chains_params.exceptions.get(&hash) {
+        if let Some(flag) = chain_params.exceptions.get(&hash) {
             return *flag;
         }
+
         // From Bitcoin Core:
         // BIP16 didn't become active until Apr 1 2012 (on mainnet, and
         // retroactively applied to testnet)
@@ -147,16 +148,16 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         // violating blocks.
         let mut flags = bitcoinconsensus::VERIFY_P2SH | bitcoinconsensus::VERIFY_WITNESS;
 
-        if height >= chains_params.bip65_activation_height {
+        if height >= chain_params.params.bip65_height {
             flags |= bitcoinconsensus::VERIFY_CHECKLOCKTIMEVERIFY;
         }
-        if height >= chains_params.bip66_activation_height {
+        if height >= chain_params.params.bip66_height {
             flags |= bitcoinconsensus::VERIFY_DERSIG;
         }
-        if height >= chains_params.csv_activation_height {
+        if height >= chain_params.csv_activation_height {
             flags |= bitcoinconsensus::VERIFY_CHECKSEQUENCEVERIFY;
         }
-        if height >= chains_params.segwit_activation_height {
+        if height >= chain_params.segwit_activation_height {
             flags |= bitcoinconsensus::VERIFY_NULLDUMMY;
         }
         flags
@@ -165,6 +166,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
     fn update_header(&self, header: &DiskBlockHeader) -> Result<(), BlockchainError> {
         Ok(read_lock!(self).chainstore.save_header(header)?)
     }
+
     fn validate_header(&self, block_header: &BlockHeader) -> Result<BlockHash, BlockchainError> {
         let prev_block = self.get_disk_block_header(&block_header.prev_blockhash)?;
         let prev_block_height = prev_block.height();
@@ -322,6 +324,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             "Couldn't find a fork point".to_string(),
         ))
     }
+
     // This method should only be called after we validate the new branch
     fn reorg(&self, new_tip: BlockHeader) -> Result<(), BlockchainError> {
         let current_best_block = self.get_best_block().unwrap().1;
@@ -337,6 +340,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
 
         Ok(())
     }
+
     /// Changes the active chain to the new branch during a reorg
     fn change_active_chain(&self, new_tip: &BlockHeader, last_valid: BlockHash, depth: u32) {
         let mut inner = self.inner.write();
@@ -472,13 +476,16 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         network: Network,
         assume_valid: AssumeValidArg,
     ) -> ChainState<PersistedState> {
-        let genesis = genesis_block(network.into());
+        let parameters = network.into();
+        let genesis = genesis_block(&parameters);
+
         chainstore
             .save_header(&super::chainstore::DiskBlockHeader::FullyValid(
                 genesis.header,
                 0,
             ))
             .expect("Error while saving genesis");
+
         chainstore
             .update_block_index(0, genesis.block_hash())
             .expect("Error updating index");
@@ -499,13 +506,12 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
                 subscribers: Vec::new(),
                 fee_estimation: (1_f64, 1_f64, 1_f64),
                 ibd: true,
-                consensus: Consensus {
-                    parameters: network.into(),
-                },
+                consensus: Consensus { parameters },
                 assume_valid,
             }),
         }
     }
+
     fn get_disk_block_header(&self, hash: &BlockHash) -> Result<DiskBlockHeader, BlockchainError> {
         let inner = read_lock!(self);
         if let Some(header) = inner.chainstore.get_header(hash)? {
@@ -513,6 +519,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         }
         Err(BlockchainError::BlockNotPresent)
     }
+
     /// If we ever find ourselves in an undefined state, with one of our chain pointers
     /// pointing to an invalid block, we'll find out what blocks do we have, and start from this
     /// point.
@@ -685,26 +692,54 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         let params: ChainParams = self.chain_params();
         // Special testnet rule, if a block takes more than 20 minutes to mine, we can
         // mine a block with diff 1
-        if params.pow_allow_min_diff
-            && last_block.time + params.pow_target_spacing as u32 * 2 < next_header.time
+        if params.params.allow_min_difficulty_blocks
+            && last_block.time + params.params.pow_target_spacing as u32 * 2 < next_header.time
         {
-            return params.max_target;
+            return params.params.max_attainable_target;
         }
+
         // Regtest don't have retarget
-        if !params.pow_allow_no_retarget && (next_height) % 2016 == 0 {
+        if !params.params.no_pow_retargeting && (next_height) % 2016 == 0 {
             // First block in this epoch
             let first_block = self.get_block_header_by_height(next_height - 2016);
             let last_block = self.get_block_header_by_height(next_height - 1);
 
             let target =
                 Consensus::calc_next_work_required(&last_block, &first_block, self.chain_params());
-            if target < params.max_target {
+
+            if target < params.params.max_attainable_target {
                 return target;
             }
-            return params.max_target;
+
+            return params.params.max_attainable_target;
         }
         last_block.target()
     }
+
+    pub fn get_bip34_height(&self, block: &Block) -> Option<u32> {
+        let cb = block.coinbase()?;
+        let input = cb.input.first()?;
+        let push = input.script_sig.instructions_minimal().next()?;
+
+        match push {
+            Ok(script::Instruction::PushBytes(b)) => {
+                let h = script::read_scriptint(b.as_bytes()).ok()?;
+                Some(h as u32)
+            }
+
+            Ok(script::Instruction::Op(opcode)) => {
+                let opcode = opcode.to_u8();
+                if (0x51..=0x60).contains(&opcode) {
+                    Some(opcode as u32 - 0x50)
+                } else {
+                    None
+                }
+            }
+
+            _ => None,
+        }
+    }
+
     /// Validates the block without checking whether the inputs are present in the UTXO set. This
     /// function contains the core validation logic.
     ///
@@ -721,13 +756,15 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
                 BlockValidationErrors::BadMerkleRoot,
             ));
         }
-        if height >= self.chain_params().bip34_activation_height
-            && block.bip34_block_height() != Ok(height as u64)
+
+        if height >= self.chain_params().params.bip34_height
+            && self.get_bip34_height(block) != Some(height)
         {
             return Err(BlockchainError::BlockValidation(
                 BlockValidationErrors::BadBip34,
             ));
         }
+
         if !block.check_witness_commitment() {
             return Err(BlockchainError::BlockValidation(
                 BlockValidationErrors::BadWitnessCommitment,
@@ -755,6 +792,10 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
 
 impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedState> {
     type Error = BlockchainError;
+
+    fn get_params(&self) -> bitcoin::params::Params {
+        self.chain_params().params
+    }
 
     fn get_fork_point(&self, block: BlockHash) -> Result<BlockHash, Self::Error> {
         let fork_point = self.find_fork_point(&self.get_block_header(&block)?)?;
@@ -1233,7 +1274,10 @@ impl BestChain {
     }
 }
 impl Encodable for BestChain {
-    fn consensus_encode<W: Write + ?Sized>(&self, writer: &mut W) -> Result<usize, ioError> {
+    fn consensus_encode<W: bitcoin::io::Write + ?Sized>(
+        &self,
+        writer: &mut W,
+    ) -> bitcoin::io::Result<usize> {
         let mut len = 0;
         len += self.best_block.consensus_encode(writer)?;
         len += self.depth.consensus_encode(writer)?;
@@ -1243,6 +1287,7 @@ impl Encodable for BestChain {
         Ok(len)
     }
 }
+
 impl From<(BlockHash, u32)> for BestChain {
     fn from((best_block, depth): (BlockHash, u32)) -> Self {
         Self {
@@ -1254,8 +1299,9 @@ impl From<(BlockHash, u32)> for BestChain {
         }
     }
 }
+
 impl Decodable for BestChain {
-    fn consensus_decode<R: Read + ?Sized>(
+    fn consensus_decode<R: bitcoin::io::Read + ?Sized>(
         reader: &mut R,
     ) -> Result<Self, bitcoin::consensus::encode::Error> {
         let best_block = BlockHash::consensus_decode(reader)?;
@@ -1358,6 +1404,7 @@ mod test {
             .validate_block_no_acc(&block, 367891, inputs)
             .expect("Block must be valid");
     }
+
     #[test]
     fn test_validate_full_block() {
         let block_file = File::open("./testdata/block_866342/raw.zst").unwrap();
@@ -1376,46 +1423,50 @@ mod test {
             .validate_block_no_acc(&block, 866342, inputs)
             .expect("Block must be valid");
     }
+
     #[test]
     fn accept_mainnet_headers() {
         // Accepts the first 10235 mainnet headers
         let file = include_bytes!("../../testdata/headers.zst");
         let uncompressed: Vec<u8> = zstd::decode_all(Cursor::new(file)).unwrap();
-        let mut cursor = Cursor::new(uncompressed);
+        let mut buffer = uncompressed.as_slice();
 
         let chain = setup_test_chain(Network::Bitcoin, AssumeValidArg::Hardcoded);
-        while let Ok(header) = BlockHeader::consensus_decode(&mut cursor) {
+        while let Ok(header) = BlockHeader::consensus_decode(&mut buffer) {
             chain.accept_header(header).unwrap();
         }
     }
+
     #[test]
     fn accept_first_signet_headers() {
         // Accepts the first 2016 signet headers
         let file = include_bytes!("../../testdata/signet_headers.zst");
         let uncompressed: Vec<u8> = zstd::decode_all(Cursor::new(file)).unwrap();
-        let mut cursor = Cursor::new(uncompressed);
+        let mut buffer = uncompressed.as_slice();
 
         let chain = setup_test_chain(Network::Signet, AssumeValidArg::Hardcoded);
-        while let Ok(header) = BlockHeader::consensus_decode(&mut cursor) {
+        while let Ok(header) = BlockHeader::consensus_decode(&mut buffer) {
             chain.accept_header(header).unwrap();
         }
     }
+
     #[test]
     fn test_calc_next_work_required() {
         let first_block = Vec::from_hex("0100000000000000000000000000000000000000000000000000000000000000000000003ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a008f4d5fae77031e8ad22203").unwrap();
         let first_block: BlockHeader = deserialize(&first_block).unwrap();
 
         let last_block = Vec::from_hex("00000020dec6741f7dc5df6661bcb2d3ec2fceb14bd0e6def3db80da904ed1eeb8000000d1f308132e6a72852c04b059e92928ea891ae6d513cd3e67436f908c804ec7be51df535fae77031e4d00f800").unwrap();
-        let last_block = deserialize(&last_block).unwrap();
+        let last_block: BlockHeader = deserialize(&last_block).unwrap();
 
         let next_target = Consensus::calc_next_work_required(
             &last_block,
             &first_block,
-            ChainParams::from(Network::Bitcoin),
+            ChainParams::from(Network::Signet),
         );
 
         assert_eq!(0x1e012fa7, next_target.to_compact_lossy().to_consensus());
     }
+
     #[test]
     fn test_reorg() {
         let chain = setup_test_chain(Network::Regtest, AssumeValidArg::Hardcoded);
@@ -1430,6 +1481,7 @@ mod test {
                 .connect_block(&block, Proof::default(), HashMap::new(), Vec::new())
                 .unwrap();
         }
+
         assert_eq!(
             chain.get_best_block().unwrap(),
             (
@@ -1466,17 +1518,19 @@ mod test {
             panic!("Block {} is not in the store", i);
         }
     }
+
     #[test]
     fn test_chainstate_functions() {
         let file = include_bytes!("../../testdata/signet_headers.zst");
         let uncompressed: Vec<u8> = zstd::decode_all(Cursor::new(file)).unwrap();
-        let mut cursor = Cursor::new(uncompressed);
+        let mut buffer = uncompressed.as_slice();
 
         let chain = setup_test_chain(Network::Signet, AssumeValidArg::Hardcoded);
         let mut headers: Vec<BlockHeader> = Vec::new();
-        while let Ok(header) = BlockHeader::consensus_decode(&mut cursor) {
+        while let Ok(header) = BlockHeader::consensus_decode(&mut buffer) {
             headers.push(header);
         }
+
         headers.remove(0);
 
         // push_headers

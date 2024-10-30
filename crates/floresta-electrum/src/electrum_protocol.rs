@@ -434,7 +434,7 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                 self.chain
                     .broadcast(&tx)
                     .map_err(|e| super::error::Error::Blockchain(Box::new(e)))?;
-                let id = tx.txid();
+                let id = tx.compute_txid();
                 let updated = self
                     .address_cache
                     .cache_mempool_transaction(&tx)
@@ -891,13 +891,12 @@ macro_rules! get_arg {
 
 #[cfg(test)]
 mod test {
-    use std::io::Cursor;
-    use std::io::{self};
+    use std::io;
     use std::str::FromStr;
     use std::sync::Arc;
     use std::time::Duration;
 
-    use bitcoin::address::NetworkUnchecked;
+    use bitcoin::address::NetworkChecked;
     use bitcoin::block::Header as BlockHeader;
     use bitcoin::consensus::deserialize;
     use bitcoin::consensus::Decodable;
@@ -956,13 +955,14 @@ mod test {
     fn get_test_signet_headers() -> Vec<BlockHeader> {
         let file = include_bytes!("../../floresta-chain/testdata/signet_headers.zst");
         let uncompressed: Vec<u8> = zstd::decode_all(std::io::Cursor::new(file)).unwrap();
-        let mut cursor = Cursor::new(uncompressed);
+        let mut buffer = uncompressed.as_slice();
+
         let mut headers: Vec<BlockHeader> = Vec::new();
-        while let Ok(header) = BlockHeader::consensus_decode(&mut cursor) {
+        while let Ok(header) = BlockHeader::consensus_decode(&mut buffer) {
             headers.push(header);
         }
-        headers.remove(0);
 
+        headers.remove(0);
         headers
     }
 
@@ -987,9 +987,11 @@ mod test {
         Arc::new(cache)
     }
 
-    fn get_test_address() -> (Address<NetworkUnchecked>, sha256::Hash) {
-        let address = Address::from_str("tb1q9d4zjf92nvd3zhg6cvyckzaqumk4zre26x02q9").unwrap();
-        let script_hash = get_spk_hash(&address.payload().script_pubkey());
+    fn get_test_address() -> (Address<NetworkChecked>, sha256::Hash) {
+        let address = Address::from_str("tb1q9d4zjf92nvd3zhg6cvyckzaqumk4zre26x02q9")
+            .unwrap()
+            .assume_checked();
+        let script_hash = get_spk_hash(&address.script_pubkey());
         (address, script_hash)
     }
 
@@ -1224,7 +1226,6 @@ mod test {
         let method = Value::String("server.banner".to_string());
         let mut request = generate_request(&mut vec![method]).to_string();
         request.push('\n');
-        println!("{}", request);
         assert!(send_request(request, port).await.is_ok())
     }
 

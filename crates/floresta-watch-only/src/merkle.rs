@@ -50,7 +50,7 @@ impl MerkleProof {
         let tx_list: Vec<_> = block
             .txdata
             .iter()
-            .map(|tx| tx.txid().to_raw_hash())
+            .map(|tx| tx.compute_txid().to_raw_hash())
             .collect();
         Self::from_block_hashes(tx_list, target)
     }
@@ -141,7 +141,7 @@ impl MerkleProof {
 }
 
 impl Decodable for MerkleProof {
-    fn consensus_decode<R: Read + ?Sized>(
+    fn consensus_decode<R: bitcoin::io::Read + ?Sized>(
         reader: &mut R,
     ) -> Result<Self, bitcoin::consensus::encode::Error> {
         let pos = u64::consensus_decode(reader)?;
@@ -161,7 +161,10 @@ impl Decodable for MerkleProof {
 }
 
 impl Encodable for MerkleProof {
-    fn consensus_encode<W: Write + ?Sized>(&self, writer: &mut W) -> Result<usize, ioError> {
+    fn consensus_encode<W: bitcoin::io::Write + ?Sized>(
+        &self,
+        writer: &mut W,
+    ) -> bitcoin::io::Result<usize> {
         let mut len = 0;
         len += self.pos.consensus_encode(writer)?;
         len += self.target.consensus_encode(writer)?;
@@ -172,6 +175,7 @@ impl Encodable for MerkleProof {
         for hash in self.hashes.iter() {
             len += hash.consensus_encode(writer)?;
         }
+
         Ok(len)
     }
 }

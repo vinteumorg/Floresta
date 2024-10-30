@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 
-use bitcoin::bip158;
+use bitcoin::bip158::BlockFilter;
 use bitcoin::block::Header as BlockHeader;
 use bitcoin::consensus::deserialize;
 use bitcoin::consensus::deserialize_partial;
@@ -68,7 +68,7 @@ pub struct P2PMessageHeader {
 }
 
 impl Decodable for P2PMessageHeader {
-    fn consensus_decode<R: std::io::Read + ?Sized>(
+    fn consensus_decode<R: bitcoin::io::Read + ?Sized>(
         reader: &mut R,
     ) -> std::result::Result<Self, bitcoin::consensus::encode::Error> {
         let _magic = Magic::consensus_decode(reader)?;
@@ -475,15 +475,8 @@ impl<T: AsyncWrite + Unpin> Peer<T> {
                 }
                 NetworkMessage::CFilter(filter_msg) => match filter_msg.filter_type {
                     0 => {
-                        let filter = bip158::BlockFilter::new(&filter_msg.filter);
+                        let filter = BlockFilter::new(&filter_msg.filter);
 
-                        // FIXME
-                        let filter = unsafe {
-                            std::mem::transmute::<
-                                bitcoin::bip158::BlockFilter,
-                                floresta_compact_filters::BlockFilter,
-                            >(filter)
-                        };
                         self.send_to_node(PeerMessages::BlockFilter((
                             filter_msg.block_hash,
                             filter,
@@ -752,5 +745,5 @@ pub enum PeerMessages {
     /// Remote peer sent us a transaction
     Transaction(Transaction),
     UtreexoState(Vec<u8>),
-    BlockFilter((BlockHash, floresta_compact_filters::BlockFilter)),
+    BlockFilter((BlockHash, BlockFilter)),
 }

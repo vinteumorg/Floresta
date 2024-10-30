@@ -25,8 +25,8 @@ impl Mempool {
         }
         let mut delta = Vec::new();
         for tx in block.txdata.iter() {
-            if self.0.contains_key(&tx.txid()) {
-                delta.push(self.0.remove(&tx.txid()));
+            if self.0.contains_key(&tx.compute_txid()) {
+                delta.push(self.0.remove(&tx.compute_txid()));
             }
         }
         delta.into_iter().flat_map(|tx| Some(tx?.0)).collect()
@@ -34,7 +34,7 @@ impl Mempool {
     /// Add a transaction to the mempool.
     pub fn accept_to_mempool(&mut self, transaction: Transaction) {
         self.0
-            .insert(transaction.txid(), (transaction, Instant::now()));
+            .insert(transaction.compute_txid(), (transaction, Instant::now()));
     }
     /// Get a transaction from the mempool.
     pub fn get_from_mempool(&self, id: &Txid) -> Option<&Transaction> {

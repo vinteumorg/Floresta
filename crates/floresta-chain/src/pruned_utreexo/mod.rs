@@ -94,6 +94,7 @@ pub trait BlockchainInterface {
     ) -> Result<(), Self::Error>;
 
     fn get_fork_point(&self, block: BlockHash) -> Result<BlockHash, Self::Error>;
+    fn get_params(&self) -> bitcoin::params::Params;
 }
 /// [UpdatableChainstate] is a contract that a is expected from a chainstate
 /// implementation, that wishes to be updated. Using those methods, a backend like the p2p-node,
@@ -261,6 +262,10 @@ impl<T: BlockchainInterface> BlockchainInterface for Arc<T> {
 
     fn get_tx(&self, txid: &bitcoin::Txid) -> Result<Option<bitcoin::Transaction>, Self::Error> {
         T::get_tx(self, txid)
+    }
+
+    fn get_params(&self) -> bitcoin::params::Params {
+        T::get_params(self)
     }
 
     fn broadcast(&self, tx: &bitcoin::Transaction) -> Result<(), Self::Error> {

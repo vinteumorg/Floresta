@@ -9,7 +9,7 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
-bitcoin = { version = "0.31", features = ["serde", "std"] }
+bitcoin = { version = "0.32", features = ["serde", "std"] }
 floresta-wire = { path = "../crates/floresta-wire" }
 floresta-chain = { path = "../crates/floresta-chain" }
 

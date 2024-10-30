@@ -132,15 +132,14 @@ pub mod test {
             .unwrap();
         // Old p2pkh
         assert_eq!(
-            Address::p2pkh(&xpub.to_pub(), bitcoin::Network::Bitcoin)
+            Address::p2pkh(xpub.to_pub(), bitcoin::Network::Bitcoin)
                 .to_string()
                 .as_str(),
             "1LqBGSKuX5yYUonjxT5qGfpUsXKYYWeabA"
         );
+
         // p2wpkh-p2pkh
-        let script = Address::p2wpkh(&ypub.to_pub(), bitcoin::Network::Bitcoin)
-            .unwrap()
-            .script_pubkey();
+        let script = Address::p2wpkh(&ypub.to_pub(), bitcoin::Network::Bitcoin).script_pubkey();
 
         assert_eq!(
             Address::p2sh(&script, Network::Bitcoin)
@@ -153,7 +152,6 @@ pub mod test {
         // p2wpkh
         assert_eq!(
             Address::p2wpkh(&zpub.to_pub(), bitcoin::Network::Bitcoin)
-                .unwrap()
                 .to_string()
                 .as_str(),
             "bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu"

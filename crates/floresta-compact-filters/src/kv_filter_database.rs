@@ -3,11 +3,11 @@ use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::path::PathBuf;
 
+use bitcoin::bip158::BlockFilter;
 use kv::Bucket;
 use kv::Config;
 use kv::Integer;
 
-use crate::BlockFilter;
 use crate::BlockFilterStore;
 
 /// Stores the block filters insinde a kv database
@@ -58,6 +58,7 @@ impl BlockFilterStore for KvFilterStore {
             .get(&Integer::from(block_height))
             .ok()
             .flatten()?;
+
         Some(BlockFilter::new(&value))
     }
 
