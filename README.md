@@ -19,7 +19,7 @@ If you want to use `libfloresta` to build your own Bitcoin application, you can 
   - [Running](#running)
     - [Assume Utreexo](#assume-utreexo)
     - [Compact Filters](#compact-filters)
-    - [Getting help](#getting-help)
+    - [Getting Help](#getting-help)
     - [Wallet](#wallet)
   - [Running the Tests](#running-the-tests)
     - [Requirements](#requirements)
@@ -30,7 +30,7 @@ If you want to use `libfloresta` to build your own Bitcoin application, you can 
   - [Using Nix](#developing-on-floresta-with-nix)
   - [License](#license)
   - [Acknowledgments](#acknowledgments)
-  - [Consensus implementation](#consensus-implementation)
+  - [Consensus Implementation](#consensus-implementation)
 
 ### Community
 
