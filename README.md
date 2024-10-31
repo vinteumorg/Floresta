@@ -11,22 +11,23 @@ a set of reusable components that can be used to build Bitcoin applications. `fl
 
 If you want to use `libfloresta` to build your own Bitcoin application, you can find the documentation [here](https://docs.getfloresta.sh/floresta/).
 
-### ToC
+### Table of Contents
 
 - [Building](#building)
   - [(Prerequisites)](#prerequisites)
-  - [Building with nix](#building-with-nix)
+  - [Building with Nix](#building-with-nix)
   - [Running](#running)
     - [Assume Utreexo](#assume-utreexo)
     - [Compact Filters](#compact-filters)
     - [Getting help](#getting-help)
     - [Wallet](#wallet)
-  - [Running the tests](#running-the-tests)
+  - [Running the Tests](#running-the-tests)
     - [Requirements](#requirements)
+    - [Testing Options](#testing-options)
   - [Running Benchmarks](#running-benchmarks)
   - [Fuzzing](#fuzzing)
   - [Contributing](#contributing)
-  - [Using Nix](#using-nix)
+  - [Using Nix](#developing-on-floresta-with-nix)
   - [License](#license)
   - [Acknowledgments](#acknowledgments)
   - [Consensus implementation](#consensus-implementation)
@@ -66,10 +67,10 @@ cargo build --release
 cargo install --path ./florestad
 ```
 
-### Instructions for macOS users
+### Instructions for macOS Users
 The following steps should be executed in a Terminal application. Tip: press `Command (⌘) + Space` and search for `terminal`. 
 
-#### 1. Xcode command line tools
+#### 1. Xcode Command Line Tools
 
 To install, run the following command from your terminal:
 
@@ -97,7 +98,7 @@ brew install gcc pkg-config openssl
 ```
 * At this point you can proceed from cargo and rust at the previous section.
 
-### Building with nix
+### Building with Nix
 
 If you're using Nix, you can add Florestad to your system with its overlay.
 
@@ -172,7 +173,7 @@ Floresta supports compact block filters, which can be used to scan for transacti
 florestad --cfilters --filters-start-height 800000
 ```
 
-#### Getting help
+#### Getting Help
 
 You can get a list of all the available commands by running
 
@@ -213,15 +214,20 @@ floresta-cli rescan 800000
 
 Once you have a transaction cached in your watch-only, you can use either the rpc or integrated electrum server to retrieve information about your wallet. You can use wallets like Electrum or Sparrow to connect to your node and retrieve information about your wallet. Just connect with the server running at `127.0.0.1:50001:t`. On electrum you may want to use the `--oneserver` flag to connect to a single server, for better privacy.
 
-### Running the tests
+### Running the Tests
 
 #### Requirements
+
+The tests in `floresta-cli` depend on the compiled `florestad` binary. Make sure to build the entire project first by running:
 
 ```bash
 cargo build
 ```
 
+#### Testing Options
+
 There's a set of tests that you can run with:
+
 ```bash
 cargo test
 ```
@@ -232,7 +238,7 @@ For the full test suite, including long-running tests, use:
 cargo test --release
 ```
 
-There's also a set of functional tests that you can run with:
+Additional functional tests are available. Install dependencies and run the test script with:
 
 ```bash
 pip3 install -r tests/requirements.txt
@@ -303,7 +309,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 * [Rust Bitcoin](https://github.com/rust-bitcoin/rust-bitcoin)
 * [Rust Miniscript](https://github.com/rust-bitcoin/rust-miniscript)
 
-### Consensus implementation
+### Consensus Implementation
 
 One of the most challenging parts of working with Bitcoin is keeping up with the consensus rules. Given it's nature as a consensus protocol, it's very important to make sure that the implementation is correct. Instead of reimplementing a Script interpreter, we use [`rust-bitcoinconsensus`](https://github.com/rust-bitcoin/rust-bitcoinconsensus/) to verify transactions. This is a bind around a shared library that is part of Bitcoin Core. This way, we can be sure that the consensus rules are the same as Bitcoin Core, at least for scripts.
 
