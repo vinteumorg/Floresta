@@ -1022,9 +1022,10 @@ mod test {
         }
     }
 
-    async fn start_electrum(port: u16) {
-        let e_addr = format!("0.0.0.0:{}", port);
-        let ssl_e_addr = format!("0.0.0.0:{}", port + 1);
+    // Returns the port assigned by the OS
+    async fn start_electrum() -> u16 {
+        let e_addr = "0.0.0.0:0";
+        let ssl_e_addr = "0.0.0.0:0";
         let wallet = get_test_cache();
 
         // Create test_chain_state
@@ -1070,7 +1071,9 @@ mod test {
         let electrum_server: ElectrumServer<ChainState<KvChainStore>> =
             block_on(ElectrumServer::new(wallet, chain, None, node_interface)).unwrap();
 
-        let non_tls_listener = Arc::new(block_on(TcpListener::bind(e_addr.clone())).unwrap());
+        let non_tls_listener = Arc::new(block_on(TcpListener::bind(e_addr)).unwrap());
+        let assigned_port = non_tls_listener.local_addr().unwrap().port();
+
         task::spawn(client_accept_loop(
             non_tls_listener,
             electrum_server.message_transmitter.clone(),
@@ -1079,8 +1082,7 @@ mod test {
 
         // TLS Electrum accept loop
         if let Some(tls_acceptor) = tls_acceptor {
-            let tls_listener: Arc<TcpListener> =
-                Arc::new(block_on(TcpListener::bind(ssl_e_addr.clone())).unwrap());
+            let tls_listener = Arc::new(block_on(TcpListener::bind(ssl_e_addr)).unwrap());
             task::spawn(client_accept_loop(
                 tls_listener,
                 electrum_server.message_transmitter.clone(),
@@ -1090,6 +1092,7 @@ mod test {
 
         // Electrum main loop
         task::spawn(electrum_server.main_loop());
+        assigned_port
     }
 
     fn generate_self_signed_cert() -> Result<(Certificate, PrivateKey), Box<dyn std::error::Error>>
@@ -1181,8 +1184,7 @@ mod test {
     /// SENDING MULTIPLE REQUESTS TO THE SERVER AT THE SAME TIME
     #[tokio::test]
     async fn test_blockchain_headers() {
-        let port = rand::random::<u16>() % 1000 + 18443;
-        start_electrum(port).await;
+        let port = start_electrum().await;
 
         let height: u32 = rand::random::<u32>() % 1500;
         let mut batch_req_params: Vec<Vec<Value>> = Vec::new();
@@ -1217,8 +1219,7 @@ mod test {
 
     #[tokio::test]
     async fn test_server_banner() {
-        let port = rand::random::<u16>() % 1000 + 18443;
-        start_electrum(port).await;
+        let port = start_electrum().await;
 
         let method = Value::String("server.banner".to_string());
         let mut request = generate_request(&mut vec![method]).to_string();
@@ -1229,8 +1230,7 @@ mod test {
 
     #[tokio::test]
     async fn test_estimate_fee() {
-        let port = rand::random::<u16>() % 1000 + 18443;
-        start_electrum(port).await;
+        let port = start_electrum().await;
 
         let mut batch_req_params = Vec::new();
 
@@ -1258,8 +1258,7 @@ mod test {
 
     #[tokio::test]
     async fn test_scripthash_subscribe() {
-        let port = rand::random::<u16>() % 1000 + 18443;
-        start_electrum(port).await;
+        let port = start_electrum().await;
 
         let (_, script_hash) = get_test_address();
 
@@ -1291,8 +1290,7 @@ mod test {
 
     #[tokio::test]
     async fn test_scripthash_txs() {
-        let port = rand::random::<u16>() % 1000 + 18443;
-        start_electrum(port).await;
+        let port = start_electrum().await;
 
         let (_, hash) = get_test_address();
 
@@ -1332,8 +1330,7 @@ mod test {
 
     #[tokio::test]
     async fn test_transactions() {
-        let port = rand::random::<u16>() % 1000 + 18443;
-        start_electrum(port).await;
+        let port = start_electrum().await;
 
         let unconfirmed_tx = Value::String("01000000010b7e3ac7e68944dc7a7115362391c3b7975d60f4fbe4af0ca924a172bfe7a7d9000000006b483045022100e0ff6984e5c2e16df6f309b759b75e04adf6930593b6043cd9134f87efb7e07c02206544a9f265f6041f0e3e2bd11a95ea75a112d3dc05647a9b01eca0d352feeb380121024f9c3deb05e81a3ddb17dadcf283fb132894aa70ab127395a03a3e9d382f13a3ffffffff022c92ae00000000001976a914ca9755ffb8f0e5aeca43478d8620e1a35b3baada88acc0894601000000001976a914b62ad08a3ffc469e9c0df75d1ceca49a88345fc888ac00000000".to_string());
         let confirmed_tx = "020000000001017ca523c5e6df0c014e837279ab49be1676a9fe7571c3989aeba1e5d534f4054a0000000000fdffffff01d2410f00000000001600142b6a2924aa9b1b115d1ac3098b0ba0e6ed510f2a02473044022071b8583ba1f10531b68cb5bd269fb0e75714c20c5a8bce49d8a2307d27a082df022069a978dac00dd9d5761aa48c7acc881617fa4d2573476b11685596b17d437595012103b193d06bd0533d053f959b50e3132861527e5a7a49ad59c5e80a265ff6a77605eece0100".to_string();
@@ -1383,8 +1380,7 @@ mod test {
 
     #[tokio::test]
     async fn test_server_info() {
-        let port = rand::random::<u16>() % 1000 + 18443;
-        start_electrum(port).await;
+        let port = start_electrum().await;
 
         let mut batch_req_params: Vec<Vec<Value>> = Vec::new();
 
