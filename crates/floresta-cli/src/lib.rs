@@ -20,6 +20,7 @@ pub mod rpc_types;
 #[cfg(all(test, not(target_os = "windows")))]
 mod tests {
     use std::fs;
+    use std::net::TcpListener;
     use std::process::Child;
     use std::process::Command;
     use std::process::Stdio;
@@ -57,7 +58,6 @@ mod tests {
     /// If you're at $HOME/floresta it will run on $HOME/floresta/tmp/<random_name>/
     fn start_florestad() -> (Florestad, Client) {
         let here = env!("PWD");
-        let port = rand::random::<u16>() % 1000 + 18443;
 
         // makes a temporary directory
         let test_code = rand::random::<u64>();
@@ -76,27 +76,29 @@ mod tests {
         fs::write(format!("{dirname}/regtest/ssl/cert.pem"), cert_pem).unwrap();
         fs::write(format!("{dirname}/regtest/ssl/key.pem"), key_pem).unwrap();
 
+        let port = get_available_port();
         let fld = Command::new(format!("{here}/target/debug/florestad"))
             .args(["-n", "regtest"])
             .args(["--data-dir", &dirname])
             .args(["--rpc-address", &format!("127.0.0.1:{}", port)])
-            .args(["--electrum-address", &format!("127.0.0.1:{}", port + 1)])
-            .args(["--ssl-electrum-address", &format!("127.0.0.1:{}", port + 2)])
+            .args(["--electrum-address", "127.0.0.1:0"])
+            .args(["--ssl-electrum-address", "127.0.0.1:0"])
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stderr(Stdio::inherit())
             .spawn()
             .unwrap();
 
         let client = Client::new(format!("http://127.0.0.1:{port}"));
 
         let mut retries = 10;
-
         loop {
+            // Wait some time for florestad to start
             sleep(Duration::from_secs(1));
-            retries -= 1;
+
             if retries == 0 {
-                panic!("florestad didn't start {:?}", fld.stdout);
+                panic!("florestad didn't start");
             }
+            retries -= 1;
             match client.get_blockchain_info() {
                 Ok(_) => break,
                 Err(_) => continue,
@@ -104,6 +106,20 @@ mod tests {
         }
 
         (Florestad { proc: fld }, client)
+    }
+
+    fn get_available_port() -> u16 {
+        // Limit `listener` scope to release port
+        let port = {
+            let listener =
+                TcpListener::bind("127.0.0.1:0").expect("Failed to bind to an available port");
+            listener.local_addr().unwrap().port()
+        };
+
+        // Delay to ensure port is fully released by OS
+        sleep(Duration::from_millis(100));
+
+        port
     }
 
     #[test]

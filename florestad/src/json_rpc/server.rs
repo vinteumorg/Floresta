@@ -645,6 +645,7 @@ impl RpcImpl {
         network: Network,
         block_filter_storage: Option<Arc<NetworkFilters<FlatFiltersStore>>>,
         address: Option<SocketAddr>,
+        runtime_handle: tokio::runtime::Handle,
     ) -> jsonrpc_http_server::Server {
         let mut io = jsonrpc_core::IoHandler::new();
         let rpc_impl = RpcImpl {
@@ -662,9 +663,14 @@ impl RpcImpl {
                 .unwrap()
         });
         info!("Starting JSON-RPC server on {:?}", address);
+
         ServerBuilder::new(io)
-            .threads(2)
+            .event_loop_executor(runtime_handle)
+            // Threads set to 1 as we have passed our multi-threaded runtime executor
+            .threads(1)
             .start_http(&address)
-            .unwrap()
+            .unwrap_or_else(|e| {
+                panic!("Could not start HTTP JSON-RPC server at {}: {}", address, e)
+            })
     }
 }
