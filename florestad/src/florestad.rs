@@ -391,6 +391,8 @@ impl Florestad {
         // JSON-RPC
         #[cfg(feature = "json-rpc")]
         {
+            let runtime_handle = tokio::runtime::Handle::current();
+
             let server = json_rpc::server::RpcImpl::create(
                 blockchain_state.clone(),
                 wallet.clone(),
@@ -402,6 +404,7 @@ impl Florestad {
                     .json_rpc_address
                     .as_ref()
                     .map(|x| x.parse().expect("Invalid json rpc address")),
+                runtime_handle,
             );
 
             if self.json_rpc.set(server).is_err() {
@@ -410,13 +413,13 @@ impl Florestad {
         }
 
         // Electrum
-        let electrum_address = self
+        let e_addr = self
             .config
             .electrum_address
             .clone()
             .unwrap_or("0.0.0.0:50001".into());
 
-        let ssl_electrum_address = self
+        let ssl_e_addr = self
             .config
             .ssl_electrum_address
             .clone()
@@ -448,8 +451,10 @@ impl Florestad {
         // Spawn all services
 
         // Non-TLS Electrum accept loop
-        let non_tls_listener =
-            Arc::new(block_on(TcpListener::bind(electrum_address.clone())).unwrap());
+        let non_tls_listener = Arc::new(
+            block_on(TcpListener::bind(e_addr.clone()))
+                .unwrap_or_else(|e| panic!("Cannot bind to electrum address {}: {}", e_addr, e)),
+        );
         task::spawn(client_accept_loop(
             non_tls_listener,
             electrum_server.message_transmitter.clone(),
@@ -458,8 +463,11 @@ impl Florestad {
 
         // TLS Electrum accept loop
         if let Some(tls_acceptor) = tls_acceptor {
-            let tls_listener =
-                Arc::new(block_on(TcpListener::bind(ssl_electrum_address.clone())).unwrap());
+            let tls_listener = Arc::new(
+                block_on(TcpListener::bind(ssl_e_addr.clone())).unwrap_or_else(|e| {
+                    panic!("Cannot bind to ssl electrum address {}: {}", ssl_e_addr, e)
+                }),
+            );
             task::spawn(client_accept_loop(
                 tls_listener,
                 electrum_server.message_transmitter.clone(),
@@ -469,7 +477,7 @@ impl Florestad {
 
         // Electrum main loop
         task::spawn(electrum_server.main_loop());
-        info!("Server running on: {}", electrum_address);
+        info!("Server running on: {}", e_addr);
 
         if !self.config.no_ssl {
             info!("TLS server running on: 0.0.0.0:50002");
