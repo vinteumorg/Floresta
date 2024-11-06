@@ -1,10 +1,20 @@
+# Build outputs
 /target
-# ignores perf data and generated performance graphs
-perf.*
-*.svg
-config.toml
 /builds
+
+# Temporary files and generated data
+tmp/
 data/
 output.log
-tmp/
+
+# Performance data and generated performance graphs
+perf.*
+*.svg
+
+# Configuration files
+config.toml
 .pre-commit-config.yaml
+
+# IDE configurations
+.idea/
+.vscode/
