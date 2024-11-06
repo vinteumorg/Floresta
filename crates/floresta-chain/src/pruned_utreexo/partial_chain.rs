@@ -28,8 +28,6 @@ use core::cell::UnsafeCell;
 #[cfg(feature = "bitcoinconsensus")]
 use core::ffi::c_uint;
 
-#[cfg(feature = "bitcoinconsensus")]
-use bitcoin::bitcoinconsensus;
 use bitcoin::block::Header as BlockHeader;
 use log::info;
 use rustreexo::accumulator::stump::Stump;
@@ -132,10 +130,10 @@ impl PartialChainStateInner {
         // violating blocks.
         let mut flags = bitcoinconsensus::VERIFY_P2SH | bitcoinconsensus::VERIFY_WITNESS;
 
-        if height >= chains_params.bip65_activation_height {
+        if height >= chains_params.params.bip65_height {
             flags |= bitcoinconsensus::VERIFY_CHECKLOCKTIMEVERIFY;
         }
-        if height >= chains_params.bip66_activation_height {
+        if height >= chains_params.params.bip66_height {
             flags |= bitcoinconsensus::VERIFY_DERSIG;
         }
         if height >= chains_params.csv_activation_height {
@@ -217,18 +215,20 @@ impl PartialChainStateInner {
                 BlockValidationErrors::BadMerkleRoot,
             ));
         }
-        if height >= self.chain_params().bip34_activation_height
+        if height >= self.chain_params().params.bip34_height
             && block.bip34_block_height() != Ok(height as u64)
         {
             return Err(BlockchainError::BlockValidation(
                 BlockValidationErrors::BadBip34,
             ));
         }
+
         if !block.check_witness_commitment() {
             return Err(BlockchainError::BlockValidation(
                 BlockValidationErrors::BadWitnessCommitment,
             ));
         }
+
         let prev_block = self.get_ancestor(height)?;
         if block.header.prev_blockhash != prev_block.block_hash() {
             return Err(BlockchainError::BlockValidation(
@@ -371,6 +371,10 @@ impl UpdatableChainstate for PartialChainState {
 
 impl BlockchainInterface for PartialChainState {
     type Error = BlockchainError;
+
+    fn get_params(&self) -> bitcoin::params::Params {
+        self.inner().chain_params().params
+    }
 
     fn get_height(&self) -> Result<u32, Self::Error> {
         Ok(self.inner().current_height)

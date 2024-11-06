@@ -1,3 +1,4 @@
+use bitcoin::bip158::BlockFilter;
 use bitcoin::BlockHash;
 use floresta_chain::pruned_utreexo::BlockchainInterface;
 
@@ -37,7 +38,7 @@ impl<Storage: IteratableFilterStore> NetworkFilters<Storage> {
 
     pub fn push_filter(
         &self,
-        filter: crate::BlockFilter,
+        filter: BlockFilter,
         height: u32,
     ) -> Result<(), IteratableFilterStoreError> {
         self.filters.put_filter(filter, height)

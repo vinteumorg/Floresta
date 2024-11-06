@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 
+use bitcoin::bip158::BlockFilter;
 use bitcoin::p2p::address::AddrV2;
 use bitcoin::p2p::address::AddrV2Message;
 use bitcoin::p2p::message_blockdata::Inventory;
@@ -20,7 +21,6 @@ use floresta_chain::BlockValidationErrors;
 use floresta_chain::BlockchainError;
 use floresta_chain::UtreexoBlock;
 use floresta_common::service_flags;
-use floresta_compact_filters::BlockFilter;
 use log::debug;
 use log::error;
 use log::info;
@@ -478,6 +478,7 @@ where
 
         self.inflight
             .insert(InflightRequests::GetFilters, (peer, Instant::now()));
+
         Ok(())
     }
 
@@ -853,9 +854,9 @@ where
                     _ => {}
                 },
                 PeerMessages::Transaction(tx) => {
-                    debug!("saw a mempool transaction with txid={}", tx.txid());
+                    debug!("saw a mempool transaction with txid={}", tx.compute_txid());
                     self.1.user_requests.send_answer(
-                        UserRequest::MempoolTransaction(tx.txid()),
+                        UserRequest::MempoolTransaction(tx.compute_txid()),
                         Some(NodeResponse::MempoolTransaction(tx)),
                     );
                 }

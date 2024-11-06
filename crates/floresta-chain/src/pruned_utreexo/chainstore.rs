@@ -51,7 +51,7 @@ impl Deref for DiskBlockHeader {
     }
 }
 impl Decodable for DiskBlockHeader {
-    fn consensus_decode<R: Read + ?Sized>(
+    fn consensus_decode<R: bitcoin::io::Read + ?Sized>(
         reader: &mut R,
     ) -> core::result::Result<Self, bitcoin::consensus::encode::Error> {
         let tag = u8::consensus_decode(reader)?;
@@ -82,10 +82,10 @@ impl Decodable for DiskBlockHeader {
     }
 }
 impl Encodable for DiskBlockHeader {
-    fn consensus_encode<W: Write + ?Sized>(
+    fn consensus_encode<W: bitcoin::io::Write + ?Sized>(
         &self,
         writer: &mut W,
-    ) -> core::result::Result<usize, ioError> {
+    ) -> bitcoin::io::Result<usize> {
         let mut len = 80 + 1; // Header + tag
         match self {
             DiskBlockHeader::FullyValid(header, height) => {
@@ -159,7 +159,7 @@ impl<'a> KvChainStore<'a> {
     }
 }
 
-impl<'a> ChainStore for KvChainStore<'a> {
+impl ChainStore for KvChainStore<'_> {
     type Error = kv::Error;
     fn load_roots(&self) -> Result<Option<Vec<u8>>, Self::Error> {
         self.meta.get(&"roots")

@@ -33,9 +33,9 @@ floresta-electrum = { path = "../floresta-electrum", optional = true, version = 
 
 [dev-dependencies]
 rustreexo = "0.3.0"
-miniscript = "10"
+miniscript = "11"
 tokio = { version = "1", features = ["full"] }
-bitcoin = { version = "0.31", features = [
+bitcoin = { version = "0.32", features = [
     "serde",
     "bitcoinconsensus",
 ], default-features=false }

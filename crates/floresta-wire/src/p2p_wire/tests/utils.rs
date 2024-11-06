@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::fs::File;
 use std::io;
-use std::io::Cursor;
 use std::io::Read;
 use std::str::FromStr;
 use std::time::Instant;
@@ -203,14 +202,16 @@ pub fn create_false_acc(tip: usize) -> Vec<u8> {
 }
 
 pub fn get_test_headers() -> Vec<Header> {
-    let file = include_bytes!("../../../../floresta-chain/testdata/signet_headers.zst");
-
-    let uncompressed: Vec<u8> = zstd::decode_all(std::io::Cursor::new(file)).unwrap();
-    let mut cursor = Cursor::new(uncompressed);
     let mut headers: Vec<Header> = Vec::new();
-    while let Ok(header) = Header::consensus_decode(&mut cursor) {
+
+    let file = include_bytes!("../../../../floresta-chain/testdata/signet_headers.zst");
+    let uncompressed: Vec<u8> = zstd::decode_all(std::io::Cursor::new(file)).unwrap();
+    let mut buffer = uncompressed.as_slice();
+
+    while let Ok(header) = Header::consensus_decode(&mut buffer) {
         headers.push(header);
     }
+
     headers
 }
 

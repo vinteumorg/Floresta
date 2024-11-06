@@ -21,7 +21,6 @@ pub enum Error {
     TomlParsing(toml::de::Error),
     WalletInput(slip132::Error),
     AddressParsing(bitcoin::address::ParseError),
-    Address(bitcoin::address::Error),
     Miniscript(miniscript::Error),
 }
 
@@ -43,7 +42,6 @@ impl std::fmt::Display for Error {
             Error::AddressParsing(err) => write!(f, "Invalid address {err}"),
             Error::Miniscript(err) => write!(f, "Miniscript error: {err}"),
             Error::BlockValidation(err) => write!(f, "Error while validating block: {err:?}"),
-            Error::Address(err) => write!(f, "Error while validating address: {err}"),
         }
     }
 }
@@ -74,6 +72,5 @@ impl_from_error!(TomlParsing, toml::de::Error);
 impl_from_error!(BlockValidation, BlockValidationErrors);
 impl_from_error!(AddressParsing, bitcoin::address::ParseError);
 impl_from_error!(Miniscript, miniscript::Error);
-impl_from_error!(Address, bitcoin::address::Error);
 
 impl std::error::Error for Error {}

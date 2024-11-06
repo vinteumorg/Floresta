@@ -7,14 +7,6 @@
 //! Bitcoin SLIP-132 standard implementation for parsing custom xpub/xpriv key
 //! formats
 
-#[cfg(feature = "strict_encoding")]
-#[macro_use]
-extern crate strict_encoding;
-
-#[cfg(feature = "serde")]
-#[macro_use]
-extern crate serde_crate as serde;
-
 use std::fmt::Debug;
 use std::str::FromStr;
 
@@ -117,20 +109,6 @@ pub enum Error {
     InternalFailure,
 }
 
-#[cfg(feature = "strict_encoding")]
-impl strict_encoding::StrictEncode for Error {
-    fn strict_encode<E: std::io::Write>(&self, _: E) -> Result<usize, strict_encoding::Error> {
-        unreachable!("StrictEncode for slip132::Error is a dummy required by miniscript")
-    }
-}
-
-#[cfg(feature = "strict_encoding")]
-impl strict_encoding::StrictDecode for Error {
-    fn strict_decode<D: std::io::Read>(_: D) -> Result<Self, strict_encoding::Error> {
-        unreachable!("StrictDecode for slip132::Error is a dummy required by miniscript")
-    }
-}
-
 impl From<bip32::Error> for Error {
     fn from(err: bip32::Error) -> Self {
         match err {
@@ -161,23 +139,6 @@ impl From<base58::Error> for Error {
 /// [`VersionResolver`] are used.
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct KeyVersion([u8; 4]);
-
-#[cfg(feature = "strict_encoding")]
-impl strict_encoding::StrictEncode for KeyVersion {
-    fn strict_encode<E: std::io::Write>(&self, mut e: E) -> Result<usize, strict_encoding::Error> {
-        e.write_all(&self.0)?;
-        Ok(4)
-    }
-}
-
-#[cfg(feature = "strict_encoding")]
-impl strict_encoding::StrictDecode for KeyVersion {
-    fn strict_decode<D: std::io::Read>(mut d: D) -> Result<Self, strict_encoding::Error> {
-        let mut bytes = [0u8; 4];
-        d.read_exact(&mut bytes)?;
-        Ok(Self(bytes))
-    }
-}
 
 /// Default resolver knowing native [`bitcoin::network::constants::Network`]
 /// and BIP 32 and SLIP 132-defined key applications with [`KeyApplication`]

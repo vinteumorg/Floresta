@@ -2,49 +2,29 @@ extern crate alloc;
 use alloc::vec::Vec;
 use core::ffi::c_uint;
 
-#[cfg(feature = "bitcoinconsensus")]
-use bitcoin::bitcoinconsensus::VERIFY_NONE;
-#[cfg(feature = "bitcoinconsensus")]
-use bitcoin::bitcoinconsensus::VERIFY_P2SH;
-#[cfg(feature = "bitcoinconsensus")]
-use bitcoin::bitcoinconsensus::VERIFY_WITNESS;
 use bitcoin::blockdata::constants::genesis_block;
 use bitcoin::p2p::ServiceFlags;
+use bitcoin::params::Params;
 use bitcoin::Block;
 use bitcoin::BlockHash;
-use bitcoin::Target;
 use rustreexo::accumulator::node_hash::NodeHash;
 
 use crate::prelude::*;
 use crate::AssumeValidArg;
 use crate::Network;
+
 #[derive(Clone, Debug)]
 pub struct ChainParams {
+    pub params: Params,
     /// The network's first block, also called genesis block.
     pub genesis: Block,
-    /// Whether or not we are allowed to mine blocks with the network's smallest diff, this
-    /// is used in testnet, if a block takes more than 20 minutes to be mined
-    pub pow_allow_min_diff: bool,
-    /// Whether or not we are allowed to mine without retargets, this is used in regtests
-    pub pow_allow_no_retarget: bool,
-    /// This is the maximum possible target (i.e, minimum possible difficulty), and in mainnet
-    /// it's defined as ~((uint256)0 >> 32).
-    pub max_target: Target,
     /// Interval of blocks until the block reward halves
     pub subsidy_halving_interval: u64,
-    /// We expect blocks to take this many seconds to be found, on average
-    pub pow_target_spacing: u64,
     /// When we retarget we expect this many seconds to be elapsed since last time. If
     /// it's more, we decrease difficulty, if it's less we increase difficulty
     pub pow_target_timespan: u64,
     /// We wait this many blocks before a coinbase output can be spent
     pub coinbase_maturity: u32,
-    /// The height at which bip32 is activated
-    pub bip34_activation_height: u32,
-    /// The height at which bip65 is activated
-    pub bip65_activation_height: u32,
-    /// The height at which bip66 is activated
-    pub bip66_activation_height: u32,
     /// The height at which segwit is activated
     pub segwit_activation_height: u32,
     /// The height at which csv(CHECK_SEQUENCE_VERIFY) is activated
@@ -52,6 +32,8 @@ pub struct ChainParams {
     /// A list of exceptions to the rules, where the key is the block hash and the value is the
     /// verification flags
     pub exceptions: HashMap<BlockHash, c_uint>,
+    /// The network this chain params is for
+    pub network: bitcoin::Network,
 }
 
 /// A dns seed is a authoritative DNS server that returns the IP addresses of nodes that are
@@ -99,6 +81,7 @@ pub struct AssumeUtreexoValue {
 
 impl ChainParams {
     pub fn get_assume_utreexo(network: Network) -> AssumeUtreexoValue {
+        let genesis = genesis_block(Params::new(network.into()));
         match network {
             Network::Bitcoin => AssumeUtreexoValue {
                 block_hash: BlockHash::from_str(
@@ -131,19 +114,19 @@ impl ChainParams {
                 leaves: 2587882501,
             },
             Network::Testnet => AssumeUtreexoValue {
-                block_hash: genesis_block(network.into()).block_hash(),
+                block_hash: genesis.block_hash(),
                 height: 0,
                 leaves: 0,
                 roots: Vec::new(),
             },
             Network::Signet => AssumeUtreexoValue {
-                block_hash: genesis_block(network.into()).block_hash(),
+                block_hash: genesis.block_hash(),
                 height: 0,
                 leaves: 0,
                 roots: Vec::new(),
             },
             Network::Regtest => AssumeUtreexoValue {
-                block_hash: genesis_block(network.into()).block_hash(),
+                block_hash: genesis.block_hash(),
                 height: 0,
                 leaves: 0,
                 roots: Vec::new(),
@@ -178,21 +161,16 @@ impl ChainParams {
             },
         }
     }
-
-    fn max_target(net: Network) -> Target {
-        match net {
-            Network::Bitcoin => Target::MAX_ATTAINABLE_MAINNET,
-            Network::Testnet => Target::MAX_ATTAINABLE_TESTNET,
-            Network::Signet => Target::MAX_ATTAINABLE_SIGNET,
-            Network::Regtest => Target::MAX_ATTAINABLE_REGTEST,
-        }
-    }
 }
 
 #[cfg(feature = "bitcoinconsensus")]
 fn get_exceptions() -> HashMap<BlockHash, c_uint> {
     // For some reason, some blocks in the mainnet and testnet have different rules than it should
     // be, so we need to keep a list of exceptions and treat them differently
+
+    use bitcoinconsensus::VERIFY_NONE;
+    use bitcoinconsensus::VERIFY_P2SH;
+    use bitcoinconsensus::VERIFY_WITNESS;
     let mut exceptions = HashMap::new();
     exceptions.insert(
         BlockHash::from_str("00000000000002dc756eebf4f49723ed8d30cc28a5f108eb94b1ba88ac4f9c22")
@@ -217,73 +195,60 @@ fn get_exceptions() -> HashMap<BlockHash, c_uint> {
     HashMap::new()
 }
 
+impl AsRef<Params> for ChainParams {
+    fn as_ref(&self) -> &Params {
+        &self.params
+    }
+}
+
 impl From<Network> for ChainParams {
     fn from(net: Network) -> Self {
-        let genesis = genesis_block(net.into());
-        let max_target = ChainParams::max_target(net);
+        let genesis = genesis_block(Params::new(net.into()));
         let exceptions = get_exceptions();
+
         match net {
             Network::Bitcoin => ChainParams {
+                params: Params::new(net.into()),
+                network: net.into(),
                 genesis,
-                max_target,
-                pow_allow_min_diff: false,
-                pow_allow_no_retarget: false,
-                pow_target_spacing: 10 * 60, // One block every 600 seconds (10 minutes)
                 pow_target_timespan: 14 * 24 * 60 * 60, // two weeks
                 subsidy_halving_interval: 210_000,
                 coinbase_maturity: 100,
-                bip34_activation_height: 227931,
-                bip65_activation_height: 388381,
-                bip66_activation_height: 363725,
                 segwit_activation_height: 481824,
                 csv_activation_height: 419328,
                 exceptions,
             },
             Network::Testnet => ChainParams {
+                params: Params::new(net.into()),
+                network: net.into(),
                 genesis,
-                max_target,
-                pow_allow_min_diff: true,
-                pow_allow_no_retarget: false,
-                pow_target_spacing: 10 * 60, // One block every 600 seconds (10 minutes)
                 pow_target_timespan: 14 * 24 * 60 * 60, // two weeks
                 subsidy_halving_interval: 210_000,
                 coinbase_maturity: 100,
-                bip34_activation_height: 211_111,
-                bip65_activation_height: 581_885,
-                bip66_activation_height: 330_776,
+
                 segwit_activation_height: 834_624,
                 csv_activation_height: 770_112,
                 exceptions,
             },
             Network::Signet => ChainParams {
+                params: Params::new(net.into()),
+                network: net.into(),
                 genesis,
-                max_target,
-                pow_allow_min_diff: false,
-                pow_allow_no_retarget: false,
-                pow_target_spacing: 10 * 60, // One block every 600 seconds (10 minutes)
                 pow_target_timespan: 14 * 24 * 60 * 60, // two weeks
                 subsidy_halving_interval: 210_000,
                 coinbase_maturity: 100,
-                bip34_activation_height: 500,
                 csv_activation_height: 1,
-                bip65_activation_height: 1,
-                bip66_activation_height: 1,
                 segwit_activation_height: 1,
                 exceptions,
             },
             Network::Regtest => ChainParams {
+                params: Params::new(net.into()),
+                network: net.into(),
                 genesis,
-                max_target,
-                pow_allow_min_diff: false,
-                pow_allow_no_retarget: true,
-                pow_target_spacing: 10 * 60, // One block every 600 seconds (10 minutes)
                 pow_target_timespan: 14 * 24 * 60 * 60, // two weeks
                 subsidy_halving_interval: 150,
                 coinbase_maturity: 100,
-                bip34_activation_height: 500,
                 csv_activation_height: 0,
-                bip65_activation_height: 0,
-                bip66_activation_height: 0,
                 segwit_activation_height: 0,
                 exceptions,
             },

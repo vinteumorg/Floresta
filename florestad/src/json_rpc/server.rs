@@ -243,7 +243,7 @@ impl Rpc for RpcImpl {
             root_count,
             root_hashes,
             chain: self.network.to_string(),
-            difficulty: latest_header.difficulty() as u64,
+            difficulty: latest_header.difficulty(self.chain.get_params()) as u64,
             progress: validated_blocks as f32 / height as f32,
         })
     }
@@ -380,7 +380,7 @@ impl Rpc for RpcImpl {
             data: None,
         })?;
         if self.chain.broadcast(&tx).is_ok() {
-            return Ok(tx.txid());
+            return Ok(tx.compute_txid());
         }
         Err(Error::Chain.into())
     }
@@ -438,7 +438,7 @@ impl Rpc for RpcImpl {
                     bits: serialize_hex(&block.header.bits),
                     chainwork: block.header.work().to_string(),
                     confirmations: (tip - height) + 1,
-                    difficulty: block.header.difficulty(),
+                    difficulty: block.header.difficulty(self.chain.get_params()),
                     hash: block.header.block_hash().to_string(),
                     height,
                     merkleroot: block.header.merkle_root.to_string(),
@@ -449,7 +449,7 @@ impl Rpc for RpcImpl {
                     tx: block
                         .txdata
                         .iter()
-                        .map(|tx| tx.txid().to_string())
+                        .map(|tx| tx.compute_txid().to_string())
                         .collect(),
                     version: block.header.version.to_consensus(),
                     version_hex: serialize_hex(&block.header.version),
@@ -461,8 +461,7 @@ impl Rpc for RpcImpl {
                         .get_block_hash(height + 1)
                         .ok()
                         .map(|h| h.to_string()),
-                    #[allow(deprecated)]
-                    strippedsize: block.strippedsize(),
+                    strippedsize: block.total_size(),
                 };
                 return Ok(serde_json::to_value(block).unwrap());
             }
@@ -579,7 +578,7 @@ impl RpcImpl {
         let raw_tx = tx.tx;
         let in_active_chain = tx.height != 0;
         let hex = serialize_hex(&raw_tx);
-        let txid = serialize_hex(&raw_tx.txid());
+        let txid = serialize_hex(&raw_tx.compute_txid());
         let block_hash = self
             .chain
             .get_block_hash(tx.height)
@@ -595,7 +594,7 @@ impl RpcImpl {
             in_active_chain,
             hex,
             txid,
-            hash: serialize_hex(&raw_tx.wtxid()),
+            hash: serialize_hex(&raw_tx.compute_wtxid()),
             size: raw_tx.total_size() as u32,
             vsize: raw_tx.vsize() as u32,
             weight: raw_tx.weight().to_wu() as u32,

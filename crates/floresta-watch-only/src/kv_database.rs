@@ -123,7 +123,10 @@ impl AddressCacheDatabase for KvDatabase {
     fn save_transaction(&self, tx: &super::CachedTransaction) -> Result<()> {
         let store = self.0.bucket::<&[u8], Vec<u8>>(Some("transactions"))?;
         let ser_tx = serde_json::to_vec(&tx)?;
-        store.set(&tx.tx.txid().as_byte_array().to_vec().as_slice(), &ser_tx)?;
+        store.set(
+            &tx.tx.compute_txid().as_byte_array().to_vec().as_slice(),
+            &ser_tx,
+        )?;
         self.1.flush()?;
 
         Ok(())
@@ -164,7 +167,7 @@ impl AddressCacheDatabase for KvDatabase {
 mod test {
     use core::str::FromStr;
 
-    use bitcoin::address::NetworkUnchecked;
+    use bitcoin::address::NetworkChecked;
     use bitcoin::consensus::deserialize;
     use bitcoin::hashes::hex::FromHex;
     use bitcoin::hashes::sha256;
@@ -183,9 +186,11 @@ mod test {
 
         KvDatabase::new(format!("./data/{test_id}.floresta/")).unwrap()
     }
-    fn get_test_address() -> (Address<NetworkUnchecked>, sha256::Hash) {
-        let address = Address::from_str("tb1q9d4zjf92nvd3zhg6cvyckzaqumk4zre26x02q9").unwrap();
-        let script_hash = get_spk_hash(&address.payload().script_pubkey());
+    fn get_test_address() -> (Address<NetworkChecked>, sha256::Hash) {
+        let address = Address::from_str("tb1q9d4zjf92nvd3zhg6cvyckzaqumk4zre26x02q9")
+            .unwrap()
+            .assume_checked();
+        let script_hash = get_spk_hash(&address.script_pubkey());
         (address, script_hash)
     }
     #[test]
@@ -196,7 +201,7 @@ mod test {
         let cache_address = CachedAddress {
             script_hash,
             balance: 0,
-            script: address.payload().script_pubkey(),
+            script: address.script_pubkey(),
             transactions: Vec::new(),
             utxos: Vec::new(),
         };
@@ -215,7 +220,7 @@ mod test {
             tx: transaction.clone(),
             height: 118511,
             merkle_block: Some(merkle_block),
-            hash: transaction.txid(),
+            hash: transaction.compute_txid(),
             position: 1,
         };
 

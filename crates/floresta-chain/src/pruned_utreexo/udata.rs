@@ -15,9 +15,9 @@ use bitcoin::VarInt;
 use sha2::Digest;
 use sha2::Sha512_256;
 
-use crate::prelude::ioError;
-use crate::prelude::Read;
-use crate::prelude::*;
+use crate::prelude::vec;
+use crate::prelude::Box;
+use crate::prelude::Vec;
 use crate::pruned_utreexo::consensus::UTREEXO_TAG_V1;
 
 /// Leaf data is the data that is hashed when adding to utreexo state. It contains validation
@@ -62,12 +62,12 @@ impl LeafData {
 }
 
 impl Decodable for LeafData {
-    fn consensus_decode<R: Read + ?Sized>(
+    fn consensus_decode<R: bitcoin::io::Read + ?Sized>(
         reader: &mut R,
     ) -> Result<Self, bitcoin::consensus::encode::Error> {
         Self::consensus_decode_from_finite_reader(reader)
     }
-    fn consensus_decode_from_finite_reader<R: Read + ?Sized>(
+    fn consensus_decode_from_finite_reader<R: bitcoin::io::Read + ?Sized>(
         reader: &mut R,
     ) -> Result<Self, bitcoin::consensus::encode::Error> {
         let block_hash = BlockHash::consensus_decode(reader)?;
@@ -130,7 +130,7 @@ pub enum ScriptPubkeyType {
 }
 
 impl Decodable for ScriptPubkeyType {
-    fn consensus_decode<R: Read + ?Sized>(reader: &mut R) -> Result<Self, Error> {
+    fn consensus_decode<R: bitcoin::io::Read + ?Sized>(reader: &mut R) -> Result<Self, Error> {
         let ty = u8::consensus_decode(reader)?;
         match ty {
             0x00 => Ok(ScriptPubkeyType::Other(Box::consensus_decode(reader)?)),
@@ -144,7 +144,10 @@ impl Decodable for ScriptPubkeyType {
 }
 
 impl Encodable for ScriptPubkeyType {
-    fn consensus_encode<W: Write + ?Sized>(&self, writer: &mut W) -> Result<usize, ioError> {
+    fn consensus_encode<W: bitcoin::io::Write + ?Sized>(
+        &self,
+        writer: &mut W,
+    ) -> Result<usize, bitcoin::io::Error> {
         let mut len = 1;
 
         match self {
@@ -218,35 +221,35 @@ pub struct UtreexoBlock {
 }
 
 impl Decodable for UtreexoBlock {
-    fn consensus_decode<R: Read + ?Sized>(
-        mut reader: &mut R,
+    fn consensus_decode<R: bitcoin::io::Read + ?Sized>(
+        reader: &mut R,
     ) -> Result<Self, consensus::encode::Error> {
-        let block = Block::consensus_decode(&mut reader)?;
+        let block = Block::consensus_decode(reader)?;
 
-        if let Err(Error::Io(_remember)) = VarInt::consensus_decode(&mut reader) {
+        if let Err(Error::Io(_remember)) = VarInt::consensus_decode(reader) {
             return Ok(block.into());
         };
 
-        let n_positions = VarInt::consensus_decode(&mut reader)?;
+        let n_positions = VarInt::consensus_decode(reader)?;
         let mut targets = vec![];
         for _ in 0..n_positions.0 {
-            let pos = VarInt::consensus_decode(&mut reader)?;
+            let pos = VarInt::consensus_decode(reader)?;
             targets.push(pos);
         }
 
-        let n_hashes = VarInt::consensus_decode(&mut reader)?;
+        let n_hashes = VarInt::consensus_decode(reader)?;
         let mut hashes = vec![];
         for _ in 0..n_hashes.0 {
-            let hash = BlockHash::consensus_decode(&mut reader)?;
+            let hash = BlockHash::consensus_decode(reader)?;
             hashes.push(hash);
         }
 
-        let n_leaves = VarInt::consensus_decode(&mut reader)?;
+        let n_leaves = VarInt::consensus_decode(reader)?;
         let mut leaves = vec![];
         for _ in 0..n_leaves.0 {
-            let header_code = u32::consensus_decode(&mut reader)?;
-            let amount = u64::consensus_decode(&mut reader)?;
-            let spk_ty = ScriptPubkeyType::consensus_decode(&mut reader)?;
+            let header_code = u32::consensus_decode(reader)?;
+            let amount = u64::consensus_decode(reader)?;
+            let spk_ty = ScriptPubkeyType::consensus_decode(reader)?;
 
             leaves.push(CompactLeafData {
                 header_code,
@@ -347,7 +350,7 @@ pub mod proof_util {
         tx_iter.next(); // Skip coinbase
 
         for tx in tx_iter {
-            let txid = tx.txid();
+            let txid = tx.compute_txid();
             for (vout, out) in tx.output.iter().enumerate() {
                 inputs.insert(
                     OutPoint {

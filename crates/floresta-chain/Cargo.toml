@@ -22,15 +22,15 @@ rustreexo = "0.3.0"
 sha2 = "^0.10.6"
 log = "0.4"
 kv = "0.24.0"
-bitcoin = { version = "0.31", features = [
+bitcoin = { version = "0.32", features = [
     "serde",
-    "no-std",
 ], default-features = false }
 spin = "0.9.8"
 core2 = { version = "0.4.0", default-features = false }
 hashbrown = { version = "0.14.0", optional = true }
 secp256k1 = { version = "*", features = ["alloc"], optional = true }
 floresta-common = { path = "../floresta-common", default-features = false, features = ["std"] }
+bitcoinconsensus = { version = "0.106.0", optional = true, default-features = false }
 
 [dev-dependencies]
 criterion = "0.5.1"
@@ -41,7 +41,8 @@ zstd = "0.12.3"
 hex = "0.4.3"
 
 [features]
-bitcoinconsensus = ["bitcoin/bitcoinconsensus"]
+default = []
+bitcoinconsensus = ["dep:bitcoinconsensus"]
 
 [[bench]]
 name = "chain_state_bench"

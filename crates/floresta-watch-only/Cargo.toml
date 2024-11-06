@@ -13,7 +13,7 @@ readme = "README.md"
 [dependencies]
 serde = "1.0.0"
 serde_json = { version = "1.0.0", features = ["alloc"] }
-bitcoin = { version = "0.31", features = ["serde"] }
+bitcoin = { version = "0.32", features = ["serde"] }
 kv = "0.24.0"
 log = "0.4"
 thiserror = "1.0"

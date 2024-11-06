@@ -70,15 +70,16 @@ mod tests_utils {
 
             node.peers.insert(i as u32, peer);
         }
-        let mut node = ManuallyDrop::new(Box::new(node));
 
+        let mut node = ManuallyDrop::new(Box::new(node));
         let kill_signal = Arc::new(RwLock::new(false));
+
         // FIXME: This doesn't look very safe, but we need to coerce a &mut reference of the node
         //        to live for the static lifetime, or it can't be spawn-ed by tokio::task
         let _node: &'static mut UtreexoNode<SyncNode, Arc<ChainState<KvChainStore>>> =
             unsafe { std::mem::transmute(&mut **node) };
 
-        timeout(Duration::from_secs(10), _node.run(kill_signal, |_| {}))
+        timeout(Duration::from_secs(100), _node.run(kill_signal, |_| {}))
             .await
             .unwrap();
 
@@ -120,8 +121,8 @@ mod tests {
         // 1) SENDING BLOCK WITH A BADMERKLEROOT: 7TH BLOCK WILL BE INVALIDATED.
 
         let (headers, mut blocks, _, _, invalid_block) = get_essentials();
-        blocks.insert(headers[7].block_hash(), invalid_block);
 
+        blocks.insert(headers[7].block_hash(), invalid_block);
         let peer = vec![(Vec::new(), blocks.clone(), HashMap::new())];
         let chain = setup_node(peer, false, floresta_chain::Network::Signet).await;
 

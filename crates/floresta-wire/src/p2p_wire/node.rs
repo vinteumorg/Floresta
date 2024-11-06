@@ -589,7 +589,7 @@ where
             let transactions = self.chain.get_unbroadcasted();
 
             for transaction in transactions {
-                let txid = transaction.txid();
+                let txid = transaction.compute_txid();
                 self.mempool.write().await.accept_to_mempool(transaction);
                 peer.channel
                     .send(NodeRequest::BroadcastTransaction(txid))
