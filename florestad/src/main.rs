@@ -50,6 +50,9 @@ fn main() {
         log_to_file: params.log_to_file,
         assume_valid: params.assume_valid,
         log_to_stdout: true,
+        #[cfg(feature = "zmq-server")]
+        zmq_address: params.zmq_address,
+        #[cfg(feature = "json-rpc")]
         json_rpc_address: params.rpc_address,
         electrum_address: params.electrum_address,
         ssl_electrum_address: params.ssl_electrum_address,

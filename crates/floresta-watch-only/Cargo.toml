@@ -17,14 +17,14 @@ bitcoin = { version = "0.32", features = ["serde"] }
 kv = "0.24.0"
 log = "0.4"
 thiserror = "1.0"
-floresta-common = { path = "../floresta-common" }
+floresta-common = { path = "../floresta-common", default-features = false, features = ["descriptors-no-std"] }
 floresta-chain = { path = "../floresta-chain" }
 
 [dev-dependencies]
 rand = "0.8.5"
 
 [features]
-default = []
+default = ["std"]
 memory-database = []
-no-std = []
-std = ["serde/std"]
+# The default features in common are `std` and `descriptors-std` (which is a superset of `descriptors-no-std`)
+std = ["floresta-common/default", "serde/std"]

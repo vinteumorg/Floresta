@@ -1,23 +1,13 @@
 // SPDX-License-Identifier: MIT
 
 #![no_std]
-// Ensure that both `std` and `no-std` are not enabled simultaneously
-#[cfg(all(feature = "std", feature = "no-std"))]
-compile_error!("Features `std` and `no-std` cannot be enabled simultaneously.");
-
-// Ensure that one of `std` or `no-std` is enabled
-#[cfg(not(any(feature = "std", feature = "no-std")))]
-compile_error!("One of the `std` or `no-std` features must be enabled.");
-
-#[cfg(all(feature = "no-std", feature = "descriptors"))]
-compile_error!("For `no-std` enable the `descriptors-no-std` feature instead of `descriptors`.");
 
 use bitcoin::hashes::sha256;
 use bitcoin::hashes::Hash;
 use bitcoin::ScriptBuf;
-#[cfg(any(feature = "descriptors", feature = "descriptors-no-std"))]
+#[cfg(any(feature = "descriptors-std", feature = "descriptors-no-std"))]
 use miniscript::Descriptor;
-#[cfg(any(feature = "descriptors", feature = "descriptors-no-std"))]
+#[cfg(any(feature = "descriptors-std", feature = "descriptors-no-std"))]
 use miniscript::DescriptorPublicKey;
 use sha2::Digest;
 pub mod spsc;
@@ -46,7 +36,7 @@ pub mod service_flags {
     pub const UTREEXO_FILTER: u64 = 1 << 25;
 }
 
-#[cfg(any(feature = "descriptors", feature = "descriptors-no-std"))]
+#[cfg(any(feature = "descriptors-std", feature = "descriptors-no-std"))]
 pub fn parse_descriptors(
     descriptors: &[String],
 ) -> Result<Vec<Descriptor<DescriptorPublicKey>>, miniscript::Error> {
@@ -64,7 +54,7 @@ pub fn parse_descriptors(
     Ok(descriptors)
 }
 
-#[cfg(feature = "no-std")]
+#[cfg(not(feature = "std"))]
 pub mod prelude {
     extern crate alloc;
     pub use alloc::borrow::ToOwned;
