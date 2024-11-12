@@ -389,6 +389,16 @@ impl AddressMan {
         Ok(())
     }
 
+    pub fn dump_utreexo_peers(&self, datadir: &str) -> std::io::Result<()> {
+        let peers_id = self.good_peers_by_service.get(&service_flags::UTREEXO.into()).unwrap();
+        let addresses: Vec<_> = peers_id.iter().map(|id| self.addresses.get(id).unwrap().to_owned()).map(Into::<DiskLocalAddress>::into).collect();
+        let addresses = serde_json::to_string(&addresses);
+        if let Ok(addresses) = addresses {
+            std::fs::write(datadir.to_owned() + "/anchors.json", addresses)?;
+        }
+        Ok(())
+    }
+
     fn get_address_by_service(&self, service: ServiceFlags) -> Option<(usize, LocalAddress)> {
         let peers = self.good_peers_by_service.get(&service)?;
         if peers.is_empty() {

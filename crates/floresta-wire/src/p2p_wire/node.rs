@@ -575,7 +575,7 @@ where
         for peer in self.peer_ids.iter() {
             try_and_log!(self.send_to_peer(*peer, NodeRequest::Shutdown).await);
         }
-
+        try_and_log!(self.save_utreexo_peers());
         try_and_log!(self.save_peers());
         try_and_log!(self.chain.flush());
     }
@@ -616,6 +616,10 @@ where
         self.address_man
             .dump_peers(&self.datadir)
             .map_err(WireError::Io)
+    }
+
+    pub(crate) fn save_utreexo_peers(&self) -> Result<(), WireError> {
+        self.address_man.dump_utreexo_peers(&self.datadir).map_err(WireError::Io)
     }
 
     pub(crate) async fn maybe_open_connection(&mut self) -> Result<(), WireError> {
