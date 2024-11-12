@@ -16,15 +16,15 @@ bitcoin = { version = "0.32", default-features = false, features = ["serde"] }
 spin = "0.9.8"
 
 # No-std specific dependencies
-hashbrown = { version = "0.14.0", optional = true }
-core2 = { version = "0.4.0", default-features = false, optional = true }
+hashbrown = { version = "0.14.0" }
+core2 = { version = "0.4.0", default-features = false }
 
 # Optional as descriptors feature
 miniscript = { version = "12", default-features = false, optional = true }
 
 [features]
-default = ["std", "descriptors"]
+default = ["std", "descriptors-std"]
 std = ["bitcoin/std", "sha2/std"]
-no-std = ["hashbrown", "core2"]
-descriptors = ["miniscript/std"]
+# Both features can be set at the same time, but for `no_std` only the latter should be used
+descriptors-std = ["miniscript/std"]
 descriptors-no-std = ["miniscript/no-std"]

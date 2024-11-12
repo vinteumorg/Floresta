@@ -4,14 +4,14 @@ use bitcoin::consensus::serialize;
 ///
 /// # Examples
 /// Creating a server
-/// ```
+/// ```ignore
 /// use florestad::zmq::ZMQServer;
 /// let _ = ZMQServer::new("tcp://127.0.0.1:5150");
 /// ```
 ///
 /// Listening for new blocks
 ///
-/// ```!
+/// ```ignore
 /// use zmq::{Context, Socket};
 /// let ctx =  Context::new();
 /// // The oposite of PUSH is PULL

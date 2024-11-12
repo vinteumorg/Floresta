@@ -11,7 +11,6 @@ use core::cell::UnsafeCell;
 #[cfg(feature = "bitcoinconsensus")]
 use core::ffi::c_uint;
 
-#[cfg(feature = "bitcoinconsensus")]
 use bitcoin::block::Header as BlockHeader;
 use bitcoin::blockdata::constants::genesis_block;
 use bitcoin::consensus::deserialize_partial;
