@@ -56,3 +56,9 @@ fmt:
 # Checks the formatting
 format:
     cargo +nightly fmt --all --check
+
+# Test all feature combinations for each crate using cargo hack (arg: optional, e.g., --quiet or --verbose)
+# Will try to install or update the cargo-hack package
+test-features arg="":
+    cargo install cargo-hack --locked
+    ./contrib/test_features.sh {{arg}}
