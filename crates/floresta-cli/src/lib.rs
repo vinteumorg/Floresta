@@ -21,6 +21,7 @@ pub mod rpc_types;
 mod tests {
     use std::fs;
     use std::net::TcpListener;
+    use std::path::Path;
     use std::process::Child;
     use std::process::Command;
     use std::process::Stdio;
@@ -60,7 +61,15 @@ mod tests {
         // CARGO_MANIFEST_DIR is always floresta-cli's directory; PWD changes based on where the
         // command is executed.
         let root = format!("{}/../..", env!("CARGO_MANIFEST_DIR"));
-        let florestad_path = format!("{root}/target/debug/florestad");
+        let release_path = format!("{root}/target/release/florestad");
+        let debug_path = format!("{root}/target/debug/florestad");
+
+        let release_found = Path::new(&release_path).try_exists().unwrap();
+        // If release target not found, default to the debug path
+        let florestad_path = match release_found {
+            true => release_path,
+            false => debug_path,
+        };
 
         // makes a temporary directory
         let test_code = rand::random::<u64>();

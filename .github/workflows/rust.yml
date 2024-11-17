@@ -20,16 +20,11 @@ jobs:
         with:
           components: rustfmt, clippy
 
-      - name: Cache Rust
-        uses: Swatinem/rust-cache@v2
-
       - name: Run cargo fmt
         run: cargo +nightly fmt --all --check
 
       - name: Run cargo clippy
         run: cargo +nightly clippy --all-targets
-        env:
-          PWD: ${{ github.workspace }} # without it ci can't see env!("PWD")
 
   cross-testing:
     strategy:
@@ -39,25 +34,56 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.74.1 # The version in our `rust-toolchain.toml`
+        with:
+          components: rustfmt, clippy
+      - uses: taiki-e/install-action@cargo-hack
 
-      - name: Cache Rust
-        uses: actions/cache@v4
+      # Bi-weekly numbers to refresh caches every two weeks, ensuring recent project changes are cached
+      - name: Set bi-weekly cache key
+        run: |
+          YEAR=$(date +%Y)
+          BIWEEK=$(( ($(date +%U) + 1) / 2 ))
+          echo "CACHE_VERSION=${YEAR}(${BIWEEK})" >> $GITHUB_ENV
+        shell: bash
+
+      # Restore cached dependencies and build artifacts
+      - name: Restore Rust cache
+        id: cache
+        uses: actions/cache/restore@v4
         with:
           path: |
-            ~/.cargo/bin/
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+            target/release/
+          # Cache key depends on the bi-week we are on (cache version)
+          key: ${{ runner.os }}-cargo-${{ env.CACHE_VERSION }}-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-${{ env.CACHE_VERSION }}-
+            ${{ runner.os }}-cargo-
 
-      - name: Build Floresta
-        run: cargo build --verbose
+      # Build only the binaries
+      - name: Build binaries
+        run: cargo build --release --bins --verbose
 
-      - name: Run tests
-        run: cargo test --verbose
-        env:
-          PWD: ${{ github.workspace }} # without it ci can't see env!("PWD")
+      # Run the feature testing script
+      - name: Run feature tests
+        run: ./contrib/test_features.sh --verbose
+        shell: bash   # Ensure the script runs using bash on all platforms
+
+      # Save cache only if the previous steps succeeded and there was not an exact cache key match
+      # This happens everytime we modify any `cargo.lock` or `cargo.toml`, or each two weeks (caching recent changes)
+      - name: Save Rust cache
+        if: success() && steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/release/
+          key: ${{ steps.cache.outputs.cache-primary-key }}
 
   build-docker:
     runs-on: ubuntu-latest
