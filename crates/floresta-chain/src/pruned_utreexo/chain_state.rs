@@ -630,9 +630,9 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         let (leaves, _) =
             deserialize_partial::<u64>(&leaves).expect("load_acc: Invalid num_leaves");
         let mut roots = Vec::new();
+        // Since we only expect hashes after the num_leaves, the length of the acc have to be a multiple of 32.
+        assert_eq!(acc.len() % 32, 0);
         while acc.len() >= 32 {
-            // Since we only expect hashes after the num_leaves, it should always align with 32 bytes
-            assert_eq!(acc.len() % 32, 0);
             let root = acc.drain(0..32).collect::<Vec<u8>>();
             let root = NodeHash::from(&*root);
             roots.push(root);
