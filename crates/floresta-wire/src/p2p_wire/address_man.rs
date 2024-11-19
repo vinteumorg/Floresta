@@ -389,7 +389,8 @@ impl AddressMan {
         Ok(())
     }
 
-    pub fn dump_utreexo_peers(&self, datadir: &str) -> std::io::Result<()> {
+    /// Dumps the good utreexo peers to a file on dir `datadir/anchors.json` in json format `
+        pub fn dump_utreexo_peers(&self, datadir: &str) -> std::io::Result<()> {
         let peers_id = self.good_peers_by_service.get(&service_flags::UTREEXO.into()).unwrap();
         let addresses: Vec<_> = peers_id.iter().map(|id| self.addresses.get(id).unwrap().to_owned()).map(Into::<DiskLocalAddress>::into).collect();
         let addresses = serde_json::to_string(&addresses);
