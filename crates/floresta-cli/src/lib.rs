@@ -17,7 +17,7 @@ pub mod rpc_types;
 // Those tests doesn't work on windowns
 // TODO (Davidson): work on windows?
 
-#[cfg(all(test, not(target_os = "windows")))]
+#[cfg(all(test, feature = "with-jsonrpc", not(target_os = "windows")))]
 mod tests {
     use std::fs;
     use std::net::TcpListener;
@@ -57,14 +57,17 @@ mod tests {
     /// for both RPC and Electrum. The datadir will be in the current dir, under a `tmp` subdir.
     /// If you're at $HOME/floresta it will run on $HOME/floresta/tmp/<random_name>/
     fn start_florestad() -> (Florestad, Client) {
-        let here = env!("PWD");
+        // CARGO_MANIFEST_DIR is always floresta-cli's directory; PWD changes based on where the
+        // command is executed.
+        let root = format!("{}/../..", env!("CARGO_MANIFEST_DIR"));
+        let florestad_path = format!("{root}/target/debug/florestad");
 
         // makes a temporary directory
         let test_code = rand::random::<u64>();
-        let dirname = format!("{here}/tmp/floresta.{test_code}");
+        let dirname = format!("{root}/tmp/floresta.{test_code}");
         fs::DirBuilder::new()
             .recursive(true)
-            .create(dirname.clone())
+            .create(&dirname)
             .unwrap();
 
         // Generate SSL certificate and key using rcgen
@@ -77,7 +80,7 @@ mod tests {
         fs::write(format!("{dirname}/regtest/ssl/key.pem"), key_pem).unwrap();
 
         let port = get_available_port();
-        let fld = Command::new(format!("{here}/target/debug/florestad"))
+        let fld = Command::new(&florestad_path)
             .args(["-n", "regtest"])
             .args(["--data-dir", &dirname])
             .args(["--rpc-address", &format!("127.0.0.1:{}", port)])
@@ -86,7 +89,7 @@ mod tests {
             .stdout(Stdio::null())
             .stderr(Stdio::inherit())
             .spawn()
-            .unwrap();
+            .unwrap_or_else(|e| panic!("Couldn't launch florestad at {}: {}", florestad_path, e));
 
         let client = Client::new(format!("http://127.0.0.1:{port}"));
 

@@ -42,7 +42,7 @@ hex = "0.4.3"
 
 [features]
 default = []
-bitcoinconsensus = ["dep:bitcoinconsensus"]
+bitcoinconsensus = ["bitcoin/bitcoinconsensus", "dep:bitcoinconsensus"]
 
 [[bench]]
 name = "chain_state_bench"
