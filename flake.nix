@@ -1,17 +1,16 @@
 {
-  description = "A full bitcoin node with Utreexo";
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-23.11";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.11";
     rust-overlay = {
       url = "github:oxalica/rust-overlay";
       inputs = {
         nixpkgs.follows = "nixpkgs";
-        flake-utils.follows = "flake-utils";
       };
     };
     flake-utils.url = "github:numtide/flake-utils";
     pre-commit-hooks.url = "github:cachix/pre-commit-hooks.nix";
   };
+
   outputs = { self, nixpkgs, rust-overlay, flake-utils, pre-commit-hooks, ... }:
     flake-utils.lib.eachDefaultSystem (system:
       let
@@ -23,7 +22,7 @@
 
         lib = pkgs.lib;
 
-        libsDarwin = with pkgs.darwin.apple_sdk.frameworks; lib.optionals( system == "x86_64-darwin" || system  == "aarch64-darwin") [ Security ];
+        libsDarwin = with pkgs.darwin.apple_sdk.frameworks; lib.optionals (system == "x86_64-darwin" || system == "aarch64-darwin") [ Security ];
 
         #This is the dev tools used while developing in Floresta.
         devTools = with pkgs; [
@@ -32,7 +31,7 @@
         ];
 
         buildInputs =
-          if system == "x86_64-darwin" || system  == "aarch64-darwin" then [
+          if system == "x86_64-darwin" || system == "aarch64-darwin" then [
             pkgs.openssl
             pkgs.pkg-config
           ] ++ libsDarwin else [
@@ -50,9 +49,15 @@
             hooks = {
               typos.enable = true;
 
-              rustfmt.enable = true;
+              rustfmt = {
+                enable = true;
+                entry = "cargo +nightly fmt --all --check";
+              };
 
-              clippy.enable = true;
+              clippy = {
+                enable = true;
+                entry = "cargo +nightly clippy --all-targets";
+              };
 
               nixpkgs-fmt.enable = true;
             };
@@ -60,9 +65,9 @@
         };
 
         packages = {
-            default = import ./build.nix {
-                inherit lib rustPlatform florestaRust buildInputs;
-            };
+          default = import ./build.nix {
+            inherit lib rustPlatform florestaRust buildInputs;
+          };
         };
 
         flake.overlays.default = (final: prev: {
