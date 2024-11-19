@@ -618,6 +618,7 @@ where
             .map_err(WireError::Io)
     }
 
+    /// Saves the utreexo peers to disk so we can reconnect with them later
     pub(crate) fn save_utreexo_peers(&self) -> Result<(), WireError> {
         self.address_man.dump_utreexo_peers(&self.datadir).map_err(WireError::Io)
     }
