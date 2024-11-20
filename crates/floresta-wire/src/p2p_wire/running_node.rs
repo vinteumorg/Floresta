@@ -636,11 +636,19 @@ where
         self.blocks.insert(block.block.block_hash(), (peer, block));
         while let Some((peer, block)) = self.blocks.remove(&next_block) {
             debug!("processing block {}", block.block.block_hash(),);
-            let (proof, del_hashes, inputs) = floresta_chain::proof_util::process_proof(
-                &block.udata.unwrap(),
-                &block.block.txdata,
-                &self.chain,
-            )?;
+            let Some(udata) = &block.udata else {
+                warn!("peer {peer} sent us a block without udata");
+                self.increase_banscore(peer, 5).await?;
+                self.send_to_random_peer(
+                    NodeRequest::GetBlock((vec![block.block.block_hash()], true)),
+                    service_flags::UTREEXO.into(),
+                )
+                .await?;
+                return Ok(());
+            };
+
+            let (proof, del_hashes, inputs) =
+                floresta_chain::proof_util::process_proof(udata, &block.block.txdata, &self.chain)?;
             if let Err(e) = self
                 .chain
                 .connect_block(&block.block, proof, inputs, del_hashes)
