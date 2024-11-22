@@ -31,7 +31,6 @@ use floresta_electrum::electrum_protocol::ElectrumServer;
 use floresta_watch_only::kv_database::KvDatabase;
 use floresta_watch_only::AddressCache;
 use floresta_watch_only::AddressCacheDatabase;
-use floresta_wire::address_man::LocalAddress;
 use floresta_wire::mempool::Mempool;
 use floresta_wire::node::UtreexoNode;
 use floresta_wire::UtreexoNodeConfig;
@@ -250,6 +249,7 @@ impl Florestad {
                     .next()
                     .map(|x| x.parse().unwrap_or(default_port))
                     .unwrap_or(default_port);
+
                 SocketAddr::new(ips[0], port)
             }
         }
@@ -354,13 +354,6 @@ impl Florestad {
         #[cfg(not(feature = "compact-filters"))]
         let cfilters = None;
 
-        // Handle the `-connect` cli option
-        let connect = self
-            .config
-            .clone()
-            .connect
-            .map(|host| host.parse::<LocalAddress>().unwrap());
-
         // For now, we only have compatible bridges on signet
         let pow_fraud_proofs = match self.config.network {
             crate::Network::Bitcoin => false,
@@ -386,7 +379,7 @@ impl Florestad {
                 .as_ref()
                 .map(|host| Self::get_ip_address(host, 9050)),
             datadir: data_dir.clone(),
-            fixed_peer: connect,
+            fixed_peer: self.config.connect.clone(),
             max_banscore: 50,
             compact_filters: self.config.cfilters,
             max_outbound: 10,
@@ -403,7 +396,8 @@ impl Florestad {
             blockchain_state.clone(),
             Arc::new(tokio::sync::RwLock::new(Mempool::new())),
             cfilters.clone(),
-        );
+        )
+        .expect("Could not create a chain provider");
 
         // ZMQ
         #[cfg(feature = "zmq-server")]
@@ -504,11 +498,10 @@ impl Florestad {
 
         // TLS Electrum accept loop
         if let Some(tls_acceptor) = tls_acceptor {
-            let tls_listener = Arc::new(
-                block_on(TcpListener::bind(ssl_e_addr)).unwrap_or_else(|e| {
+            let tls_listener =
+                Arc::new(block_on(TcpListener::bind(ssl_e_addr)).unwrap_or_else(|e| {
                     panic!("Cannot bind to ssl electrum address {}: {}", ssl_e_addr, e)
-                }),
-            );
+                }));
             task::spawn(client_accept_loop(
                 tls_listener,
                 electrum_server.message_transmitter.clone(),

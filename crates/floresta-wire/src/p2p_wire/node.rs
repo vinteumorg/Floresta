@@ -45,6 +45,7 @@ use tokio::time::timeout;
 use super::address_man::AddressMan;
 use super::address_man::AddressState;
 use super::address_man::LocalAddress;
+use super::error::AddrParseError;
 use super::error::WireError;
 use super::mempool::Mempool;
 use super::node_context::NodeContext;
@@ -207,10 +208,19 @@ where
         chain: Chain,
         mempool: Arc<RwLock<Mempool>>,
         block_filters: Option<Arc<NetworkFilters<FlatFiltersStore>>>,
-    ) -> Self {
+    ) -> Result<Self, WireError> {
         let (node_tx, node_rx) = unbounded_channel();
         let socks5 = config.proxy.map(Socks5StreamBuilder::new);
-        UtreexoNode(
+
+        let fixed_peer = config
+            .fixed_peer
+            .as_ref()
+            .map(|address| {
+                Self::resolve_connect_host(&address, Self::get_port(config.network.into()))
+            })
+            .transpose()?;
+
+        Ok(UtreexoNode(
             NodeCommon {
                 last_filter: chain.get_block_hash(0).unwrap(),
                 block_filters,
@@ -237,11 +247,128 @@ where
                 datadir: config.datadir.clone(),
                 socks5,
                 max_banscore: config.max_banscore,
-                fixed_peer: config.fixed_peer.clone(),
+                fixed_peer,
                 config,
             },
             T::default(),
-        )
+        ))
+    }
+
+    fn get_port(network: Network) -> u16 {
+        match network {
+            Network::Bitcoin => 8333,
+            Network::Signet => 38333,
+            Network::Testnet => 18333,
+            Network::Regtest => 18444,
+        }
+    }
+
+    /// Resolves a string address into a LocalAddress
+    ///
+    /// This function should get an address in the format `<address>[<:port>]` and return a
+    /// usable [`LocalAddress`]. It can be an ipv4, ipv6 or a hostname. In case of hostnames,
+    /// we resolve them using the system's DNS resolver and return an ip address. Errors if
+    /// the provided address is invalid, or we can't resolve it.
+    ///
+    /// TODO: Allow for non-clearnet addresses like onion services and i2p.
+    fn resolve_connect_host(
+        address: &str,
+        default_port: u16,
+    ) -> Result<LocalAddress, AddrParseError> {
+        // ipv6
+        if address.starts_with('[') {
+            if !address.contains(']') {
+                return Err(AddrParseError::InvalidIpv6);
+            }
+
+            let mut split = address.trim_end().split(']');
+            let hostname = split.next().ok_or(AddrParseError::InvalidIpv6)?;
+            let port = split
+                .next()
+                .filter(|x| !x.is_empty())
+                .map(|port| {
+                    port.trim_start_matches(':')
+                        .parse()
+                        .map_err(|_e| AddrParseError::InvalidPort)
+                })
+                .transpose()?
+                .unwrap_or(default_port);
+
+            let hostname = hostname.trim_start_matches('[');
+            let ip = hostname.parse().map_err(|_e| AddrParseError::InvalidIpv6)?;
+            return Ok(LocalAddress::new(
+                AddrV2::Ipv6(ip),
+                0,
+                AddressState::NeverTried,
+                ServiceFlags::NONE,
+                port,
+                rand::random(),
+            ));
+        }
+
+        // ipv4 - it's hard to differentiate between ipv4 and hostname without an actual regex
+        // simply try to parse it as an ip address and if it fails, assume it's a hostname
+        let mut split = address.split(':');
+        let ip = split
+            .next()
+            .ok_or(AddrParseError::InvalidIpv4)?
+            .parse()
+            .map_err(|_e| AddrParseError::InvalidIpv4);
+
+        match ip {
+            Ok(ip) => {
+                let port = split
+                    .next()
+                    .map(|port| port.parse().map_err(|_e| AddrParseError::InvalidPort))
+                    .transpose()?
+                    .unwrap_or(default_port);
+
+                if split.next().is_some() {
+                    return Err(AddrParseError::Inconclusive);
+                }
+
+                let id = rand::random();
+                Ok(LocalAddress::new(
+                    AddrV2::Ipv4(ip),
+                    0,
+                    AddressState::NeverTried,
+                    ServiceFlags::NONE,
+                    port,
+                    id,
+                ))
+            }
+
+            Err(_) => {
+                let mut split = address.split(':');
+                let hostname = split.next().ok_or(AddrParseError::InvalidHostname)?;
+                let port = split
+                    .next()
+                    .map(|port| port.parse().map_err(|_e| AddrParseError::InvalidPort))
+                    .transpose()?
+                    .unwrap_or(default_port);
+
+                if split.next().is_some() {
+                    return Err(AddrParseError::Inconclusive);
+                }
+
+                let ip = dns_lookup::lookup_host(hostname)
+                    .map_err(|_e| AddrParseError::InvalidHostname)?;
+                let id = rand::random();
+                let ip = match ip[0] {
+                    std::net::IpAddr::V4(ip) => AddrV2::Ipv4(ip),
+                    std::net::IpAddr::V6(ip) => AddrV2::Ipv6(ip),
+                };
+
+                Ok(LocalAddress::new(
+                    ip,
+                    0,
+                    AddressState::NeverTried,
+                    ServiceFlags::NONE,
+                    port,
+                    id,
+                ))
+            }
+        }
     }
 
     pub(crate) fn get_peer_info(&self, peer: &u32) -> Option<PeerInfo> {
@@ -908,6 +1035,7 @@ macro_rules! try_and_log {
         }
     };
 }
+
 macro_rules! periodic_job {
     ($what:expr, $timer:expr, $interval:ident, $context:ty) => {
         if $timer.elapsed() > Duration::from_secs(<$context>::$interval) {
@@ -922,5 +1050,84 @@ macro_rules! periodic_job {
         }
     };
 }
+
 pub(crate) use periodic_job;
 pub(crate) use try_and_log;
+
+#[cfg(test)]
+mod tests {
+    use floresta_chain::pruned_utreexo::partial_chain::PartialChainState;
+
+    use crate::node::UtreexoNode;
+    use crate::running_node::RunningNode;
+
+    fn check_address_resolving(address: &str, port: u16, should_succeed: bool, description: &str) {
+        let result =
+            UtreexoNode::<RunningNode, PartialChainState>::resolve_connect_host(address, port);
+        if should_succeed {
+            assert!(result.is_ok(), "Failed: {}", description);
+        } else {
+            assert!(result.is_err(), "Unexpected success: {}", description);
+        }
+    }
+
+    #[test]
+    fn test_parse_address() {
+        // IPv6 Tests
+        check_address_resolving("[::1]", 8333, true, "Valid IPv6 without port");
+        check_address_resolving("[::1", 8333, false, "Invalid IPv6 format");
+        check_address_resolving("[::1]:8333", 8333, true, "Valid IPv6 with port");
+        check_address_resolving(
+            "[::1]:8333:8333",
+            8333,
+            false,
+            "Invalid IPv6 with multiple ports",
+        );
+
+        // IPv4 Tests
+        check_address_resolving("127.0.0.1", 8333, true, "Valid IPv4 without port");
+        check_address_resolving("321.321.321.321", 8333, false, "Invalid IPv4 format");
+        check_address_resolving("127.0.0.1:8333", 8333, true, "Valid IPv4 with port");
+        check_address_resolving(
+            "127.0.0.1:8333:8333",
+            8333,
+            false,
+            "Invalid IPv4 with multiple ports",
+        );
+
+        // Hostname Tests
+        check_address_resolving("example.com", 8333, true, "Valid hostname without port");
+        check_address_resolving("example", 8333, false, "Invalid hostname");
+        check_address_resolving("example.com:8333", 8333, true, "Valid hostname with port");
+        check_address_resolving(
+            "example.com:8333:8333",
+            8333,
+            false,
+            "Invalid hostname with multiple ports",
+        );
+
+        // Edge Cases
+        #[cfg(not(target_os = "windows"))]
+        check_address_resolving("", 8333, false, "Empty string address");
+        #[cfg(not(target_os = "windows"))]
+        check_address_resolving(
+            " 127.0.0.1:8333 ",
+            8333,
+            false,
+            "Address with leading/trailing spaces",
+        );
+        check_address_resolving("127.0.0.1:0", 0, true, "Valid address with port 0");
+        check_address_resolving(
+            "127.0.0.1:65535",
+            65535,
+            true,
+            "Valid address with maximum port",
+        );
+        check_address_resolving(
+            "127.0.0.1:65536",
+            65535,
+            false,
+            "Valid address with out-of-range port",
+        )
+    }
+}

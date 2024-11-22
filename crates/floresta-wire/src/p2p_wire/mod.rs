@@ -6,8 +6,6 @@ use std::net::SocketAddr;
 use bitcoin::Network;
 use floresta_chain::AssumeUtreexoValue;
 
-use self::address_man::LocalAddress;
-
 #[derive(Debug, Clone)]
 /// Configuration for the Utreexo node.
 pub struct UtreexoNodeConfig {
@@ -30,7 +28,7 @@ pub struct UtreexoNodeConfig {
     ///
     /// If you want to connect to a specific peer, you can set this to a string with the
     /// format `ip:port`. For example, `localhost:8333`.
-    pub fixed_peer: Option<LocalAddress>,
+    pub fixed_peer: Option<String>,
     /// Maximum ban score. Defaults to 100.
     ///
     /// If a peer misbehaves, we increase its ban score. If the ban score reaches this value,

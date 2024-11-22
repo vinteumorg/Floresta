@@ -290,7 +290,9 @@ where
                 chain,
                 self.mempool.clone(),
                 None,
-            );
+            )
+            .expect("Failed to create backfill node"); // expect is fine here, because we already
+                                                       // validated this config before creating the RunningNode
 
             UtreexoNode::<SyncNode, PartialChainState>::run(
                 &mut backfill,
