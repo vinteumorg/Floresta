@@ -150,7 +150,7 @@ pub struct Cli {
     /// Download block filters starting at this height. Negative numbers are relative to the current tip.
     pub filters_start_height: Option<i32>,
 
-    #[arg(long)]
+    #[arg(long, default_value_t = true)]
     /// Whether we should assume a utreexo state for a given height
     ///
     /// This option will significantly speed up the initial block download, by skipping the
@@ -184,4 +184,12 @@ pub struct Cli {
     /// write it to a file. This option should be an absolute path to a file. Usually, you'd
     /// write it to $DATA_DIR/florestad.pid
     pub pid_file: Option<String>,
+    #[arg(long, default_value_t = true)]
+    /// Whehter we should backfill
+    ///
+    /// If we assumeutreexo or use pow fraud proofs, you have the option to download and validate
+    /// the blocks that were skipped. This will take a long time, but will run on the background
+    /// and won't affect the node's operation. You may notice that this will take a lot of CPU
+    /// and bandwidth to run.
+    pub backfill: bool,
 }

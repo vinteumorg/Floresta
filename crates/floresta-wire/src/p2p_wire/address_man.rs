@@ -155,7 +155,7 @@ impl LocalAddress {
 }
 
 /// A module that keeps track of know addresses and serve them to our node to connect
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct AddressMan {
     addresses: HashMap<usize, LocalAddress>,
     good_addresses: Vec<usize>,
@@ -397,6 +397,7 @@ impl AddressMan {
 
         let idx = rand::random::<usize>() % peers.len();
         let utreexo_peer = peers.get(idx)?;
+
         Some((*utreexo_peer, self.addresses.get(utreexo_peer)?.to_owned()))
     }
 

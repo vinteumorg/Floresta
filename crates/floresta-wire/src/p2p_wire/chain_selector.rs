@@ -45,7 +45,6 @@
 //! downloading the actual blocks and validating them.
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 
@@ -61,7 +60,6 @@ use log::info;
 use log::warn;
 use rustreexo::accumulator::node_hash::NodeHash;
 use rustreexo::accumulator::stump::Stump;
-use tokio::sync::RwLock;
 use tokio::time::timeout;
 
 use super::error::WireError;
@@ -170,8 +168,7 @@ where
             .and_modify(|e| *e = last)
             .or_insert(last);
 
-        self.request_headers(headers.last().unwrap().block_hash(), peer)
-            .await
+        self.request_headers(last, peer).await
     }
 
     /// Takes a serialized accumulator and parses it into a Stump
@@ -681,7 +678,7 @@ where
         Ok(())
     }
 
-    pub async fn run(&mut self, stop_signal: Arc<RwLock<bool>>) -> Result<(), WireError> {
+    pub async fn run(&mut self) -> Result<(), WireError> {
         info!("Starting ibd, selecting the best chain");
 
         loop {
@@ -726,7 +723,7 @@ where
 
             try_and_log!(self.check_for_timeout().await);
 
-            if *stop_signal.read().await {
+            if *self.kill_signal.read().await {
                 break;
             }
         }

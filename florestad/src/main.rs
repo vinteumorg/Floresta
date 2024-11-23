@@ -63,6 +63,7 @@ fn main() {
         ssl_cert_path: params.ssl_cert_path,
         ssl_key_path: params.ssl_key_path,
         no_ssl: params.no_ssl,
+        backfill: params.backfill,
     };
 
     #[cfg(unix)]
