@@ -75,7 +75,7 @@ pub struct Cli {
     #[arg(long, value_name = "PATH")]
     /// Where should we store data. This is the directory where we'll store the chainstate,
     /// the wallet, the logs, the compact block filters, the Utreexo state, etc.
-    /// Defaults to `~/.floresta`. The passed value shold be an absolute path.
+    /// Defaults to `~/.floresta`. The passed value should be an absolute path.
     pub data_dir: Option<String>,
 
     #[arg(long, default_value_t = true)]
@@ -102,7 +102,7 @@ pub struct Cli {
     pub wallet_xpub: Option<Vec<String>>,
 
     #[arg(long, value_name = "DESCRIPTOR")]
-    /// Add a output descriptor to our wallet
+    /// Add an output descriptor to our wallet
     ///
     /// This option can be passed many times, and will accept any valid output descriptor.
     /// You only need to pass this once, but there's no harm in passing it more than once.
@@ -121,7 +121,7 @@ pub struct Cli {
     pub assume_valid: Option<String>,
 
     #[arg(long, short, value_name = "address[:<port>]")]
-    /// A address for the ZeroMQ server to listen to
+    /// An address for the ZeroMQ server to listen to
     ///
     /// ZeroMQ is a lightweight message queue for Inter Process Communication. If you connect
     /// with this server, it'll push new blocks after we fully validate it.
@@ -130,12 +130,12 @@ pub struct Cli {
     #[arg(long, value_name = "address[:<port>]")]
     /// A node to connect to
     ///
-    /// If this option is provided, we'll connect **only** to this node. It should be a ipv4
+    /// If this option is provided, we'll connect **only** to this node. It should be an ipv4
     /// address in the format <address>[:<port>]
     pub connect: Option<String>,
 
     #[arg(long, value_name = "address[:<port>]")]
-    /// The address where our json-rpc server shold listen to in the format <address>[:<port>]
+    /// The address where our json-rpc server should listen to in the format <address>[:<port>]
     pub rpc_address: Option<String>,
 
     #[arg(long, value_name = "address[:<port>]")]

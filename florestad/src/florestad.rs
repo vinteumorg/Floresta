@@ -66,16 +66,16 @@ use crate::zmq::ZMQServer;
 pub struct Config {
     /// Where we should place our data
     ///
-    /// This directory must be readable and writable by our proccess. We'll use this dir to store
+    /// This directory must be readable and writable by our process. We'll use this dir to store
     /// both chain and wallet data, so this should be kept in a non-volatile medium. We are not
-    /// particurly aggressive in disk usage, so we don't need a fast disk to work.
+    /// particularly aggressive in disk usage, so we don't need a fast disk to work.
     ///
     /// If not set, it defaults to $HOME/.floresta
     pub data_dir: Option<String>,
     /// We consider blocks prior to this one to have a valid signature
     ///
-    /// This is a optimization mirrowed from Core, where blocks before this one are considered to
-    /// have valid signatures. The idea here is that if a block is burried under a lot of PoW, it's
+    /// This is an optimization mirrored from Core, where blocks before this one are considered to
+    /// have valid signatures. The idea here is that if a block is buried under a lot of PoW, it's
     /// very unlikely that it is invalid. We still validate everything else and build the
     /// accumulator until this point (unless running on PoW-fraud proof or assumeutreexo mode) so
     /// there's still some work to do.
@@ -87,7 +87,7 @@ pub struct Config {
     /// cached address, that will be a no-op. After a xpub is cached, we derive multiple addresses
     /// from it and try to find transactions involving it.
     pub wallet_xpub: Option<Vec<String>>,
-    /// A output descriptor to cache
+    /// An output descriptor to cache
     ///
     /// This should be a list of ouptut descriptors that we should add to our watch-only wallet.
     /// This works just like wallet_xpub, but with a descriptor.
@@ -100,7 +100,7 @@ pub struct Config {
     /// If a setting is modified by the config file and this config struct, the following logic is
     /// used:
     ///     - For vectors, we use the combination of both vectors
-    ///     - for mutually exclusive options, this struct has precedense over the config file
+    ///     - for mutually exclusive options, this struct has precedence over the config file
     pub config_file: Option<String>,
     /// A proxy that we should use to connect with others
     ///
@@ -109,7 +109,7 @@ pub struct Config {
     pub proxy: Option<String>,
     /// The network we are running in, it may be one of: bitcoin, signet, regtest or testnet.
     pub network: crate::Network,
-    /// Whther we should build and store compact block filters
+    /// Whether we should build and store compact block filters
     ///
     /// Those filters are used for rescanning our wallet for historical transactions. If you don't
     /// have this on, the only way to find historical transactions is to download all blocks, which
@@ -128,7 +128,7 @@ pub struct Config {
     /// The address to listen to for our ZMQ server
     ///
     /// We have an (optional) ZMQ server, that pushes new blocks over a PUSH/PULL ZMQ queue, this
-    /// is the address that we'll listen for incomming connections.
+    /// is the address that we'll listen for incoming connections.
     pub zmq_address: Option<String>,
     pub connect: Option<String>,
     #[cfg(feature = "json-rpc")]
@@ -140,7 +140,7 @@ pub struct Config {
     pub ssl_electrum_address: Option<String>,
     /// Whether we should write logs to the stdio
     pub log_to_stdout: bool,
-    //// Whether we should log to a fs file
+    /// Whether we should log to a fs file
     pub log_to_file: bool,
     /// Whether we should use assume utreexo
     pub assume_utreexo: bool,
@@ -174,7 +174,7 @@ pub struct Florestad {
 impl Florestad {
     /// Kills a running florestad, this will return as soon as the main node stops.
     ///
-    /// It's not safe to stop you program before this thread returns because some
+    /// It's not safe to stop your program before this thread returns because some
     /// information may not be fully flushed to disk yet, and killing the process
     /// before flushing everything is equivalent to an unclean shutdown.
     #[allow(unused)]
@@ -325,7 +325,7 @@ impl Florestad {
             None => None,
         };
 
-        // For now we only have compatible bridges on signet
+        // For now, we only have compatible bridges on signet
         let pow_fraud_proofs = match self.config.network {
             crate::Network::Bitcoin => false,
             crate::Network::Signet => true,
