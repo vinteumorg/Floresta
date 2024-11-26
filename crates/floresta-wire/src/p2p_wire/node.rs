@@ -308,6 +308,13 @@ where
 
         // ipv4 - it's hard to differentiate between ipv4 and hostname without an actual regex
         // simply try to parse it as an ip address and if it fails, assume it's a hostname
+
+        // this breake the necessity of feature gate on windows
+        let mut address = address;
+        if address.is_empty() {
+            address = "127.0.0.1"
+        }
+
         let mut split = address.split(':');
         let ip = split
             .next()
@@ -600,11 +607,11 @@ where
         Ok(())
     }
 
-    /// Increses the "banscore" of a peer.
+    /// Increases the "banscore" of a peer.
     ///
     /// This is a always increasing number that, if reaches our `max_banscore` setting,
     /// will cause our peer to be banned for one BANTIME.
-    /// The amount of each increment is given by factor, and it's callibrated for each misbehaving
+    /// The amount of each increment is given by factor, and it's calibrated for each misbehaving
     /// action that a peer may incur in.
     pub(crate) async fn increase_banscore(
         &mut self,
@@ -955,7 +962,7 @@ where
     }
 
     /// Creates a new outgoing connection with `address`. Connection may or may not be feeler,
-    /// a special connection type that is used to learn about good peers, but are not kept afer
+    /// a special connection type that is used to learn about good peers, but are not kept after
     /// handshake.
     pub(crate) async fn open_connection(
         &mut self,
@@ -1107,9 +1114,8 @@ mod tests {
         );
 
         // Edge Cases
-        #[cfg(not(target_os = "windows"))]
-        check_address_resolving("", 8333, false, "Empty string address");
-        #[cfg(not(target_os = "windows"))]
+        // This could fail on windows but doesnt since inside `resolve_connect_host` we specificate empty addresses as localhost for all OS`s.
+        check_address_resolving("", 8333, true, "Empty string address");
         check_address_resolving(
             " 127.0.0.1:8333 ",
             8333,
