@@ -1,3 +1,6 @@
+use std::fmt::Display;
+use std::fmt::Formatter;
+use std::fmt::{self};
 use std::io;
 
 use floresta_chain::BlockchainError;
@@ -36,6 +39,8 @@ pub enum WireError {
     CompactBlockFiltersError(IteratableFilterStoreError),
     #[error("Poisoned lock")]
     PoisonedLock,
+    #[error("We couldn't parse the provided address due to: {0}")]
+    InvalidAddress(AddrParseError),
 }
 
 impl_error_from!(WireError, PeerError, PeerError);
@@ -45,6 +50,7 @@ impl_error_from!(
     IteratableFilterStoreError,
     CompactBlockFiltersError
 );
+impl_error_from!(WireError, AddrParseError, InvalidAddress);
 
 impl From<tokio::sync::mpsc::error::SendError<NodeRequest>> for WireError {
     fn from(error: tokio::sync::mpsc::error::SendError<NodeRequest>) -> Self {
@@ -55,5 +61,26 @@ impl From<tokio::sync::mpsc::error::SendError<NodeRequest>> for WireError {
 impl From<io::Error> for WireError {
     fn from(err: io::Error) -> WireError {
         WireError::Io(err)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum AddrParseError {
+    InvalidIpv6,
+    InvalidIpv4,
+    InvalidHostname,
+    InvalidPort,
+    Inconclusive,
+}
+
+impl Display for AddrParseError {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            AddrParseError::InvalidIpv6 => write!(f, "Invalid ipv6"),
+            AddrParseError::InvalidIpv4 => write!(f, "Invalid ipv4"),
+            AddrParseError::InvalidHostname => write!(f, "Invalid hostname"),
+            AddrParseError::InvalidPort => write!(f, "Invalid port"),
+            AddrParseError::Inconclusive => write!(f, "Inconclusive"),
+        }
     }
 }

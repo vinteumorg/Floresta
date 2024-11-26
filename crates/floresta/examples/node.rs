@@ -62,7 +62,8 @@ async fn main() {
         chain.clone(),
         Arc::new(RwLock::new(Mempool::new())),
         None,
-    );
+    )
+    .unwrap();
     // A handle is a simple way to interact with the node. It implements a queue of requests
     // that will be processed by the node.
     let handle = p2p.get_handle();

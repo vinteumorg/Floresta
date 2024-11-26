@@ -3,9 +3,9 @@ use std::fmt::Arguments;
 use std::fs::File;
 use std::io;
 use std::io::BufReader;
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::process::exit;
-use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::Mutex;
 #[cfg(feature = "json-rpc")]
@@ -31,7 +31,6 @@ use floresta_electrum::electrum_protocol::ElectrumServer;
 use floresta_watch_only::kv_database::KvDatabase;
 use floresta_watch_only::AddressCache;
 use floresta_watch_only::AddressCacheDatabase;
-use floresta_wire::address_man::LocalAddress;
 use floresta_wire::mempool::Mempool;
 use floresta_wire::node::UtreexoNode;
 use floresta_wire::UtreexoNodeConfig;
@@ -209,6 +208,53 @@ impl Florestad {
         }
     }
 
+    /// Parses an address in the format `<hostname>[<:port>]` and returns a
+    /// `SocketAddr` with the resolved IP address. If a hostname is provided,
+    /// it will be resolved using the system's DNS resolver. This function will
+    /// exit the program if it fails to resolve the hostname or the provided
+    /// address is invalid.
+    fn get_ip_address(hostname: &str, default_port: u16) -> SocketAddr {
+        if !hostname.contains(':') {
+            let Ok(ip) = hostname.parse() else {
+                error!("Invalid IP address: {hostname}");
+                exit(1);
+            };
+
+            return SocketAddr::new(ip, default_port);
+        }
+
+        let ip = hostname.parse();
+        match ip {
+            Ok(ip) => ip,
+            Err(_) => {
+                let mut split = hostname.split(':');
+                let hostname = split.next().unwrap();
+
+                debug!("Resolving hostname: {hostname}");
+
+                let ips: Vec<_> = match dns_lookup::lookup_host(hostname) {
+                    Ok(ips) => ips,
+                    Err(e) => {
+                        error!("Could not resolve hostname: {e}");
+                        exit(1);
+                    }
+                };
+
+                if ips.is_empty() {
+                    error!("No IP addresses found for hostname: {}", hostname);
+                    exit(1);
+                }
+
+                let port = split
+                    .next()
+                    .map(|x| x.parse().unwrap_or(default_port))
+                    .unwrap_or(default_port);
+
+                SocketAddr::new(ips[0], port)
+            }
+        }
+    }
+
     /// Actually runs florestad, spawning all modules and waiting util
     /// someone asks to stop.
     pub fn start(&self) {
@@ -304,26 +350,9 @@ impl Florestad {
         } else {
             None
         };
+
         #[cfg(not(feature = "compact-filters"))]
         let cfilters = None;
-
-        // Handle the `-connect` cli option
-        let connect = match self
-            .config
-            .clone()
-            .connect
-            .map(|host| LocalAddress::from_str(&host))
-        {
-            Some(Ok(host)) => {
-                debug!("Connecting to {:?}", host);
-                Some(host)
-            }
-            Some(Err(e)) => {
-                error!("Invalid host: {}", e);
-                exit(-1);
-            }
-            None => None,
-        };
 
         // For now, we only have compatible bridges on signet
         let pow_fraud_proofs = match self.config.network {
@@ -348,9 +377,9 @@ impl Florestad {
                 .config
                 .proxy
                 .as_ref()
-                .map(|address| address.parse().expect("Invalid address")),
+                .map(|host| Self::get_ip_address(host, 9050)),
             datadir: data_dir.clone(),
-            fixed_peer: connect,
+            fixed_peer: self.config.connect.clone(),
             max_banscore: 50,
             compact_filters: self.config.cfilters,
             max_outbound: 10,
@@ -367,7 +396,8 @@ impl Florestad {
             blockchain_state.clone(),
             Arc::new(tokio::sync::RwLock::new(Mempool::new())),
             cfilters.clone(),
-        );
+        )
+        .expect("Could not create a chain provider");
 
         // ZMQ
         #[cfg(feature = "zmq-server")]
@@ -405,7 +435,7 @@ impl Florestad {
                 self.config
                     .json_rpc_address
                     .as_ref()
-                    .map(|x| x.parse().expect("Invalid json rpc address")),
+                    .map(|x| Self::get_ip_address(x, 8332)),
                 runtime_handle,
             );
 
@@ -419,13 +449,15 @@ impl Florestad {
             .config
             .electrum_address
             .clone()
-            .unwrap_or("0.0.0.0:50001".into());
+            .map(|addr| Self::get_ip_address(&addr, 50001))
+            .unwrap_or("0.0.0.0:50001".parse().expect("hardcoded address"));
 
         let ssl_e_addr = self
             .config
             .ssl_electrum_address
             .clone()
-            .unwrap_or("0.0.0.0:50002".into());
+            .map(|addr| Self::get_ip_address(&addr, 50002))
+            .unwrap_or("0.0.0.0:50002".parse().expect("hardcoded address"));
 
         // Load TLS configuration if needed
         let tls_config = if !self.config.no_ssl {
@@ -454,9 +486,10 @@ impl Florestad {
 
         // Non-TLS Electrum accept loop
         let non_tls_listener = Arc::new(
-            block_on(TcpListener::bind(e_addr.clone()))
+            block_on(TcpListener::bind(e_addr))
                 .unwrap_or_else(|e| panic!("Cannot bind to electrum address {}: {}", e_addr, e)),
         );
+
         task::spawn(client_accept_loop(
             non_tls_listener,
             electrum_server.message_transmitter.clone(),
@@ -465,11 +498,10 @@ impl Florestad {
 
         // TLS Electrum accept loop
         if let Some(tls_acceptor) = tls_acceptor {
-            let tls_listener = Arc::new(
-                block_on(TcpListener::bind(ssl_e_addr.clone())).unwrap_or_else(|e| {
+            let tls_listener =
+                Arc::new(block_on(TcpListener::bind(ssl_e_addr)).unwrap_or_else(|e| {
                     panic!("Cannot bind to ssl electrum address {}: {}", ssl_e_addr, e)
-                }),
-            );
+                }));
             task::spawn(client_accept_loop(
                 tls_listener,
                 electrum_server.message_transmitter.clone(),
@@ -482,7 +514,7 @@ impl Florestad {
         info!("Server running on: {}", e_addr);
 
         if !self.config.no_ssl {
-            info!("TLS server running on: 0.0.0.0:50002");
+            info!("TLS server running on: {ssl_e_addr}");
         }
 
         // Chain provider

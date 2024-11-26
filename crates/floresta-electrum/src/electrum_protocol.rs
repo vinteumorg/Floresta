@@ -1063,7 +1063,8 @@ mod test {
                 chain.clone(),
                 Arc::new(tokio::sync::RwLock::new(Mempool::new())),
                 None,
-            );
+            )
+            .unwrap();
 
         let node_interface = chain_provider.get_handle();
 

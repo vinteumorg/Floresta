@@ -52,7 +52,8 @@ mod tests_utils {
             chain.clone(),
             mempool,
             None,
-        );
+        )
+        .unwrap();
 
         for (i, peer) in peers.into_iter().enumerate() {
             let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
