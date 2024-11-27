@@ -625,9 +625,15 @@ where
             .get(&service_flags::UTREEXO.into())
             .ok_or(WireError::NoPeersAvailable)?;
         let peers_usize: Vec<usize> = peers.iter().map(|&peer| peer as usize).collect();
-        self.address_man
-            .dump_utreexo_peers(&self.datadir, &peers_usize)
-            .map_err(WireError::Io)
+        if peers_usize.is_empty() {
+            warn!("No connected utreexo peers to save to disk");
+            return Ok(());
+        } else {
+            info!("Saving utreexo peers to disk");
+            self.address_man
+                .dump_utreexo_peers(&self.datadir, &peers_usize)
+                .map_err(WireError::Io)
+        }
     }
 
     pub(crate) async fn maybe_open_connection(&mut self) -> Result<(), WireError> {
