@@ -620,8 +620,13 @@ where
 
     /// Saves the utreexo peers to disk so we can reconnect with them later
     pub(crate) fn save_utreexo_peers(&self) -> Result<(), WireError> {
+        let peers: &Vec<u32> = self
+            .peer_by_service
+            .get(&service_flags::UTREEXO.into())
+            .ok_or(WireError::NoPeersAvailable)?;
+        let peers_usize: Vec<usize> = peers.iter().map(|&peer| peer as usize).collect();
         self.address_man
-            .dump_utreexo_peers(&self.datadir)
+            .dump_utreexo_peers(&self.datadir, &peers_usize)
             .map_err(WireError::Io)
     }
 
