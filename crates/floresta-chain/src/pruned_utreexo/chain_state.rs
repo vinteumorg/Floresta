@@ -1102,7 +1102,7 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
             block.txdata.len()
         );
 
-        if !self.is_in_idb() {
+        if !self.is_in_idb() || height % 10_000 == 0 {
             self.flush()?;
         }
 
