@@ -390,10 +390,12 @@ impl AddressMan {
     }
 
     /// Dumps the connected utreexo peers to a file on dir `datadir/anchors.json` in json format `
+    /// inputs are the directory to save the file and the list of ids of the connected utreexo peers
     pub fn dump_utreexo_peers(&self, datadir: &str, peers_id: &Vec<usize>) -> std::io::Result<()> {
         let addresses: Vec<_> = peers_id
             .iter()
-            .map(|id| self.addresses.get(id).unwrap().to_owned())
+            .filter_map(|id| self.addresses.get(id))
+            .map(|address| address.to_owned())
             .map(Into::<DiskLocalAddress>::into)
             .collect();
         let addresses = serde_json::to_string(&addresses);
