@@ -143,33 +143,44 @@ impl Default for RunningNode {
 }
 
 pub struct NodeCommon<Chain: BlockchainInterface + UpdatableChainstate> {
+    // 1. Core Blockchain and Transient Data
+    pub(crate) chain: Chain,
+    pub(crate) blocks: HashMap<BlockHash, (PeerId, UtreexoBlock)>,
+    pub(crate) mempool: Arc<RwLock<Mempool>>,
+    pub(crate) block_filters: Option<Arc<NetworkFilters<FlatFiltersStore>>>,
+    pub(crate) last_filter: BlockHash,
+
+    // 2. Peer Management
     pub(crate) peer_id_count: u32,
+    pub(crate) peer_ids: Vec<u32>,
+    pub(crate) peers: HashMap<u32, LocalPeerView>,
+    pub(crate) peer_by_service: HashMap<ServiceFlags, Vec<u32>>,
+    pub(crate) max_banscore: u32,
+    pub(crate) address_man: AddressMan,
+
+    // 3. Internal Communication
+    pub(crate) node_rx: UnboundedReceiver<NodeNotification>,
+    pub(crate) node_tx: UnboundedSender<NodeNotification>,
+
+    // 4. Networking Configuration
+    pub(crate) socks5: Option<Socks5StreamBuilder>,
+    pub(crate) fixed_peer: Option<LocalAddress>,
+
+    // 5. Time and Event Tracking
+    pub(crate) inflight: HashMap<InflightRequests, (u32, Instant)>,
     pub(crate) last_headers_request: Instant,
     pub(crate) last_tip_update: Instant,
     pub(crate) last_connection: Instant,
     pub(crate) last_peer_db_dump: Instant,
+    pub(crate) last_block_request: u32,
+    pub(crate) last_get_address_request: Instant,
     pub(crate) last_broadcast: Instant,
     pub(crate) last_send_addresses: Instant,
-    pub(crate) last_block_request: u32,
-    pub(crate) network: Network,
-    pub(crate) last_get_address_request: Instant,
-    pub(crate) peer_by_service: HashMap<ServiceFlags, Vec<u32>>,
-    pub(crate) peer_ids: Vec<u32>,
-    pub(crate) peers: HashMap<u32, LocalPeerView>,
-    pub(crate) chain: Chain,
-    pub(crate) blocks: HashMap<BlockHash, (PeerId, UtreexoBlock)>,
-    pub(crate) inflight: HashMap<InflightRequests, (u32, Instant)>,
-    pub(crate) node_rx: UnboundedReceiver<NodeNotification>,
-    pub(crate) node_tx: UnboundedSender<NodeNotification>,
-    pub(crate) mempool: Arc<RwLock<Mempool>>,
-    pub(crate) datadir: String,
-    pub(crate) address_man: AddressMan,
-    pub(crate) max_banscore: u32,
-    pub(crate) socks5: Option<Socks5StreamBuilder>,
-    pub(crate) fixed_peer: Option<LocalAddress>,
+
+    // 6. Configuration and Metadata
     pub(crate) config: UtreexoNodeConfig,
-    pub(crate) block_filters: Option<Arc<NetworkFilters<FlatFiltersStore>>>,
-    pub(crate) last_filter: BlockHash,
+    pub(crate) datadir: String,
+    pub(crate) network: Network,
 }
 
 pub struct UtreexoNode<Context, Chain: BlockchainInterface + UpdatableChainstate>(
