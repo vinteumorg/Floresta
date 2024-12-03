@@ -26,19 +26,19 @@ clean:
 test name="":
     @just test-doc {{name}}
     @just test-unit {{name}}
-    @just test-int {{name}}
+    @just test-int
 
 # Execute doc tests
 test-doc name="":
-    cargo +nightly test {{name}} --doc
+    cargo  test {{name}} --doc
 
 # Execute unit tests
 test-unit name="":
     cargo test --lib {{name}} -- --nocapture
 
 # Execute integration tests
-test-int name="":
-    cargo test --test '*' {{name}} -- --nocapture
+test-int:
+    cargo test --workspace -- --nocapture
 
 # Generate documentation for all crates
 doc:
