@@ -3,7 +3,7 @@
 let
     # Pname defines the name of the package and will decide the output of this expression
     pname = "floresta-node";
-    version = "0.6.0";
+    version = "0.7.0";
 
     # This sets the rustc and cargo to the ones from the florestaRust.
     #
