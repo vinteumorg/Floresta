@@ -668,7 +668,7 @@ where
                 floresta_chain::proof_util::process_proof(udata, &block.block.txdata, &self.chain)?;
             if let Err(e) = self
                 .chain
-                .connect_block(&block.block, proof, inputs, del_hashes)
+                .connect_block(&block.block, proof, inputs.into(), del_hashes)
             {
                 error!("Invalid block received by peer {} reason: {:?}", peer, e);
                 if let BlockchainError::BlockValidation(e) = e {
@@ -677,7 +677,10 @@ where
                     // to be invalidated.
                     match e {
                         BlockValidationErrors::InvalidCoinbase(_)
+                        | BlockValidationErrors::InvalidBlockTimestamp
                         | BlockValidationErrors::UtxoNotFound(_)
+                        | BlockValidationErrors::BadAbsoluteLockTime
+                        | BlockValidationErrors::BadRelativeLockTime
                         | BlockValidationErrors::ScriptValidationError(_)
                         | BlockValidationErrors::InvalidOutput
                         | BlockValidationErrors::ScriptError

@@ -5,7 +5,10 @@
 extern crate alloc;
 
 use core::ffi::c_uint;
+use core::ops::Sub;
 
+use bitcoin::absolute::Height;
+use bitcoin::absolute::Time;
 use bitcoin::block::Header as BlockHeader;
 use bitcoin::consensus::Encodable;
 use bitcoin::hashes::sha256;
@@ -13,7 +16,7 @@ use bitcoin::hashes::Hash;
 use bitcoin::Block;
 use bitcoin::BlockHash;
 use bitcoin::CompactTarget;
-use bitcoin::OutPoint;
+
 use bitcoin::ScriptBuf;
 use bitcoin::Target;
 use bitcoin::Transaction;
@@ -30,7 +33,12 @@ use sha2::Sha512_256;
 use super::chainparams::ChainParams;
 use super::error::BlockValidationErrors;
 use super::error::BlockchainError;
+use super::nodetime::NodeTime;
+use super::nodetime::HOUR;
+use super::utxo_data::UtxoMap;
 use crate::TransactionError;
+
+pub const SEQUENCE_LOCKTIME_MASK: u32 = 0x0000_ffff;
 
 /// The value of a single coin in satoshis.
 pub const COIN_VALUE: u64 = 100_000_000;
@@ -110,10 +118,10 @@ impl Consensus {
     ///     - The transaction must not have duplicate inputs
     ///     - The transaction must not spend more coins than it claims in the inputs
     ///     - The transaction must have valid scripts
-    #[allow(unused)]
     pub fn verify_block_transactions(
         height: u32,
-        mut utxos: HashMap<OutPoint, TxOut>,
+        mtp: Option<u32>,
+        mut utxos: UtxoMap,
         transactions: &[Transaction],
         subsidy: u64,
         verify_script: bool,
@@ -170,6 +178,17 @@ impl Consensus {
                         error,
                     }
                 })?;
+                match mtp {
+                    Some(mtp) => {
+                        Self::validate_locktime(input, transaction, &utxos, height, mtp).map_err(
+                            |error| TransactionError {
+                                txid: transaction.compute_txid(),
+                                error,
+                            },
+                        )?;
+                    }
+                    _ => {}
+                }
                 // TODO check also witness script size
             }
 
@@ -193,7 +212,14 @@ impl Consensus {
             #[cfg(feature = "bitcoinconsensus")]
             if verify_script {
                 transaction
-                    .verify_with_flags(|outpoint| utxos.remove(outpoint), flags)
+                    .verify_with_flags(
+                        // TO-DO: Make this less horrible to understand
+                        |outpoint| match utxos.0.remove(outpoint) {
+                            Some(utxodata) => Some(utxodata.txout),
+                            _ => None,
+                        },
+                        flags,
+                    )
                     .map_err(|err| TransactionError {
                         txid: transaction.compute_txid(),
                         error: BlockValidationErrors::ScriptValidationError(err.to_string()),
@@ -224,12 +250,9 @@ impl Consensus {
     /// Returns the TxOut being spent by the given input.
     ///
     /// Fails if the UTXO is not present in the given hashmap.
-    fn get_utxo<'a>(
-        input: &TxIn,
-        utxos: &'a HashMap<OutPoint, TxOut>,
-    ) -> Result<&'a TxOut, BlockValidationErrors> {
-        match utxos.get(&input.previous_output) {
-            Some(txout) => Ok(txout),
+    fn get_utxo<'a>(input: &TxIn, utxos: &'a UtxoMap) -> Result<&'a TxOut, BlockValidationErrors> {
+        match utxos.0.get(&input.previous_output) {
+            Some(txout) => Ok(&txout.txout),
             None => Err(
                 // This is the case when the spender:
                 // - Spends an UTXO that doesn't exist
@@ -238,13 +261,58 @@ impl Consensus {
             ),
         }
     }
-    #[allow(unused)]
+    pub fn validate_block_time(
+        block_timestamp: u32,
+        mtp: u32,
+        time: impl NodeTime,
+    ) -> Result<(), BlockValidationErrors> {
+        if mtp > block_timestamp && block_timestamp > (time.get_time().sub(2 * HOUR)) {
+            return Err(BlockValidationErrors::InvalidBlockTimestamp);
+        }
+        Ok(())
+    }
+    /// Validate the transaction locktime.
     fn validate_locktime(
         input: &TxIn,
         transaction: &Transaction,
+        out_map: &UtxoMap,
         height: u32,
+        mtp: u32,
     ) -> Result<(), BlockValidationErrors> {
-        unimplemented!("validate_locktime")
+        let is_relative_locked = input.sequence.is_relative_lock_time();
+        if is_relative_locked {
+            //validate lock time
+            let prevout = out_map.0.get(&input.previous_output).unwrap();
+
+            let is_block_locked = input.sequence.is_height_locked();
+
+            if is_block_locked {
+                let committed_height = prevout.get_height();
+                // to retrieve the span contained in the sequence we have to just get the u32 value that the sequence contains.
+                let height_span = input.sequence.0 & SEQUENCE_LOCKTIME_MASK;
+                // if the committed height + the span is greater than the current height, the transaction is invalid.
+                if committed_height + height_span > height {
+                    return Err(BlockValidationErrors::BadRelativeLockTime);
+                }
+            }
+            if !is_block_locked {
+                let committed_time = prevout.get_time();
+                // here we have to shift the sequence 16 bits to the left and 16 to the right get the time lock without the flag messing with us.
+                let time_lock = (input.sequence.0 & SEQUENCE_LOCKTIME_MASK) * 512_u32;
+                if committed_time + time_lock > mtp {
+                    return Err(BlockValidationErrors::BadRelativeLockTime);
+                }
+            }
+        }
+        if !is_relative_locked
+            && !transaction.is_absolute_timelock_satisfied(
+                Height::from_consensus(height).unwrap(),
+                Time::from_consensus(mtp).unwrap(),
+            )
+        {
+            return Err(BlockValidationErrors::BadAbsoluteLockTime);
+        }
+        Ok(())
     }
     /// Validates the script size and the number of sigops in a scriptpubkey or scriptsig.
     fn validate_script_size(script: &ScriptBuf) -> Result<(), BlockValidationErrors> {

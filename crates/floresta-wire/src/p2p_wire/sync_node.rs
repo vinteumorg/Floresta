@@ -207,7 +207,7 @@ where
 
             if let Err(e) = self
                 .chain
-                .connect_block(&block.block, proof, inputs, del_hashes)
+                .connect_block(&block.block, proof, inputs.into(), del_hashes)
             {
                 error!(
                     "Invalid block {:?} received by peer {} reason: {:?}",
@@ -220,7 +220,10 @@ where
                     // to be invalidated.
                     match e {
                         BlockValidationErrors::InvalidCoinbase(_)
+                        | BlockValidationErrors::InvalidBlockTimestamp
                         | BlockValidationErrors::UtxoNotFound(_)
+                        | BlockValidationErrors::BadAbsoluteLockTime
+                        | BlockValidationErrors::BadRelativeLockTime
                         | BlockValidationErrors::ScriptValidationError(_)
                         | BlockValidationErrors::InvalidOutput
                         | BlockValidationErrors::ScriptError
