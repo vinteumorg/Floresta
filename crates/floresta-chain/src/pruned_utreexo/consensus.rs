@@ -6,6 +6,8 @@ extern crate alloc;
 
 use core::ffi::c_uint;
 
+use bitcoin::absolute::Height;
+use bitcoin::absolute::Time;
 use bitcoin::block::Header as BlockHeader;
 use bitcoin::consensus::Encodable;
 use bitcoin::hashes::sha256;
@@ -31,6 +33,7 @@ use sha2::Sha512_256;
 use super::chainparams::ChainParams;
 use super::error::BlockValidationErrors;
 use super::error::BlockchainError;
+use super::utxo_data::UtxoMap;
 use crate::TransactionError;
 
 /// The value of a single coin in satoshis.
@@ -233,12 +236,47 @@ impl Consensus {
         Ok(())
     }
     #[allow(unused)]
+    /// Validate the transaction locktime. if mtp is 0, skip the validation.
     fn validate_locktime(
         input: &TxIn,
         transaction: &Transaction,
+        out_map: &UtxoMap,
         height: u32,
+        mtp: u32,
     ) -> Result<(), BlockValidationErrors> {
-        unimplemented!("validate_locktime")
+        if mtp == 0 {
+            return Ok(());
+        }
+        if input.sequence.is_relative_lock_time() {
+            //validate lock time
+            let prevout = out_map.get(&input.previous_output).unwrap();
+            if input.sequence.is_height_locked() {
+                let committed_height = prevout.get_height();
+                // to retrieve the span contained in the sequence we have to just get the u32 value that the sequence contains.
+                let height_span = input.sequence.0;
+                // if the committed height + the span is greater than the current height, the transaction is invalid.
+                if committed_height + height_span > height {
+                    return Err(BlockValidationErrors::BadRelativeLockTime);
+                }
+            }
+            if input.sequence.is_time_locked() {
+                let committed_time = prevout.get_time();
+                // here we have to shift the sequence 16 bits to the left and 16 to the right get the time lock without the flag messing with us.
+                let time_lock = ((input.sequence.0 << 16) >> 16) * 512_u32;
+                if committed_time + time_lock > mtp {
+                    return Err(BlockValidationErrors::BadRelativeLockTime);
+                }
+            }
+        }
+        if input.sequence.enables_absolute_lock_time()
+            && !transaction.is_absolute_timelock_satisfied(
+                Height::from_consensus(height).unwrap(),
+                Time::from_consensus(mtp).unwrap(),
+            )
+        {
+            return Err(BlockValidationErrors::BadAbsoluteLockTime);
+        }
+        Ok(())
     }
     /// Validates the script size and the number of sigops in a script.
     fn validate_script_size(script: &ScriptBuf) -> Result<(), BlockValidationErrors> {
