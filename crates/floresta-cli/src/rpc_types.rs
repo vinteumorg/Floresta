@@ -86,7 +86,7 @@ pub struct RawTx {
     pub time: u32,
 }
 
-/// A transaction output returned by some RPCs like getrawtransaction and getblock
+/// A transaction output returned by some RPCs like gettransaction and getblock
 #[derive(Deserialize, Serialize)]
 pub struct TxOut {
     /// The amount in sats locked in this UTXO
@@ -119,7 +119,7 @@ pub struct ScriptPubKey {
     pub address: String,
 }
 
-/// A transaction input returned by some rpcs, like getrawtransaction and getblock
+/// A transaction input returned by some rpcs, like gettransaction and getblock
 #[derive(Deserialize, Serialize)]
 pub struct TxIn {
     /// The txid that created this UTXO
@@ -136,7 +136,7 @@ pub struct TxIn {
 }
 
 /// A representation for the transaction ScriptSig, returned by some rpcs
-/// like getrawtransaction and getblock
+/// like gettransaction and getblock
 #[derive(Deserialize, Serialize)]
 pub struct ScriptSigJson {
     /// A ASM representation for this scriptSig
