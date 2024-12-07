@@ -12,7 +12,7 @@ Available commands:
  - [getblockhash](#getblockhash)
  - [gettxout](#gettxout)
  - [gettxproof](#gettxproof)
- - [getrawtransaction](#getrawtransaction)
+ - [gettransaction](#gettransaction)
  - [rescan](#rescan)
  - [sendrawtransaction](#sendrawtransaction)
  - [getblockheader](#getblockheader)
@@ -84,7 +84,7 @@ Returns a cached transaction output. The output itself doesn't have to be ours. 
 
 `spk`: The redeem script for this output
 
-## getrawtransaction
+## gettransaction
 
 Returns a transaction data, given its id. The transaction itself doesn't have to be ours. But it should be cached by our internal wallet or in the mempool.
 
