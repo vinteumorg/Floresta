@@ -383,7 +383,7 @@ where
                 continue;
             }
 
-            // Aks our peers for new addresses
+            // Ask our peers for new addresses
             periodic_job!(
                 self.ask_for_addresses().await,
                 self.last_get_address_request,
@@ -662,6 +662,8 @@ where
                     // to be invalidated.
                     match e {
                         BlockValidationErrors::InvalidCoinbase(_)
+                        | BlockValidationErrors::BadAbsoluteLockTime
+                        | BlockValidationErrors::BadRelativeLockTime
                         | BlockValidationErrors::UtxoAlreadySpent(_)
                         | BlockValidationErrors::ScriptValidationError(_)
                         | BlockValidationErrors::InvalidOutput

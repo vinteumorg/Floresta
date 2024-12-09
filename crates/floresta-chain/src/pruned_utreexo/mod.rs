@@ -54,7 +54,7 @@ pub trait BlockchainInterface {
     /// Register for receiving notifications for some event. Right now it only works for
     /// new blocks, but may work with transactions in the future too.
     /// if a module performs some heavy-lifting on the block's data, it should pass in a
-    /// vector or a channel where data can be  transfered to the atual worker, otherwise
+    /// vector or a channel where data can be  transferred to the atual worker, otherwise
     /// chainstate will be stuck for as long as you have work to do.
     fn subscribe(&self, tx: Arc<dyn BlockConsumer>);
     /// Tells whether or not we are on ibd
@@ -136,7 +136,7 @@ pub trait UpdatableChainstate {
     /// Returns a partial chainstate from a range of blocks.
     ///
     /// [PartialChainState] is a simplified version of `ChainState` that is used during IBD.
-    /// It doesn't suport reorgs, only hold headers for a subset of blocks and isn't [Sync].
+    /// It doesn't support reorgs, only hold headers for a subset of blocks and isn't [Sync].
     /// The idea here is that you take a OS thread or some async task that will drive one
     /// [PartialChainState] to completion by downloading blocks inside that chainstate's range.
     /// If all goes right, it'll end without error, and you should mark blocks in this range as
@@ -152,7 +152,7 @@ pub trait UpdatableChainstate {
     ) -> Result<PartialChainState, BlockchainError>;
     /// Marks a chain as fully-valid
     ///
-    /// This mimics the behavour of checking every block before this block, and continues
+    /// This mimics the behaviour of checking every block before this block, and continues
     /// from this point
     fn mark_chain_as_assumed(&self, acc: Stump, tip: BlockHash) -> Result<bool, BlockchainError>;
 }
@@ -357,4 +357,90 @@ impl<T: BlockchainInterface> BlockchainInterface for Arc<T> {
     fn get_fork_point(&self, block: BlockHash) -> Result<BlockHash, Self::Error> {
         T::get_fork_point(self, block)
     }
+}
+/// Module to delegate local-time context.
+///
+/// The consumer of `Floresta-chain` has the option to implement [`NodeTime`] if on a non-std environment.([`get_time()`] implementation that returns 0u32 will disable time checks.)
+///
+/// On std you can just use a instance [`StdNodeTime`] as input.
+pub mod nodetime {
+    /// Disable empty struct.
+    ///
+    /// Meant to be used in cases to disable time verifications
+    pub struct DisableTime;
+    /// One Hour in seconds constant.
+    pub const HOUR: u32 = 60 * 60;
+    /// Trait to return time-related context of the chain.
+    ///
+    /// [`get_time()`] should return a the latest [unix timestamp](https://en.wikipedia.org/wiki/Unix_time) when the consumer has time-notion.
+    ///
+    /// if the consumer does not have any time notion or MTP control, its safe to use `0u32` to disable any validations on time.
+    pub trait NodeTime {
+        /// Should return a unix timestamp or 0 to skip any time related validation.
+        fn get_time(&self) -> u32;
+    }
+    impl NodeTime for DisableTime {
+        fn get_time(&self) -> u32 {
+            // we simply return zero to disable time checks
+            0
+        }
+    }
+    #[cfg(feature = "std")]
+    /// A module to provide the standard implementation of [`NodeTime`] trait. It uses [`std::time::SystemTime`] to get the current time.
+    pub mod standard_node_time {
+        extern crate std;
+        use std::time;
+        /// A empty struct to implement [`NodeTime`] trait using [`std::time::SystemTime`]
+        pub struct StdNodeTime;
+        impl super::NodeTime for StdNodeTime {
+            fn get_time(&self) -> u32 {
+                time::SystemTime::now()
+                    .duration_since(time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs() as u32
+            }
+        }
+    }
+}
+///Module to hold methods and structs related to UTXO data.
+pub mod utxo_data {
+    use super::*;
+
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    /// A struct to hold UTXO and its metadata.
+    pub struct UtxoData {
+        /// The transaction output that created this UTXO.
+        pub txout: bitcoin::TxOut,
+
+        //we need this two mostly to validate relative-locktime.
+        /// The height of the block that the utxo was committed.
+        pub height: u32,
+        /// The timestamp of the block that the utxo was committed.
+        pub time: u32,
+    }
+    impl UtxoData {
+        /// Creates a new UtxoData.
+        pub const fn new(txout: bitcoin::TxOut, height: u32, time: u32) -> Self {
+            Self {
+                txout,
+                height,
+                time,
+            }
+        }
+        /// Gets the output.
+        pub const fn get_txout(&self) -> &bitcoin::TxOut {
+            &self.txout
+        }
+        /// Gets the height that the output was committed.
+        pub const fn get_height(&self) -> u32 {
+            self.height
+        }
+        pub const fn get_time(&self) -> u32 {
+            self.time
+        }
+    }
+    /// A [`HashMap<bitcoin::OutPoint, UtxoData>`] alias.
+    ///
+    /// Use HashMap to store and fast-find all needed UTXOs related data.
+    pub type UtxoMap = HashMap<bitcoin::OutPoint, UtxoData>;
 }

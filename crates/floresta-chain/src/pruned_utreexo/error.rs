@@ -52,6 +52,8 @@ pub enum BlockValidationErrors {
     BadBip34,
     InvalidProof,
     CoinbaseNotMatured,
+    BadRelativeLockTime,
+    BadAbsoluteLockTime,
 }
 
 impl Display for TransactionError {
@@ -63,6 +65,12 @@ impl Display for TransactionError {
 impl Display for BlockValidationErrors {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
+            BlockValidationErrors::BadAbsoluteLockTime => {
+                write!(f, "A transaction contains a invalid absolute lock time.",)
+            }
+            BlockValidationErrors::BadRelativeLockTime => {
+                write!(f, "A transaction contains a invalid relative lock time.",)
+            }
             BlockValidationErrors::ScriptValidationError(e) => {
                 write!(f, "{}", e)
             }
