@@ -9,22 +9,32 @@ use clap::Subcommand;
 use floresta_cli::jsonrpc_client::Client;
 use floresta_cli::rpc::FlorestaRPC;
 
+// Main function that runs the CLI application
 fn main() -> anyhow::Result<()> {
+    // Parse command line arguments into a Cli struct
     let cli = Cli::parse();
 
+    // Create a new JSON-RPC client using the host from the CLI arguments
     let client = Client::new(get_host(&cli));
+
+    // Perform the requested RPC call and get the result
     let res = do_request(&cli, client)?;
 
+    // Print the result to the console
     println!("{}", res);
 
+    // Return Ok to indicate the program ran successfully
     anyhow::Ok(())
 }
 
+// Function to determine the RPC host based on CLI arguments and network type
 fn get_host(cmd: &Cli) -> String {
+    // If a specific RPC host is provided, use it
     if let Some(host) = cmd.rpc_host.clone() {
         return host;
     }
 
+    // Otherwise, use the default host based on the network type
     match cmd.network {
         Network::Bitcoin => "http://127.0.0.1:8332".into(),
         Network::Testnet => "http://127.0.0.1:18332".into(),
@@ -34,8 +44,10 @@ fn get_host(cmd: &Cli) -> String {
     }
 }
 
+// Function to perform the requested RPC call based on CLI arguments
 fn do_request(cmd: &Cli, client: Client) -> anyhow::Result<String> {
     Ok(match cmd.methods.clone() {
+        // Handle each possible RPC method and serialize the result to a pretty JSON string
         Methods::GetBlockchainInfo => serde_json::to_string_pretty(&client.get_blockchain_info()?)?,
         Methods::GetBlockHash { height } => {
             serde_json::to_string_pretty(&client.get_block_hash(height)?)?
