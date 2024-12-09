@@ -1,5 +1,7 @@
 use std::fmt::Debug;
+
 use serde::Deserialize;
+
 use crate::rpc::JsonRPCClient;
 
 // Define a Client struct that wraps a jsonrpc::Client
