@@ -205,7 +205,7 @@ impl<T: JsonRPCClient> FlorestaRPC for T {
     fn get_transaction(&self, tx_id: Txid, verbosity: Option<bool>) -> Result<Value> {
         let verbosity = verbosity.unwrap_or(false);
         self.call(
-            "getrawtransaction",
+            "gettransaction",
             &[Value::String(tx_id.to_string()), Value::Bool(verbosity)],
         )
     }
