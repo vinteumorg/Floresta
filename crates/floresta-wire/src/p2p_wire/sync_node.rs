@@ -1,4 +1,4 @@
-//! A node that downlaods and validates the blockchain.
+//! A node that downloads and validates the blockchain.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -196,6 +196,8 @@ where
                     // to be invalidated.
                     match e {
                         BlockValidationErrors::InvalidCoinbase(_)
+                        | BlockValidationErrors::BadAbsoluteLockTime
+                        | BlockValidationErrors::BadRelativeLockTime
                         | BlockValidationErrors::UtxoAlreadySpent(_)
                         | BlockValidationErrors::ScriptValidationError(_)
                         | BlockValidationErrors::InvalidOutput
