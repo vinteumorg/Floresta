@@ -21,7 +21,7 @@ use floresta_wire::running_node::RunningNode;
 use floresta_wire::UtreexoNodeConfig;
 use tokio::sync::RwLock;
 
-const DATA_DIR: &str = "./data";
+const DATA_DIR: &str = "./tmp-db";
 
 #[tokio::main]
 async fn main() {

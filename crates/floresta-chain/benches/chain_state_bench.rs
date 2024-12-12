@@ -37,7 +37,7 @@ fn setup_test_chain<'a>(
     assume_valid_arg: AssumeValidArg,
 ) -> ChainState<KvChainStore<'a>> {
     let test_id = rand::random::<u64>();
-    let chainstore = KvChainStore::new(format!("./data/{test_id}/")).unwrap();
+    let chainstore = KvChainStore::new(format!("./tmp-db/{test_id}/")).unwrap();
     ChainState::new(chainstore, network, assume_valid_arg)
 }
 

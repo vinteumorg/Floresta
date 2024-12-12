@@ -4,6 +4,7 @@
 
 # Temporary files and generated data
 tmp/
+tmp-db/
 data/
 output.log
 
