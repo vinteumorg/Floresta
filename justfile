@@ -30,7 +30,7 @@ test name="":
 
 # Execute doc tests
 test-doc name="":
-    cargo  test {{name}} --doc
+    cargo test {{name}} --doc
 
 # Execute unit tests
 test-unit name="":
@@ -57,8 +57,11 @@ fmt:
 format:
     cargo +nightly fmt --all --check
 
-# Test all feature combinations for each crate using cargo hack (arg: optional, e.g., --quiet or --verbose)
-# Will try to install or update the cargo-hack package
+# Test all feature combinations for each crate using cargo-hack (arg: optional, e.g., --quiet or --verbose)
 test-features arg="":
     cargo install cargo-hack --locked
     ./contrib/test_features.sh {{arg}}
+
+# Remove test-generated data
+clean-data:
+    ./contrib/clean_data.sh

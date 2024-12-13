@@ -968,7 +968,7 @@ mod test {
 
     fn get_test_cache() -> Arc<AddressCache<KvDatabase>> {
         let test_id: u32 = rand::random();
-        let cache = KvDatabase::new(format!("./data/{test_id}.floresta")).unwrap();
+        let cache = KvDatabase::new(format!("./tmp-db/{test_id}.floresta")).unwrap();
         let cache = AddressCache::new(cache);
 
         // Inserting test transactions in the wallet
@@ -1032,7 +1032,7 @@ mod test {
 
         // Create test_chain_state
         let test_id = rand::random::<u32>();
-        let chainstore = KvChainStore::new(format!("./data/{test_id}.floresta/")).unwrap();
+        let chainstore = KvChainStore::new(format!("./tmp-db/{test_id}.floresta/")).unwrap();
         let chain =
             ChainState::<KvChainStore>::new(chainstore, Network::Signet, AssumeValidArg::Hardcoded);
 
@@ -1045,7 +1045,7 @@ mod test {
             network: bitcoin::Network::Signet,
             pow_fraud_proofs: true,
             proxy: None,
-            datadir: "/data".to_string(),
+            datadir: "/tmp-db".to_string(),
             fixed_peer: None,
             max_banscore: 50,
             compact_filters: false,
