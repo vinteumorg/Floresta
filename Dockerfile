@@ -18,6 +18,7 @@ COPY Cargo.* ./
 COPY florestad/ florestad/
 COPY crates/ crates/
 COPY fuzz/ fuzz/
+COPY metrics/ metrics/
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
   cargo build --release
 
@@ -29,5 +30,6 @@ RUN chmod +x /usr/local/bin/florestad
 
 EXPOSE 50001
 EXPOSE 8332
+EXPOSE 3333
 
 CMD [ "florestad" ]
