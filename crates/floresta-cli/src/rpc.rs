@@ -26,6 +26,11 @@ pub trait FlorestaRPC {
     /// the current height, the best block hash, the difficulty, and whether we are
     /// currently in IBD (Initial Block Download) mode.
     fn get_blockchain_info(&self) -> Result<GetBlockchainInfoRes>;
+    /// Returns statistics about the unspent transaction output (UTXO) set
+    ///
+    /// This method returns detailed information about the current state of the UTXO set,
+    /// including the total amount of coins, the number of transactions, and the disk size.
+    fn get_tx_out_set_info(&self) -> Result<Value>;
     /// Returns the hash of the block at the given height
     ///
     /// This method returns the hash of the block at the given height. If the height is
@@ -155,6 +160,10 @@ impl<T: JsonRPCClient> FlorestaRPC for T {
 
     fn stop(&self) -> Result<bool> {
         self.call("stop", &[])
+    }
+
+    fn get_tx_out_set_info(&self) -> Result<Value> {
+        self.call("gettxoutsetinfo", &[])
     }
 
     fn rescan(&self, rescan: u32) -> Result<bool> {
