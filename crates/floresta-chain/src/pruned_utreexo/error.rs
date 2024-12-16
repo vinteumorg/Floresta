@@ -1,6 +1,7 @@
 use core::fmt::Debug;
 
 use bitcoin::blockdata::script;
+use bitcoin::OutPoint;
 use bitcoin::Txid;
 #[cfg(feature = "cli-blockchain")]
 use btcd_rpc::error::UtreexodError;
@@ -35,7 +36,7 @@ pub struct TransactionError {
 #[derive(Clone, Debug, PartialEq)]
 pub enum BlockValidationErrors {
     InvalidCoinbase(String),
-    UtxoAlreadySpent(Txid),
+    UtxoNotFound(OutPoint),
     ScriptValidationError(String),
     InvalidOutput,
     ScriptError,
@@ -66,8 +67,8 @@ impl Display for BlockValidationErrors {
             BlockValidationErrors::ScriptValidationError(e) => {
                 write!(f, "{}", e)
             }
-            BlockValidationErrors::UtxoAlreadySpent(utxo) => {
-                write!(f, "Utxo {:?} already spent", utxo)
+            BlockValidationErrors::UtxoNotFound(outpoint) => {
+                write!(f, "Utxo referenced by {:?} not found", outpoint)
             }
             BlockValidationErrors::InvalidOutput => {
                 write!(f, "Invalid output, verify spending values")
