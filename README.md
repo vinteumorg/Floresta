@@ -252,11 +252,51 @@ For the full test suite, including long-running tests, use:
 cargo test --release
 ```
 
-Additional functional tests are available. Install dependencies and run the test script with:
+#### Functional tests
+
+Additional functional tests are available. 
+
+* Install [poetry dependencie manager](https://python-poetry.org/docs/#installation). There're 
+many ways to do this:
 
 ```bash
-pip3 install -r tests/requirements.txt
-python tests/run_tests.py
+# recomended way
+pipx install
+```
+
+```bash
+# official installer (linux / mac)
+curl -sSL https://install.python-poetry.org | python3 -
+```
+
+```pwsh
+# official isntaller (windows - powershell)
+(Invoke-WebRequest -Uri https://install.python-poetry.org -UseBasicParsing).Content | py -
+```
+
+```bash
+# mannually
+python3 -m venv $VENV_PATH
+$VENV_PATH/bin/pip install -U pip setuptools
+$VENV_PATH/bin/pip install poetry
+```
+
+* Configure an isolated environment and install module dependencies:
+
+```bash
+poetry install --no-root
+```
+
+* Run tests:
+
+```bash
+poetry run poe tests
+```
+
+* Before run tests, check the pre-commit:
+
+```bash
+poetry run poe pre-commit
 ```
 
 ## Running Benchmarks

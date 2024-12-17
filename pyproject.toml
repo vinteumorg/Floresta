@@ -1,0 +1,45 @@
+# With this the user can use a custom
+# python environment, like those created
+# with venv or pyenv. The deault will be
+# the system python.
+[virtualenvs]
+prefer-active-python = true
+
+# This isnt really needed on pratical aspect
+# since this is only for organized the functional tests
+# but is necessary since its a requirement for poetry
+[tool.poetry]
+name = "floresta-functional-tests"
+version = "0.0.1"
+description = "collection of tools to help with functional testing of Floresta"
+authors = [
+  "lordshashank",
+  "qlrd <qlrddev@gmail.com>"
+]
+
+# Replace requirements.txt to here
+# if you wanna add some dep, just type `poetry add <package>`
+# to updated them first check with `poetry show --outdated`
+# them re-isntall with `poetry add <package>@latest`
+[tool.poetry.dependencies]
+python = ">=3.9,<=3.13"
+jsonrpclib = "^0.2.1"
+requests = "^2.32.3"
+black = "^24.10.0"
+pylint = "^3.3.2"
+poethepoet = "^0.31.1"
+
+# Here we can define some custom tasks
+# even bash or rust ones can be defined
+# all of them will run on virtualenv environement
+# to more information, see guidelines in
+# https://poethepoet.natn.io
+[tool.poe.tasks]
+format = "black ./tests"
+lint = "pylint ./tests"
+tests = "python tests/run_tests.py"
+pre-commit = ["format", "lint", "tests"]
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
