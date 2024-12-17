@@ -1,4 +1,4 @@
-//! A node that downlaods and validates the blockchain.
+//! A node that downloads and validates the blockchain.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -31,6 +31,12 @@ use crate::node::UtreexoNode;
 use crate::node_context::NodeContext;
 use crate::node_context::PeerId;
 
+/// [`SyncNode`] is a node that downloads and validates the blockchain.
+/// This node implements:
+///     - `NodeContext`
+///     - `UtreexoNode<SyncNode, Chain>`
+///
+/// see [node_context](crates/floresta-wire/src/p2p_wire/node_context.rs) and [node.rs](crates/floresta-wire/src/p2p_wire/node.rs) for more information.
 #[derive(Clone, Debug, Default)]
 pub struct SyncNode {
     last_block_requested: u32,
@@ -47,11 +53,14 @@ impl NodeContext for SyncNode {
     const MAX_INFLIGHT_REQUESTS: usize = 100; // double the default
 }
 
+/// Node methods for a [`UtreexoNode`] where its Context is a [`SyncNode`].
+/// See [node](crates/floresta-wire/src/p2p_wire/node.rs) for more information.
 impl<Chain> UtreexoNode<SyncNode, Chain>
 where
     WireError: From<<Chain as BlockchainInterface>::Error>,
     Chain: BlockchainInterface + UpdatableChainstate + 'static,
 {
+    /// Checks if we have the next 10 missing blocks until the tip, and request missing ones for a peer.
     async fn get_blocks_to_download(&mut self) {
         let mut blocks = Vec::with_capacity(10);
         for _ in 0..10 {
@@ -70,6 +79,15 @@ where
         try_and_log!(self.request_blocks(blocks).await);
     }
 
+    /// Starts the sync node by updating the last block requested and starting the main loop.
+    /// This loop to the following tasks, in order:
+    ///     - Receives messages from our peers through the node_tx channel.
+    ///     - Handles the message received.
+    ///     - Checks if the kill signal is set, if so, breaks the loop.
+    ///     - Checks if the chain is in IBD and disables it if it's not (e.g. if the chain is synced).
+    ///     - Checks if our tip is obsolete and requests a new one, creating a new connection.
+    ///     - Handles timeouts for inflight requests.
+    ///     - If were low on inflights, requests new blocks to validate.
     pub async fn run(&mut self, kill_signal: Arc<RwLock<bool>>, done_cb: impl FnOnce(&Chain)) {
         info!("Starting sync node");
         self.1.last_block_requested = self.chain.get_validation_index().unwrap();
@@ -124,6 +142,7 @@ where
         done_cb(&self.chain);
     }
 
+    /// Isolate inflights that have timed out and increase the banscore of the peer that sent them and re-request it.
     async fn handle_timeout(&mut self) {
         let to_remove = self
             .0
@@ -143,7 +162,11 @@ where
             try_and_log!(self.request_blocks(vec![block]).await);
         }
     }
-
+    /// Process a block received from a peer.
+    /// This function removes the received block from the inflight requests and inserts in its own blocks map.
+    /// It then processes the block and its proof, and connects it to the chain.
+    ///
+    /// This function bans the peer if the block is invalid and consider the whole chain as invalid.
     async fn handle_block_data(
         &mut self,
         peer: PeerId,
@@ -245,7 +268,7 @@ where
 
         Ok(())
     }
-
+    /// Process a message from a peer and handle it accordingly between the variants of [`PeerMessages`].
     async fn handle_message(&mut self, msg: NodeNotification) {
         match msg {
             NodeNotification::FromPeer(peer, notification) => match notification {
