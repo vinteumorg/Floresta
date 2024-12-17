@@ -256,12 +256,11 @@ cargo test --release
 
 Additional functional tests are available. 
 
-* Install [poetry dependencie manager](https://python-poetry.org/docs/#installation). There're 
-many ways to do this:
+* Install [poetry dependencies manager](https://python-poetry.org/docs/#installation). There are many ways to do this:
 
 ```bash
 # recomended way
-pipx install
+pipx install poetry
 ```
 
 ```bash
@@ -297,6 +296,13 @@ poetry run poe tests
 
 ```bash
 poetry run poe pre-commit
+```
+
+* Manual way without poetry: install dependencies and run the test script. This is discouraged since that can lead to inconsistences between different python versions:
+
+```bash
+pip3 install -r tests/requirements.txt
+python tests/run_tests.py
 ```
 
 ## Running Benchmarks
