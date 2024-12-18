@@ -131,12 +131,12 @@ class FE:
 
     def to_bytes(self):
         """Convert a field element to a 32-byte array (BE byte order)."""
-        return int(self).to_bytes(32, 'big')
+        return int(self).to_bytes(32, "big")
 
     @staticmethod
     def from_bytes(b):
         """Convert a 32-byte array to a field element (BE byte order, no overflow allowed)."""
-        v = int.from_bytes(b, 'big')
+        v = int.from_bytes(b, "big")
         if v >= FE.SIZE:
             return None
         return FE(v)
@@ -190,6 +190,8 @@ class GE:
             return a
         if a.infinity:
             return self
+
+        # pylint: disable=no-else-return
         if self.x == a.x:
             if self.y != a.y:
                 # A point added to its own negation is infinity.
@@ -221,7 +223,7 @@ class GE:
             # Double what we have so far.
             r = r + r
             # Add then add the points for which the corresponding scalar bit is set.
-            for (a, p) in naps:
+            for a, p in naps:
                 if (a >> i) & 1:
                     r += p
         return r
@@ -246,7 +248,7 @@ class GE:
     def to_bytes_uncompressed(self):
         """Convert a non-infinite group element to 65-byte uncompressed encoding."""
         assert not self.infinity
-        return b'\x04' + self.x.to_bytes() + self.y.to_bytes()
+        return b"\x04" + self.x.to_bytes() + self.y.to_bytes()
 
     def to_bytes_xonly(self):
         """Convert (the x coordinate of) a non-infinite group element to 32-byte xonly encoding."""
@@ -256,17 +258,22 @@ class GE:
     @staticmethod
     def lift_x(x):
         """Return group element with specified field element as x coordinate (and even y)."""
-        y = (FE(x)**3 + 7).sqrt()
+        y = (FE(x) ** 3 + 7).sqrt()
         if y is None:
             return None
+
+        # pylint: disable=invalid-unary-operand-type
         if not y.is_even():
             y = -y
         return GE(x, y)
 
+    # pylint: disable=too-many-return-statements
     @staticmethod
     def from_bytes(b):
         """Convert a compressed or uncompressed encoding to a group element."""
         assert len(b) in (33, 65)
+
+        # pylint: disable=no-else-return
         if len(b) == 33:
             if b[0] != 2 and b[0] != 3:
                 return None
@@ -277,6 +284,7 @@ class GE:
             if r is None:
                 return None
             if b[0] == 3:
+                # pylint: disable=invalid-unary-operand-type
                 r = -r
             return r
         else:
@@ -300,7 +308,7 @@ class GE:
     @staticmethod
     def is_valid_x(x):
         """Determine whether the provided field element is a valid X coordinate."""
-        return (FE(x)**3 + 7).is_square()
+        return (FE(x) ** 3 + 7).is_square()
 
     def __str__(self):
         """Convert this group element to a string."""
@@ -314,10 +322,12 @@ class GE:
             return "GE()"
         return f"GE(0x{int(self.x):x},0x{int(self.y):x})"
 
+
 # The secp256k1 generator point
 G = GE.lift_x(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)
 
 
+# pylint: disable=too-few-public-methods
 class FastGEMul:
     """Table for fast multiplication with a constant group element.
 
@@ -337,12 +347,14 @@ class FastGEMul:
             self.table.append(p)
 
     def mul(self, a):
+        """Fast multiplication"""
         result = GE()
         a = a % GE.ORDER
         for bit in range(a.bit_length()):
             if a & (1 << bit):
                 result += self.table[bit]
         return result
+
 
 # Precomputed table with multiples of G for fast multiplication
 FAST_G = FastGEMul(G)
