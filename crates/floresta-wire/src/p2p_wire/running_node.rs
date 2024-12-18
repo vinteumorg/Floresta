@@ -72,7 +72,7 @@ impl NodeContext for RunningNode {
     }
 }
 
-impl<Chain> UtreexoNode<RunningNode, Chain>
+impl<Chain> UtreexoNode<Chain, RunningNode>
 where
     WireError: From<<Chain as BlockchainInterface>::Error>,
     Chain: BlockchainInterface + UpdatableChainstate + 'static,
@@ -82,12 +82,12 @@ where
     /// multiple handles. It also doesn't require a mutable reference to the node, or any
     /// synchronization mechanism.
     pub fn get_handle(&self) -> Arc<NodeInterface> {
-        self.1.user_requests.clone()
+        self.context.user_requests.clone()
     }
 
     async fn handle_user_request(&mut self) -> Result<(), WireError> {
         let requests = self
-            .1
+            .context
             .user_requests
             .requests
             .lock()
@@ -110,7 +110,7 @@ where
             peers.push(self.get_peer_info(peer));
         }
         let peers = peers.into_iter().flatten().collect();
-        self.1.user_requests.send_answer(
+        self.context.user_requests.send_answer(
             UserRequest::GetPeerInfo,
             Some(NodeResponse::GetPeerInfo(peers)),
         );
@@ -147,7 +147,7 @@ where
                     self.open_connection(ConnectionKind::Regular, 0, local_addr)
                         .await;
                     self.peer_id_count += 1;
-                    self.1.user_requests.send_answer(
+                    self.context.user_requests.send_answer(
                         UserRequest::Connect((addr, port)),
                         Some(NodeResponse::Connect(true)),
                     );
@@ -184,7 +184,7 @@ where
 
     async fn check_for_timeout(&mut self) -> Result<(), WireError> {
         let timed_out = self
-            .0
+            .common
             .inflight
             .iter()
             .filter(|(_, (_, instant))| {
@@ -231,7 +231,7 @@ where
                         .insert(InflightRequests::Headers, (peer, Instant::now()));
                 }
                 InflightRequests::UserRequest(req) => {
-                    self.1.user_requests.send_answer(req, None);
+                    self.context.user_requests.send_answer(req, None);
                 }
                 InflightRequests::Connect(peer) => {
                     self.peers.remove(&peer);
@@ -250,10 +250,16 @@ where
     }
 
     pub async fn catch_up(self, kill_signal: Arc<RwLock<bool>>) -> Self {
-        let mut sync = UtreexoNode::<SyncNode, Chain>(self.0, SyncNode::default());
+        let mut sync = UtreexoNode::<Chain, SyncNode> {
+            context: SyncNode::default(),
+            common: self.common,
+        };
         sync.run(kill_signal, |_| {}).await;
 
-        UtreexoNode(sync.0, self.1)
+        UtreexoNode {
+            common: sync.common,
+            context: self.context,
+        }
     }
 
     pub async fn run(
@@ -265,27 +271,36 @@ where
         let startup_tip = self.chain.get_height().unwrap();
 
         // Use this node state to Initial Block download
-        let mut ibd = UtreexoNode(self.0, ChainSelector::default());
-        try_and_log!(UtreexoNode::<ChainSelector, Chain>::run(&mut ibd, kill_signal.clone()).await);
+        let mut ibd = UtreexoNode {
+            common: self.common,
+            context: ChainSelector::default(),
+        };
+        try_and_log!(UtreexoNode::<Chain, ChainSelector>::run(&mut ibd, kill_signal.clone()).await);
 
         if *kill_signal.read().await {
-            self = UtreexoNode(ibd.0, self.1);
+            self = UtreexoNode {
+                common: ibd.common,
+                context: self.context,
+            };
             self.shutdown().await;
             try_and_log!(stop_signal.send(()));
             return;
         }
 
-        self = UtreexoNode(ibd.0, self.1);
+        self = UtreexoNode {
+            common: ibd.common,
+            context: self.context,
+        };
 
         // download all blocks from the network
         if self.config.backfill && startup_tip == 0 {
-            let end = self.0.chain.get_validation_index().unwrap();
+            let end = self.common.chain.get_validation_index().unwrap();
             let chain = self
                 .chain
                 .get_partial_chain(startup_tip, end, Stump::default())
                 .unwrap();
 
-            let mut backfill = UtreexoNode::<SyncNode, PartialChainState>::new(
+            let mut backfill = UtreexoNode::<PartialChainState, SyncNode>::new(
                 self.config.clone(),
                 chain,
                 self.mempool.clone(),
@@ -294,7 +309,7 @@ where
             .expect("Failed to create backfill node"); // expect is fine here, because we already
                                                        // validated this config before creating the RunningNode
 
-            UtreexoNode::<SyncNode, PartialChainState>::run(
+            UtreexoNode::<PartialChainState, SyncNode>::run(
                 &mut backfill,
                 kill_signal.clone(),
                 |chain: &PartialChainState| {
@@ -350,7 +365,7 @@ where
             // Rework our address database
             periodic_job!(
                 self.address_man.rearrange_buckets(),
-                self.1.last_address_rearrange,
+                self.context.last_address_rearrange,
                 ADDRESS_REARRANGE_INTERVAL,
                 RunningNode,
                 true
@@ -373,7 +388,7 @@ where
             // Open new feeler connection periodically
             periodic_job!(
                 self.open_feeler_connection().await,
-                self.1.last_feeler,
+                self.context.last_feeler,
                 FEELER_INTERVAL,
                 RunningNode
             );
@@ -526,8 +541,8 @@ where
     /// 6 blocks.
     fn get_peer_score(&self, peer: PeerId) -> u32 {
         let mut score = 0;
-        for block in self.1.last_invs.keys() {
-            if self.1.last_invs[block].1.contains(&peer) {
+        for block in self.context.last_invs.keys() {
+            if self.context.last_invs[block].1.contains(&peer) {
                 score += 1;
             }
         }
@@ -594,13 +609,13 @@ where
                 block.block.block_hash()
             );
             if block.udata.is_some() {
-                self.1.user_requests.send_answer(
+                self.context.user_requests.send_answer(
                     UserRequest::UtreexoBlock(block.block.block_hash()),
                     Some(NodeResponse::UtreexoBlock(block)),
                 );
                 return Ok(());
             }
-            self.1.user_requests.send_answer(
+            self.context.user_requests.send_answer(
                 UserRequest::Block(block.block.block_hash()),
                 Some(NodeResponse::Block(block.block)),
             );
@@ -728,7 +743,7 @@ where
             NodeNotification::FromPeer(peer, message) => match message {
                 PeerMessages::NewBlock(block) => {
                     debug!("We got an inv with block {block} requesting it");
-                    self.1
+                    self.context
                         .last_invs
                         .entry(block)
                         .and_modify(|(when, peers)| {
@@ -818,7 +833,7 @@ where
                 PeerMessages::BlockFilter((hash, filter)) => {
                     debug!("Got a block filter for block {hash} from peer {peer}");
 
-                    if let Some(filters) = self.0.block_filters.as_ref() {
+                    if let Some(filters) = self.common.block_filters.as_ref() {
                         let mut current_height = filters.get_height()?;
                         let Some(this_height) = self.chain.get_block_height(&hash)? else {
                             warn!("Filter for block {} received, but we don't have it", hash);
@@ -826,21 +841,25 @@ where
                         };
 
                         if current_height + 1 != this_height {
-                            self.1.inflight_filters.insert(this_height, filter);
+                            self.context.inflight_filters.insert(this_height, filter);
                             return Ok(());
                         }
 
                         filters.push_filter(filter, current_height + 1)?;
                         current_height += 1;
 
-                        while let Some(filter) = self.1.inflight_filters.remove(&(current_height)) {
+                        while let Some(filter) =
+                            self.context.inflight_filters.remove(&(current_height))
+                        {
                             filters.push_filter(filter, current_height)?;
                             current_height += 1;
                         }
 
                         filters.save_height(current_height)?;
                         let current_hash = self.chain.get_block_hash(current_height)?;
-                        if self.last_filter == current_hash && self.1.inflight_filters.is_empty() {
+                        if self.last_filter == current_hash
+                            && self.context.inflight_filters.is_empty()
+                        {
                             self.inflight.remove(&InflightRequests::GetFilters);
                             self.download_filters().await?;
                         }
@@ -851,13 +870,13 @@ where
                     Inventory::Block(block)
                     | Inventory::WitnessBlock(block)
                     | Inventory::CompactBlock(block) => {
-                        self.1
+                        self.context
                             .user_requests
                             .send_answer(UserRequest::Block(block), None);
                     }
 
                     Inventory::WitnessTransaction(tx) | Inventory::Transaction(tx) => {
-                        self.1
+                        self.context
                             .user_requests
                             .send_answer(UserRequest::MempoolTransaction(tx), None);
                     }
@@ -865,7 +884,7 @@ where
                 },
                 PeerMessages::Transaction(tx) => {
                     debug!("saw a mempool transaction with txid={}", tx.compute_txid());
-                    self.1.user_requests.send_answer(
+                    self.context.user_requests.send_answer(
                         UserRequest::MempoolTransaction(tx.compute_txid()),
                         Some(NodeResponse::MempoolTransaction(tx)),
                     );
