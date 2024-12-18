@@ -6,13 +6,9 @@
 WARNING: This code is slow, uses bad randomness, does not properly protect
 keys, and is trivially vulnerable to side channel attacks. Do not use for
 anything but tests."""
-import csv
 import hashlib
 import hmac
-import os
 import random
-import unittest
-
 from test_framework.crypto import secp256k1
 
 # Point with no known discrete log.
@@ -21,8 +17,12 @@ H_POINT = "50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0"
 # Order of the secp256k1 curve
 ORDER = secp256k1.GE.ORDER
 
-def TaggedHash(tag, data):
-    ss = hashlib.sha256(tag.encode('utf-8')).digest()
+
+def tagged_hash(tag, data):
+    """
+    Add a hash-tag for given data
+    """
+    ss = hashlib.sha256(tag.encode("utf-8")).digest()
     ss += ss
     ss += data
     return hashlib.sha256(ss).digest()
@@ -33,28 +33,49 @@ class ECPubKey:
 
     def __init__(self):
         """Construct an uninitialized public key"""
-        self.p = None
+        self._p = secp256k1.GE(None, None)
+        self._compressed = False
 
     def set(self, data):
         """Construct a public key from a serialization in compressed or uncompressed format"""
-        self.p = secp256k1.GE.from_bytes(data)
-        self.compressed = len(data) == 33
+        self._p = secp256k1.GE.from_bytes(data)
+        self._compressed = len(data) == 33
 
     @property
-    def is_compressed(self):
-        return self.compressed
+    def is_compressed(self) -> bool:
+        """Getter info if the point data is compressed"""
+        return self._compressed
+
+    @is_compressed.setter
+    def is_compressed(self, value: bool):
+        """Getter info if the point data is compressed"""
+        self._compressed = value
 
     @property
-    def is_valid(self):
-        return self.p is not None
+    def is_valid(self) -> bool:
+        """Getter info if the point data is valid"""
+        return self._p is not None
+
+    @property
+    def point(self):
+        """Getter for point _p"""
+        if self._p is None:
+            raise ValueError("Point cant be None")
+        return self._p
+
+    @point.setter
+    def point(self, value: secp256k1.GE):
+        """Setter for point _p"""
+        self._p = value
 
     def get_bytes(self):
+        """Getter for return bytes of point repr"""
         assert self.is_valid
-        if self.compressed:
-            return self.p.to_bytes_compressed()
-        else:
-            return self.p.to_bytes_uncompressed()
+        if self.is_compressed:
+            return self.point.to_bytes_compressed()
+        return self.point.to_bytes_uncompressed()
 
+    # pylint: disable=too-many-branches,too-many-return-statements
     def verify_ecdsa(self, sig, msg, low_s=True):
         """Verify a strictly DER-encoded ECDSA signature against this pubkey.
 
@@ -64,79 +85,109 @@ class ECPubKey:
 
         # Extract r and s from the DER formatted signature. Return false for
         # any DER encoding errors.
-        if (sig[1] + 2 != len(sig)):
+        if sig[1] + 2 != len(sig):
             return False
-        if (len(sig) < 4):
+        if len(sig) < 4:
             return False
-        if (sig[0] != 0x30):
+        if sig[0] != 0x30:
             return False
-        if (sig[2] != 0x02):
+        if sig[2] != 0x02:
             return False
         rlen = sig[3]
-        if (len(sig) < 6 + rlen):
+        if len(sig) < 6 + rlen:
             return False
         if rlen < 1 or rlen > 33:
             return False
         if sig[4] >= 0x80:
             return False
-        if (rlen > 1 and (sig[4] == 0) and not (sig[5] & 0x80)):
+
+        # pylint: disable=superfluous-parens
+        if rlen > 1 and (sig[4] == 0) and not (sig[5] & 0x80):
             return False
-        r = int.from_bytes(sig[4:4+rlen], 'big')
-        if (sig[4+rlen] != 0x02):
+        r = int.from_bytes(sig[4 : 4 + rlen], "big")
+        if sig[4 + rlen] != 0x02:
             return False
-        slen = sig[5+rlen]
+        slen = sig[5 + rlen]
         if slen < 1 or slen > 33:
             return False
-        if (len(sig) != 6 + rlen + slen):
+        if len(sig) != 6 + rlen + slen:
             return False
-        if sig[6+rlen] >= 0x80:
+        if sig[6 + rlen] >= 0x80:
             return False
-        if (slen > 1 and (sig[6+rlen] == 0) and not (sig[7+rlen] & 0x80)):
+
+        # pylint: disable=superfluous-parens
+        if slen > 1 and (sig[6 + rlen] == 0) and not (sig[7 + rlen] & 0x80):
             return False
-        s = int.from_bytes(sig[6+rlen:6+rlen+slen], 'big')
+        s = int.from_bytes(sig[6 + rlen : 6 + rlen + slen], "big")
 
         # Verify that r and s are within the group order
         if r < 1 or s < 1 or r >= ORDER or s >= ORDER:
             return False
         if low_s and s >= secp256k1.GE.ORDER_HALF:
             return False
-        z = int.from_bytes(msg, 'big')
+        z = int.from_bytes(msg, "big")
 
         # Run verifier algorithm on r, s
         w = pow(s, -1, ORDER)
-        R = secp256k1.GE.mul((z * w, secp256k1.G), (r * w, self.p))
+
+        # pylint: disable=invalid-name
+        R = secp256k1.GE.mul((z * w, secp256k1.G), (r * w, self.point))
         if R.infinity or (int(R.x) % ORDER) != r:
             return False
         return True
 
+
 def generate_privkey():
     """Generate a valid random 32-byte private key."""
-    return random.randrange(1, ORDER).to_bytes(32, 'big')
+    return random.randrange(1, ORDER).to_bytes(32, "big")
+
 
 def rfc6979_nonce(key):
     """Compute signing nonce using RFC6979."""
     v = bytes([1] * 32)
     k = bytes([0] * 32)
-    k = hmac.new(k, v + b"\x00" + key, 'sha256').digest()
-    v = hmac.new(k, v, 'sha256').digest()
-    k = hmac.new(k, v + b"\x01" + key, 'sha256').digest()
-    v = hmac.new(k, v, 'sha256').digest()
-    return hmac.new(k, v, 'sha256').digest()
+    k = hmac.new(k, v + b"\x00" + key, "sha256").digest()
+    v = hmac.new(k, v, "sha256").digest()
+    k = hmac.new(k, v + b"\x01" + key, "sha256").digest()
+    v = hmac.new(k, v, "sha256").digest()
+    return hmac.new(k, v, "sha256").digest()
+
 
 class ECKey:
     """A secp256k1 private key"""
 
     def __init__(self):
-        self.valid = False
+        self._valid = False
+        self._secret = None
+        self._compressed = False
+
+    @property
+    def is_valid(self) -> bool:
+        """Getter for valid ECKey"""
+        return self._valid
+
+    @property
+    def is_compressed(self):
+        """Getter for compression check of ECKey"""
+        return self._compressed
+
+    @property
+    def secret(self) -> int:
+        """Getter for compression check of ECKey"""
+        if self._secret is None:
+            raise ValueError("Secret cannot be None")
+        return self._secret
 
     def set(self, secret, compressed):
         """Construct a private key object with given 32-byte secret and compressed flag."""
         assert len(secret) == 32
-        secret = int.from_bytes(secret, 'big')
-        self.valid = (secret > 0 and secret < ORDER)
-        if self.valid:
-            self.secret = secret
-            self.compressed = compressed
+        secret = int.from_bytes(secret, "big")
+
+        # pylint: disable=chained-comparison
+        self._valid = secret > 0 and secret < ORDER
+        if self.is_valid:
+            self._secret = secret
+            self._compressed = compressed
 
     def generate(self, compressed=True):
         """Generate a random private key (compressed or uncompressed)."""
@@ -144,23 +195,15 @@ class ECKey:
 
     def get_bytes(self):
         """Retrieve the 32-byte representation of this key."""
-        assert self.valid
-        return self.secret.to_bytes(32, 'big')
-
-    @property
-    def is_valid(self):
-        return self.valid
-
-    @property
-    def is_compressed(self):
-        return self.compressed
+        assert self.is_valid
+        return self.secret.to_bytes(32, "big")
 
     def get_pubkey(self):
         """Compute an ECPubKey object for this secret key."""
-        assert self.valid
+        assert self.is_valid
         ret = ECPubKey()
-        ret.p = self.secret * secp256k1.G
-        ret.compressed = self.compressed
+        ret.point = self.secret * secp256k1.G
+        ret.is_compressed = self.is_compressed
         return ret
 
     def sign_ecdsa(self, msg, low_s=True, rfc6979=False):
@@ -168,13 +211,18 @@ class ECKey:
 
         See https://en.wikipedia.org/wiki/Elliptic_Curve_Digital_Signature_Algorithm for the
         ECDSA signer algorithm."""
-        assert self.valid
-        z = int.from_bytes(msg, 'big')
-        # Note: no RFC6979 by default, but a simple random nonce (some tests rely on distinct transactions for the same operation)
+        assert self.is_valid
+        z = int.from_bytes(msg, "big")
+        # Note: no RFC6979 by default, but a simple random nonce
+        # (some tests rely on distinct transactions for the same operation)
         if rfc6979:
-            k = int.from_bytes(rfc6979_nonce(self.secret.to_bytes(32, 'big') + msg), 'big')
+            k = int.from_bytes(
+                rfc6979_nonce(self.secret.to_bytes(32, "big") + msg), "big"
+            )
         else:
             k = random.randrange(1, ORDER)
+
+        # pylint: disable=invalid-name
         R = k * secp256k1.G
         r = int(R.x) % ORDER
         s = (pow(k, -1, ORDER) * (z + self.secret * r)) % ORDER
@@ -183,22 +231,31 @@ class ECKey:
         # Represent in DER format. The byte representations of r and s have
         # length rounded up (255 bits becomes 32 bytes and 256 bits becomes 33
         # bytes).
-        rb = r.to_bytes((r.bit_length() + 8) // 8, 'big')
-        sb = s.to_bytes((s.bit_length() + 8) // 8, 'big')
-        return b'\x30' + bytes([4 + len(rb) + len(sb), 2, len(rb)]) + rb + bytes([2, len(sb)]) + sb
+        rb = r.to_bytes((r.bit_length() + 8) // 8, "big")
+        sb = s.to_bytes((s.bit_length() + 8) // 8, "big")
+        return (
+            b"\x30"
+            + bytes([4 + len(rb) + len(sb), 2, len(rb)])
+            + rb
+            + bytes([2, len(sb)])
+            + sb
+        )
+
 
 def compute_xonly_pubkey(key):
     """Compute an x-only (32 byte) public key from a (32 byte) private key.
 
     This also returns whether the resulting public key was negated.
     """
-
     assert len(key) == 32
-    x = int.from_bytes(key, 'big')
+    x = int.from_bytes(key, "big")
     if x == 0 or x >= ORDER:
         return (None, None)
+
+    # pylint: disable=invalid-name
     P = x * secp256k1.G
     return (P.to_bytes_xonly(), not P.y.is_even())
+
 
 def tweak_add_privkey(key, tweak):
     """Tweak a private key (after negating it if needed)."""
@@ -206,35 +263,39 @@ def tweak_add_privkey(key, tweak):
     assert len(key) == 32
     assert len(tweak) == 32
 
-    x = int.from_bytes(key, 'big')
+    x = int.from_bytes(key, "big")
     if x == 0 or x >= ORDER:
         return None
     if not (x * secp256k1.G).y.is_even():
-       x = ORDER - x
-    t = int.from_bytes(tweak, 'big')
+        x = ORDER - x
+    t = int.from_bytes(tweak, "big")
     if t >= ORDER:
         return None
     x = (x + t) % ORDER
     if x == 0:
         return None
-    return x.to_bytes(32, 'big')
+    return x.to_bytes(32, "big")
+
 
 def tweak_add_pubkey(key, tweak):
     """Tweak a public key and return whether the result had to be negated."""
-
     assert len(key) == 32
     assert len(tweak) == 32
 
+    # pylint: disable=invalid-name
     P = secp256k1.GE.from_bytes_xonly(key)
     if P is None:
         return None
-    t = int.from_bytes(tweak, 'big')
+    t = int.from_bytes(tweak, "big")
     if t >= ORDER:
         return None
+
+    # pylint: disable=invalid-name
     Q = t * secp256k1.G + P
     if Q.infinity:
         return None
     return (Q.to_bytes_xonly(), not Q.y.is_even())
+
 
 def verify_schnorr(key, sig, msg):
     """Verify a Schnorr signature (see BIP 340).
@@ -247,22 +308,29 @@ def verify_schnorr(key, sig, msg):
     assert len(msg) == 32
     assert len(sig) == 64
 
+    # pylint: disable=invalid-name
     P = secp256k1.GE.from_bytes_xonly(key)
     if P is None:
         return False
-    r = int.from_bytes(sig[0:32], 'big')
+    r = int.from_bytes(sig[0:32], "big")
     if r >= secp256k1.FE.SIZE:
         return False
-    s = int.from_bytes(sig[32:64], 'big')
+    s = int.from_bytes(sig[32:64], "big")
     if s >= ORDER:
         return False
-    e = int.from_bytes(TaggedHash("BIP0340/challenge", sig[0:32] + key + msg), 'big') % ORDER
+    e = (
+        int.from_bytes(tagged_hash("BIP0340/challenge", sig[0:32] + key + msg), "big")
+        % ORDER
+    )
+
+    # pylint: disable=invalid-name
     R = secp256k1.GE.mul((s, secp256k1.G), (-e, P))
     if R.infinity or not R.y.is_even():
         return False
     if r != R.x:
         return False
     return True
+
 
 def sign_schnorr(key, msg, aux=None, flip_p=False, flip_r=False):
     """Create a Schnorr signature (see BIP 340)."""
@@ -274,16 +342,35 @@ def sign_schnorr(key, msg, aux=None, flip_p=False, flip_r=False):
     assert len(msg) == 32
     assert len(aux) == 32
 
-    sec = int.from_bytes(key, 'big')
+    sec = int.from_bytes(key, "big")
     if sec == 0 or sec >= ORDER:
         return None
+
+    # pylint: disable=invalid-name
     P = sec * secp256k1.G
     if P.y.is_even() == flip_p:
         sec = ORDER - sec
-    t = (sec ^ int.from_bytes(TaggedHash("BIP0340/aux", aux), 'big')).to_bytes(32, 'big')
-    kp = int.from_bytes(TaggedHash("BIP0340/nonce", t + P.to_bytes_xonly() + msg), 'big') % ORDER
+    t = (sec ^ int.from_bytes(tagged_hash("BIP0340/aux", aux), "big")).to_bytes(
+        32, "big"
+    )
+    kp = (
+        int.from_bytes(
+            tagged_hash("BIP0340/nonce", t + P.to_bytes_xonly() + msg), "big"
+        )
+        % ORDER
+    )
     assert kp != 0
+
+    # pylint: disable=invalid-name
     R = kp * secp256k1.G
     k = kp if R.y.is_even() != flip_r else ORDER - kp
-    e = int.from_bytes(TaggedHash("BIP0340/challenge", R.to_bytes_xonly() + P.to_bytes_xonly() + msg), 'big') % ORDER
-    return R.to_bytes_xonly() + ((k + e * sec) % ORDER).to_bytes(32, 'big')
+    e = (
+        int.from_bytes(
+            tagged_hash(
+                "BIP0340/challenge", R.to_bytes_xonly() + P.to_bytes_xonly() + msg
+            ),
+            "big",
+        )
+        % ORDER
+    )
+    return R.to_bytes_xonly() + ((k + e * sec) % ORDER).to_bytes(32, "big")
