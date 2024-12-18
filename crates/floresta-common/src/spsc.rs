@@ -1,13 +1,13 @@
 //! A no-std Single Producer, Single Consumer channel for unidirectional message exchange between
 //! modules. This module don't use anything from the standard lib and can be easily used in no-std
-//! enviroments. We only use mem::take from [core].
+//! environments. We only use mem::take from [core].
 
 use core::mem::take;
 
 use crate::prelude::Vec;
 
 /// A (Send + Sync) single producer, single consumer channel to notify modules about things.
-/// The api is super minimalistic to reduce external dependecies, including from the std-lib
+/// The api is super minimalistic to reduce external dependencies, including from the std-lib
 ///
 /// One notable difference from the standard mspc channel is that this channel's ends are't
 /// two different types, while this is possible, there's no reason to do that. Specially
@@ -72,7 +72,7 @@ impl<T> Channel<T> {
 
 /// An iterator issued every time someone calls `recv`.
 ///
-/// This iterator takes all itens available for reading in a channel
+/// This iterator takes all items available for reading in a channel
 /// and lets the consumer iterate over them, without acquiring the lock
 /// every time (the mutex is only locked when `recv` is called).
 ///

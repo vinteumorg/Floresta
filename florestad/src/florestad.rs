@@ -88,7 +88,7 @@ pub struct Config {
     pub wallet_xpub: Option<Vec<String>>,
     /// An output descriptor to cache
     ///
-    /// This should be a list of ouptut descriptors that we should add to our watch-only wallet.
+    /// This should be a list of output descriptors that we should add to our watch-only wallet.
     /// This works just like wallet_xpub, but with a descriptor.
     pub wallet_descriptor: Option<Vec<String>>,
     /// Where should we read from a config file

@@ -2,10 +2,10 @@
 
 ### Introdução
 
-Este programa é uma pequena implementação de node com um Electrum Server acoplado. Ela se comporta semelhante a um setup com Bitcoin Core + Electrum Personal Server, porém com algumas diferenças chave.  
+Este program é uma pequena implementação de node com um Electrum Server acoplado. Ela se comporta semelhante a um setup com Bitcoin Core + Electrum Personal Server, porém com algumas diferenças chave.  
 
-- Node e Electrum Server estão no mesmo binário, tornando o processo mais simples e com menos erros.
-- O full node utiliza uma tecnologia nova chamada `Utreexo` para reduzir o consumo de recursos, você consegue rodar o node com menos de 1GB de disco e RAM.
+- Node e Electrum Server estão no mesmo binário, tornando o processo mais simples e com menos errors.
+- O full node utilize uma tecnologia nova chamada `Utreexo` para reduzir o consumo de recursos, você consegue rodar o node com menos de 1GB de disco e RAM.
 - Diferentemente do EPS, esse Electrum Server suporta múltiplas conexões simultâneas.
 
 ### Utilizando
@@ -33,7 +33,7 @@ compile com:
 cargo build --release
 ```
 
-se tudo estiver ok, irá compilar o programa e salvar o executável em `./target/release/`.
+se tudo estiver ok, irá compilar o program e salvar o executável em `./target/release/`.
 
 ### Rodando
 
@@ -65,7 +65,7 @@ Onde:
 
 - `network` é a rede que você está utilizando, bitcoin significa mainnet, outros valores válidos são signet, regtest e testnet. Todas são redes de teste que são funcionalmente idênticas a rede principal (mainnet), porém utilizada apenas para teste, e suas moedas não tem valor algum.
 
-Se tudo der certo, ele irá iniciar a sincronização e mostrar o progresso na tela. A partir do momento em que aparecer
+Se tudo der certo, ele irá iniciar a sincronização e mostrar o progression na tela. A partir do memento em que aparecer
 > Server running on: 0.0.0.0:50001
 
 você já poderá conectar a sua carteira ao servidor, porém o saldo poderá demorar um pouco para aparecer.
@@ -85,6 +85,6 @@ descriptors = [
 ]
 ```
 
-#### Print do programa em execução
+#### Print do program em execução
 
 ![Um print dos logs de uma instância do Floresta rodando em uma terminal em uma distribuição GNU/Linux](./assets/Screenshot_ibd.jpg)

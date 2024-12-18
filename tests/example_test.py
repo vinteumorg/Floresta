@@ -1,5 +1,5 @@
 """
-    This is an example of how tests should look lke, see the class bellow for more info
+    This is an example of how tests should look like, see the class bellow for more info
 """
 import time
 import os
