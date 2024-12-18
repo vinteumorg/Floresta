@@ -1,10 +1,10 @@
-# Prepares our enviroment to run our tests
+# Prepares our environment to run our tests
 #
 # This script shold be executed once, before running our functinal test
-# for the first time. It'll download and build all needed dependecies
+# for the first time. It'll download and build all needed dependencies
 # to make sure we are not missing anything during our tests.
 
-# Check for dependecies, we need Golang for Utreexod and Rust for Floresta
+# Check for dependencies, we need Golang for Utreexod and Rust for Floresta
 go version &>/dev/null
 
 if [ $? -ne 0 ]

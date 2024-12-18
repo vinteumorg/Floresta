@@ -2,15 +2,15 @@ use bitcoin::bip158::BlockFilter;
 use bitcoin::BlockHash;
 use floresta_chain::pruned_utreexo::BlockchainInterface;
 
-use crate::IteratableFilterStore;
-use crate::IteratableFilterStoreError;
+use crate::IterableFilterStore;
+use crate::IterableFilterStoreError;
 
 #[derive(Debug)]
-pub struct NetworkFilters<Storage: IteratableFilterStore> {
+pub struct NetworkFilters<Storage: IterableFilterStore> {
     filters: Storage,
 }
 
-impl<Storage: IteratableFilterStore> NetworkFilters<Storage> {
+impl<Storage: IterableFilterStore> NetworkFilters<Storage> {
     pub fn new(filters: Storage) -> Self {
         if filters.get_height().is_err() {
             filters.set_height(0).unwrap();
@@ -24,7 +24,7 @@ impl<Storage: IteratableFilterStore> NetworkFilters<Storage> {
         query: Vec<&[u8]>,
         start_height: Option<usize>,
         chain: impl BlockchainInterface,
-    ) -> Result<Vec<BlockHash>, IteratableFilterStoreError> {
+    ) -> Result<Vec<BlockHash>, IterableFilterStoreError> {
         let mut blocks = Vec::new();
         let iter = query.into_iter();
         for (height, filter) in self.filters.iter(start_height)? {
@@ -40,15 +40,15 @@ impl<Storage: IteratableFilterStore> NetworkFilters<Storage> {
         &self,
         filter: BlockFilter,
         height: u32,
-    ) -> Result<(), IteratableFilterStoreError> {
+    ) -> Result<(), IterableFilterStoreError> {
         self.filters.put_filter(filter, height)
     }
 
-    pub fn get_height(&self) -> Result<u32, IteratableFilterStoreError> {
+    pub fn get_height(&self) -> Result<u32, IterableFilterStoreError> {
         self.filters.get_height()
     }
 
-    pub fn save_height(&self, height: u32) -> Result<(), IteratableFilterStoreError> {
+    pub fn save_height(&self, height: u32) -> Result<(), IterableFilterStoreError> {
         self.filters.set_height(height)
     }
 }

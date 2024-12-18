@@ -116,7 +116,7 @@ pub struct Cli {
     /// Assume blocks before this one as having valid scripts
     ///
     /// Assume that blocks that are buried under a considerable work have valid scripts.
-    /// We still do other checks, like amounts, UTXO existance, reward... the only check we
+    /// We still do other checks, like amounts, UTXO existence, reward... the only check we
     /// skip is the script validation
     pub assume_valid: Option<String>,
 
