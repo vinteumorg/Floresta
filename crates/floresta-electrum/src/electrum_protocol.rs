@@ -1057,7 +1057,7 @@ mod test {
             user_agent: "floresta".to_string(),
         };
 
-        let chain_provider: UtreexoNode<RunningNode, Arc<ChainState<KvChainStore>>> =
+        let chain_provider: UtreexoNode<Arc<ChainState<KvChainStore>>, RunningNode> =
             UtreexoNode::new(
                 u_config,
                 chain.clone(),

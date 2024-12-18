@@ -47,7 +47,7 @@ mod tests_utils {
 
         let config = get_node_config(datadir, network, pow_fraud_proofs);
 
-        let mut node = UtreexoNode::<SyncNode, Arc<ChainState<KvChainStore>>>::new(
+        let mut node = UtreexoNode::<Arc<ChainState<KvChainStore>>, SyncNode>::new(
             config,
             chain.clone(),
             mempool,
@@ -77,7 +77,7 @@ mod tests_utils {
 
         // FIXME: This doesn't look very safe, but we need to coerce a &mut reference of the node
         //        to live for the static lifetime, or it can't be spawn-ed by tokio::task
-        let _node: &'static mut UtreexoNode<SyncNode, Arc<ChainState<KvChainStore>>> =
+        let _node: &'static mut UtreexoNode<Arc<ChainState<KvChainStore>>, SyncNode> =
             unsafe { std::mem::transmute(&mut **node) };
 
         timeout(Duration::from_secs(100), _node.run(kill_signal, |_| {}))
