@@ -47,7 +47,7 @@ impl NodeContext for SyncNode {
     const MAX_INFLIGHT_REQUESTS: usize = 100; // double the default
 }
 
-impl<Chain> UtreexoNode<SyncNode, Chain>
+impl<Chain> UtreexoNode<Chain, SyncNode>
 where
     WireError: From<<Chain as BlockchainInterface>::Error>,
     Chain: BlockchainInterface + UpdatableChainstate + 'static,
@@ -55,12 +55,12 @@ where
     async fn get_blocks_to_download(&mut self) {
         let mut blocks = Vec::with_capacity(10);
         for _ in 0..10 {
-            let next_block = self.1.last_block_requested + 1;
+            let next_block = self.node_module.last_block_requested + 1;
             let next_block = self.chain.get_block_hash(next_block);
             match next_block {
                 Ok(next_block) => {
                     blocks.push(next_block);
-                    self.1.last_block_requested += 1;
+                    self.node_module.last_block_requested += 1;
                 }
                 Err(_) => {
                     break;
@@ -72,7 +72,7 @@ where
 
     pub async fn run(&mut self, kill_signal: Arc<RwLock<bool>>, done_cb: impl FnOnce(&Chain)) {
         info!("Starting sync node");
-        self.1.last_block_requested = self.chain.get_validation_index().unwrap();
+        self.node_module.last_block_requested = self.chain.get_validation_index().unwrap();
 
         loop {
             while let Ok(Some(msg)) = timeout(Duration::from_secs(1), self.node_rx.recv()).await {
@@ -97,11 +97,11 @@ where
             );
 
             if Instant::now()
-                .duration_since(self.0.last_tip_update)
+                .duration_since(self.core.last_tip_update)
                 .as_secs()
                 > SyncNode::ASSUME_STALE
             {
-                self.1.last_block_requested = self.chain.get_validation_index().unwrap();
+                self.node_module.last_block_requested = self.chain.get_validation_index().unwrap();
                 self.create_connection(ConnectionKind::Regular).await;
                 self.last_tip_update = Instant::now();
                 continue;
@@ -113,7 +113,9 @@ where
                 continue;
             }
 
-            if self.chain.get_validation_index().unwrap() + 10 > self.1.last_block_requested {
+            if self.chain.get_validation_index().unwrap() + 10
+                > self.node_module.last_block_requested
+            {
                 if self.inflight.len() > 10 {
                     continue;
                 }
@@ -126,7 +128,7 @@ where
 
     async fn handle_timeout(&mut self) {
         let to_remove = self
-            .0
+            .core
             .inflight
             .iter()
             .filter(|(_, (_, instant))| instant.elapsed().as_secs() > SyncNode::REQUEST_TIMEOUT)
@@ -263,7 +265,8 @@ where
                     if !self.has_utreexo_peers() {
                         warn!("No utreexo peers connected, trying to create a new one");
                         try_and_log!(self.maybe_open_connection().await);
-                        self.1.last_block_requested = self.chain.get_validation_index().unwrap();
+                        self.node_module.last_block_requested =
+                            self.chain.get_validation_index().unwrap();
                         self.inflight.clear();
                     }
                 }

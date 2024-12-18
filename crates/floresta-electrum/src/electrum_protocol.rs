@@ -1057,7 +1057,7 @@ mod test {
             user_agent: "floresta".to_string(),
         };
 
-        let chain_provider: UtreexoNode<RunningNode, Arc<ChainState<KvChainStore>>> =
+        let chain_provider: UtreexoNode<Arc<ChainState<KvChainStore>>, RunningNode> =
             UtreexoNode::new(
                 u_config,
                 chain.clone(),
@@ -1131,7 +1131,7 @@ mod test {
     /// blockchain.scripthash.listunspent       *
     /// blockchain.scripthash.subscribe         *
     /// blockchain.scripthash.unsubscribe       *
-    /// blockchain.transaction.broadcast        *   
+    /// blockchain.transaction.broadcast        *
     /// blockchain.transaction.get              *
     /// blockchain.transaction.get_merkle       *
     /// mempool.get_fee_histogram               *
