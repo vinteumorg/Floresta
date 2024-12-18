@@ -54,7 +54,7 @@ pub trait BlockchainInterface {
     /// Register for receiving notifications for some event. Right now it only works for
     /// new blocks, but may work with transactions in the future too.
     /// if a module performs some heavy-lifting on the block's data, it should pass in a
-    /// vector or a channel where data can be  transfered to the atual worker, otherwise
+    /// vector or a channel where data can be  transferred to the atual worker, otherwise
     /// chainstate will be stuck for as long as you have work to do.
     fn subscribe(&self, tx: Arc<dyn BlockConsumer>);
     /// Tells whether or not we are on ibd
@@ -136,7 +136,7 @@ pub trait UpdatableChainstate {
     /// Returns a partial chainstate from a range of blocks.
     ///
     /// [PartialChainState] is a simplified version of `ChainState` that is used during IBD.
-    /// It doesn't suport reorgs, only hold headers for a subset of blocks and isn't [Sync].
+    /// It doesn't support reorgs, only hold headers for a subset of blocks and isn't [Sync].
     /// The idea here is that you take a OS thread or some async task that will drive one
     /// [PartialChainState] to completion by downloading blocks inside that chainstate's range.
     /// If all goes right, it'll end without error, and you should mark blocks in this range as
@@ -152,7 +152,7 @@ pub trait UpdatableChainstate {
     ) -> Result<PartialChainState, BlockchainError>;
     /// Marks a chain as fully-valid
     ///
-    /// This mimics the behavour of checking every block before this block, and continues
+    /// This mimics the behaviour of checking every block before this block, and continues
     /// from this point
     fn mark_chain_as_assumed(&self, acc: Stump, tip: BlockHash) -> Result<bool, BlockchainError>;
 }

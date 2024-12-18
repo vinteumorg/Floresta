@@ -19,7 +19,7 @@ pub trait FlorestaRPC {
     /// designed for efficient light client synchronization. This method returns the filter
     /// for a given block height, encoded as a hexadecimal string.
     /// You need to have enabled block filters by setting the `blockfilters=1` option
-    fn get_block_filter(&self, heigth: u32) -> Result<String>;
+    fn get_block_filter(&self, height: u32) -> Result<String>;
     /// Returns general information about the chain we are on
     ///
     /// This method returns a bunch of information about the chain we are on, including
@@ -214,8 +214,8 @@ impl<T: JsonRPCClient> FlorestaRPC for T {
         self.call("loaddescriptor", &[Value::String(descriptor)])
     }
 
-    fn get_block_filter(&self, heigth: u32) -> Result<String> {
-        self.call("getblockfilter", &[Value::Number(Number::from(heigth))])
+    fn get_block_filter(&self, height: u32) -> Result<String> {
+        self.call("getblockfilter", &[Value::Number(Number::from(height))])
     }
 
     fn get_block_header(&self, hash: BlockHash) -> Result<BlockHeader> {
