@@ -19,7 +19,7 @@ license = "MIT"
 # To update, first find outdated packages with `poetry show --outdated`,
 # then re-install with `poetry add <package>@<version>`.
 [tool.poetry.dependencies]
-python = ">=3.9,<=3.13"
+python = ">=3.12"
 jsonrpclib = "^0.2.1"
 requests = "^2.32.3"
 black = "^24.10.0"

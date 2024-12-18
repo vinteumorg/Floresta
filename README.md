@@ -254,7 +254,7 @@ cargo test --release
 
 #### Functional tests
 
-Additional functional tests are available. 
+Additional functional tests are available (minimum python version: 3.12).
 
 * Install [poetry dependencies manager](https://python-poetry.org/docs/#installation). There are many ways to do this:
 
