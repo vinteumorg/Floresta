@@ -14,7 +14,7 @@ use bitcoin::consensus::serialize;
 /// ```ignore
 /// use zmq::{Context, Socket};
 /// let ctx =  Context::new();
-/// // The oposite of PUSH is PULL
+/// // The opposite of PUSH is PULL
 /// let socket = ctx.socket(zmq::SocketType::PULL).unwrap();
 ///
 /// socket.connect(addr).unwrap();

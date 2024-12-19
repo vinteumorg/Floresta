@@ -10,8 +10,8 @@ use std::sync::Mutex;
 use std::sync::MutexGuard;
 use std::sync::PoisonError;
 
-use crate::IteratableFilterStore;
-use crate::IteratableFilterStoreError;
+use crate::IterableFilterStore;
+use crate::IterableFilterStoreError;
 
 pub struct FiltersIterator {
     reader: BufReader<File>,
@@ -50,9 +50,9 @@ struct FlatFiltersStoreInner {
     path: PathBuf,
 }
 
-impl From<PoisonError<MutexGuard<'_, FlatFiltersStoreInner>>> for IteratableFilterStoreError {
+impl From<PoisonError<MutexGuard<'_, FlatFiltersStoreInner>>> for IterableFilterStoreError {
     fn from(_: PoisonError<MutexGuard<'_, FlatFiltersStoreInner>>) -> Self {
-        IteratableFilterStoreError::Poisoned
+        IterableFilterStoreError::Poisoned
     }
 }
 
@@ -126,9 +126,9 @@ impl IntoIterator for FlatFiltersStore {
     }
 }
 
-impl IteratableFilterStore for FlatFiltersStore {
+impl IterableFilterStore for FlatFiltersStore {
     type I = FiltersIterator;
-    fn set_height(&self, height: u32) -> Result<(), IteratableFilterStoreError> {
+    fn set_height(&self, height: u32) -> Result<(), IterableFilterStoreError> {
         let mut inner = self.0.lock()?;
         inner.file.seek(SeekFrom::Start(0))?;
         inner.file.write_all(&height.to_le_bytes())?;
@@ -136,7 +136,7 @@ impl IteratableFilterStore for FlatFiltersStore {
         Ok(())
     }
 
-    fn get_height(&self) -> Result<u32, IteratableFilterStoreError> {
+    fn get_height(&self) -> Result<u32, IterableFilterStoreError> {
         let mut inner = self.0.lock()?;
 
         let mut buf = [0; 4];
@@ -146,7 +146,7 @@ impl IteratableFilterStore for FlatFiltersStore {
         Ok(u32::from_le_bytes(buf))
     }
 
-    fn iter(&self, start_height: Option<usize>) -> Result<Self::I, IteratableFilterStoreError> {
+    fn iter(&self, start_height: Option<usize>) -> Result<Self::I, IterableFilterStoreError> {
         let mut inner = self.0.lock()?;
         let new_file = File::open(inner.path.clone())?;
         let mut reader = BufReader::new(new_file);
@@ -176,11 +176,11 @@ impl IteratableFilterStore for FlatFiltersStore {
         &self,
         block_filter: crate::bip158::BlockFilter,
         height: u32,
-    ) -> Result<(), IteratableFilterStoreError> {
+    ) -> Result<(), IterableFilterStoreError> {
         let length = block_filter.content.len() as u32;
 
         if length > 1_000_000 {
-            return Err(IteratableFilterStoreError::FilterTooLarge);
+            return Err(IterableFilterStoreError::FilterTooLarge);
         }
 
         let mut inner = self.0.lock()?;
@@ -210,7 +210,7 @@ mod tests {
 
     use super::FlatFiltersStore;
     use crate::bip158::BlockFilter;
-    use crate::IteratableFilterStore;
+    use crate::IterableFilterStore;
 
     #[test]
     fn test_filter_store() {
@@ -218,7 +218,7 @@ mod tests {
         let store = FlatFiltersStore::new(path.into());
 
         let res = store.get_height().unwrap_err();
-        assert!(matches!(res, crate::IteratableFilterStoreError::Io(_)));
+        assert!(matches!(res, crate::IterableFilterStoreError::Io(_)));
         store.set_height(1).expect("could not set height");
         assert_eq!(store.get_height().unwrap(), 1);
 

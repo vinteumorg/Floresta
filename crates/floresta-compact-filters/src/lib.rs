@@ -33,7 +33,7 @@ pub trait BlockFilterStore: Send + Sync {
     fn get_height(&self) -> Option<u32>;
 }
 
-pub enum IteratableFilterStoreError {
+pub enum IterableFilterStoreError {
     /// I/O error
     Io(std::io::Error),
     /// End of the file
@@ -44,50 +44,50 @@ pub enum IteratableFilterStoreError {
     FilterTooLarge,
 }
 
-impl Debug for IteratableFilterStoreError {
+impl Debug for IterableFilterStoreError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            IteratableFilterStoreError::Io(e) => write!(f, "I/O error: {e}"),
-            IteratableFilterStoreError::Eof => write!(f, "End of file"),
-            IteratableFilterStoreError::Poisoned => write!(f, "Lock poisoned"),
-            IteratableFilterStoreError::FilterTooLarge => write!(f, "Filter too large"),
+            IterableFilterStoreError::Io(e) => write!(f, "I/O error: {e}"),
+            IterableFilterStoreError::Eof => write!(f, "End of file"),
+            IterableFilterStoreError::Poisoned => write!(f, "Lock poisoned"),
+            IterableFilterStoreError::FilterTooLarge => write!(f, "Filter too large"),
         }
     }
 }
 
-impl From<std::io::Error> for IteratableFilterStoreError {
+impl From<std::io::Error> for IterableFilterStoreError {
     fn from(e: std::io::Error) -> Self {
-        IteratableFilterStoreError::Io(e)
+        IterableFilterStoreError::Io(e)
     }
 }
 
-impl Display for IteratableFilterStoreError {
+impl Display for IterableFilterStoreError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Debug::fmt(self, f)
     }
 }
 
-impl From<PoisonError<RwLockWriteGuard<'_, FlatFiltersStore>>> for IteratableFilterStoreError {
+impl From<PoisonError<RwLockWriteGuard<'_, FlatFiltersStore>>> for IterableFilterStoreError {
     fn from(_: PoisonError<RwLockWriteGuard<'_, FlatFiltersStore>>) -> Self {
-        IteratableFilterStoreError::Poisoned
+        IterableFilterStoreError::Poisoned
     }
 }
 
-pub trait IteratableFilterStore:
+pub trait IterableFilterStore:
     Send + Sync + IntoIterator<Item = (u32, bip158::BlockFilter)>
 {
     type I: Iterator<Item = (u32, bip158::BlockFilter)>;
     /// Fetches the first filter and sets our internal cursor to the first filter,
     /// succeeding calls to [next] will return the next filter until we reach the end
-    fn iter(&self, start_height: Option<usize>) -> Result<Self::I, IteratableFilterStoreError>;
+    fn iter(&self, start_height: Option<usize>) -> Result<Self::I, IterableFilterStoreError>;
     /// Writes a new filter to the store
     fn put_filter(
         &self,
         block_filter: bip158::BlockFilter,
         height: u32,
-    ) -> Result<(), IteratableFilterStoreError>;
+    ) -> Result<(), IterableFilterStoreError>;
     /// Persists the height of the last filter we have
-    fn set_height(&self, height: u32) -> Result<(), IteratableFilterStoreError>;
+    fn set_height(&self, height: u32) -> Result<(), IterableFilterStoreError>;
     /// Fetches the height of the last filter we have
-    fn get_height(&self) -> Result<u32, IteratableFilterStoreError>;
+    fn get_height(&self) -> Result<u32, IterableFilterStoreError>;
 }

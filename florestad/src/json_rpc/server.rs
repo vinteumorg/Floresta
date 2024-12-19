@@ -297,7 +297,7 @@ impl Rpc for RpcImpl {
             });
         };
 
-        // It's ok to unwrap bacause we know there is at least one element in the vector
+        // It's ok to unwrap because we know there is at least one element in the vector
         let addresses = parsed.pop().unwrap();
         let addresses = (0..100)
             .map(|index| {
