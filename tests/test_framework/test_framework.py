@@ -3,27 +3,33 @@ import subprocess
 from threading import Thread
 
 from .mock_rpc import MockUtreexod
-from .floresta_rpc import FlorestaRPC
+from .floresta_rpc import FlorestaRPC, REGTEST_RPC_SERVER
+
 
 class TestFramework:
     tests = []
-    nodes: list() = []
+    nodes: list = []
     rpc: MockUtreexod = None
 
     def run_node(self, datadir: str, net: str):
-        node = subprocess.Popen([
-            "cargo",
-            "run",
-            "--features",
-            "json-rpc",
-            "--bin",
-            "florestad",
-            "--",
-            "--network",
-            net,
-            "--no-ssl"
-        ])
-        self.nodes.append(FlorestaRPC(node))
+        node = subprocess.Popen(
+            [
+                "cargo",
+                "run",
+                "--features",
+                "json-rpc",
+                "--bin",
+                "florestad",
+                "--",
+                "--network",
+                net,
+                "--no-ssl",
+            ]
+        )
+        json_rpc = FlorestaRPC(
+            process=node, extra_args=[], rpcserver=REGTEST_RPC_SERVER
+        )
+        self.nodes.append(json_rpc)
 
     def wait_for_rpc_connection(self):
         for node in self.nodes:
