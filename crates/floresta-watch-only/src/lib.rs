@@ -617,7 +617,7 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
         Ok(known_descs.contains(desc))
     }
 
-    /// Tells wheter an address is already cached
+    /// Tells whether an address is already cached
     pub fn is_address_cached(&self, script_hash: &Hash) -> bool {
         let inner = self.inner.read().expect("poisoned lock");
         inner.address_map.contains_key(script_hash)

@@ -5,7 +5,7 @@ use std::io;
 
 use floresta_chain::BlockchainError;
 use floresta_common::impl_error_from;
-use floresta_compact_filters::IteratableFilterStoreError;
+use floresta_compact_filters::IterableFilterStoreError;
 use thiserror::Error;
 
 use super::peer::PeerError;
@@ -36,7 +36,7 @@ pub enum WireError {
     #[error("Peer timed out")]
     PeerTimeout,
     #[error("Compact block filters error")]
-    CompactBlockFiltersError(IteratableFilterStoreError),
+    CompactBlockFiltersError(IterableFilterStoreError),
     #[error("Poisoned lock")]
     PoisonedLock,
     #[error("We couldn't parse the provided address due to: {0}")]
@@ -47,7 +47,7 @@ impl_error_from!(WireError, PeerError, PeerError);
 impl_error_from!(WireError, BlockchainError, Blockchain);
 impl_error_from!(
     WireError,
-    IteratableFilterStoreError,
+    IterableFilterStoreError,
     CompactBlockFiltersError
 );
 impl_error_from!(WireError, AddrParseError, InvalidAddress);

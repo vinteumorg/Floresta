@@ -27,7 +27,7 @@
 //! The most critial part of syncing-up a Bitcoin node is making sure you know about the most-work
 //! chain. If someone can eclypse you, they can make you start following a chain that only you and
 //! the attacker care about. If you get paid in this chain, you can't pay someone else outside this
-//! chain, because they will be following other chains. Luckly, we only need one honest peer, to
+//! chain, because they will be following other chains. Luckily, we only need one honest peer, to
 //! find the best-work chain and avoid any attacker to fools us into accepting payments in a "fake
 //! Bitcoin"
 //!
@@ -35,10 +35,10 @@
 //!
 //! In Floresta, we try to pick a good balance between data downloaded and security. We could
 //! simply download all chains from all peers and pick the most work one. But each header is
-//! 80 bytes-long, with ~800k blocks, that's arround 60 MBs. If we have 10 peers, that's 600MBs
+//! 80 bytes-long, with ~800k blocks, that's around 60 MBs. If we have 10 peers, that's 600MBs
 //! (excluding overhead by the p2p messages). Moreover, it's very uncommon to actually have peers
 //! in different chains. So we can optmistically download all headers from one random peer, and
-//! then check with the others if they aggree. If they have another chain for us, we download that
+//! then check with the others if they agree. If they have another chain for us, we download that
 //! chain, and pick whichever has more work.
 //!
 //! Most likely we'll only download one chain and all peers will agree with it. Then we can start
@@ -78,7 +78,7 @@ use crate::node_context::NodeContext;
 use crate::node_context::PeerId;
 
 #[derive(Debug, Default, Clone)]
-/// A p2p driver that attemps to connect with multiple peers, ask which chain are them following
+/// A p2p driver that attempts to connect with multiple peers, ask which chain are them following
 /// and download and verify the headers, **not** the actual blocks. This is the first part of a
 /// loger IBD pipeline.
 /// The actual blocks should be downloaded by a SyncPeer.
@@ -281,7 +281,7 @@ where
 
             hash = self.chain.get_block_hash(height).unwrap();
         }
-        info!("Fork point is arround height={height} hash={hash}");
+        info!("Fork point is around height={height} hash={hash}");
         // at the end, this variable should hold the last block where they agreed
         let mut fork = 0;
 
@@ -290,7 +290,7 @@ where
             .grab_both_peers_version(peer1, peer2, hash, height)
             .await?;
 
-        // Intializing the agree bool for the block on which we landed on
+        // Initializing the agree bool for the block on which we landed on
         let agree = peer1_acc == peer2_acc;
 
         if agree {
@@ -347,11 +347,11 @@ where
             return Ok(None);
         };
 
-        let (aggreed, _) = self
+        let (agreed, _) = self
             .grab_both_peers_version(peer1, peer2, hash, fork)
             .await?;
 
-        let agreed = match aggreed {
+        let agreed = match agreed {
             Some(acc) => Self::parse_acc(acc)?,
             None => return Ok(None),
         };

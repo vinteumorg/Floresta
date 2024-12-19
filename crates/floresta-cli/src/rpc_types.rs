@@ -61,7 +61,7 @@ pub struct RawTx {
     pub size: u32,
     /// The virtual size of this transaction, as define by the segwit soft-fork
     pub vsize: u32,
-    /// The weight of this transacion, as defined by the segwit soft-fork
+    /// The weight of this transaction, as defined by the segwit soft-fork
     pub weight: u32,
     /// This transaction's version. The current bigger version is 2
     pub version: u32,
@@ -93,7 +93,7 @@ pub struct TxOut {
     pub value: u64,
     /// This utxo's index inside the transaction
     pub n: u32,
-    /// The loking script of this utxo
+    /// The locking script of this utxo
     pub script_pub_key: ScriptPubKey,
 }
 
@@ -159,7 +159,7 @@ pub struct PeerInfo {
     /// User agent is a string that represents the client being used by our peer. E.g.
     /// /Satoshi-26.0/ for bitcoin core version 26
     pub user_agent: String,
-    /// This peer's height at the time we've openned a connection with them
+    /// This peer's height at the time we've opened a connection with them
     pub initial_height: u32,
     /// The connection type of this peer
     ///
@@ -197,7 +197,7 @@ pub struct GetBlockRes {
     ///
     /// Currently, blocks have version 2 (see BIP34), but it may also flip some of the LSB for
     /// either consensus reason (see BIPs 8 and 9) or for version rolling mining, usually bits
-    /// after the 24th are not touched. Therefore, the actual version is likelly the result of
+    /// after the 24th are not touched. Therefore, the actual version is likely the result of
     /// version & ~(1 << 24).
     /// This is encoded as a number, see `version_hex` for a hex-encoded version
     pub version: i32,
@@ -213,13 +213,13 @@ pub struct GetBlockRes {
     pub merkleroot: String,
     /// A list of hex-encoded transaction id for the tx's in this block
     pub tx: Vec<String>,
-    /// The timestamp commited to in this block's header
+    /// The timestamp committed to in this block's header
     ///
     /// Since there's no central clock that can tell time precisely in Bitcoin, this value is
     /// reported by miners and only constrained by a couple of consensus rules. More sensibly, it
-    /// is **not** garanteed to be monotonical. So a block n might have a lower timestamp than
+    /// is **not** guaranteed to be monotonical. So a block n might have a lower timestamp than
     /// block `n - 1`.
-    /// If you need it to be monotonical, see `mediantime` insted
+    /// If you need it to be monotonical, see `mediantime` instead
     pub time: u32,
     /// The meadian of the last 11 blocktimes.
     ///
@@ -234,13 +234,13 @@ pub struct GetBlockRes {
     pub nonce: u32,
     /// Bits is a compact representation for the target.
     ///
-    /// This is a exponential format (with well-define rouding) used by openssl that Satoshi
+    /// This is a exponential format (with well-define rounding) used by openssl that Satoshi
     /// decided to make consensus critical :/
     pub bits: String,
     /// The difficulty is derived from the current target and is defined as how many hashes, on
     /// average, one has to make before finding a valid block
     ///
-    /// This is computed as 1 / (target / 2 ^ 256). In most softwares (this one inclued) the
+    /// This is computed as 1 / (target / 2 ^ 256). In most software (this one included) the
     /// difficulty is a multiple of the smallest possible difficulty. So to find the actual
     /// difficulty you have to multiply this by the min_diff.
     /// For mainnet, mindiff is 2 ^ 32
@@ -251,10 +251,10 @@ pub struct GetBlockRes {
     pub chainwork: String,
     /// How many transactions in this block
     pub n_tx: usize,
-    /// The hash of the block comming before this one
+    /// The hash of the block coming before this one
     pub previousblockhash: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    /// The hash of the block comming after this one, if any
+    /// The hash of the block coming after this one, if any
     pub nextblockhash: Option<String>,
 }
 
@@ -269,7 +269,7 @@ pub enum Error {
     /// An error internal to our jsonrpc server
     Api(serde_json::Value),
     /// The server sent an empty response
-    EmtpyResponse,
+    EmptyResponse,
 }
 
 impl From<serde_json::Error> for Error {
@@ -292,7 +292,7 @@ impl Display for Error {
             Error::JsonRpc(e) => write!(f, "JsonRpc returned an error {e}"),
             Error::Api(e) => write!(f, "general jsonrpc error: {e}"),
             Error::Serde(e) => write!(f, "error while deserializing the response: {e}"),
-            Error::EmtpyResponse => write!(f, "got an empty response from server"),
+            Error::EmptyResponse => write!(f, "got an empty response from server"),
         }
     }
 }

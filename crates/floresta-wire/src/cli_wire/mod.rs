@@ -268,7 +268,7 @@ impl UtreexodBackend {
     pub async fn run(self) {
         try_and_log!(self.get_headers());
         if self.is_shutting_down() {
-            info!("Shuting blockchain down");
+            info!("Shutting blockchain down");
             try_and_log!(self.chainstate.flush());
             return;
         }
@@ -281,7 +281,7 @@ impl UtreexodBackend {
         loop {
             std::thread::sleep(Duration::from_secs(1)).await;
             if self.is_shutting_down() {
-                info!("Shuting blockchain down");
+                info!("Shutting blockchain down");
                 try_and_log!(self.chainstate.flush());
                 return;
             }
