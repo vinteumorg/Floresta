@@ -71,14 +71,14 @@ pub struct ChainStateInner<PersistedState: ChainStore> {
     /// Best known block, cached in a specific field to faster access.
     best_block: BestChain,
     /// When one of our consumers tries to broadcast a transaction, this transaction gets
-    /// writen to broadcast_queue, and the ChainStateBackend can use it's own logic to actually
+    /// written to broadcast_queue, and the ChainStateBackend can use it's own logic to actually
     /// broadcast the tx.
     broadcast_queue: Vec<Transaction>,
-    /// We may have multiple mudules that needs to receive and process blocks as they come, to
+    /// We may have multiple modules that needs to receive and process blocks as they come, to
     /// be notified of new blocks, a module should implement the [BlockConsumer] trait, and
     /// subscribe by passing an [Arc] of itself to chainstate.
     /// When a new block is accepted (as valid) we call `consume_block` from [BlockConsumer].
-    /// If a mudule just wants pass in a channel, [Sender] implements [BlockConsumer], and can
+    /// If a module just wants pass in a channel, [Sender] implements [BlockConsumer], and can
     /// be used during subscription (just keep the [Receiver] side.
     subscribers: Vec<Arc<dyn BlockConsumer>>,
     /// Fee estimation for 1, 10 and 20 blocks
@@ -1355,7 +1355,7 @@ mod test {
         assume_valid_arg: AssumeValidArg,
     ) -> ChainState<KvChainStore<'a>> {
         let test_id = rand::random::<u64>();
-        let chainstore = KvChainStore::new(format!("./data/{test_id}/")).unwrap();
+        let chainstore = KvChainStore::new(format!("./tmp-db/{test_id}/")).unwrap();
         ChainState::new(chainstore, network, assume_valid_arg)
     }
 

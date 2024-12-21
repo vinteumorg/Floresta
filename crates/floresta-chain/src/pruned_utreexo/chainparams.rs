@@ -37,7 +37,7 @@ pub struct ChainParams {
 }
 
 /// A dns seed is a authoritative DNS server that returns the IP addresses of nodes that are
-/// likely to be accepting incoming connections. This is our prefered way of finding new peers
+/// likely to be accepting incoming connections. This is our preferred way of finding new peers
 /// on the first startup, as peers returned by seeds are likely to be online and accepting
 /// connections. We may use this as a fallback if we don't have any peers to connect in
 /// subsequent startups.

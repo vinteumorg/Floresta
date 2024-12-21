@@ -1,4 +1,4 @@
-Below are signet block hashes of corresponding height aquired from the UTREEXOD node
+Below are signet block hashes of corresponding height acquired from the UTREEXOD node
 
 0: 00000008819873e925422c1ff0f99f7cc9bbb232af63a077a480a3633bee1ef6
 1: 00000086d6b2636cb2a392d45edc4ec544a10024d30141c9adf4bfd9de533b53

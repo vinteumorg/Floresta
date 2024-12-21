@@ -548,7 +548,7 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
     /// If a user adds a new address that we didn't have cached, this method
     /// will look for historical transactions for it.
     ///
-    /// Usually, we'll relly on compact block filters to speed things up. If
+    /// Usually, we'll rely on compact block filters to speed things up. If
     /// we don't have compact block filters, we may rescan using the older,
     /// more bandwidth-intensive method of actually downloading blocks.
     async fn rescan_for_addresses(
@@ -968,7 +968,7 @@ mod test {
 
     fn get_test_cache() -> Arc<AddressCache<KvDatabase>> {
         let test_id: u32 = rand::random();
-        let cache = KvDatabase::new(format!("./data/{test_id}.floresta")).unwrap();
+        let cache = KvDatabase::new(format!("./tmp-db/{test_id}.floresta")).unwrap();
         let cache = AddressCache::new(cache);
 
         // Inserting test transactions in the wallet
@@ -1020,7 +1020,7 @@ mod test {
                 eprintln!("Error reading from socket: {}", e);
                 Err(e)
             }
-            Err(_) => Err(io::Error::new(io::ErrorKind::TimedOut, "Timeout occured")),
+            Err(_) => Err(io::Error::new(io::ErrorKind::TimedOut, "Timeout occurred")),
         }
     }
 
@@ -1032,7 +1032,7 @@ mod test {
 
         // Create test_chain_state
         let test_id = rand::random::<u32>();
-        let chainstore = KvChainStore::new(format!("./data/{test_id}.floresta/")).unwrap();
+        let chainstore = KvChainStore::new(format!("./tmp-db/{test_id}.floresta/")).unwrap();
         let chain =
             ChainState::<KvChainStore>::new(chainstore, Network::Signet, AssumeValidArg::Hardcoded);
 
@@ -1045,7 +1045,7 @@ mod test {
             network: bitcoin::Network::Signet,
             pow_fraud_proofs: true,
             proxy: None,
-            datadir: "/data".to_string(),
+            datadir: "/tmp-db".to_string(),
             fixed_peer: None,
             max_banscore: 50,
             compact_filters: false,
@@ -1131,14 +1131,14 @@ mod test {
     /// blockchain.scripthash.listunspent       *
     /// blockchain.scripthash.subscribe         *
     /// blockchain.scripthash.unsubscribe       *
-    /// blockchain.transaction.broadcast        *   
+    /// blockchain.transaction.broadcast        *
     /// blockchain.transaction.get              *
     /// blockchain.transaction.get_merkle       *
     /// mempool.get_fee_histogram               *
     /// server.add_peer                         *
     /// server.donation_address                 *
     /// server.features                         *
-    /// sserver.peers.subscribe                 *
+    /// server.peers.subscribe                 *
     /// server.ping                             *
     /// server.version                          *
     fn generate_request(req_params: &mut Vec<Value>) -> Value {

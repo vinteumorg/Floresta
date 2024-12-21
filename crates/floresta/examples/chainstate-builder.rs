@@ -15,7 +15,7 @@ use floresta_chain::pruned_utreexo::chain_state_builder::ChainStateBuilder;
 use floresta_chain::ChainParams;
 use rustreexo::accumulator::stump::Stump;
 
-const DATA_DIR: &str = "./data";
+const DATA_DIR: &str = "./tmp-db";
 
 #[tokio::main]
 async fn main() {

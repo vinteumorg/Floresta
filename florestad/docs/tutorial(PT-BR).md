@@ -2,7 +2,7 @@
 
 ### Introdução
 
-Este programa é uma pequena implementação de node com um Electrum Server acoplado. Ela se comporta semelhante a um setup com Bitcoin Core + Electrum Personal Server, porém com algumas diferenças chave.  
+Este programa é uma pequena implementação de node com um Electrum Server acoplado. Ela se comporta semelhante a um setup com Bitcoin Core + Electrum Personal Server, porém com algumas diferenças chave.
 
 - Node e Electrum Server estão no mesmo binário, tornando o processo mais simples e com menos erros.
 - O full node utiliza uma tecnologia nova chamada `Utreexo` para reduzir o consumo de recursos, você consegue rodar o node com menos de 1GB de disco e RAM.

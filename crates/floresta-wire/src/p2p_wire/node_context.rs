@@ -4,11 +4,11 @@
 //! create a massive amount of if's in the code, taking different paths depending on which state
 //! are we in. For that reason, we define the basics of a node, like code shared by all the
 //! states into one base struct called `UtreexoNode`, we then further refine this struct using
-//! fine-tunned `Contexts`, that should implement [NodeContext] and are passed-in as a generic
+//! fine-tuned `Contexts`, that should implement [NodeContext] and are passed-in as a generic
 //! parameter by the caller.
 //!
 //! The three flavors of node are:
-//!  - ChainSelector: This finds the best PoW chain, by downloding multiple candidates and taking
+//!  - ChainSelector: This finds the best PoW chain, by downloading multiple candidates and taking
 //!                   the one with more PoW. It should do it's job quickly, as it blocks our main
 //!                   client and can't proceed without this information.
 //!  - SyncNode: Used to download and verify all blocks in a chain. This is computationally
