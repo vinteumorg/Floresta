@@ -57,7 +57,7 @@ async fn main() {
     // Finally, we are using the chain state created above, the node will use it to determine
     // what blocks and headers to download, and hand them to it to validate.
     let config = UtreexoNodeConfig::default();
-    let p2p: UtreexoNode<RunningNode, Arc<ChainState<KvChainStore>>> = UtreexoNode::new(
+    let p2p: UtreexoNode<Arc<ChainState<KvChainStore>>, RunningNode> = UtreexoNode::new(
         config,
         chain.clone(),
         Arc::new(RwLock::new(Mempool::new())),
