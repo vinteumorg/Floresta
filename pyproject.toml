@@ -33,7 +33,9 @@ poethepoet = "^0.31.1"
 [tool.poe.tasks]
 format = "black ./tests"
 lint = "pylint ./tests"
-tests = "python tests/run_tests.py"
+example-test = "python tests/run_tests.py --test-name example_test"
+restart-test = "python tests/run_tests.py --test-name restart"
+tests = ["example-test", "restart-test"]
 pre-commit = ["format", "lint", "tests"]
 
 [build-system]
