@@ -3,6 +3,7 @@ use std::fmt::Arguments;
 use std::fs::File;
 use std::io;
 use std::io::BufReader;
+#[cfg(feature = "metrics")]
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -42,11 +43,14 @@ use log::error;
 use log::info;
 use log::warn;
 use log::Record;
+#[cfg(feature = "metrics")]
 use metrics;
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 use tokio::task;
+#[cfg(feature = "metrics")]
 use tokio::time::Duration;
+#[cfg(feature = "metrics")]
 use tokio::time::{self};
 use tokio_rustls::rustls::internal::pemfile::certs;
 use tokio_rustls::rustls::internal::pemfile::pkcs8_private_keys;
@@ -531,24 +535,27 @@ impl Florestad {
         task::spawn(chain_provider.run(kill_signal, sender));
 
         // Metrics
-        let metrics_server_address =
-            SocketAddr::new(std::net::IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 3333);
-        task::spawn(metrics::metrics_server(metrics_server_address));
-        info!(
-            "Started metrics server on: {}",
-            metrics_server_address.to_string()
-        );
+        #[cfg(feature = "metrics")]
+        {
+            let metrics_server_address =
+                SocketAddr::new(std::net::IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 3333);
+            task::spawn(metrics::metrics_server(metrics_server_address));
+            info!(
+                "Started metrics server on: {}",
+                metrics_server_address.to_string()
+            );
 
-        // Periodically update memory usage
-        tokio::spawn(async {
-            let interval = Duration::from_secs(5);
-            let mut ticker = time::interval(interval);
+            // Periodically update memory usage
+            tokio::spawn(async {
+                let interval = Duration::from_secs(5);
+                let mut ticker = time::interval(interval);
 
-            loop {
-                ticker.tick().await;
-                metrics::get_metrics().update_memory_usage();
-            }
-        });
+                loop {
+                    ticker.tick().await;
+                    metrics::get_metrics().update_memory_usage();
+                }
+            });
+        }
     }
 
     fn setup_logger(
