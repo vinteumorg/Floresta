@@ -30,6 +30,8 @@ use floresta_common::Channel;
 use log::info;
 use log::trace;
 use log::warn;
+#[cfg(feature = "metrics")]
+use metrics;
 use rustreexo::accumulator::node_hash::NodeHash;
 use rustreexo::accumulator::proof::Proof;
 use rustreexo::accumulator::stump::Stump;
@@ -1101,6 +1103,9 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
             block.block_hash(),
             block.txdata.len()
         );
+
+        #[cfg(feature = "metrics")]
+        metrics::get_metrics().block_height.set(height.into());
 
         if !self.is_in_idb() || height % 10_000 == 0 {
             self.flush()?;

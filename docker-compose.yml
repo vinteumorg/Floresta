@@ -1,0 +1,33 @@
+services:
+  floresta:
+    container_name: floresta
+    build:
+      context: .
+      args:
+        BUILD_FEATURES: "metrics"
+    ports:
+      - 50001:50001
+      - 8332:8332
+      - 3333:3333
+    restart: unless-stopped
+  prometheus:
+    image: prom/prometheus
+    container_name: prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+    ports:
+      - 9090:9090
+    restart: unless-stopped
+    volumes:
+      - ./metrics/prometheus:/etc/prometheus
+  grafana:
+    image: grafana/grafana
+    container_name: grafana
+    ports:
+      - 3000:3000
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=grafana
+    volumes:
+      - ./metrics/grafana:/etc/grafana/provisioning/datasources
