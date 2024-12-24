@@ -3,15 +3,13 @@ services:
     container_name: floresta
     build:
       context: .
+      args:
+        BUILD_FEATURES: "metrics"
     ports:
       - 50001:50001
       - 8332:8332
       - 3333:3333
     restart: unless-stopped
-    deploy:
-      resources:
-        reservations:
-          memory: 16G
   prometheus:
     image: prom/prometheus
     container_name: prometheus

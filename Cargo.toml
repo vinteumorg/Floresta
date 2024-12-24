@@ -16,7 +16,6 @@ members = [
 
 default-members = [ 
     "florestad",
-    "metrics",
     "crates/floresta",
     "crates/floresta-chain",
     "crates/floresta-cli",

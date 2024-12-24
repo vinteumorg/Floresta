@@ -31,7 +31,7 @@ hashbrown = { version = "0.14.0", optional = true }
 secp256k1 = { version = "*", features = ["alloc"], optional = true }
 floresta-common = { path = "../floresta-common", default-features = false, features = ["std"] }
 bitcoinconsensus = { version = "0.106.0", optional = true, default-features = false }
-metrics = { path = "../../metrics" }
+metrics = { path = "../../metrics", optional = true }
 
 [dev-dependencies]
 criterion = "0.5.1"
@@ -44,6 +44,7 @@ hex = "0.4.3"
 [features]
 default = []
 bitcoinconsensus = ["bitcoin/bitcoinconsensus", "dep:bitcoinconsensus"]
+metrics = ["dep:metrics"]
 
 [[bench]]
 name = "chain_state_bench"
