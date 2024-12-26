@@ -292,7 +292,7 @@ impl Florestad {
                 self.config.log_to_stdout,
                 self.config.debug,
             )
-            .expect("failure to setup logger");
+            .expect("Failure to setup logger");
         }
 
         // The config file inside our datadir directory. Any datadir
@@ -326,7 +326,7 @@ impl Florestad {
             return;
         }
 
-        info!("loading blockchain database");
+        info!("Loading blockchain database");
         let datadir2 = data_dir.clone();
         let blockchain_state = Arc::new(Self::load_chain_state(
             datadir2,
@@ -334,7 +334,7 @@ impl Florestad {
             self.config
                 .assume_valid
                 .as_ref()
-                .map(|value| value.parse().expect("invalid assumevalid")),
+                .map(|value| value.parse().expect("Invalid assumevalid")),
         ));
 
         #[cfg(feature = "compact-filters")]
@@ -343,7 +343,7 @@ impl Florestad {
             let filter_store = FlatFiltersStore::new((data_dir.clone() + "/cfilters").into());
             let cfilters = Arc::new(NetworkFilters::new(filter_store));
             info!(
-                "loaded compact filters store at height: {:?}",
+                "Loaded compact filters store at height: {:?}",
                 cfilters.get_height().unwrap()
             );
             Some(cfilters)
@@ -440,7 +440,7 @@ impl Florestad {
             );
 
             if self.json_rpc.set(server).is_err() {
-                panic!("we should be the first one setting this");
+                panic!("We should be the first one setting this");
             }
         }
 
@@ -450,14 +450,14 @@ impl Florestad {
             .electrum_address
             .clone()
             .map(|addr| Self::get_ip_address(&addr, 50001))
-            .unwrap_or("0.0.0.0:50001".parse().expect("hardcoded address"));
+            .unwrap_or("0.0.0.0:50001".parse().expect("Hardcoded address"));
 
         let ssl_e_addr = self
             .config
             .ssl_electrum_address
             .clone()
             .map(|addr| Self::get_ip_address(&addr, 50002))
-            .unwrap_or("0.0.0.0:50002".parse().expect("hardcoded address"));
+            .unwrap_or("0.0.0.0:50002".parse().expect("Hardcoded address"));
 
         // Load TLS configuration if needed
         let tls_config = if !self.config.no_ssl {
