@@ -294,7 +294,9 @@ Here's some Guidelines:
 - Has to run.
 - Use [pre-commit](https://pre-commit.com/) for the language that you're using (if possible 👍).
 
-You can accomplish that using our flake.nix for development.
+You can run `just pre-contributing` to make it easier to check everything is correct before opening a pull request.
+
+You can also accomplish that using our flake.nix for development.
 
 ## Developing on Floresta with Nix
 

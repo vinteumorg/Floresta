@@ -65,3 +65,6 @@ test-features arg="":
 # Remove test-generated data
 clean-data:
     ./contrib/clean_data.sh
+
+# Run all needed checks before contributing code
+pre-contributing: lint fmt test build-release
