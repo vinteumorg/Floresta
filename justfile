@@ -66,5 +66,5 @@ test-features arg="":
 clean-data:
     ./contrib/clean_data.sh
 
-# Run all needed checks before contributing code
-pre-contributing: lint fmt test build-release
+# Run all needed checks before contributing code (pre-commit check)
+pcc: lint test-features
