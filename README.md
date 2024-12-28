@@ -358,7 +358,7 @@ Here's some Guidelines:
 - Has to run.
 - Use [pre-commit](https://pre-commit.com/) for the language that you're using (if possible 👍).
 
-You can run `just pre-contributing` to make it easier to check everything is correct before opening a pull request.
+You can run `just pcc`, which stands for pre-commit check, to check everything is correct before opening a pull request.
 
 You can also accomplish that using our flake.nix for development.
 
