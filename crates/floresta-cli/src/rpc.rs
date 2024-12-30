@@ -66,7 +66,7 @@ pub trait FlorestaRPC {
     /// as old as the oldest transaction this descriptor could have been used in.
     fn rescan(&self, rescan: u32) -> Result<bool>;
     /// Returns the current height of the blockchain
-    fn get_height(&self) -> Result<u32>;
+    fn get_block_count(&self) -> Result<u32>;
     /// Sends a hex-encoded transaction to the network
     ///
     /// This method sends a transaction to the network. The transaction should be encoded as a
@@ -176,8 +176,8 @@ impl<T: JsonRPCClient> FlorestaRPC for T {
         )
     }
 
-    fn get_height(&self) -> Result<u32> {
-        self.call("getheight", &[])
+    fn get_block_count(&self) -> Result<u32> {
+        self.call("getblockcount", &[])
     }
 
     fn get_tx_out(&self, tx_id: Txid, outpoint: u32) -> Result<Value> {

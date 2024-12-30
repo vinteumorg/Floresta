@@ -198,6 +198,12 @@ async fn handle_json_rpc_request(req: Value, state: Arc<RpcImpl>) -> Result<serd
     }
 
     match method {
+        // blockchain
+        "getbestblockhash" => {
+            let hash = state.get_best_block_hash()?;
+            Ok(serde_json::to_value(hash).unwrap())
+        }
+
         "getblock" => {
             let hash = BlockHash::from_str(params[0].as_str().ok_or(Error::InvalidHash)?)
                 .map_err(|_| Error::InvalidHash)?;
@@ -214,12 +220,30 @@ async fn handle_json_rpc_request(req: Value, state: Arc<RpcImpl>) -> Result<serd
                 _ => Err(Error::InvalidVerbosityLevel),
             }
         }
+
+        "getblockchaininfo" => state
+            .get_blockchain_info()
+            .map(|v| ::serde_json::to_value(v).unwrap()),
+
+        "getblockcount" => state
+            .get_block_count()
+            .map(|v| ::serde_json::to_value(v).unwrap()),
+
+        "getblockfrompeer" => {
+            let hash = BlockHash::from_str(params[0].as_str().ok_or(Error::InvalidHash)?)
+                .map_err(|_| Error::InvalidHash)?;
+            state
+                .get_block(hash)
+                .map(|v| ::serde_json::to_value(v).unwrap())
+        }
+
         "getblockhash" => {
             let height = params[0].as_u64().ok_or(Error::InvalidHeight)? as u32;
             state
                 .get_block_hash(height)
                 .map(|h| ::serde_json::to_value(h).unwrap())
         }
+
         "getblockheader" => {
             let hash = BlockHash::from_str(params[0].as_str().ok_or(Error::InvalidHash)?)
                 .map_err(|_| Error::InvalidHash)?;
@@ -227,17 +251,7 @@ async fn handle_json_rpc_request(req: Value, state: Arc<RpcImpl>) -> Result<serd
                 .get_block_header(hash)
                 .map(|h| ::serde_json::to_value(h).unwrap())
         }
-        "getblockchaininfo" => state
-            .get_blockchain_info()
-            .map(|v| ::serde_json::to_value(v).unwrap()),
-        "getrawtransaction" => {
-            let txid = Txid::from_str(params[0].as_str().ok_or(Error::InvalidHash)?)
-                .map_err(|_| Error::InvalidHash)?;
-            let verbosity = params.get(1).map(|v| v.as_bool().unwrap());
-            state
-                .get_transaction(txid, verbosity)
-                .map(|v| ::serde_json::to_value(v).unwrap())
-        }
+
         "gettxout" => {
             let txid = Txid::from_str(params[0].as_str().ok_or(Error::InvalidHash)?)
                 .map_err(|_| Error::InvalidHash)?;
@@ -246,6 +260,7 @@ async fn handle_json_rpc_request(req: Value, state: Arc<RpcImpl>) -> Result<serd
                 .get_tx_out(txid, vout)
                 .map(|v| ::serde_json::to_value(v).unwrap())
         }
+
         "gettxoutproof" => {
             let txid = Txid::from_str(params[0].as_str().ok_or(Error::InvalidHash)?)
                 .map_err(|_| Error::InvalidHash)?;
@@ -253,44 +268,20 @@ async fn handle_json_rpc_request(req: Value, state: Arc<RpcImpl>) -> Result<serd
                 .get_tx_proof(txid)
                 .map(|v| ::serde_json::to_value(v).unwrap())
         }
-        "getpeerinfo" => state
-            .get_peer_info()
-            .await
-            .map(|v| ::serde_json::to_value(v).unwrap()),
+
+        "getrawtransaction" => {
+            let txid = Txid::from_str(params[0].as_str().ok_or(Error::InvalidHash)?)
+                .map_err(|_| Error::InvalidHash)?;
+            let verbosity = params.get(1).map(|v| v.as_bool().unwrap());
+            state
+                .get_transaction(txid, verbosity)
+                .map(|v| ::serde_json::to_value(v).unwrap())
+        }
+
         "getroots" => state
             .get_roots()
             .map(|v| ::serde_json::to_value(v).unwrap()),
-        "addnode" => {
-            let node = params[0].as_str().ok_or(Error::InvalidAddress)?;
-            state
-                .add_node(node.to_string())
-                .map(|v| ::serde_json::to_value(v).unwrap())
-        }
-        "loaddescriptor" => {
-            let descriptor = params[0].as_str().ok_or(Error::InvalidDescriptor)?;
-            state
-                .load_descriptor(descriptor.to_string())
-                .map(|v| ::serde_json::to_value(v).unwrap())
-        }
-        "rescanblockchain" => {
-            let rescan = params[0].as_u64().ok_or(Error::InvalidHeight)?;
-            state
-                .rescan(rescan as u32)
-                .map(|v| ::serde_json::to_value(v).unwrap())
-        }
-        "sendrawtransaction" => {
-            let tx = params[0].as_str().ok_or(Error::InvalidHex)?;
-            state
-                .send_raw_transaction(tx.to_string())
-                .map(|v| ::serde_json::to_value(v).unwrap())
-        }
-        "stop" => state
-            .stop()
-            .await
-            .map(|v| ::serde_json::to_value(v).unwrap()),
-        "getheight" => state
-            .get_height()
-            .map(|v| ::serde_json::to_value(v).unwrap()),
+
         "findtxout" => {
             let txid = Txid::from_str(params[0].as_str().ok_or(Error::InvalidHash)?)
                 .map_err(|_| Error::InvalidHash)?;
@@ -303,6 +294,48 @@ async fn handle_json_rpc_request(req: Value, state: Arc<RpcImpl>) -> Result<serd
                 .find_tx_out(txid, vout, script, height)
                 .map(|v| ::serde_json::to_value(v).unwrap())
         }
+
+        // network
+        "getpeerinfo" => state
+            .get_peer_info()
+            .await
+            .map(|v| ::serde_json::to_value(v).unwrap()),
+
+        "addnode" => {
+            let node = params[0].as_str().ok_or(Error::InvalidAddress)?;
+            state
+                .add_node(node.to_string())
+                .map(|v| ::serde_json::to_value(v).unwrap())
+        }
+
+        // wallet
+        "loaddescriptor" => {
+            let descriptor = params[0].as_str().ok_or(Error::InvalidDescriptor)?;
+            state
+                .load_descriptor(descriptor.to_string())
+                .map(|v| ::serde_json::to_value(v).unwrap())
+        }
+
+        "rescanblockchain" => {
+            let rescan = params[0].as_u64().ok_or(Error::InvalidHeight)?;
+            state
+                .rescan(rescan as u32)
+                .map(|v| ::serde_json::to_value(v).unwrap())
+        }
+
+        "sendrawtransaction" => {
+            let tx = params[0].as_str().ok_or(Error::InvalidHex)?;
+            state
+                .send_raw_transaction(tx.to_string())
+                .map(|v| ::serde_json::to_value(v).unwrap())
+        }
+
+        // control
+        "stop" => state
+            .stop()
+            .await
+            .map(|v| ::serde_json::to_value(v).unwrap()),
+
         _ => {
             let error = Error::MethodNotFound;
             Err(error)
