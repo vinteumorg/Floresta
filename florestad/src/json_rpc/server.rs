@@ -7,24 +7,19 @@ use axum::http::Method;
 use axum::routing::post;
 use axum::Json;
 use axum::Router;
-use bitcoin::block::Header as BlockHeader;
 use bitcoin::consensus::deserialize;
 use bitcoin::consensus::encode::serialize_hex;
-use bitcoin::consensus::serialize;
-use bitcoin::constants::genesis_block;
 use bitcoin::hashes::hex::FromHex;
 use bitcoin::hashes::Hash;
 use bitcoin::hex::DisplayHex;
 use bitcoin::Address;
 use bitcoin::BlockHash;
 use bitcoin::Network;
-use bitcoin::OutPoint;
 use bitcoin::ScriptBuf;
 use bitcoin::TxIn;
 use bitcoin::TxOut;
 use bitcoin::Txid;
 use floresta_chain::pruned_utreexo::BlockchainInterface;
-use floresta_chain::pruned_utreexo::UpdatableChainstate;
 use floresta_chain::ChainState;
 use floresta_chain::KvChainStore;
 use floresta_common::parse_descriptors;
@@ -44,9 +39,7 @@ use serde_json::Value;
 use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
 
-use super::res::BlockJson;
 use super::res::Error;
-use super::res::GetBlockchainInfoRes;
 use super::res::RawTxJson;
 use super::res::ScriptPubKeyJson;
 use super::res::ScriptSigJson;
@@ -54,84 +47,17 @@ use super::res::TxInJson;
 use super::res::TxOutJson;
 
 pub struct RpcImpl {
-    block_filter_storage: Option<Arc<NetworkFilters<FlatFiltersStore>>>,
-    network: Network,
-    chain: Arc<ChainState<KvChainStore<'static>>>,
-    wallet: Arc<AddressCache<KvDatabase>>,
-    node: Arc<NodeInterface>,
-    kill_signal: Arc<RwLock<bool>>,
+    pub(super) block_filter_storage: Option<Arc<NetworkFilters<FlatFiltersStore>>>,
+    pub(super) network: Network,
+    pub(super) chain: Arc<ChainState<KvChainStore<'static>>>,
+    pub(super) wallet: Arc<AddressCache<KvDatabase>>,
+    pub(super) node: Arc<NodeInterface>,
+    pub(super) kill_signal: Arc<RwLock<bool>>,
 }
 
 type Result<T> = std::result::Result<T, Error>;
+
 impl RpcImpl {
-    fn get_tx_out(&self, txid: Txid, outpoint: u32) -> Result<Value> {
-        let utxo = self.wallet.get_utxo(&OutPoint {
-            txid,
-            vout: outpoint,
-        });
-
-        let res = match utxo {
-            Some(utxo) => ::serde_json::to_value(utxo),
-            None => Ok(json!({})),
-        };
-
-        res.map_err(|_e| Error::Encode)
-    }
-
-    fn find_tx_out(&self, txid: Txid, vout: u32, script: ScriptBuf, height: u32) -> Result<Value> {
-        if let Some(txout) = self.wallet.get_utxo(&OutPoint { txid, vout }) {
-            return Ok(serde_json::to_value(txout).unwrap());
-        }
-
-        if self.chain.is_in_idb() {
-            return Err(Error::InInitialBlockDownload);
-        }
-
-        // can't proceed without block filters
-        let Some(cfilters) = self.block_filter_storage.as_ref() else {
-            return Err(Error::NoBlockFilters);
-        };
-
-        self.wallet.cache_address(script.clone());
-        let filter_key = script.to_bytes();
-        let candidates = cfilters.match_any(
-            vec![filter_key.as_slice()],
-            Some(height as usize),
-            self.chain.clone(),
-        );
-
-        let candidates = candidates
-            .unwrap_or_default()
-            .into_iter()
-            .map(|hash| self.node.get_block(hash));
-
-        for candidate in candidates {
-            let candidate = match candidate {
-                Err(e) => {
-                    return Err(Error::Node(e.to_string()));
-                }
-                Ok(None) => {
-                    return Err(Error::Node(format!(
-                        "BUG: block {candidate:?} is a match in our filters, but we can't get it?"
-                    )));
-                }
-                Ok(Some(candidate)) => candidate,
-            };
-
-            let Ok(Some(height)) = self.chain.get_block_height(&candidate.block_hash()) else {
-                return Err(Error::BlockNotFound);
-            };
-
-            self.wallet.block_process(&candidate, height);
-        }
-
-        self.get_tx_out(txid, vout)
-    }
-
-    fn get_height(&self) -> Result<u32> {
-        Ok(self.chain.get_best_block().unwrap().0)
-    }
-
     fn add_node(&self, node: String) -> Result<bool> {
         if self.chain.is_in_idb() {
             return Err(Error::InInitialBlockDownload);
@@ -152,23 +78,6 @@ impl RpcImpl {
         let node = ip.parse().map_err(|_| Error::InvalidAddress)?;
         self.node.connect(node, port).unwrap();
         Ok(true)
-    }
-
-    fn get_roots(&self) -> Result<Vec<String>> {
-        let hashes = self.chain.get_root_hashes();
-        Ok(hashes.iter().map(|h| h.to_string()).collect())
-    }
-
-    fn get_block_hash(&self, height: u32) -> Result<BlockHash> {
-        self.chain
-            .get_block_hash(height)
-            .map_err(|_| Error::BlockNotFound)
-    }
-
-    fn get_block_header(&self, hash: BlockHash) -> Result<BlockHeader> {
-        self.chain
-            .get_block_header(&hash)
-            .map_err(|_| Error::BlockNotFound)
     }
 
     fn get_transaction(&self, tx_id: Txid, verbosity: Option<bool>) -> Result<Value> {
@@ -259,124 +168,6 @@ impl RpcImpl {
         Ok(tx.compute_txid())
     }
 
-    fn get_tx_proof(&self, tx_id: Txid) -> Result<Vec<String>> {
-        Ok(self
-            .wallet
-            .get_merkle_proof(&tx_id)
-            .ok_or(Error::TxNotFound)?
-            .0)
-    }
-
-    fn get_block(&self, hash: BlockHash, verbosity: Option<u8>) -> Result<Value> {
-        let is_genesis = self.chain.get_block_hash(0).unwrap().eq(&hash);
-        if self.chain.is_in_idb() && !is_genesis {
-            return Err(Error::InInitialBlockDownload);
-        }
-
-        let verbosity = verbosity.unwrap_or(1);
-
-        let block = if is_genesis {
-            Some(genesis_block(self.network))
-        } else {
-            self.node.get_block(hash).map_err(|_| Error::Chain)?
-        };
-
-        if let Some(block) = block {
-            if verbosity == 1 {
-                let tip = self.chain.get_height().map_err(|_| Error::Chain)?;
-                let height = self
-                    .chain
-                    .get_block_height(&hash)
-                    .map_err(|_| Error::Chain)?
-                    .unwrap();
-
-                let median_time_past = if height > 11 {
-                    let mut last_block_times: Vec<_> = ((height - 11)..height)
-                        .map(|h| {
-                            self.chain
-                                .get_block_header(&self.chain.get_block_hash(h).unwrap())
-                                .unwrap()
-                                .time
-                        })
-                        .collect();
-                    last_block_times.sort();
-                    last_block_times[5]
-                } else {
-                    block.header.time
-                };
-
-                let block = BlockJson {
-                    bits: serialize_hex(&block.header.bits),
-                    chainwork: block.header.work().to_string(),
-                    confirmations: (tip - height) + 1,
-                    difficulty: block.header.difficulty(self.chain.get_params()),
-                    hash: block.header.block_hash().to_string(),
-                    height,
-                    merkleroot: block.header.merkle_root.to_string(),
-                    nonce: block.header.nonce,
-                    previousblockhash: block.header.prev_blockhash.to_string(),
-                    size: block.total_size(),
-                    time: block.header.time,
-                    tx: block
-                        .txdata
-                        .iter()
-                        .map(|tx| tx.compute_txid().to_string())
-                        .collect(),
-                    version: block.header.version.to_consensus(),
-                    version_hex: serialize_hex(&block.header.version),
-                    weight: block.weight().to_wu() as usize,
-                    mediantime: median_time_past,
-                    n_tx: block.txdata.len(),
-                    nextblockhash: self
-                        .chain
-                        .get_block_hash(height + 1)
-                        .ok()
-                        .map(|h| h.to_string()),
-                    strippedsize: block.total_size(),
-                };
-                return Ok(serde_json::to_value(block).unwrap());
-            }
-            return Ok(json!(serialize(&block).to_vec()));
-        }
-
-        Err(Error::BlockNotFound)
-    }
-
-    fn get_blockchain_info(&self) -> Result<GetBlockchainInfoRes> {
-        let (height, hash) = self.chain.get_best_block().unwrap();
-        let validated = self.chain.get_validation_index().unwrap();
-        let ibd = self.chain.is_in_idb();
-        let latest_header = self.chain.get_block_header(&hash).unwrap();
-        let latest_work = latest_header.work();
-        let latest_block_time = latest_header.time;
-        let leaf_count = self.chain.acc().leaves as u32;
-        let root_count = self.chain.acc().roots.len() as u32;
-        let root_hashes = self
-            .chain
-            .acc()
-            .roots
-            .into_iter()
-            .map(|r| r.to_string())
-            .collect();
-
-        let validated_blocks = self.chain.get_validation_index().unwrap();
-
-        Ok(GetBlockchainInfoRes {
-            best_block: hash.to_string(),
-            height,
-            ibd,
-            validated,
-            latest_work: latest_work.to_string(),
-            latest_block_time,
-            leaf_count,
-            root_count,
-            root_hashes,
-            chain: self.network.to_string(),
-            difficulty: latest_header.difficulty(self.chain.get_params()) as u64,
-            progress: validated_blocks as f32 / height as f32,
-        })
-    }
-
     async fn get_peer_info(&self) -> Result<Vec<PeerInfo>> {
         if self.chain.is_in_idb() {
             return Err(Error::InInitialBlockDownload);
@@ -411,9 +202,17 @@ async fn handle_json_rpc_request(req: Value, state: Arc<RpcImpl>) -> Result<serd
             let hash = BlockHash::from_str(params[0].as_str().ok_or(Error::InvalidHash)?)
                 .map_err(|_| Error::InvalidHash)?;
             let verbosity = params.get(1).map(|v| v.as_u64().unwrap() as u8);
-            state
-                .get_block(hash, verbosity)
-                .map(|v| ::serde_json::to_value(v).unwrap())
+
+            match verbosity {
+                Some(0) => state
+                    .get_block_serialized(hash)
+                    .map(|v| ::serde_json::to_value(v).unwrap()),
+                Some(1) => state
+                    .get_block(hash)
+                    .map(|v| ::serde_json::to_value(v).unwrap()),
+
+                _ => Err(Error::InvalidVerbosityLevel),
+            }
         }
         "getblockhash" => {
             let height = params[0].as_u64().ok_or(Error::InvalidHeight)? as u32;

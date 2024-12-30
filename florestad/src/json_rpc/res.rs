@@ -100,6 +100,7 @@ pub struct BlockJson {
 pub enum Error {
     MissingParams,
     MissingReq,
+    InvalidVerbosityLevel,
     TxNotFound,
     InvalidScript,
     InvalidDescriptor,
@@ -145,6 +146,7 @@ impl Display for Error {
             Error::InvalidScript => write!(f, "Invalid script"),
             Error::MissingParams => write!(f, "Missing params field"),
             Error::MissingReq => write!(f, "Missing request field"),
+            Error::InvalidVerbosityLevel => write!(f, "Invalid verbosity level"),
         }
     }
 }
