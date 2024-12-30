@@ -175,7 +175,7 @@ pub struct Florestad {
     stop_notify: Arc<Mutex<Option<oneshot::Receiver<()>>>>,
     #[cfg(feature = "json-rpc")]
     /// A handle to our json-rpc server
-    json_rpc: OnceLock<jsonrpc_http_server::Server>,
+    json_rpc: OnceLock<tokio::task::JoinHandle<()>>,
 }
 
 impl Florestad {
@@ -431,9 +431,7 @@ impl Florestad {
         // JSON-RPC
         #[cfg(feature = "json-rpc")]
         {
-            let runtime_handle = tokio::runtime::Handle::current();
-
-            let server = json_rpc::server::RpcImpl::create(
+            let server = tokio::spawn(json_rpc::server::RpcImpl::create(
                 blockchain_state.clone(),
                 wallet.clone(),
                 chain_provider.get_handle(),
@@ -444,8 +442,7 @@ impl Florestad {
                     .json_rpc_address
                     .as_ref()
                     .map(|x| Self::get_ip_address(x, 8332)),
-                runtime_handle,
-            );
+            ));
 
             if self.json_rpc.set(server).is_err() {
                 panic!("We should be the first one setting this");

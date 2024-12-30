@@ -1,6 +1,12 @@
 use std::net::SocketAddr;
+use std::str::FromStr;
 use std::sync::Arc;
 
+use axum::extract::State;
+use axum::http::Method;
+use axum::routing::post;
+use axum::Json;
+use axum::Router;
 use bitcoin::block::Header as BlockHeader;
 use bitcoin::consensus::deserialize;
 use bitcoin::consensus::encode::serialize_hex;
@@ -30,16 +36,13 @@ use floresta_watch_only::CachedTransaction;
 use floresta_wire::node_interface::NodeInterface;
 use floresta_wire::node_interface::NodeMethods;
 use floresta_wire::node_interface::PeerInfo;
-use futures::executor::block_on;
-use jsonrpc_core::Result;
-use jsonrpc_derive::rpc;
-use jsonrpc_http_server::ServerBuilder;
 use log::debug;
 use log::error;
 use log::info;
 use serde_json::json;
 use serde_json::Value;
 use tokio::sync::RwLock;
+use tower_http::cors::CorsLayer;
 
 use super::res::BlockJson;
 use super::res::Error;
@@ -50,42 +53,6 @@ use super::res::ScriptSigJson;
 use super::res::TxInJson;
 use super::res::TxOutJson;
 
-#[rpc]
-pub trait Rpc {
-    #[rpc(name = "getblockchaininfo")]
-    fn get_blockchain_info(&self) -> Result<GetBlockchainInfoRes>;
-    #[rpc(name = "getblockhash")]
-    fn get_block_hash(&self, height: u32) -> Result<BlockHash>;
-    #[rpc(name = "getblockheader")]
-    fn get_block_header(&self, hash: BlockHash) -> Result<BlockHeader>;
-    #[rpc(name = "gettransaction")]
-    fn get_transaction(&self, tx_id: Txid, verbosity: Option<bool>) -> Result<Value>;
-    #[rpc(name = "gettxproof")]
-    fn get_tx_proof(&self, tx_id: Txid) -> Result<Vec<String>>;
-    #[rpc(name = "loaddescriptor")]
-    fn load_descriptor(&self, descriptor: String) -> Result<bool>;
-    #[rpc(name = "rescan")]
-    fn rescan(&self, rescan: u32) -> Result<bool>;
-    #[rpc(name = "getheight")]
-    fn get_height(&self) -> Result<u32>;
-    #[rpc(name = "sendrawtransaction")]
-    fn send_raw_transaction(&self, tx: String) -> Result<Txid>;
-    #[rpc(name = "getroots")]
-    fn get_roots(&self) -> Result<Vec<String>>;
-    #[rpc(name = "getpeerinfo")]
-    fn get_peer_info(&self) -> Result<Vec<PeerInfo>>;
-    #[rpc(name = "getblock")]
-    fn get_block(&self, hash: BlockHash, verbosity: Option<u8>) -> Result<Value>;
-    #[rpc(name = "gettxout", returns = "TxOut")]
-    fn get_tx_out(&self, tx_id: Txid, outpoint: u32) -> Result<Value>;
-    #[rpc(name = "findtxout", returns = "TxOut")]
-    fn find_tx_out(&self, tx_id: Txid, vout: u32, script: ScriptBuf, height: u32) -> Result<Value>;
-    #[rpc(name = "stop")]
-    fn stop(&self) -> Result<bool>;
-    #[rpc(name = "addnode")]
-    fn add_node(&self, node: String) -> Result<bool>;
-}
-
 pub struct RpcImpl {
     block_filter_storage: Option<Arc<NetworkFilters<FlatFiltersStore>>>,
     network: Network,
@@ -95,7 +62,8 @@ pub struct RpcImpl {
     kill_signal: Arc<RwLock<bool>>,
 }
 
-impl Rpc for RpcImpl {
+type Result<T> = std::result::Result<T, Error>;
+impl RpcImpl {
     fn get_tx_out(&self, txid: Txid, outpoint: u32) -> Result<Value> {
         let utxo = self.wallet.get_utxo(&OutPoint {
             txid,
@@ -107,11 +75,7 @@ impl Rpc for RpcImpl {
             None => Ok(json!({})),
         };
 
-        res.map_err(|e| jsonrpc_core::Error {
-            code: Error::Encode.into(),
-            message: Error::Encode.to_string(),
-            data: Some(::serde_json::Value::String(e.to_string())),
-        })
+        res.map_err(|_e| Error::Encode)
     }
 
     fn find_tx_out(&self, txid: Txid, vout: u32, script: ScriptBuf, height: u32) -> Result<Value> {
@@ -120,20 +84,12 @@ impl Rpc for RpcImpl {
         }
 
         if self.chain.is_in_idb() {
-            return Err(jsonrpc_core::Error {
-                code: Error::InInitialBlockDownload.into(),
-                message: Error::InInitialBlockDownload.to_string(),
-                data: None,
-            });
+            return Err(Error::InInitialBlockDownload);
         }
 
         // can't proceed without block filters
         let Some(cfilters) = self.block_filter_storage.as_ref() else {
-            return Err(jsonrpc_core::Error {
-                code: Error::NoBlockFilters.into(),
-                message: Error::NoBlockFilters.to_string(),
-                data: None,
-            });
+            return Err(Error::NoBlockFilters);
         };
 
         self.wallet.cache_address(script.clone());
@@ -152,31 +108,18 @@ impl Rpc for RpcImpl {
         for candidate in candidates {
             let candidate = match candidate {
                 Err(e) => {
-                    return Err(jsonrpc_core::Error {
-                        code: Error::Node.into(),
-                        message: format!("error while downloading block {candidate:?}"),
-                        data: Some(jsonrpc_core::Value::String(e.to_string())),
-                    });
+                    return Err(Error::Node(e.to_string()));
                 }
                 Ok(None) => {
-                    return Err(jsonrpc_core::Error {
-                            code: Error::Node.into(),
-                            message: format!("BUG: block {candidate:?} is a match in our filters, but we can't get it?"),
-                            data: None,
-                        });
+                    return Err(Error::Node(format!(
+                        "BUG: block {candidate:?} is a match in our filters, but we can't get it?"
+                    )));
                 }
                 Ok(Some(candidate)) => candidate,
             };
 
             let Ok(Some(height)) = self.chain.get_block_height(&candidate.block_hash()) else {
-                return Err(jsonrpc_core::Error {
-                    code: Error::Chain.into(),
-                    message: format!(
-                        "BUG: block {} is a match in our filters, but we can't get it?",
-                        candidate.block_hash()
-                    ),
-                    data: None,
-                });
+                return Err(Error::BlockNotFound);
             };
 
             self.wallet.block_process(&candidate, height);
@@ -191,11 +134,7 @@ impl Rpc for RpcImpl {
 
     fn add_node(&self, node: String) -> Result<bool> {
         if self.chain.is_in_idb() {
-            return Err(jsonrpc_core::Error {
-                code: Error::InInitialBlockDownload.into(),
-                message: Error::InInitialBlockDownload.to_string(),
-                data: None,
-            });
+            return Err(Error::InInitialBlockDownload);
         }
 
         let node = node.split(':').collect::<Vec<&str>>();
@@ -207,45 +146,12 @@ impl Rpc for RpcImpl {
                 Network::Testnet => (node[0], 18333),
                 Network::Regtest => (node[0], 18444),
                 Network::Signet => (node[0], 38333),
-                _ => return Err(Error::InvalidNetwork.into()),
+                _ => return Err(Error::InvalidNetwork),
             }
         };
         let node = ip.parse().map_err(|_| Error::InvalidAddress)?;
         self.node.connect(node, port).unwrap();
         Ok(true)
-    }
-
-    fn get_blockchain_info(&self) -> Result<GetBlockchainInfoRes> {
-        let (height, hash) = self.chain.get_best_block().unwrap();
-        let validated = self.chain.get_validation_index().unwrap();
-        let ibd = self.chain.is_in_idb();
-        let latest_header = self.chain.get_block_header(&hash).unwrap();
-        let latest_work = latest_header.work();
-        let latest_block_time = latest_header.time;
-        let leaf_count = self.chain.acc().leaves as u32;
-        let root_count = self.chain.acc().roots.len() as u32;
-        let root_hashes = self
-            .chain
-            .acc()
-            .roots
-            .into_iter()
-            .map(|r| r.to_string())
-            .collect();
-        let validated_blocks = self.chain.get_validation_index().unwrap();
-        Ok(GetBlockchainInfoRes {
-            best_block: hash.to_string(),
-            height,
-            ibd,
-            validated,
-            latest_work: latest_work.to_string(),
-            latest_block_time,
-            leaf_count,
-            root_count,
-            root_hashes,
-            chain: self.network.to_string(),
-            difficulty: latest_header.difficulty(self.chain.get_params()) as u64,
-            progress: validated_blocks as f32 / height as f32,
-        })
     }
 
     fn get_roots(&self) -> Result<Vec<String>> {
@@ -254,47 +160,36 @@ impl Rpc for RpcImpl {
     }
 
     fn get_block_hash(&self, height: u32) -> Result<BlockHash> {
-        if let Ok(hash) = self.chain.get_block_hash(height) {
-            return Ok(hash);
-        }
-        Err(Error::BlockNotFound.into())
+        self.chain
+            .get_block_hash(height)
+            .map_err(|_| Error::BlockNotFound)
     }
 
     fn get_block_header(&self, hash: BlockHash) -> Result<BlockHeader> {
-        if let Ok(header) = self.chain.get_block_header(&hash) {
-            return Ok(header);
-        }
-        Err(Error::BlockNotFound.into())
+        self.chain
+            .get_block_header(&hash)
+            .map_err(|_| Error::BlockNotFound)
     }
 
     fn get_transaction(&self, tx_id: Txid, verbosity: Option<bool>) -> Result<Value> {
         if verbosity == Some(true) {
-            if let Some(tx) = self.wallet.get_transaction(&tx_id) {
-                return Ok(serde_json::to_value(serialize(&tx.tx)).unwrap());
-            }
-            return Err(Error::TxNotFound.into());
+            let tx = self.wallet.get_transaction(&tx_id).ok_or(Error::TxNotFound);
+            return tx.map(|tx| serde_json::to_value(self.make_raw_transaction(tx)).unwrap());
         }
-        if let Some(tx) = self.wallet.get_transaction(&tx_id) {
-            return Ok(serde_json::to_value(self.make_raw_transaction(tx)).unwrap());
-        }
-        Err(Error::TxNotFound.into())
+
+        self.wallet
+            .get_transaction(&tx_id)
+            .and_then(|tx| serde_json::to_value(self.make_raw_transaction(tx)).ok())
+            .ok_or(Error::TxNotFound)
     }
 
     fn load_descriptor(&self, descriptor: String) -> Result<bool> {
         if self.chain.is_in_idb() {
-            return Err(jsonrpc_core::Error {
-                code: Error::InInitialBlockDownload.into(),
-                message: Error::InInitialBlockDownload.to_string(),
-                data: None,
-            });
+            return Err(Error::InInitialBlockDownload);
         }
 
         let Ok(mut parsed) = parse_descriptors(&[descriptor.clone()]) else {
-            return Err(jsonrpc_core::Error {
-                code: Error::InvalidDescriptor.into(),
-                message: Error::InvalidDescriptor.to_string(),
-                data: None,
-            });
+            return Err(Error::InvalidDescriptor);
         };
 
         // It's ok to unwrap because we know there is at least one element in the vector
@@ -318,11 +213,7 @@ impl Rpc for RpcImpl {
         let addresses = self.wallet.get_cached_addresses();
         let wallet = self.wallet.clone();
         if self.block_filter_storage.is_none() {
-            return Err(jsonrpc_core::Error {
-                code: Error::InInitialBlockDownload.into(),
-                message: Error::InInitialBlockDownload.to_string(),
-                data: None,
-            });
+            return Err(Error::InInitialBlockDownload);
         };
 
         let cfilters = self.block_filter_storage.as_ref().unwrap().clone();
@@ -340,21 +231,13 @@ impl Rpc for RpcImpl {
 
     fn rescan(&self, _rescan: u32) -> Result<bool> {
         if self.chain.is_in_idb() {
-            return Err(jsonrpc_core::Error {
-                code: Error::InInitialBlockDownload.into(),
-                message: Error::InInitialBlockDownload.to_string(),
-                data: None,
-            });
+            return Err(Error::InInitialBlockDownload);
         }
 
         let addresses = self.wallet.get_cached_addresses();
         let wallet = self.wallet.clone();
         if self.block_filter_storage.is_none() {
-            return Err(jsonrpc_core::Error {
-                code: Error::InInitialBlockDownload.into(),
-                message: Error::InInitialBlockDownload.to_string(),
-                data: None,
-            });
+            return Err(Error::InInitialBlockDownload);
         };
         let cfilters = self.block_filter_storage.as_ref().unwrap().clone();
         let node = self.node.clone();
@@ -369,37 +252,25 @@ impl Rpc for RpcImpl {
     }
 
     fn send_raw_transaction(&self, tx: String) -> Result<Txid> {
-        let tx_hex = Vec::from_hex(&tx).map_err(|_| jsonrpc_core::Error {
-            code: 3.into(),
-            message: "Invalid hex".into(),
-            data: None,
-        })?;
-        let tx = deserialize(&tx_hex).map_err(|e| jsonrpc_core::Error {
-            code: 2.into(),
-            message: format!("{:?}", e),
-            data: None,
-        })?;
-        if self.chain.broadcast(&tx).is_ok() {
-            return Ok(tx.compute_txid());
-        }
-        Err(Error::Chain.into())
+        let tx_hex = Vec::from_hex(&tx).map_err(|_| Error::InvalidHex)?;
+        let tx = deserialize(&tx_hex).map_err(|e| Error::Decode(e.to_string()))?;
+        self.chain.broadcast(&tx).map_err(|_| Error::Chain)?;
+
+        Ok(tx.compute_txid())
     }
 
     fn get_tx_proof(&self, tx_id: Txid) -> Result<Vec<String>> {
-        if let Some((proof, _)) = self.wallet.get_merkle_proof(&tx_id) {
-            return Ok(proof);
-        }
-        Err(Error::TxNotFound.into())
+        Ok(self
+            .wallet
+            .get_merkle_proof(&tx_id)
+            .ok_or(Error::TxNotFound)?
+            .0)
     }
 
     fn get_block(&self, hash: BlockHash, verbosity: Option<u8>) -> Result<Value> {
         let is_genesis = self.chain.get_block_hash(0).unwrap().eq(&hash);
         if self.chain.is_in_idb() && !is_genesis {
-            return Err(jsonrpc_core::Error {
-                code: Error::InInitialBlockDownload.into(),
-                message: Error::InInitialBlockDownload.to_string(),
-                data: None,
-            });
+            return Err(Error::InInitialBlockDownload);
         }
 
         let verbosity = verbosity.unwrap_or(1);
@@ -467,29 +338,233 @@ impl Rpc for RpcImpl {
             }
             return Ok(json!(serialize(&block).to_vec()));
         }
-        Err(Error::BlockNotFound.into())
+
+        Err(Error::BlockNotFound)
     }
 
-    fn get_peer_info(&self) -> Result<Vec<PeerInfo>> {
+    fn get_blockchain_info(&self) -> Result<GetBlockchainInfoRes> {
+        let (height, hash) = self.chain.get_best_block().unwrap();
+        let validated = self.chain.get_validation_index().unwrap();
+        let ibd = self.chain.is_in_idb();
+        let latest_header = self.chain.get_block_header(&hash).unwrap();
+        let latest_work = latest_header.work();
+        let latest_block_time = latest_header.time;
+        let leaf_count = self.chain.acc().leaves as u32;
+        let root_count = self.chain.acc().roots.len() as u32;
+        let root_hashes = self
+            .chain
+            .acc()
+            .roots
+            .into_iter()
+            .map(|r| r.to_string())
+            .collect();
+
+        let validated_blocks = self.chain.get_validation_index().unwrap();
+
+        Ok(GetBlockchainInfoRes {
+            best_block: hash.to_string(),
+            height,
+            ibd,
+            validated,
+            latest_work: latest_work.to_string(),
+            latest_block_time,
+            leaf_count,
+            root_count,
+            root_hashes,
+            chain: self.network.to_string(),
+            difficulty: latest_header.difficulty(self.chain.get_params()) as u64,
+            progress: validated_blocks as f32 / height as f32,
+        })
+    }
+
+    async fn get_peer_info(&self) -> Result<Vec<PeerInfo>> {
         if self.chain.is_in_idb() {
-            return Err(jsonrpc_core::Error {
-                code: Error::InInitialBlockDownload.into(),
-                message: Error::InInitialBlockDownload.to_string(),
-                data: None,
-            });
+            return Err(Error::InInitialBlockDownload);
         }
 
-        let peers = self.node.get_peer_info();
-        if let Ok(peers) = peers {
-            return Ok(peers);
-        }
-        Err(Error::TxNotFound.into())
+        let node = self.node.clone();
+        tokio::task::spawn_blocking(move || {
+            node.get_peer_info()
+                .map_err(|_| Error::Node("Failed to get peer info".to_string()))
+        })
+        .await
+        .map_err(|e| Error::Node(e.to_string()))?
     }
 
-    fn stop(&self) -> Result<bool> {
-        *block_on(self.kill_signal.write()) = true;
+    async fn stop(&self) -> Result<bool> {
+        *self.kill_signal.write().await = true;
         Ok(true)
     }
+}
+
+async fn handle_json_rpc_request(req: Value, state: Arc<RpcImpl>) -> Result<serde_json::Value> {
+    let method = req["method"].as_str().ok_or(Error::MethodNotFound)?;
+    let params = req["params"].as_array().ok_or(Error::MissingParams)?;
+    let version = req["jsonrpc"].as_str().ok_or(Error::MissingReq)?;
+
+    if version != "2.0" {
+        return Err(Error::InvalidRequest);
+    }
+
+    match method {
+        "getblock" => {
+            let hash = BlockHash::from_str(params[0].as_str().ok_or(Error::InvalidHash)?)
+                .map_err(|_| Error::InvalidHash)?;
+            let verbosity = params.get(1).map(|v| v.as_u64().unwrap() as u8);
+            state
+                .get_block(hash, verbosity)
+                .map(|v| ::serde_json::to_value(v).unwrap())
+        }
+        "getblockhash" => {
+            let height = params[0].as_u64().ok_or(Error::InvalidHeight)? as u32;
+            state
+                .get_block_hash(height)
+                .map(|h| ::serde_json::to_value(h).unwrap())
+        }
+        "getblockheader" => {
+            let hash = BlockHash::from_str(params[0].as_str().ok_or(Error::InvalidHash)?)
+                .map_err(|_| Error::InvalidHash)?;
+            state
+                .get_block_header(hash)
+                .map(|h| ::serde_json::to_value(h).unwrap())
+        }
+        "getblockchaininfo" => state
+            .get_blockchain_info()
+            .map(|v| ::serde_json::to_value(v).unwrap()),
+        "getrawtransaction" => {
+            let txid = Txid::from_str(params[0].as_str().ok_or(Error::InvalidHash)?)
+                .map_err(|_| Error::InvalidHash)?;
+            let verbosity = params.get(1).map(|v| v.as_bool().unwrap());
+            state
+                .get_transaction(txid, verbosity)
+                .map(|v| ::serde_json::to_value(v).unwrap())
+        }
+        "gettxout" => {
+            let txid = Txid::from_str(params[0].as_str().ok_or(Error::InvalidHash)?)
+                .map_err(|_| Error::InvalidHash)?;
+            let vout = params[1].as_u64().ok_or(Error::InvalidVout)? as u32;
+            state
+                .get_tx_out(txid, vout)
+                .map(|v| ::serde_json::to_value(v).unwrap())
+        }
+        "gettxoutproof" => {
+            let txid = Txid::from_str(params[0].as_str().ok_or(Error::InvalidHash)?)
+                .map_err(|_| Error::InvalidHash)?;
+            state
+                .get_tx_proof(txid)
+                .map(|v| ::serde_json::to_value(v).unwrap())
+        }
+        "getpeerinfo" => state
+            .get_peer_info()
+            .await
+            .map(|v| ::serde_json::to_value(v).unwrap()),
+        "getroots" => state
+            .get_roots()
+            .map(|v| ::serde_json::to_value(v).unwrap()),
+        "addnode" => {
+            let node = params[0].as_str().ok_or(Error::InvalidAddress)?;
+            state
+                .add_node(node.to_string())
+                .map(|v| ::serde_json::to_value(v).unwrap())
+        }
+        "loaddescriptor" => {
+            let descriptor = params[0].as_str().ok_or(Error::InvalidDescriptor)?;
+            state
+                .load_descriptor(descriptor.to_string())
+                .map(|v| ::serde_json::to_value(v).unwrap())
+        }
+        "rescanblockchain" => {
+            let rescan = params[0].as_u64().ok_or(Error::InvalidHeight)?;
+            state
+                .rescan(rescan as u32)
+                .map(|v| ::serde_json::to_value(v).unwrap())
+        }
+        "sendrawtransaction" => {
+            let tx = params[0].as_str().ok_or(Error::InvalidHex)?;
+            state
+                .send_raw_transaction(tx.to_string())
+                .map(|v| ::serde_json::to_value(v).unwrap())
+        }
+        "stop" => state
+            .stop()
+            .await
+            .map(|v| ::serde_json::to_value(v).unwrap()),
+        "getheight" => state
+            .get_height()
+            .map(|v| ::serde_json::to_value(v).unwrap()),
+        "findtxout" => {
+            let txid = Txid::from_str(params[0].as_str().ok_or(Error::InvalidHash)?)
+                .map_err(|_| Error::InvalidHash)?;
+            let vout = params[1].as_u64().ok_or(Error::InvalidVout)? as u32;
+            let script = ScriptBuf::from_hex(params[2].as_str().ok_or(Error::InvalidHex)?)
+                .map_err(|_| Error::InvalidScript)?;
+            let height = params[3].as_u64().ok_or(Error::InvalidHeight)? as u32;
+
+            state
+                .find_tx_out(txid, vout, script, height)
+                .map(|v| ::serde_json::to_value(v).unwrap())
+        }
+        _ => {
+            let error = Error::MethodNotFound;
+            Err(error)
+        }
+    }
+}
+
+async fn json_rpc_request(
+    State(state): State<Arc<RpcImpl>>,
+    Json(req): Json<serde_json::Value>,
+) -> axum::http::Response<axum::body::Body> {
+    let Some(id) = req.get("id").cloned() else {
+        let body = serde_json::json!({
+            "error": "id field is required",
+            "result": serde_json::Value::Null,
+            "id": serde_json::Value::Null,
+        });
+
+        return axum::http::Response::builder()
+            .status(axum::http::StatusCode::BAD_REQUEST)
+            .header("Content-Type", "application/json")
+            .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
+            .unwrap();
+    };
+
+    let res = handle_json_rpc_request(req, state).await;
+
+    match res {
+        Ok(res) => {
+            let body = serde_json::json!({
+                "error": serde_json::Value::Null,
+                "result": res,
+                "id": id,
+            });
+
+            axum::http::Response::builder()
+                .status(axum::http::StatusCode::OK)
+                .header("Content-Type", "application/json")
+                .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap()
+        }
+        Err(e) => {
+            let body = serde_json::json!({
+                "error": e.to_string(),
+                "result": serde_json::Value::Null,
+                "id": id,
+            });
+
+            axum::http::Response::builder()
+                .status(axum::http::StatusCode::BAD_REQUEST)
+                .header("Content-Type", "application/json")
+                .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap()
+        }
+    }
+}
+
+async fn cannot_get(_state: State<Arc<RpcImpl>>) -> Json<serde_json::Value> {
+    Json(json!({
+        "error": "Cannot get on this route",
+    }))
 }
 
 impl RpcImpl {
@@ -522,6 +597,7 @@ impl RpcImpl {
 
         Ok(())
     }
+
     fn make_vin(&self, input: TxIn) -> TxInJson {
         let txid = serialize_hex(&input.previous_output.txid);
         let vout = input.previous_output.vout;
@@ -541,6 +617,7 @@ impl RpcImpl {
             sequence,
         }
     }
+
     fn get_script_type(script: ScriptBuf) -> Option<&'static str> {
         if script.is_p2pkh() {
             return Some("p2pkh");
@@ -556,6 +633,7 @@ impl RpcImpl {
         }
         None
     }
+
     fn make_vout(&self, output: TxOut, n: u32) -> TxOutJson {
         let value = output.value;
         TxOutJson {
@@ -574,6 +652,7 @@ impl RpcImpl {
             },
         }
     }
+
     fn make_raw_transaction(&self, tx: CachedTransaction) -> RawTxJson {
         let raw_tx = tx.tx;
         let in_active_chain = tx.height != 0;
@@ -636,7 +715,7 @@ impl RpcImpl {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn create(
+    pub async fn create(
         chain: Arc<ChainState<KvChainStore<'static>>>,
         wallet: Arc<AddressCache<KvDatabase>>,
         node: Arc<NodeInterface>,
@@ -644,32 +723,35 @@ impl RpcImpl {
         network: Network,
         block_filter_storage: Option<Arc<NetworkFilters<FlatFiltersStore>>>,
         address: Option<SocketAddr>,
-        runtime_handle: tokio::runtime::Handle,
-    ) -> jsonrpc_http_server::Server {
-        let mut io = jsonrpc_core::IoHandler::new();
-        let rpc_impl = RpcImpl {
-            network,
-            chain,
-            wallet,
-            node,
-            kill_signal,
-            block_filter_storage,
-        };
-        io.extend_with(rpc_impl.to_delegate());
+    ) {
         let address = address.unwrap_or_else(|| {
             format!("127.0.0.1:{}", Self::get_port(&network))
                 .parse()
                 .unwrap()
         });
-        info!("Starting JSON-RPC server on {:?}", address);
 
-        ServerBuilder::new(io)
-            .event_loop_executor(runtime_handle)
-            // Threads set to 1 as we have passed our multi-threaded runtime executor
-            .threads(1)
-            .start_http(&address)
-            .unwrap_or_else(|e| {
-                panic!("Could not start HTTP JSON-RPC server at {}: {}", address, e)
-            })
+        let listener = tokio::net::TcpListener::bind(address)
+            .await
+            .expect("failed to bind rpc server");
+
+        let router = Router::new()
+            .route("/", post(json_rpc_request).get(cannot_get))
+            .layer(
+                CorsLayer::new()
+                    .allow_private_network(true)
+                    .allow_methods([Method::POST, Method::HEAD]),
+            )
+            .with_state(Arc::new(RpcImpl {
+                chain,
+                wallet,
+                node,
+                kill_signal,
+                network,
+                block_filter_storage,
+            }));
+
+        axum::serve(listener, router)
+            .await
+            .expect("failed to start rpc server");
     }
 }
