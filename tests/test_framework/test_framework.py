@@ -13,12 +13,31 @@ The difference is that our node will run withing a `cargo run` subprocess, defin
 `add_node_settings`.
 """
 
-import os
 import subprocess
-import shutil
-from threading import Thread
-from test_framework.mock_rpc import MockUtreexod
 from test_framework.floresta_rpc import FlorestaRPC
+
+VALID_FLORESTAD_EXTRA_ARGS = [
+    "-c",
+    "--config-file",
+    "-d",
+    "--debug",
+    "--log-to-file",
+    "--data-dir",
+    "--cfilters",
+    "-p",
+    "--proxy",
+    "--wallet-xpub",
+    "--wallet-descriptor",
+    "--assume-valid",
+    "-z",
+    "--zmq-address",
+    "--connect",
+    "--rpc-address",
+    "--electrum-address",
+    "--filters-start-height",
+    "--assume-utreexo",
+    "--pid-file",
+]
 
 
 class FlorestaTestMetaClass(type):
@@ -67,7 +86,6 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
         """
         self._tests = []
         self._nodes = []
-        self._rpc = None
 
     def main(self):
         """
@@ -94,34 +112,46 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
 
     # Framework
     def add_node_settings(
-        self, chain: str, extra_args: list[str], rpcserver: dict, data_dir: str = ""
+        self, chain: str, extra_args: list[str], rpcserver: dict
     ) -> int:
         """
-        Add a node settings to be run.
+        Add a node settings to be run. Use this on set_test_params method many times you want.
 
-        Use this on set_test_params method many times you want
+        extra_args should be a list of string in the --key=value strings
+        (see florestad --help for a list of available commands)
+
         """
-        self._tests.append(
-            {
-                "chain": chain,
-                "extra_args": extra_args,
-                "config": [
-                    "cargo",
-                    "run",
-                    "--features",
-                    "json-rpc",
-                    "--bin",
-                    "florestad",
-                    "--",
-                    "--network",
-                    chain,
-                    "--no-ssl",
-                ],
-                "rpcserver": rpcserver,
-                "data_dir": data_dir,
-            }
-        )
+        setting = {
+            "chain": chain,
+            "config": [
+                "cargo",
+                "run",
+                "--features",
+                "json-rpc",
+                "--bin",
+                "florestad",
+                "--",
+                "--network",
+                chain,
+                "--no-ssl",
+            ],
+            "rpcserver": rpcserver,
+        }
 
+        # If any extra-arg is needed
+        # (see ./target/release/florestad --help)
+        # append it after --no-ssl arg
+        # Not all possible arguments are valid for tests
+        # (for example, --version, --help, --ssl ones...)
+        if extra_args is not None and len(extra_args) >= 1:
+            for extra in extra_args:
+                option = extra.split("=")[0] if "=" in extra else extra.split(" ")[0]
+                if option in VALID_FLORESTAD_EXTRA_ARGS:
+                    setting["config"].append(extra)
+                else:
+                    raise ValueError(f"Invalid extra_arg '{extra}'")
+
+        self._tests.append(setting)
         return len(self._tests) - 1
 
     def get_node_settings(self, index: int) -> dict:
@@ -141,12 +171,9 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
 
         if node["chain"] == "regtest":
             # pylint: disable=consider-using-with
-            process_node = subprocess.Popen(node["config"])
-            json_rpc = FlorestaRPC(
-                process=process_node,
-                extra_args=node["extra_args"],
-                rpcserver=node["rpcserver"],
-            )
+            # add text=True to treat all outputs as texts (jsons or python stack traces)
+            process_node = subprocess.Popen(node["config"], text=True)
+            json_rpc = FlorestaRPC(process=process_node, rpcserver=node["rpcserver"])
             self._nodes.append(json_rpc)
 
         else:
@@ -166,14 +193,6 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
         node = self._nodes[index]
         node.wait_for_rpc_connection()
 
-    def run_rpc(self):
-        """
-        Run RPC as a thread
-        """
-        self._rpc = Thread(target=MockUtreexod().run)
-        self._rpc.daemon = True
-        self._rpc.start()
-
     def stop_node(self, index: int):
         """
         Stop a node given an index
@@ -181,10 +200,6 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
         node = self._nodes[index]
         node.kill()
         node.wait_to_stop()
-        settings = self._tests[index]
-        data_dir = settings["data_dir"]
-        if data_dir != "" and os.path.exists(data_dir):
-            shutil.rmtree(data_dir)
 
     def stop(self):
         """

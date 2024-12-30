@@ -9,6 +9,7 @@ The directories used between each power-on/power-off must not be corrupted.
 import time
 import os
 import filecmp
+import tempfile
 from test_framework.test_framework import FlorestaTestFramework
 from test_framework.floresta_rpc import REGTEST_RPC_SERVER
 
@@ -20,23 +21,32 @@ class TestRestart(FlorestaTestFramework):
     """
 
     indexes = [-1, -1]
+    data_dirs = [
+        os.path.normpath(
+            os.path.join(
+                tempfile.gettempdir(), "floresta-func-tests", "restart", "node-0"
+            )
+        ),
+        os.path.normpath(
+            os.path.join(
+                tempfile.gettempdir(), "floresta-func-tests", "restart", "node-1"
+            )
+        ),
+    ]
 
     def set_test_params(self):
         """
         Here we define setup for test
         """
-        dirname = os.path.dirname(__file__)
         TestRestart.indexes[0] = self.add_node_settings(
             chain="regtest",
-            extra_args=[],
+            extra_args=[f"--data-dir={TestRestart.data_dirs[0]}"],
             rpcserver=REGTEST_RPC_SERVER,
-            data_dir=os.path.normpath(os.path.join(dirname, "data", "0")),
         )
         TestRestart.indexes[1] = self.add_node_settings(
             chain="regtest",
-            extra_args=[],
+            extra_args=[f"--data-dir={TestRestart.data_dirs[1]}"],
             rpcserver=REGTEST_RPC_SERVER,
-            data_dir=os.path.normpath(os.path.join(dirname, "data", "1")),
         )
 
     def run_test(self):
@@ -55,10 +65,7 @@ class TestRestart(FlorestaTestFramework):
         self.stop_node(TestRestart.indexes[1])
 
         # check for any corruption
-        assert filecmp.dircmp(
-            self.get_node_settings(TestRestart.indexes[0])["data_dir"],
-            self.get_node_settings(TestRestart.indexes[1])["data_dir"],
-        )
+        assert filecmp.dircmp(TestRestart.data_dirs[0], TestRestart.data_dirs[1])
 
 
 if __name__ == "__main__":
