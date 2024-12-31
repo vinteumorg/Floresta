@@ -263,7 +263,7 @@ impl Florestad {
         }
     }
 
-    /// Actually runs florestad, spawning all modules and waiting util
+    /// Actually runs florestad, spawning all modules and waiting until
     /// someone asks to stop.
     pub fn start(&self) {
         // Setup global logger
