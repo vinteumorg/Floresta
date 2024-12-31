@@ -29,16 +29,11 @@ floresta-watch-only = { path = "../crates/floresta-watch-only" }
 floresta-wire = { path = "../crates/floresta-wire" }
 floresta-compact-filters = { path = "../crates/floresta-compact-filters", optional = true }
 metrics = { path = "../metrics", optional = true }
-
+axum = { version = "0.7", optional = true }
 anyhow = "1.0.40"
-jsonrpc-http-server = { version = "18.0.0", optional = true }
-jsonrpc-derive = { version = "18.0.0", optional = true }
-jsonrpc-core = { version = "18.0.0", optional = true }
-jsonrpc-core-client = { version = "18.0.0", features = [
-    "http",
-], optional = true }
 zmq = { version = "0.10.0", optional = true }
 dns-lookup = "2.0.4"
+tower-http = { version = "0.6.2", optional = true, features = ["cors"] }
 
 [target.'cfg(unix)'.dependencies]
 daemonize = { version = "0.5.0" }
@@ -59,10 +54,8 @@ compact-filters = ["dep:floresta-compact-filters"]
 zmq-server = ["dep:zmq"]
 experimental-p2p = []
 json-rpc = [
-    "dep:jsonrpc-http-server",
-    "dep:jsonrpc-derive",
-    "dep:jsonrpc-core",
-    "dep:jsonrpc-core-client",
+    "dep:axum",
+    "dep:tower-http",
     "compact-filters"
 ]
 default = ["experimental-p2p", "json-rpc"]

@@ -208,7 +208,7 @@ mod tests {
     fn test_get_height() {
         let (_proc, client) = start_florestad();
 
-        let height = client.get_height().unwrap();
+        let height = client.get_block_count().unwrap();
         assert_eq!(height, 0);
     }
 

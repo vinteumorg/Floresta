@@ -118,6 +118,10 @@ class FlorestaRPC:
         port = self.rpcserver["port"]
         url = f"http://{host}:{port}"
         headers = {"content-type": "application/json"}
+
+        if params is None:
+            params = []
+
         payload = json.dumps(
             {
                 "method": method,
