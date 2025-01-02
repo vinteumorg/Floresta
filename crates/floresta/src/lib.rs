@@ -4,7 +4,7 @@
 //! Bitcoin nodes and wallets, powered by Utreexo, a novel accumulator to represent
 //! the Bitcoin UTXO set.
 //!
-//! This project is layed out as a collection of crates, each implementing one functionality.
+//! This project is laid out as a collection of crates, each implementing one functionality.
 //! They are all named floresta-*. The main crate is floresta, which is a meta-crate
 //! that depends on all the others. It is meant to be used as a dependency in other projects.
 //!
@@ -28,7 +28,7 @@
 //! # Name
 //! Floresta is the Portuguese word for forest. It is a reference to the Utreexo accumulator,
 //! which is a forest of Merkle trees. It's pronounced /floˈɾɛstɐ/.
-/// Components to build an utreexo-aware, consensus enforcing Bitcoin node.
+/// Components to build a utreexo-aware, consensus enforcing Bitcoin node.
 pub use floresta_chain as chain;
 /// Useful data structures and traits used by the other crates.
 pub use floresta_common as common;

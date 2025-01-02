@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use jsonrpc_core::ErrorCode;
+use axum::response::IntoResponse;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -98,72 +98,68 @@ pub struct BlockJson {
 
 #[derive(Debug)]
 pub enum Error {
+    MissingParams,
+    MissingReq,
     TxNotFound,
     InvalidScript,
     InvalidDescriptor,
     BlockNotFound,
     Chain,
+    InvalidVout,
+    InvalidHeight,
+    InvalidHash,
+    InvalidRequest,
+    MethodNotFound,
+    Decode(String),
     InvalidPort,
     InvalidAddress,
-    Node,
+    Node(String),
     NoBlockFilters,
     InvalidNetwork,
+    InvalidHex,
     InInitialBlockDownload,
     Encode,
 }
 
 impl Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let msg = match self {
-            Error::TxNotFound => "Transaction not found",
-            Error::InvalidDescriptor => "Invalid descriptor",
-            Error::BlockNotFound => "Block not found",
-            Error::Chain => "Chain error",
-            Error::InvalidPort => "Invalid port",
-            Error::InvalidAddress => "Invalid address",
-            Error::Node => "Node returned an error",
-            Error::NoBlockFilters => "You don't have block filters enabled, please start florestad with --cfilters to run this RPC",
-            Error::InvalidNetwork => "Invalid network",
-            Error::InInitialBlockDownload => "Node is in initial block download, wait until it's finished",
-            Error::Encode => "Error encoding response",
-            Error::InvalidScript => "Invalid script",
-        };
-        write!(f, "{}", msg)
-    }
-}
-
-impl From<Error> for i64 {
-    fn from(val: Error) -> Self {
-        match val {
-            Error::BlockNotFound => 1,
-            Error::Chain => 2,
-            Error::TxNotFound => 3,
-            Error::InvalidDescriptor => 4,
-            Error::InvalidPort => 5,
-            Error::InvalidAddress => 6,
-            Error::Node => 7,
-            Error::NoBlockFilters => 8,
-            Error::InvalidNetwork => 9,
-            Error::InInitialBlockDownload => 10,
-            Error::Encode => 11,
-            Error::InvalidScript => 12,
+        match self {
+            Error::InvalidRequest => write!(f, "Invalid request"),
+            Error::InvalidHeight => write!(f, "Invalid height"),
+            Error::InvalidHash =>  write!(f, "Invalid hash"),
+            Error::InvalidHex =>  write!(f, "Invalid hex"),
+            Error::InvalidVout =>  write!(f, "Invalid vout"),
+            Error::MethodNotFound =>  write!(f, "Method not found"),
+            Error::Decode(e) =>  write!(f, "error decoding request: {}", e),
+            Error::TxNotFound =>  write!(f, "Transaction not found"),
+            Error::InvalidDescriptor =>  write!(f, "Invalid descriptor"),
+            Error::BlockNotFound =>  write!(f, "Block not found"),
+            Error::Chain => write!(f, "Chain error"),
+            Error::InvalidPort => write!(f, "Invalid port"),
+            Error::InvalidAddress => write!(f, "Invalid address"),
+            Error::Node(e) => write!(f, "Node error: {}", e),
+            Error::NoBlockFilters => write!(f, "You don't have block filters enabled, please start florestad with --cfilters to run this RPC"),
+            Error::InvalidNetwork => write!(f, "Invalid network"),
+            Error::InInitialBlockDownload => write!(f, "Node is in initial block download, wait until it's finished"),
+            Error::Encode => write!(f, "Error encoding response"),
+            Error::InvalidScript => write!(f, "Invalid script"),
+            Error::MissingParams => write!(f, "Missing params field"),
+            Error::MissingReq => write!(f, "Missing request field"),
         }
     }
 }
 
-impl From<Error> for ErrorCode {
-    fn from(val: Error) -> Self {
-        let code = val.into();
-        ErrorCode::ServerError(code)
-    }
-}
-
-impl From<Error> for jsonrpc_core::Error {
-    fn from(value: Error) -> Self {
-        jsonrpc_core::Error {
-            message: value.to_string(),
-            code: value.into(),
-            data: None,
-        }
+impl IntoResponse for Error {
+    fn into_response(self) -> axum::http::Response<axum::body::Body> {
+        let body = serde_json::json!({
+            "error": self.to_string(),
+            "result": serde_json::Value::Null,
+            "id": serde_json::Value::Null,
+        });
+        axum::http::Response::builder()
+            .status(axum::http::StatusCode::BAD_REQUEST)
+            .header("Content-Type", "application/json")
+            .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
+            .unwrap()
     }
 }

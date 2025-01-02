@@ -252,7 +252,53 @@ For the full test suite, including long-running tests, use:
 cargo test --release
 ```
 
-Additional functional tests are available. Install dependencies and run the test script with:
+#### Functional tests
+
+Additional functional tests are available (minimum python version: 3.12).
+
+* Install [poetry dependencies manager](https://python-poetry.org/docs/#installation). There are many ways to do this:
+
+```bash
+# recomended way
+pipx install poetry
+```
+
+```bash
+# official installer (linux / mac)
+curl -sSL https://install.python-poetry.org | python3 -
+```
+
+```pwsh
+# official isntaller (windows - powershell)
+(Invoke-WebRequest -Uri https://install.python-poetry.org -UseBasicParsing).Content | py -
+```
+
+```bash
+# mannually
+python3 -m venv $VENV_PATH
+$VENV_PATH/bin/pip install -U pip setuptools
+$VENV_PATH/bin/pip install poetry
+```
+
+* Configure an isolated environment and install module dependencies:
+
+```bash
+poetry install --no-root
+```
+
+* Run tests:
+
+```bash
+poetry run poe tests
+```
+
+* Before run tests, check the pre-commit:
+
+```bash
+poetry run poe pre-commit
+```
+
+* Manual way without poetry: install dependencies and run the test script. This is discouraged since that can lead to inconsistences between different python versions:
 
 ```bash
 pip3 install -r tests/requirements.txt
@@ -284,6 +330,24 @@ cargo +nightly fuzz run local_address_str
 
 You can replace `local_address_str` with the name of any other target you want to run.
 
+## Metrics
+
+This project uses [`Prometheus`](https://prometheus.io/) as a monitoring system. To enable it you must build the project with the `metrics` feature enabled:
+
+```sh
+cargo build --release --features metrics
+```
+
+The easiest way to visualize those metrics is by using some observability graphic tool like [Grafana](https://grafana.com/). To make it easier, you can also straight away use the `docker-compose.yml` file to spin up an infrastructure that will run the project with Prometheus and Grafana.
+
+To run it, first make sure you have [Docker Compose](https://docs.docker.com/compose/) installed and then:
+
+```sh
+docker-compose up -d --build
+```
+
+Grafana should now be available to you at http://localhost:3000. To log in, please check the credentials defined in the `docker-compose.yml` file.
+
 ## Contributing
 Contributions are welcome, feel free to open an issue or a pull request.
 
@@ -294,7 +358,9 @@ Here's some Guidelines:
 - Has to run.
 - Use [pre-commit](https://pre-commit.com/) for the language that you're using (if possible 👍).
 
-You can accomplish that using our flake.nix for development.
+You can run `just pcc`, which stands for pre-commit check, to check everything is correct before opening a pull request.
+
+You can also accomplish that using our flake.nix for development.
 
 ## Developing on Floresta with Nix
 

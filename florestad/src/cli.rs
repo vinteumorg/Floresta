@@ -82,7 +82,7 @@ pub struct Cli {
     /// Whether to build Compact Block Filters
     ///
     /// Those filters let you query for chain data after IBD, like wallet rescan,
-    /// finding an utxo, finding specific tx_ids.
+    /// finding a utxo, finding specific tx_ids.
     /// Will cause more disk usage
     pub cfilters: bool,
 
@@ -91,14 +91,14 @@ pub struct Cli {
     pub proxy: Option<String>,
 
     #[arg(long, value_name = "XPUB")]
-    /// Add a xpub to our wallet
+    /// Add an xpub to our wallet
     ///
     /// This option can be passed many times, and will accept any SLIP039-valid extended
     /// public key. You only need to pass this once, but there's no harm in passing it
-    /// more than once. After you start florestad at least once passing some xpub, florestad
+    /// more than once. After you start florestad at least once, passing some xpub, florestad
     /// will follow the first 100 addresses derived from this xpub on each keychain  and
     /// cache any transactions where those addresses appear. You can use either the integrated
-    /// json-rpc or electrum server to fetch an addresses' history, balance and utxos.
+    /// json-rpc or electrum server to fetch an address's history, balance and utxos.
     pub wallet_xpub: Option<Vec<String>>,
 
     #[arg(long, value_name = "DESCRIPTOR")]
@@ -106,17 +106,17 @@ pub struct Cli {
     ///
     /// This option can be passed many times, and will accept any valid output descriptor.
     /// You only need to pass this once, but there's no harm in passing it more than once.
-    /// After you start florestad at least once passing some xpub, florestad
+    /// After you start florestad at least once, passing some xpub, florestad
     /// will follow the first 100 addresses derived from this xpub on each keychain  and
     /// cache any transactions where those addresses appear. You can use either the integrated
-    /// json-rpc or electrum server to fetch an addresses' history, balance and utxos.
+    /// json-rpc or electrum server to fetch an address's history, balance and utxos.
     pub wallet_descriptor: Option<Vec<String>>,
 
     #[arg(long, value_name = "BLOCK_HASH")]
-    /// Assume blocks before this one as having valid scripts
+    /// Assume blocks before this one, as having valid scripts
     ///
     /// Assume that blocks that are buried under a considerable work have valid scripts.
-    /// We still do other checks, like amounts, UTXO existance, reward... the only check we
+    /// We still do other checks, like amounts, UTXO existence, reward... the only check we
     /// skip is the script validation
     pub assume_valid: Option<String>,
 

@@ -1,4 +1,4 @@
-//! A node that downlaods and validates the blockchain.
+//! A node that downloads and validates the blockchain.
 
 use std::sync::Arc;
 use std::time::Duration;

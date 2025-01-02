@@ -21,13 +21,13 @@ use floresta_wire::running_node::RunningNode;
 use floresta_wire::UtreexoNodeConfig;
 use tokio::sync::RwLock;
 
-const DATA_DIR: &str = "./data";
+const DATA_DIR: &str = "./tmp-db";
 
 #[tokio::main]
 async fn main() {
     // Create a new chain state, which will store the accumulator and the headers chain.
     // It will be stored in the DATA_DIR directory. With this chain state, we don't keep
-    // the block data after we validated it. This saves a lot of space, but it means that
+    // the block data after we have validated it. This saves a lot of space, but it means that
     // we can't serve blocks to other nodes or rescan the blockchain without downloading
     // it again.
     let chain_store =

@@ -3,6 +3,8 @@ use std::fmt::Arguments;
 use std::fs::File;
 use std::io;
 use std::io::BufReader;
+#[cfg(feature = "metrics")]
+use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::process::exit;
@@ -41,9 +43,15 @@ use log::error;
 use log::info;
 use log::warn;
 use log::Record;
+#[cfg(feature = "metrics")]
+use metrics;
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 use tokio::task;
+#[cfg(feature = "metrics")]
+use tokio::time::Duration;
+#[cfg(feature = "metrics")]
+use tokio::time::{self};
 use tokio_rustls::rustls::internal::pemfile::certs;
 use tokio_rustls::rustls::internal::pemfile::pkcs8_private_keys;
 use tokio_rustls::rustls::NoClientAuth;
@@ -88,7 +96,7 @@ pub struct Config {
     pub wallet_xpub: Option<Vec<String>>,
     /// An output descriptor to cache
     ///
-    /// This should be a list of ouptut descriptors that we should add to our watch-only wallet.
+    /// This should be a list of output descriptors that we should add to our watch-only wallet.
     /// This works just like wallet_xpub, but with a descriptor.
     pub wallet_descriptor: Option<Vec<String>>,
     /// Where should we read from a config file
@@ -167,7 +175,7 @@ pub struct Florestad {
     stop_notify: Arc<Mutex<Option<oneshot::Receiver<()>>>>,
     #[cfg(feature = "json-rpc")]
     /// A handle to our json-rpc server
-    json_rpc: OnceLock<jsonrpc_http_server::Server>,
+    json_rpc: OnceLock<tokio::task::JoinHandle<()>>,
 }
 
 impl Florestad {
@@ -255,7 +263,7 @@ impl Florestad {
         }
     }
 
-    /// Actually runs florestad, spawning all modules and waiting util
+    /// Actually runs florestad, spawning all modules and waiting until
     /// someone asks to stop.
     pub fn start(&self) {
         // Setup global logger
@@ -292,7 +300,7 @@ impl Florestad {
                 self.config.log_to_stdout,
                 self.config.debug,
             )
-            .expect("failure to setup logger");
+            .expect("Failure to setup logger");
         }
 
         // The config file inside our datadir directory. Any datadir
@@ -326,7 +334,7 @@ impl Florestad {
             return;
         }
 
-        info!("loading blockchain database");
+        info!("Loading blockchain database");
         let datadir2 = data_dir.clone();
         let blockchain_state = Arc::new(Self::load_chain_state(
             datadir2,
@@ -334,7 +342,7 @@ impl Florestad {
             self.config
                 .assume_valid
                 .as_ref()
-                .map(|value| value.parse().expect("invalid assumevalid")),
+                .map(|value| value.parse().expect("Invalid assumevalid")),
         ));
 
         #[cfg(feature = "compact-filters")]
@@ -343,7 +351,7 @@ impl Florestad {
             let filter_store = FlatFiltersStore::new((data_dir.clone() + "/cfilters").into());
             let cfilters = Arc::new(NetworkFilters::new(filter_store));
             info!(
-                "loaded compact filters store at height: {:?}",
+                "Loaded compact filters store at height: {:?}",
                 cfilters.get_height().unwrap()
             );
             Some(cfilters)
@@ -423,9 +431,7 @@ impl Florestad {
         // JSON-RPC
         #[cfg(feature = "json-rpc")]
         {
-            let runtime_handle = tokio::runtime::Handle::current();
-
-            let server = json_rpc::server::RpcImpl::create(
+            let server = tokio::spawn(json_rpc::server::RpcImpl::create(
                 blockchain_state.clone(),
                 wallet.clone(),
                 chain_provider.get_handle(),
@@ -436,11 +442,10 @@ impl Florestad {
                     .json_rpc_address
                     .as_ref()
                     .map(|x| Self::get_ip_address(x, 8332)),
-                runtime_handle,
-            );
+            ));
 
             if self.json_rpc.set(server).is_err() {
-                panic!("we should be the first one setting this");
+                panic!("We should be the first one setting this");
             }
         }
 
@@ -450,14 +455,14 @@ impl Florestad {
             .electrum_address
             .clone()
             .map(|addr| Self::get_ip_address(&addr, 50001))
-            .unwrap_or("0.0.0.0:50001".parse().expect("hardcoded address"));
+            .unwrap_or("0.0.0.0:50001".parse().expect("Hardcoded address"));
 
         let ssl_e_addr = self
             .config
             .ssl_electrum_address
             .clone()
             .map(|addr| Self::get_ip_address(&addr, 50002))
-            .unwrap_or("0.0.0.0:50002".parse().expect("hardcoded address"));
+            .unwrap_or("0.0.0.0:50002".parse().expect("Hardcoded address"));
 
         // Load TLS configuration if needed
         let tls_config = if !self.config.no_ssl {
@@ -525,6 +530,29 @@ impl Florestad {
         *recv = Some(receiver);
 
         task::spawn(chain_provider.run(kill_signal, sender));
+
+        // Metrics
+        #[cfg(feature = "metrics")]
+        {
+            let metrics_server_address =
+                SocketAddr::new(std::net::IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 3333);
+            task::spawn(metrics::metrics_server(metrics_server_address));
+            info!(
+                "Started metrics server on: {}",
+                metrics_server_address.to_string()
+            );
+
+            // Periodically update memory usage
+            tokio::spawn(async {
+                let interval = Duration::from_secs(5);
+                let mut ticker = time::interval(interval);
+
+                loop {
+                    ticker.tick().await;
+                    metrics::get_metrics().update_memory_usage();
+                }
+            });
+        }
     }
 
     fn setup_logger(

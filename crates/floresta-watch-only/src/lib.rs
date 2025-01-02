@@ -300,7 +300,7 @@ impl<D: AddressCacheDatabase> AddressCacheInner<D> {
         let mut hashes = Vec::new();
         let tx = self.get_transaction(txid)?;
         // If a given transaction is cached, but the merkle tree doesn't exist, that means
-        // an unconfirmed transaction.
+        // it is an unconfirmed transaction.
         tx.merkle_block.as_ref()?;
         for hash in tx.merkle_block?.hashes() {
             hashes.push(hash.to_string());
@@ -617,7 +617,7 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
         Ok(known_descs.contains(desc))
     }
 
-    /// Tells wheter an address is already cached
+    /// Tells whether an address is already cached
     pub fn is_address_cached(&self, script_hash: &Hash) -> bool {
         let inner = self.inner.read().expect("poisoned lock");
         inner.address_map.contains_key(script_hash)

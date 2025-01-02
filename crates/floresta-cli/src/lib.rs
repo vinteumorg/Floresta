@@ -71,7 +71,7 @@ mod tests {
             false => debug_path,
         };
 
-        // makes a temporary directory
+        // Makes a temporary directory to store the chain db, SSL certificates, logs, etc.
         let test_code = rand::random::<u64>();
         let dirname = format!("{root}/tmp/floresta.{test_code}");
         fs::DirBuilder::new()

@@ -208,60 +208,38 @@ pub trait FromSlip132 {
         Self: Sized;
 }
 
+fn decode_slip132_key<T: FromStr>(s: &str, valid_versions: &[[u8; 4]], mainnet_magic: [u8; 4], testnet_magic: [u8; 4]) -> Result<T, Error> {
+    let mut data = base58::decode_check(s)?;
+
+    let mut prefix = [0u8; 4];
+    prefix.copy_from_slice(&data[0..4]);
+    let slice = if valid_versions.contains(&prefix) {
+        mainnet_magic
+    } else if prefix == testnet_magic {
+        testnet_magic
+    } else {
+        return Err(Error::UnknownSlip32Prefix);
+    };
+    data[0..4].copy_from_slice(&slice);
+
+    let key_str = base58::encode_check(&data);
+    T::from_str(&key_str).map_err(|_| Error::InternalFailure)
+}
+
 impl FromSlip132 for Xpub {
     fn from_slip132_str(s: &str) -> Result<Self, Error> {
-        let mut data = base58::decode_check(s)?;
-
-        let mut prefix = [0u8; 4];
-        prefix.copy_from_slice(&data[0..4]);
-        let slice = match prefix {
-            VERSION_MAGIC_XPUB
-            | VERSION_MAGIC_YPUB
-            | VERSION_MAGIC_ZPUB
-            | VERSION_MAGIC_YPUB_MULTISIG
-            | VERSION_MAGIC_ZPUB_MULTISIG => VERSION_MAGIC_XPUB,
-
-            VERSION_MAGIC_TPUB
-            | VERSION_MAGIC_UPUB
-            | VERSION_MAGIC_VPUB
-            | VERSION_MAGIC_UPUB_MULTISIG
-            | VERSION_MAGIC_VPUB_MULTISIG => VERSION_MAGIC_TPUB,
-
-            _ => return Err(Error::UnknownSlip32Prefix),
-        };
-        data[0..4].copy_from_slice(&slice);
-
-        let xpub = Xpub::decode(&data)?;
-
-        Ok(xpub)
+        decode_slip132_key(s, &[
+            VERSION_MAGIC_XPUB, VERSION_MAGIC_YPUB, VERSION_MAGIC_ZPUB, 
+            VERSION_MAGIC_YPUB_MULTISIG, VERSION_MAGIC_ZPUB_MULTISIG
+        ], VERSION_MAGIC_XPUB, VERSION_MAGIC_TPUB)
     }
 }
 
 impl FromSlip132 for Xpriv {
     fn from_slip132_str(s: &str) -> Result<Self, Error> {
-        let mut data = base58::decode_check(s)?;
-
-        let mut prefix = [0u8; 4];
-        prefix.copy_from_slice(&data[0..4]);
-        let slice = match prefix {
-            VERSION_MAGIC_XPRV
-            | VERSION_MAGIC_YPRV
-            | VERSION_MAGIC_ZPRV
-            | VERSION_MAGIC_YPRV_MULTISIG
-            | VERSION_MAGIC_ZPRV_MULTISIG => VERSION_MAGIC_XPRV,
-
-            VERSION_MAGIC_TPRV
-            | VERSION_MAGIC_UPRV
-            | VERSION_MAGIC_VPRV
-            | VERSION_MAGIC_UPRV_MULTISIG
-            | VERSION_MAGIC_VPRV_MULTISIG => VERSION_MAGIC_TPRV,
-
-            _ => return Err(Error::UnknownSlip32Prefix),
-        };
-        data[0..4].copy_from_slice(&slice);
-
-        let xprv = Xpriv::decode(&data)?;
-
-        Ok(xprv)
+        decode_slip132_key(s, &[
+            VERSION_MAGIC_XPRV, VERSION_MAGIC_YPRV, VERSION_MAGIC_ZPRV, 
+            VERSION_MAGIC_YPRV_MULTISIG, VERSION_MAGIC_ZPRV_MULTISIG
+        ], VERSION_MAGIC_XPRV, VERSION_MAGIC_TPRV)
     }
 }

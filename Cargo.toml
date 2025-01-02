@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "florestad",
     "fuzz",
+    "metrics",
     "crates/floresta",
     "crates/floresta-chain",
     "crates/floresta-cli",

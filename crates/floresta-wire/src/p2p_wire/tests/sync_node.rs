@@ -31,7 +31,7 @@ mod tests_utils {
         pow_fraud_proofs: bool,
         network: floresta_chain::Network,
     ) -> Arc<ChainState<KvChainStore<'static>>> {
-        let datadir = format!("./data/{}.sync_node", rand::random::<u32>());
+        let datadir = format!("./tmp-db/{}.sync_node", rand::random::<u32>());
         let chainstore = KvChainStore::new(datadir.clone()).unwrap();
         let mempool = Arc::new(RwLock::new(Mempool::new()));
         let chain = ChainState::new(chainstore, network, AssumeValidArg::Disabled);

@@ -3,9 +3,9 @@
 //! and then merge them together to get the full chain. This allows us to make
 //! Initial Block Download in parallel.
 //!
-//! We use a [PartialChainState] insted of the useal ChainState, mainly for
+//! We use a [PartialChainState] instead of the useal ChainState, mainly for
 //! performance. Because we assume that only one worker will hold a [PartialChainState]
-//! at a given time, we can drop all syncronization primitives and make a really performatic
+//! at a given time, we can drop all synchronization primitives and make a really performatic
 //! ChainState that will consume and validate blocks as fast as we possibly can.
 //!
 //! This choice removes the use of costly atomic operations, but opens space for design flaws
@@ -15,7 +15,7 @@
 //!   - Shared ownership is forbidden: if you have two threads or tasks owning this, you'll have
 //!     data race. If you want to hold shared ownership for this module, you need to place a
 //!     [PartialChainState] inside an `Arc<Mutex>` yourself. Don't just Arc this and expect it to
-//!     work, as you are garanteed to have data races.
+//!     work, as you are guaranteed to have data races.
 //!   - The interior is toxic, so no peeking: no references, mutable or not, to any field should
 //!     leak through the API, as we are not enforcing lifetime or borrowing rules at compile time.
 //!   - Sending is fine: There's nothing in this module that makes it not sendable to between
@@ -62,7 +62,7 @@ pub(crate) struct PartialChainStateInner {
     /// result in an error.
     pub(crate) final_height: u32,
     /// The error that occurred during validation, if any. It is here so we can
-    /// pull that afterwords.
+    /// pull that afterwards.
     pub(crate) error: Option<BlockValidationErrors>,
     /// The consensus parameters, we need this to validate the blocks.
     pub(crate) consensus: Consensus,
@@ -83,14 +83,14 @@ pub(crate) struct PartialChainStateInner {
 /// We could just use a mutex, but this is not required and very wateful. Partial chains
 /// differ from the normal chain because they only have one owner, the worker responsible
 /// for driving this chain to it's completion. Because of that, we can simply use a UnsafeCell
-/// and forbit shared access between threads by not implementing [Clone].
+/// and forbid shared access between threads by not implementing [Clone].
 pub struct PartialChainState(pub(crate) UnsafeCell<PartialChainStateInner>);
 
 /// We need to send [PartialChainState] between threads/tasks, because the worker thread, once it
 /// finishes, needs to notify the main task and pass the final partial chain.
 /// # Safety
 ///
-/// All itens inside the [UnsafeCell] are [Send], most importantly, there are no references or
+/// All items inside the [UnsafeCell] are [Send], most importantly, there are no references or
 /// smart pointers inside it, so sending shouldn't be a problem.
 unsafe impl Send for PartialChainState {}
 unsafe impl Sync for PartialChainState {}
@@ -255,14 +255,14 @@ impl PartialChainStateInner {
 }
 
 impl PartialChainState {
-    /// Borrows the inner content as immutable referece.
+    /// Borrows the inner content as immutable reference.
     ///
     /// # Safety
     /// We can assume this [UnsafeCell] is initialized because the only way to get a
     /// [PartialChainState] is through our APIs, and we make sure this [UnsafeCell] is
     /// always valid.
     /// The reference returned here **should not** leak through the API, as there's no
-    /// syncronization mechanims for it.
+    /// synchronization mechanims for it.
     #[inline(always)]
     #[must_use]
     #[doc(hidden)]
@@ -270,14 +270,14 @@ impl PartialChainState {
         unsafe { self.0.get().as_ref().expect("this pointer is valid") }
     }
 
-    /// Borrows the inner content as a mutable referece.
+    /// Borrows the inner content as a mutable reference.
     ///
     /// # Safety
     /// We can assume this [UnsafeCell] is initialized because the only way to get a
     /// [PartialChainState] is through our APIs, and we make sure this [UnsafeCell] is
     /// always valid.
     /// The reference returned here **should not** leak through the API, as there's no
-    /// syncronization mechanims for it.
+    /// synchronization mechanims for it.
     #[inline(always)]
     #[allow(clippy::mut_from_ref)]
     #[must_use]
@@ -471,7 +471,7 @@ impl BlockchainInterface for PartialChainState {
     }
 
     fn subscribe(&self, _tx: sync::Arc<dyn crate::BlockConsumer>) {
-        unimplemented!("partialChainState::subscibe")
+        unimplemented!("partialChainState::subscribe")
     }
 
     fn estimate_fee(&self, _target: usize) -> Result<f64, Self::Error> {
