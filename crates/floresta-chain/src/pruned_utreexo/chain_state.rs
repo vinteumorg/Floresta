@@ -667,7 +667,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
     fn verify_script(&self, height: u32) -> bool {
         let inner = self.inner.read();
 
-        inner.assume_valid.map_or(true, |hash| {
+        inner.assume_valid.is_none_or(|hash| {
             match inner.chainstore.get_header(&hash).unwrap() {
                 // If the assume-valid block is in the best chain, only verify scripts if we are higher
                 Some(DiskBlockHeader::HeadersOnly(_, assume_h))
