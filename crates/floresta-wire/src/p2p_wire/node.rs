@@ -183,21 +183,21 @@ pub struct NodeCommon<Chain: BlockchainInterface + UpdatableChainstate> {
     pub(crate) network: Network,
 }
 
-pub struct UtreexoNode<Context, Chain: BlockchainInterface + UpdatableChainstate>(
-    pub(crate) NodeCommon<Chain>,
-    pub(crate) Context,
-);
+pub struct UtreexoNode<Chain: BlockchainInterface + UpdatableChainstate, Context> {
+    pub(crate) common: NodeCommon<Chain>,
+    pub(crate) context: Context,
+}
 
-impl<Chain: BlockchainInterface + UpdatableChainstate, T> Deref for UtreexoNode<T, Chain> {
+impl<Chain: BlockchainInterface + UpdatableChainstate, T> Deref for UtreexoNode<Chain, T> {
     fn deref(&self) -> &Self::Target {
-        &self.0
+        &self.common
     }
     type Target = NodeCommon<Chain>;
 }
 
-impl<T, Chain: BlockchainInterface + UpdatableChainstate> DerefMut for UtreexoNode<T, Chain> {
+impl<T, Chain: BlockchainInterface + UpdatableChainstate> DerefMut for UtreexoNode<Chain, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
+        &mut self.common
     }
 }
 
@@ -208,7 +208,7 @@ pub enum PeerStatus {
     Banned,
 }
 
-impl<T, Chain> UtreexoNode<T, Chain>
+impl<T, Chain> UtreexoNode<Chain, T>
 where
     T: 'static + Default + NodeContext,
     WireError: From<<Chain as BlockchainInterface>::Error>,
@@ -231,8 +231,8 @@ where
             })
             .transpose()?;
 
-        Ok(UtreexoNode(
-            NodeCommon {
+        Ok(UtreexoNode {
+            common: NodeCommon {
                 last_filter: chain.get_block_hash(0).unwrap(),
                 block_filters,
                 inflight: HashMap::new(),
@@ -261,8 +261,8 @@ where
                 fixed_peer,
                 config,
             },
-            T::default(),
-        ))
+            context: T::default(),
+        })
     }
 
     fn get_port(network: Network) -> u16 {
@@ -537,7 +537,7 @@ where
             version.id, version.user_agent, version.blocks, version.services
         );
 
-        if let Some(peer_data) = self.0.peers.get_mut(&peer) {
+        if let Some(peer_data) = self.common.peers.get_mut(&peer) {
             // This peer doesn't have basic services, so we disconnect it
             if !version
                 .services
@@ -563,7 +563,7 @@ where
             peer_data.height = version.blocks;
 
             if peer_data.services.has(service_flags::UTREEXO.into()) {
-                self.0
+                self.common
                     .peer_by_service
                     .entry(service_flags::UTREEXO.into())
                     .or_default()
@@ -571,7 +571,7 @@ where
             }
 
             if peer_data.services.has(ServiceFlags::COMPACT_FILTERS) {
-                self.0
+                self.common
                     .peer_by_service
                     .entry(ServiceFlags::COMPACT_FILTERS)
                     .or_default()
@@ -579,7 +579,7 @@ where
             }
 
             if peer_data.services.has(ServiceFlags::from(1 << 25)) {
-                self.0
+                self.common
                     .peer_by_service
                     .entry(ServiceFlags::from(1 << 25))
                     .or_default()
@@ -629,14 +629,14 @@ where
         peer_id: u32,
         factor: u32,
     ) -> Result<(), WireError> {
-        let Some(peer) = self.0.peers.get_mut(&peer_id) else {
+        let Some(peer) = self.common.peers.get_mut(&peer_id) else {
             return Ok(());
         };
 
         peer.banscore += factor;
 
         // This peer is misbehaving too often, ban it
-        let is_missbehaving = peer.banscore >= self.0.max_banscore;
+        let is_missbehaving = peer.banscore >= self.common.max_banscore;
         // extra peers should be banned immediately
         let is_extra = peer.kind == ConnectionKind::Extra;
 
@@ -702,7 +702,7 @@ where
     }
 
     pub(crate) async fn init_peers(&mut self) -> Result<(), WireError> {
-        let anchors = self.0.address_man.start_addr_man(
+        let anchors = self.common.address_man.start_addr_man(
             self.datadir.clone(),
             self.get_default_port(),
             self.network,
@@ -789,7 +789,7 @@ where
         // if we need utreexo peers, we can bypass our max outgoing peers limit in case
         // we don't have any utreexo peers
         let bypass = self
-            .1
+            .context
             .get_required_services()
             .has(service_flags::UTREEXO.into())
             && !self.has_utreexo_peers();
@@ -836,7 +836,7 @@ where
     }
 
     fn get_required_services(&self) -> ServiceFlags {
-        let required_services = self.1.get_required_services();
+        let required_services = self.context.get_required_services();
 
         // chain selector should prefer peers that support UTREEXO filters, as
         // more peers with this service will improve our security for PoW
@@ -886,7 +886,7 @@ where
 
         // Don't connect to the same peer twice
         if self
-            .0
+            .common
             .peers
             .iter()
             .any(|peers| peers.1.address == address.get_net_address())
@@ -1098,7 +1098,7 @@ mod tests {
 
     fn check_address_resolving(address: &str, port: u16, should_succeed: bool, description: &str) {
         let result =
-            UtreexoNode::<RunningNode, PartialChainState>::resolve_connect_host(address, port);
+            UtreexoNode::<PartialChainState, RunningNode>::resolve_connect_host(address, port);
         if should_succeed {
             assert!(result.is_ok(), "Failed: {}", description);
         } else {

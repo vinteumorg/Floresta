@@ -55,7 +55,8 @@ impl NodeContext for SyncNode {
 
 /// Node methods for a [`UtreexoNode`] where its Context is a [`SyncNode`].
 /// See [node](crates/floresta-wire/src/p2p_wire/node.rs) for more information.
-impl<Chain> UtreexoNode<SyncNode, Chain>
+
+impl<Chain> UtreexoNode<Chain, SyncNode>
 where
     WireError: From<<Chain as BlockchainInterface>::Error>,
     Chain: BlockchainInterface + UpdatableChainstate + 'static,
@@ -64,12 +65,12 @@ where
     async fn get_blocks_to_download(&mut self) {
         let mut blocks = Vec::with_capacity(10);
         for _ in 0..10 {
-            let next_block = self.1.last_block_requested + 1;
+            let next_block = self.context.last_block_requested + 1;
             let next_block = self.chain.get_block_hash(next_block);
             match next_block {
                 Ok(next_block) => {
                     blocks.push(next_block);
-                    self.1.last_block_requested += 1;
+                    self.context.last_block_requested += 1;
                 }
                 Err(_) => {
                     break;
@@ -90,7 +91,7 @@ where
     ///     - If were low on inflights, requests new blocks to validate.
     pub async fn run(&mut self, kill_signal: Arc<RwLock<bool>>, done_cb: impl FnOnce(&Chain)) {
         info!("Starting sync node");
-        self.1.last_block_requested = self.chain.get_validation_index().unwrap();
+        self.context.last_block_requested = self.chain.get_validation_index().unwrap();
 
         loop {
             while let Ok(Some(msg)) = timeout(Duration::from_secs(1), self.node_rx.recv()).await {
@@ -115,11 +116,11 @@ where
             );
 
             if Instant::now()
-                .duration_since(self.0.last_tip_update)
+                .duration_since(self.common.last_tip_update)
                 .as_secs()
                 > SyncNode::ASSUME_STALE
             {
-                self.1.last_block_requested = self.chain.get_validation_index().unwrap();
+                self.context.last_block_requested = self.chain.get_validation_index().unwrap();
                 self.create_connection(ConnectionKind::Regular).await;
                 self.last_tip_update = Instant::now();
                 continue;
@@ -131,7 +132,7 @@ where
                 continue;
             }
 
-            if self.chain.get_validation_index().unwrap() + 10 > self.1.last_block_requested {
+            if self.chain.get_validation_index().unwrap() + 10 > self.context.last_block_requested {
                 if self.inflight.len() > 10 {
                     continue;
                 }
@@ -145,7 +146,7 @@ where
     /// Isolate inflights that have timed out and increase the banscore of the peer that sent them and re-request it.
     async fn handle_timeout(&mut self) {
         let to_remove = self
-            .0
+            .common
             .inflight
             .iter()
             .filter(|(_, (_, instant))| instant.elapsed().as_secs() > SyncNode::REQUEST_TIMEOUT)
@@ -286,7 +287,8 @@ where
                     if !self.has_utreexo_peers() {
                         warn!("No utreexo peers connected, trying to create a new one");
                         try_and_log!(self.maybe_open_connection().await);
-                        self.1.last_block_requested = self.chain.get_validation_index().unwrap();
+                        self.context.last_block_requested =
+                            self.chain.get_validation_index().unwrap();
                         self.inflight.clear();
                     }
                 }
