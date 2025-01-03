@@ -25,8 +25,6 @@ use bitcoin::TxOut;
 use bitcoin::Txid;
 use floresta_chain::pruned_utreexo::BlockchainInterface;
 use floresta_chain::pruned_utreexo::UpdatableChainstate;
-use floresta_chain::ChainState;
-use floresta_chain::KvChainStore;
 use floresta_common::parse_descriptors;
 use floresta_compact_filters::flat_filters_store::FlatFiltersStore;
 use floresta_compact_filters::network_filters::NetworkFilters;
@@ -53,17 +51,31 @@ use super::res::ScriptSigJson;
 use super::res::TxInJson;
 use super::res::TxOutJson;
 
-pub struct RpcImpl {
+pub trait Blockchain:
+    UpdatableChainstate + BlockchainInterface + Clone + Send + Sync + 'static
+{
+}
+
+impl<T> Blockchain for T where
+    T: UpdatableChainstate + BlockchainInterface + Clone + Send + Sync + 'static
+{
+}
+
+pub struct RpcImpl<Chain: Blockchain> {
     block_filter_storage: Option<Arc<NetworkFilters<FlatFiltersStore>>>,
     network: Network,
-    chain: Arc<ChainState<KvChainStore<'static>>>,
+    chain: Chain,
     wallet: Arc<AddressCache<KvDatabase>>,
     node: Arc<NodeInterface>,
     kill_signal: Arc<RwLock<bool>>,
 }
 
 type Result<T> = std::result::Result<T, Error>;
-impl RpcImpl {
+
+impl<Chain> RpcImpl<Chain>
+where
+    Chain: Blockchain,
+{
     fn get_tx_out(&self, txid: Txid, outpoint: u32) -> Result<Value> {
         let utxo = self.wallet.get_utxo(&OutPoint {
             txid,
@@ -397,7 +409,10 @@ impl RpcImpl {
     }
 }
 
-async fn handle_json_rpc_request(req: Value, state: Arc<RpcImpl>) -> Result<serde_json::Value> {
+async fn handle_json_rpc_request(
+    req: Value,
+    state: Arc<RpcImpl<impl Blockchain>>,
+) -> Result<serde_json::Value> {
     let method = req["method"].as_str().ok_or(Error::MethodNotFound)?;
     let params = req["params"].as_array().ok_or(Error::MissingParams)?;
     let version = req["jsonrpc"].as_str().ok_or(Error::MissingReq)?;
@@ -512,7 +527,7 @@ async fn handle_json_rpc_request(req: Value, state: Arc<RpcImpl>) -> Result<serd
 }
 
 async fn json_rpc_request(
-    State(state): State<Arc<RpcImpl>>,
+    State(state): State<Arc<RpcImpl<impl Blockchain>>>,
     Json(req): Json<serde_json::Value>,
 ) -> axum::http::Response<axum::body::Body> {
     let Some(id) = req.get("id").cloned() else {
@@ -561,16 +576,18 @@ async fn json_rpc_request(
     }
 }
 
-async fn cannot_get(_state: State<Arc<RpcImpl>>) -> Json<serde_json::Value> {
+async fn cannot_get() -> Json<serde_json::Value> {
     Json(json!({
         "error": "Cannot get on this route",
     }))
 }
 
-impl RpcImpl {
+impl<Chain: BlockchainInterface + UpdatableChainstate + Send + Sync + Clone + 'static>
+    RpcImpl<Chain>
+{
     fn rescan_with_block_filters(
         addresses: &[ScriptBuf],
-        chain: Arc<ChainState<KvChainStore<'static>>>,
+        chain: Chain,
         wallet: Arc<AddressCache<KvDatabase>>,
         cfilters: Arc<NetworkFilters<FlatFiltersStore>>,
         node: Arc<NodeInterface>,
@@ -716,7 +733,7 @@ impl RpcImpl {
 
     #[allow(clippy::too_many_arguments)]
     pub async fn create(
-        chain: Arc<ChainState<KvChainStore<'static>>>,
+        chain: Chain,
         wallet: Arc<AddressCache<KvDatabase>>,
         node: Arc<NodeInterface>,
         kill_signal: Arc<RwLock<bool>>,

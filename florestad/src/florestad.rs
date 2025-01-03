@@ -13,17 +13,23 @@ use std::sync::Mutex;
 #[cfg(feature = "json-rpc")]
 use std::sync::OnceLock;
 
+use bitcoin::BlockHash;
 pub use bitcoin::Network;
 use fern::colors::Color;
 use fern::colors::ColoredLevelConfig;
 use fern::FormatCallback;
+#[cfg(feature = "experimental-db")]
+use floresta_chain::pruned_utreexo::flat_chain_store::FlatChainStore as ChainStore;
+#[cfg(feature = "experimental-db")]
+use floresta_chain::pruned_utreexo::flat_chain_store::FlatChainStoreConfig;
 #[cfg(feature = "zmq-server")]
 use floresta_chain::pruned_utreexo::BlockchainInterface;
 pub use floresta_chain::AssumeUtreexoValue;
 use floresta_chain::AssumeValidArg;
 use floresta_chain::BlockchainError;
 use floresta_chain::ChainState;
-use floresta_chain::KvChainStore;
+#[cfg(not(feature = "experimental-db"))]
+use floresta_chain::KvChainStore as ChainStore;
 #[cfg(feature = "compact-filters")]
 use floresta_compact_filters::flat_filters_store::FlatFiltersStore;
 #[cfg(feature = "compact-filters")]
@@ -49,9 +55,9 @@ use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 use tokio::task;
 #[cfg(feature = "metrics")]
-use tokio::time::Duration;
+use tokio::time;
 #[cfg(feature = "metrics")]
-use tokio::time::{self};
+use tokio::time::Duration;
 use tokio_rustls::rustls::internal::pemfile::certs;
 use tokio_rustls::rustls::internal::pemfile::pkcs8_private_keys;
 use tokio_rustls::rustls::NoClientAuth;
@@ -661,22 +667,61 @@ impl Florestad {
         None
     }
 
+    #[cfg(feature = "experimental-db")]
+    fn load_chain_store(data_dir: String) -> ChainStore {
+        let config = FlatChainStoreConfig {
+            file_permission: Some(0o666),
+            fork_file_map_size: Some(10_000),
+            path: data_dir + "/chaindata",
+            headers_file_map_size: Some(10_000_000),
+            index_mmap_size: Some(10_000_000),
+            cache_size: Some(10_000),
+        };
+
+        ChainStore::new(config.clone()).expect("failure while creating chainstate")
+    }
+
+    #[cfg(not(feature = "experimental-db"))]
+    fn load_chain_store(data_dir: String) -> ChainStore<'static> {
+        ChainStore::new(data_dir + "/chaindata").expect("failure while creating chainstate")
+    }
+
+    #[cfg(feature = "experimental-db")]
     fn load_chain_state(
         data_dir: String,
         network: Network,
-        assume_valid: Option<bitcoin::BlockHash>,
-    ) -> ChainState<KvChainStore<'static>> {
-        let db = KvChainStore::new(data_dir.to_string()).expect("Could not read db");
+        assume_valid: Option<BlockHash>,
+    ) -> ChainState<ChainStore> {
+        let db = Self::load_chain_store(data_dir.clone());
         let assume_valid =
             assume_valid.map_or(AssumeValidArg::Hardcoded, AssumeValidArg::UserInput);
-
-        match ChainState::<KvChainStore>::load_chain_state(db, network.into(), assume_valid) {
+        match ChainState::load_chain_state(db, network.into(), assume_valid) {
             Ok(chainstate) => chainstate,
             Err(err) => match err {
                 BlockchainError::ChainNotInitialized => {
-                    let db = KvChainStore::new(data_dir.to_string()).expect("Could not read db");
+                    let db = Self::load_chain_store(data_dir);
+                    ChainState::new(db, network.into(), assume_valid)
+                }
+                _ => unreachable!(),
+            },
+        }
+    }
 
-                    ChainState::<KvChainStore>::new(db, network.into(), assume_valid)
+    #[cfg(not(feature = "experimental-db"))]
+    fn load_chain_state(
+        data_dir: String,
+        network: Network,
+        assume_valid: Option<BlockHash>,
+    ) -> ChainState<ChainStore<'static>> {
+        let db = Self::load_chain_store(data_dir.clone());
+        let assume_valid =
+            assume_valid.map_or(AssumeValidArg::Hardcoded, AssumeValidArg::UserInput);
+        match ChainState::load_chain_state(db, network.into(), assume_valid) {
+            Ok(chainstate) => chainstate,
+            Err(err) => match err {
+                BlockchainError::ChainNotInitialized => {
+                    let db = Self::load_chain_store(data_dir);
+                    ChainState::new(db, network.into(), assume_valid)
                 }
                 _ => unreachable!(),
             },
