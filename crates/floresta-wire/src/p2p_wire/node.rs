@@ -917,9 +917,13 @@ where
         stream.set_nodelay(true)?;
         let (reader, writer) = tokio::io::split(stream);
 
+        let (cancellation_sender, cancellation_receiver) = tokio::sync::oneshot::channel();
         let (actor_receiver, actor) = create_tcp_stream_actor(reader);
         tokio::spawn(async move {
-            let _ = actor.run().await;
+            tokio::select! {
+                _ = cancellation_receiver => {}
+                _ = actor.run() => {}
+            }
         });
 
         // Use create_peer function instead of manually creating the peer
@@ -934,6 +938,7 @@ where
             actor_receiver,
             writer,
             user_agent,
+            cancellation_sender,
         )
         .await;
 
@@ -968,9 +973,14 @@ where
         let proxy = TcpStream::connect(proxy).await?;
         let stream = Socks5StreamBuilder::connect(proxy, addr, address.get_port()).await?;
         let (reader, writer) = tokio::io::split(stream);
+
+        let (cancellation_sender, cancellation_receiver) = tokio::sync::oneshot::channel();
         let (actor_receiver, actor) = create_tcp_stream_actor(reader);
         tokio::spawn(async move {
-            let _ = actor.run().await;
+            tokio::select! {
+                _ = cancellation_receiver => {}
+                _ = actor.run() => {}
+            }
         });
 
         Peer::<WriteHalf>::create_peer(
@@ -984,6 +994,7 @@ where
             actor_receiver,
             writer,
             user_agent,
+            cancellation_sender,
         )
         .await;
         Ok(())
