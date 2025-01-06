@@ -18,7 +18,7 @@ use super::res::GetBlockchainInfoRes;
 use super::server::RpcImpl;
 
 impl RpcImpl {
-    pub fn get_block_inner(&self, hash: BlockHash) -> Result<Block, RpcError> {
+    async fn get_block_inner(&self, hash: BlockHash) -> Result<Block, RpcError> {
         let is_genesis = self.chain.get_block_hash(0).unwrap().eq(&hash);
         if self.chain.is_in_idb() && !is_genesis {
             return Err(RpcError::InInitialBlockDownload);
@@ -45,8 +45,8 @@ impl RpcImpl {
     }
 
     // getblock
-    pub(super) fn get_block(&self, hash: BlockHash) -> Result<BlockJson, RpcError> {
-        let block = self.get_block_inner(hash)?;
+    pub(super) async fn get_block(&self, hash: BlockHash) -> Result<BlockJson, RpcError> {
+        let block = self.get_block_inner(hash).await?;
         let tip = self.chain.get_height().map_err(|_| RpcError::Chain)?;
         let height = self
             .chain
@@ -102,8 +102,8 @@ impl RpcImpl {
         Ok(block)
     }
 
-    pub(super) fn get_block_serialized(&self, hash: BlockHash) -> Result<String, RpcError> {
-        let block = self.get_block_inner(hash)?;
+    pub(super) async fn get_block_serialized(&self, hash: BlockHash) -> Result<String, RpcError> {
+        let block = self.get_block_inner(hash).await?;
         Ok(serialize_hex(&block))
     }
 

@@ -37,6 +37,7 @@ use log::info;
 use serde_json::json;
 use serde_json::Value;
 use tokio::sync::RwLock;
+use tokio::task::spawn_blocking;
 use tower_http::cors::CorsLayer;
 
 use super::res::Error;
@@ -75,8 +76,15 @@ impl RpcImpl {
                 _ => return Err(Error::InvalidNetwork),
             }
         };
-        let node = ip.parse().map_err(|_| Error::InvalidAddress)?;
-        self.node.connect(node, port).unwrap();
+
+        let peer = ip.parse().map_err(|_| Error::InvalidAddress)?;
+        let node = self.node.clone();
+
+        spawn_blocking(move || {
+            node.connect(peer, port)
+                .map_err(|e| Error::Node(e.to_string()))
+        });
+
         Ok(true)
     }
 
@@ -128,7 +136,8 @@ impl RpcImpl {
         let cfilters = self.block_filter_storage.as_ref().unwrap().clone();
         let node = self.node.clone();
         let chain = self.chain.clone();
-        std::thread::spawn(move || {
+
+        spawn_blocking(move || {
             match Self::rescan_with_block_filters(&addresses, chain, wallet, cfilters, node) {
                 Ok(_) => info!("rescan completed"),
                 Err(e) => error!("error while rescaning {e:?}"),
@@ -151,12 +160,14 @@ impl RpcImpl {
         let cfilters = self.block_filter_storage.as_ref().unwrap().clone();
         let node = self.node.clone();
         let chain = self.chain.clone();
-        std::thread::spawn(move || {
+
+        spawn_blocking(move || {
             match Self::rescan_with_block_filters(&addresses, chain, wallet, cfilters, node) {
                 Ok(_) => info!("rescan completed"),
                 Err(e) => error!("error while rescaning {e:?}"),
             }
         });
+
         Ok(true)
     }
 
@@ -212,9 +223,11 @@ async fn handle_json_rpc_request(req: Value, state: Arc<RpcImpl>) -> Result<serd
             match verbosity {
                 Some(0) => state
                     .get_block_serialized(hash)
+                    .await
                     .map(|v| ::serde_json::to_value(v).unwrap()),
                 Some(1) => state
                     .get_block(hash)
+                    .await
                     .map(|v| ::serde_json::to_value(v).unwrap()),
 
                 _ => Err(Error::InvalidVerbosityLevel),
@@ -234,6 +247,7 @@ async fn handle_json_rpc_request(req: Value, state: Arc<RpcImpl>) -> Result<serd
                 .map_err(|_| Error::InvalidHash)?;
             state
                 .get_block(hash)
+                .await
                 .map(|v| ::serde_json::to_value(v).unwrap())
         }
 
@@ -290,8 +304,10 @@ async fn handle_json_rpc_request(req: Value, state: Arc<RpcImpl>) -> Result<serd
                 .map_err(|_| Error::InvalidScript)?;
             let height = params[3].as_u64().ok_or(Error::InvalidHeight)? as u32;
 
-            state
-                .find_tx_out(txid, vout, script, height)
+            let state = state.clone();
+            spawn_blocking(move || state.find_tx_out(txid, vout, script, height))
+                .await
+                .map_err(|e| Error::Node(e.to_string()))?
                 .map(|v| ::serde_json::to_value(v).unwrap())
         }
 
@@ -536,6 +552,7 @@ impl RpcImpl {
                 .unwrap_or(0),
         }
     }
+
     fn get_port(net: &Network) -> u16 {
         match net {
             Network::Bitcoin => 8332,
