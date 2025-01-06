@@ -270,11 +270,18 @@ pub fn get_chain_dns_seeds(network: Network) -> Vec<DnsSeed> {
     let x49 = ServiceFlags::from(0x49);
     // this mean NETWORK + WITNESS + COMPACT_FILTERS + UTREEXO
     let x1000049 = ServiceFlags::from(0x1000049);
+    // this means NETWORK + WITNESS + UTREEXO
+    let x1000009 = ServiceFlags::from(0x1000009);
     // filters aren't supported (usually returns a static list of peers)
     let none = ServiceFlags::NONE;
 
     match network {
         Network::Bitcoin => {
+            seeds.push(DnsSeed::new(
+                Network::Bitcoin,
+                "seed.calvinkim.info",
+                x1000009,
+            ));
             seeds.push(DnsSeed::new(
                 Network::Bitcoin,
                 "seed.bitcoin.sipa.be",
