@@ -43,6 +43,7 @@ use tower_http::cors::CorsLayer;
 use super::res::Error;
 use super::res::GetBlockRes;
 use super::res::RawTxJson;
+use super::res::RpcError;
 use super::res::ScriptPubKeyJson;
 use super::res::ScriptSigJson;
 use super::res::TxInJson;
@@ -363,14 +364,76 @@ async fn handle_json_rpc_request(req: Value, state: Arc<RpcImpl>) -> Result<serd
     }
 }
 
+fn get_http_error_code(err: &Error) -> u16 {
+    match err {
+        // you messed up
+        Error::InvalidHex
+        | Error::InvalidHash
+        | Error::InvalidAddress
+        | Error::InvalidScript
+        | Error::InvalidRequest
+        | Error::InvalidVout
+        | Error::InvalidPort
+        | Error::InvalidHeight
+        | Error::InvalidDescriptor
+        | Error::InvalidNetwork
+        | Error::InvalidVerbosityLevel
+        | Error::Decode(_)
+        | Error::MissingParams
+        | Error::MissingReq
+        | Error::NoBlockFilters => 400,
+
+        // idunnolol
+        Error::MethodNotFound | Error::BlockNotFound | Error::TxNotFound => 404,
+
+        // we messed up, sowwy
+        Error::InInitialBlockDownload | Error::Node(_) | Error::Chain | Error::Encode => 503,
+    }
+}
+
+fn get_json_rpc_error_code(err: &Error) -> i32 {
+    match err {
+        // Parse Error
+        Error::Decode(_) | Error::MissingReq | Error::MissingParams => -32700,
+
+        // Invalid Request
+        Error::InvalidHex
+        | Error::InvalidHash
+        | Error::InvalidAddress
+        | Error::InvalidScript
+        | Error::MethodNotFound
+        | Error::InvalidRequest
+        | Error::InvalidVout
+        | Error::InvalidPort
+        | Error::InvalidHeight
+        | Error::InvalidDescriptor
+        | Error::InvalidNetwork
+        | Error::InvalidVerbosityLevel
+        | Error::TxNotFound
+        | Error::BlockNotFound => -32600,
+
+        // server error
+        Error::InInitialBlockDownload
+        | Error::Node(_)
+        | Error::Chain
+        | Error::Encode
+        | Error::NoBlockFilters => -32603,
+    }
+}
+
 async fn json_rpc_request(
     State(state): State<Arc<RpcImpl>>,
     Json(req): Json<serde_json::Value>,
 ) -> axum::http::Response<axum::body::Body> {
     let Some(id) = req.get("id").cloned() else {
+        let error = RpcError {
+            code: -32600,
+            message: "Invalid request".to_string(),
+            data: None,
+        };
+
         let body = serde_json::json!({
-            "error": "id field is required",
-            "result": serde_json::Value::Null,
+            "error": error,
             "id": serde_json::Value::Null,
         });
 
@@ -386,7 +449,6 @@ async fn json_rpc_request(
     match res {
         Ok(res) => {
             let body = serde_json::json!({
-                "error": serde_json::Value::Null,
                 "result": res,
                 "id": id,
             });
@@ -398,14 +460,21 @@ async fn json_rpc_request(
                 .unwrap()
         }
         Err(e) => {
+            let http_error_code = get_http_error_code(&e);
+            let json_rpc_error_code = get_json_rpc_error_code(&e);
+            let error = RpcError {
+                code: json_rpc_error_code,
+                message: e.to_string(),
+                data: None,
+            };
+
             let body = serde_json::json!({
-                "error": e.to_string(),
-                "result": serde_json::Value::Null,
+                "error": error,
                 "id": id,
             });
 
             axum::http::Response::builder()
-                .status(axum::http::StatusCode::BAD_REQUEST)
+                .status(axum::http::StatusCode::from_u16(http_error_code).unwrap())
                 .header("Content-Type", "application/json")
                 .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
                 .unwrap()

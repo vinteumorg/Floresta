@@ -78,6 +78,13 @@ pub enum GetBlockRes {
     Serialized(String),
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+pub struct RpcError {
+    pub code: i32,
+    pub message: String,
+    pub data: Option<String>,
+}
+
 /// A full bitcoin block, returned by get_block
 #[derive(Debug, Deserialize, Serialize)]
 pub struct GetBlockResVerbose {
