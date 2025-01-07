@@ -11,9 +11,10 @@ use floresta_chain::pruned_utreexo::UpdatableChainstate;
 use floresta_wire::node_interface::NodeMethods;
 use serde_json::json;
 use serde_json::Value;
+use tokio::task::spawn_blocking;
 
-use super::res::BlockJson;
 use super::res::Error as RpcError;
+use super::res::GetBlockResVerbose;
 use super::res::GetBlockchainInfoRes;
 use super::server::RpcImpl;
 
@@ -25,13 +26,17 @@ impl RpcImpl {
         }
 
         if is_genesis {
-            Ok(genesis_block(self.network))
-        } else {
-            self.node
-                .get_block(hash)
+            return Ok(genesis_block(self.network));
+        }
+
+        let node = self.node.clone();
+        spawn_blocking(move || {
+            node.get_block(hash)
                 .map_err(|_| RpcError::Chain)?
                 .ok_or(RpcError::BlockNotFound)
-        }
+        })
+        .await
+        .map_err(|e| RpcError::Node(e.to_string()))?
     }
 }
 
@@ -45,7 +50,7 @@ impl RpcImpl {
     }
 
     // getblock
-    pub(super) async fn get_block(&self, hash: BlockHash) -> Result<BlockJson, RpcError> {
+    pub(super) async fn get_block(&self, hash: BlockHash) -> Result<GetBlockResVerbose, RpcError> {
         let block = self.get_block_inner(hash).await?;
         let tip = self.chain.get_height().map_err(|_| RpcError::Chain)?;
         let height = self
@@ -69,7 +74,7 @@ impl RpcImpl {
             block.header.time
         };
 
-        let block = BlockJson {
+        let block = GetBlockResVerbose {
             bits: serialize_hex(&block.header.bits),
             chainwork: block.header.work().to_string(),
             confirmations: (tip - height) + 1,

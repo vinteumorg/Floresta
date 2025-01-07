@@ -173,9 +173,15 @@ pub struct PeerInfo {
     pub state: String,
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+pub enum GetBlockRes {
+    Verbose(Box<GetBlockResVerbose>),
+    Serialized(String),
+}
+
 /// A full bitcoin block, returned by get_block
 #[derive(Debug, Deserialize, Serialize)]
-pub struct GetBlockRes {
+pub struct GetBlockResVerbose {
     /// This block's hash.
     pub hash: String,
     /// How many blocks have been added to the chain, after this one have been found. This is
@@ -270,6 +276,8 @@ pub enum Error {
     Api(serde_json::Value),
     /// The server sent an empty response
     EmptyResponse,
+    /// The provided verbosity level is invalid
+    InvalidVerbosity,
 }
 
 impl From<serde_json::Error> for Error {
@@ -293,6 +301,7 @@ impl Display for Error {
             Error::Api(e) => write!(f, "general jsonrpc error: {e}"),
             Error::Serde(e) => write!(f, "error while deserializing the response: {e}"),
             Error::EmptyResponse => write!(f, "got an empty response from server"),
+            Error::InvalidVerbosity => write!(f, "invalid verbosity level"),
         }
     }
 }

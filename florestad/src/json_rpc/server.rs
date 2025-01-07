@@ -41,6 +41,7 @@ use tokio::task::spawn_blocking;
 use tower_http::cors::CorsLayer;
 
 use super::res::Error;
+use super::res::GetBlockRes;
 use super::res::RawTxJson;
 use super::res::ScriptPubKeyJson;
 use super::res::ScriptSigJson;
@@ -221,15 +222,18 @@ async fn handle_json_rpc_request(req: Value, state: Arc<RpcImpl>) -> Result<serd
             let verbosity = params.get(1).map(|v| v.as_u64().unwrap() as u8);
 
             match verbosity {
-                Some(0) => state
-                    .get_block_serialized(hash)
-                    .await
-                    .map(|v| ::serde_json::to_value(v).unwrap()),
-                Some(1) => state
-                    .get_block(hash)
-                    .await
-                    .map(|v| ::serde_json::to_value(v).unwrap()),
+                Some(0) => {
+                    let block = state.get_block_serialized(hash).await?;
 
+                    let block = GetBlockRes::Serialized(block);
+                    Ok(serde_json::to_value(block).unwrap())
+                }
+                Some(1) => {
+                    let block = state.get_block(hash).await?;
+
+                    let block = GetBlockRes::Verbose(block.into());
+                    Ok(serde_json::to_value(block).unwrap())
+                }
                 _ => Err(Error::InvalidVerbosityLevel),
             }
         }

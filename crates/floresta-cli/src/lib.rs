@@ -36,6 +36,7 @@ mod tests {
 
     use crate::jsonrpc_client::Client;
     use crate::rpc::FlorestaRPC;
+    use crate::rpc_types::GetBlockRes;
 
     struct Florestad {
         proc: Child,
@@ -172,7 +173,11 @@ mod tests {
             "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206"
                 .parse()
                 .unwrap();
-        let block = client.get_block(block_hash).unwrap();
+
+        let block = client.get_block(block_hash, Some(1)).unwrap();
+        let GetBlockRes::Verbose(block) = block else {
+            panic!("Expected verbose block");
+        };
 
         assert_eq!(
             block.hash,
