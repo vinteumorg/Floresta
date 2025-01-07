@@ -1,6 +1,7 @@
 # Build outputs
 /target
 /builds
+/result
 
 # Temporary files and generated data
 tmp/
