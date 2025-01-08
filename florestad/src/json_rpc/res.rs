@@ -194,6 +194,7 @@ pub enum Error {
     InvalidHex,
     InInitialBlockDownload,
     Encode,
+    InvalidMemInfoMode,
 }
 
 impl Display for Error {
@@ -221,6 +222,7 @@ impl Display for Error {
             Error::MissingParams => write!(f, "Missing params field"),
             Error::MissingReq => write!(f, "Missing request field"),
             Error::InvalidVerbosityLevel => write!(f, "Invalid verbosity level"),
+            Error::InvalidMemInfoMode => write!(f, "Invalid meminfo mode, should be stats or mallocinfo"),
         }
     }
 }

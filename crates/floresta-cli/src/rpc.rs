@@ -117,6 +117,8 @@ pub trait FlorestaRPC {
         script: String,
         height_hint: u32,
     ) -> Result<Value>;
+    /// Returns stats about our memory usage
+    fn get_memory_info(&self, mode: String) -> Result<GetMemInfoRes>;
 }
 
 /// Since the workflow for jsonrpc is the same for all methods, we can implement a trait
@@ -149,6 +151,11 @@ impl<T: JsonRPCClient> FlorestaRPC for T {
             ],
         )
     }
+
+    fn get_memory_info(&self, mode: String) -> Result<GetMemInfoRes> {
+        self.call("getmemoryinfo", &[Value::String(mode)])
+    }
+
     fn add_node(&self, node: String) -> Result<bool> {
         self.call("addnode", &[Value::String(node)])
     }

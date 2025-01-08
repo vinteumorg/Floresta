@@ -306,4 +306,34 @@ impl Display for Error {
     }
 }
 
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct GetMemInfoStats {
+    locked: MemInfoLocked,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct MemInfoLocked {
+    /// Memory currently in use, in bytes
+    used: u64,
+    /// Memory currently free, in bytes
+    free: u64,
+    /// Total memory allocated, in bytes
+    total: u64,
+    /// Total memory locked, in bytes
+    ///
+    /// If total is less than total, then some pages may be on swap or not philysically allocated
+    /// yet
+    locked: u64,
+    /// How many chunks are currently in use
+    chunks_used: u64,
+    /// How many chunks are currently free
+    chunks_free: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum GetMemInfoRes {
+    Stats(GetMemInfoStats),
+    MallocInfo(String),
+}
 impl std::error::Error for Error {}

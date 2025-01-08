@@ -97,6 +97,10 @@ fn do_request(cmd: &Cli, client: Client) -> anyhow::Result<String> {
             script,
             height_hint.unwrap_or(0),
         )?)?,
+        Methods::GetMemoryInfo { mode } => {
+            let mode = mode.unwrap_or("stats".to_string());
+            serde_json::to_string_pretty(&client.get_memory_info(mode)?)?
+        }
     })
 }
 
@@ -188,4 +192,7 @@ pub enum Methods {
         script: String,
         height_hint: Option<u32>,
     },
+    /// Returns stats about our memory usage
+    #[command(name = "getmemoryinfo")]
+    GetMemoryInfo { mode: Option<String> },
 }

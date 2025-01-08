@@ -316,6 +316,15 @@ async fn handle_json_rpc_request(req: Value, state: Arc<RpcImpl>) -> Result<serd
                 .map(|v| ::serde_json::to_value(v).unwrap())
         }
 
+        // control
+        "getmemoryinfo" => {
+            let mode = params.first().and_then(|v| v.as_str()).unwrap_or("stats");
+
+            state
+                .get_memory_info(mode)
+                .map(|v| ::serde_json::to_value(v).unwrap())
+        }
+
         // network
         "getpeerinfo" => state
             .get_peer_info()
@@ -381,7 +390,8 @@ fn get_http_error_code(err: &Error) -> u16 {
         | Error::Decode(_)
         | Error::MissingParams
         | Error::MissingReq
-        | Error::NoBlockFilters => 400,
+        | Error::NoBlockFilters
+        | Error::InvalidMemInfoMode => 400,
 
         // idunnolol
         Error::MethodNotFound | Error::BlockNotFound | Error::TxNotFound => 404,
@@ -410,7 +420,8 @@ fn get_json_rpc_error_code(err: &Error) -> i32 {
         | Error::InvalidNetwork
         | Error::InvalidVerbosityLevel
         | Error::TxNotFound
-        | Error::BlockNotFound => -32600,
+        | Error::BlockNotFound 
+        | Error::InvalidMemInfoMode => -32600,
 
         // server error
         Error::InInitialBlockDownload
