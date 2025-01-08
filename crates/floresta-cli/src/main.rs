@@ -8,6 +8,7 @@ use clap::Parser;
 use clap::Subcommand;
 use floresta_cli::jsonrpc_client::Client;
 use floresta_cli::rpc::FlorestaRPC;
+use floresta_cli::rpc_types::GetBlockRes;
 
 // Main function that runs the CLI application
 fn main() -> anyhow::Result<()> {
@@ -74,7 +75,14 @@ fn do_request(cmd: &Cli, client: Client) -> anyhow::Result<String> {
             serde_json::to_string_pretty(&client.load_descriptor(desc)?)?
         }
         Methods::GetRoots => serde_json::to_string_pretty(&client.get_roots()?)?,
-        Methods::GetBlock { hash, .. } => serde_json::to_string_pretty(&client.get_block(hash)?)?,
+        Methods::GetBlock { hash, verbosity } => {
+            let block = client.get_block(hash, verbosity)?;
+
+            match block {
+                GetBlockRes::Verbose(block) => serde_json::to_string_pretty(&block)?,
+                GetBlockRes::Serialized(block) => serde_json::to_string_pretty(&block)?,
+            }
+        }
         Methods::GetPeerInfo => serde_json::to_string_pretty(&client.get_peer_info()?)?,
         Methods::Stop => serde_json::to_string_pretty(&client.stop()?)?,
         Methods::AddNode { node } => serde_json::to_string_pretty(&client.add_node(node)?)?,
@@ -154,7 +162,10 @@ pub enum Methods {
     GetRoots,
     /// Returns a block
     #[command(name = "getblock")]
-    GetBlock { hash: BlockHash, verbosity: u32 },
+    GetBlock {
+        hash: BlockHash,
+        verbosity: Option<u32>,
+    },
     /// Returns information about the peers we are connected to
     #[command(name = "getpeerinfo")]
     GetPeerInfo,

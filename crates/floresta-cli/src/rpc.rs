@@ -66,7 +66,7 @@ pub trait FlorestaRPC {
     /// as old as the oldest transaction this descriptor could have been used in.
     fn rescan(&self, rescan: u32) -> Result<bool>;
     /// Returns the current height of the blockchain
-    fn get_height(&self) -> Result<u32>;
+    fn get_block_count(&self) -> Result<u32>;
     /// Sends a hex-encoded transaction to the network
     ///
     /// This method sends a transaction to the network. The transaction should be encoded as a
@@ -90,7 +90,7 @@ pub trait FlorestaRPC {
     /// This method returns a block, given a block hash. If the verbosity flag is 0, the block
     /// is returned as a hexadecimal string. If the verbosity flag is 1, the block is returned
     /// as a json object.
-    fn get_block(&self, hash: BlockHash) -> Result<GetBlockRes>;
+    fn get_block(&self, hash: BlockHash, verbosity: Option<u32>) -> Result<GetBlockRes>;
     /// Return a cached transaction output
     ///
     /// This method returns a cached transaction output. If the output is not in the cache,
@@ -165,19 +165,38 @@ impl<T: JsonRPCClient> FlorestaRPC for T {
         self.call("getroots", &[])
     }
 
-    fn get_block(&self, hash: BlockHash) -> Result<GetBlockRes> {
-        let verbosity = 1; // Return the block in json format
-        self.call(
-            "getblock",
-            &[
-                Value::String(hash.to_string()),
-                Value::Number(Number::from(verbosity)),
-            ],
-        )
+    fn get_block(&self, hash: BlockHash, verbosity: Option<u32>) -> Result<GetBlockRes> {
+        let verbosity = verbosity.unwrap_or(0);
+
+        match verbosity {
+            0 => {
+                let block = self.call(
+                    "getblock",
+                    &[
+                        Value::String(hash.to_string()),
+                        Value::Number(Number::from(verbosity)),
+                    ],
+                )?;
+                Ok(GetBlockRes::Serialized(block))
+            }
+
+            1 => {
+                let block = self.call(
+                    "getblock",
+                    &[
+                        Value::String(hash.to_string()),
+                        Value::Number(Number::from(verbosity)),
+                    ],
+                )?;
+                Ok(GetBlockRes::Verbose(block))
+            }
+
+            _ => Err(rpc_types::Error::InvalidVerbosity),
+        }
     }
 
-    fn get_height(&self) -> Result<u32> {
-        self.call("getheight", &[])
+    fn get_block_count(&self) -> Result<u32> {
+        self.call("getblockcount", &[])
     }
 
     fn get_tx_out(&self, tx_id: Txid, outpoint: u32) -> Result<Value> {
