@@ -54,6 +54,26 @@ impl RpcImpl {
             _ => Err(Error::InvalidMemInfoMode),
         }
     }
+
+    pub(super) async fn get_rpc_info(&self) -> Result<GetRpcInfoRes, Error> {
+        let active_commands = self
+            .inflight
+            .read()
+            .await
+            .values()
+            .map(|req| ActiveCommand {
+                method: req.method.clone(),
+                duration: req.when.elapsed().as_secs(),
+            })
+            .collect();
+
+        let logpath = self.log_dir.clone();
+
+        Ok(GetRpcInfoRes {
+            active_commands,
+            logpath,
+        })
+    }
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -76,4 +96,16 @@ pub struct MemInfoLocked {
 pub enum GetMemInfoRes {
     Stats(GetMemInfoStats),
     MallocInfo(String),
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ActiveCommand {
+    method: String,
+    duration: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GetRpcInfoRes {
+    active_commands: Vec<ActiveCommand>,
+    logpath: String,
 }

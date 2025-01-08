@@ -335,9 +335,8 @@ impl Florestad {
         }
 
         info!("Loading blockchain database");
-        let datadir2 = data_dir.clone();
         let blockchain_state = Arc::new(Self::load_chain_state(
-            datadir2,
+            data_dir.clone(),
             Self::get_net(&self.config.network),
             self.config
                 .assume_valid
@@ -442,6 +441,7 @@ impl Florestad {
                     .json_rpc_address
                     .as_ref()
                     .map(|x| Self::get_ip_address(x, 8332)),
+                data_dir.clone() + "/output.log",
             ));
 
             if self.json_rpc.set(server).is_err() {

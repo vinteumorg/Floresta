@@ -1,6 +1,8 @@
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Instant;
 
 use axum::extract::State;
 use axum::http::Method;
@@ -49,6 +51,11 @@ use super::res::ScriptSigJson;
 use super::res::TxInJson;
 use super::res::TxOutJson;
 
+pub(super) struct InflightRpc {
+    pub method: String,
+    pub when: Instant,
+}
+
 pub struct RpcImpl {
     pub(super) block_filter_storage: Option<Arc<NetworkFilters<FlatFiltersStore>>>,
     pub(super) network: Network,
@@ -56,6 +63,8 @@ pub struct RpcImpl {
     pub(super) wallet: Arc<AddressCache<KvDatabase>>,
     pub(super) node: Arc<NodeInterface>,
     pub(super) kill_signal: Arc<RwLock<bool>>,
+    pub(super) inflight: Arc<RwLock<HashMap<Value, InflightRpc>>>,
+    pub(super) log_dir: String,
 }
 
 type Result<T> = std::result::Result<T, Error>;
@@ -205,10 +214,19 @@ async fn handle_json_rpc_request(req: Value, state: Arc<RpcImpl>) -> Result<serd
     let method = req["method"].as_str().ok_or(Error::MethodNotFound)?;
     let params = req["params"].as_array().ok_or(Error::MissingParams)?;
     let version = req["jsonrpc"].as_str().ok_or(Error::MissingReq)?;
+    let id = req["id"].clone();
 
     if version != "2.0" {
         return Err(Error::InvalidRequest);
     }
+
+    state.inflight.write().await.insert(
+        id.clone(),
+        InflightRpc {
+            method: req["method"].as_str().unwrap().to_string(),
+            when: Instant::now(),
+        },
+    );
 
     match method {
         // blockchain
@@ -324,6 +342,11 @@ async fn handle_json_rpc_request(req: Value, state: Arc<RpcImpl>) -> Result<serd
                 .get_memory_info(mode)
                 .map(|v| ::serde_json::to_value(v).unwrap())
         }
+
+        "getrpcinfo" => state
+            .get_rpc_info()
+            .await
+            .map(|v| ::serde_json::to_value(v).unwrap()),
 
         // network
         "getpeerinfo" => state
@@ -455,7 +478,9 @@ async fn json_rpc_request(
             .unwrap();
     };
 
-    let res = handle_json_rpc_request(req, state).await;
+    let res = handle_json_rpc_request(req, state.clone()).await;
+
+    state.inflight.write().await.remove(&id);
 
     match res {
         Ok(res) => {
@@ -656,6 +681,7 @@ impl RpcImpl {
         network: Network,
         block_filter_storage: Option<Arc<NetworkFilters<FlatFiltersStore>>>,
         address: Option<SocketAddr>,
+        log_path: String,
     ) {
         let address = address.unwrap_or_else(|| {
             format!("127.0.0.1:{}", Self::get_port(&network))
@@ -681,6 +707,8 @@ impl RpcImpl {
                 kill_signal,
                 network,
                 block_filter_storage,
+                inflight: Arc::new(RwLock::new(HashMap::new())),
+                log_dir: log_path,
             }));
 
         axum::serve(listener, router)

@@ -101,6 +101,7 @@ fn do_request(cmd: &Cli, client: Client) -> anyhow::Result<String> {
             let mode = mode.unwrap_or("stats".to_string());
             serde_json::to_string_pretty(&client.get_memory_info(mode)?)?
         }
+        Methods::GetRpcInfo => serde_json::to_string_pretty(&client.get_rpc_info()?)?,
     })
 }
 
@@ -195,4 +196,7 @@ pub enum Methods {
     /// Returns stats about our memory usage
     #[command(name = "getmemoryinfo")]
     GetMemoryInfo { mode: Option<String> },
+    /// Returns information about the RPC server
+    #[command(name = "getrpcinfo")]
+    GetRpcInfo,
 }

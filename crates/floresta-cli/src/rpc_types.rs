@@ -336,4 +336,17 @@ pub enum GetMemInfoRes {
     Stats(GetMemInfoStats),
     MallocInfo(String),
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ActiveCommand {
+    method: String,
+    duration: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GetRpcInfoRes {
+    active_commands: Vec<ActiveCommand>,
+    logpath: String,
+}
+
 impl std::error::Error for Error {}
