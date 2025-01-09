@@ -74,6 +74,15 @@ impl RpcImpl {
             logpath,
         })
     }
+
+    // help
+    // logging
+
+    pub(super) async fn stop(&self) -> Result<&str, Error> {
+        *self.kill_signal.write().await = true;
+
+        Ok("florestad stopping")
+    }
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]

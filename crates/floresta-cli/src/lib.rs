@@ -140,7 +140,7 @@ mod tests {
         let (mut _proc, client) = start_florestad();
 
         let stop = client.stop().expect("rpc not working");
-        assert!(stop);
+        assert_eq!(stop.as_str(), "florestad stopping");
     }
 
     #[test]

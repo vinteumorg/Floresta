@@ -200,6 +200,11 @@ impl Florestad {
         });
     }
 
+    pub fn should_stop(&self) -> bool {
+        let stop_signal = self.stop_signal.clone();
+        block_on(async { *stop_signal.read().await })
+    }
+
     pub fn get_stop_signal(&self) -> Arc<RwLock<bool>> {
         self.stop_signal.clone()
     }

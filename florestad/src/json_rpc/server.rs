@@ -203,11 +203,6 @@ impl RpcImpl {
         .await
         .map_err(|e| Error::Node(e.to_string()))?
     }
-
-    async fn stop(&self) -> Result<bool> {
-        *self.kill_signal.write().await = true;
-        Ok(true)
-    }
 }
 
 async fn handle_json_rpc_request(req: Value, state: Arc<RpcImpl>) -> Result<serde_json::Value> {
@@ -348,6 +343,15 @@ async fn handle_json_rpc_request(req: Value, state: Arc<RpcImpl>) -> Result<serd
             .await
             .map(|v| ::serde_json::to_value(v).unwrap()),
 
+        // help
+        // logging
+
+        // control
+        "stop" => state
+            .stop()
+            .await
+            .map(|v| ::serde_json::to_value(v).unwrap()),
+
         // network
         "getpeerinfo" => state
             .get_peer_info()
@@ -382,12 +386,6 @@ async fn handle_json_rpc_request(req: Value, state: Arc<RpcImpl>) -> Result<serd
                 .send_raw_transaction(tx.to_string())
                 .map(|v| ::serde_json::to_value(v).unwrap())
         }
-
-        // control
-        "stop" => state
-            .stop()
-            .await
-            .map(|v| ::serde_json::to_value(v).unwrap()),
 
         _ => {
             let error = Error::MethodNotFound;
