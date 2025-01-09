@@ -78,10 +78,16 @@ impl RpcImpl {
     // help
     // logging
 
+    // stop
     pub(super) async fn stop(&self) -> Result<&str, Error> {
         *self.kill_signal.write().await = true;
 
         Ok("florestad stopping")
+    }
+
+    // uptime
+    pub(super) fn uptime(&self) -> u64 {
+        self.start_time.elapsed().as_secs()
     }
 }
 

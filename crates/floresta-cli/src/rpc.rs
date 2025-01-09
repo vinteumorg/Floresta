@@ -121,6 +121,8 @@ pub trait FlorestaRPC {
     fn get_memory_info(&self, mode: String) -> Result<GetMemInfoRes>;
     /// Returns stats about our RPC server
     fn get_rpc_info(&self) -> Result<GetRpcInfoRes>;
+    /// Returns for how long florestad has been running, in seconds
+    fn uptime(&self) -> Result<u32>;
 }
 
 /// Since the workflow for jsonrpc is the same for all methods, we can implement a trait
@@ -152,6 +154,10 @@ impl<T: JsonRPCClient> FlorestaRPC for T {
                 Value::Number(Number::from(height_hint)),
             ],
         )
+    }
+
+    fn uptime(&self) -> Result<u32> {
+        self.call("uptime", &[])
     }
 
     fn get_memory_info(&self, mode: String) -> Result<GetMemInfoRes> {

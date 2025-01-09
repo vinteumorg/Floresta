@@ -102,6 +102,7 @@ fn do_request(cmd: &Cli, client: Client) -> anyhow::Result<String> {
             serde_json::to_string_pretty(&client.get_memory_info(mode)?)?
         }
         Methods::GetRpcInfo => serde_json::to_string_pretty(&client.get_rpc_info()?)?,
+        Methods::Uptime => serde_json::to_string_pretty(&client.uptime()?)?,
     })
 }
 
@@ -199,4 +200,7 @@ pub enum Methods {
     /// Returns information about the RPC server
     #[command(name = "getrpcinfo")]
     GetRpcInfo,
+    /// Returns for how long the node has been running, in seconds
+    #[command(name = "uptime")]
+    Uptime,
 }

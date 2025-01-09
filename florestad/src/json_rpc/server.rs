@@ -65,6 +65,7 @@ pub struct RpcImpl {
     pub(super) kill_signal: Arc<RwLock<bool>>,
     pub(super) inflight: Arc<RwLock<HashMap<Value, InflightRpc>>>,
     pub(super) log_dir: String,
+    pub(super) start_time: Instant,
 }
 
 type Result<T> = std::result::Result<T, Error>;
@@ -345,12 +346,15 @@ async fn handle_json_rpc_request(req: Value, state: Arc<RpcImpl>) -> Result<serd
 
         // help
         // logging
-
-        // control
         "stop" => state
             .stop()
             .await
             .map(|v| ::serde_json::to_value(v).unwrap()),
+
+        "uptime" => {
+            let uptime = state.uptime();
+            Ok(serde_json::to_value(uptime).unwrap())
+        }
 
         // network
         "getpeerinfo" => state
@@ -441,7 +445,7 @@ fn get_json_rpc_error_code(err: &Error) -> i32 {
         | Error::InvalidNetwork
         | Error::InvalidVerbosityLevel
         | Error::TxNotFound
-        | Error::BlockNotFound 
+        | Error::BlockNotFound
         | Error::InvalidMemInfoMode => -32600,
 
         // server error
@@ -707,6 +711,7 @@ impl RpcImpl {
                 block_filter_storage,
                 inflight: Arc::new(RwLock::new(HashMap::new())),
                 log_dir: log_path,
+                start_time: Instant::now(),
             }));
 
         axum::serve(listener, router)
