@@ -84,10 +84,6 @@ class ExampleTest(FlorestaTestFramework):
         - Create an instance of the Electrum Client, a small implementation of the electrum
           protocol, to test our own electrum implementation
         """
-        # This creates a dummy rpc listening on port 8080
-        self.run_rpc()
-
-        # Wait until the rpc is ready
         # Start a new node (this crate's binary)
         self.run_node(ExampleTest.index[0])
 

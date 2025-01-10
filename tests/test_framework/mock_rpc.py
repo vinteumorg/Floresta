@@ -31,8 +31,10 @@ class MockUtreexod:
     Fake utreexod's json_rpc interface for tests that doesn't really require a actual utreexod
     """
 
-    def __init__(self):
-        self.server = SimpleJSONRPCServer(("localhost", 8080))
+    def __init__(self, ip: str = "localhost", port: int = 8080):
+        self.ip = ip
+        self.port = port
+        self.server = SimpleJSONRPCServer((ip, port))
         self.server.register_function(self.getblock)
         self.server.register_function(self.stop)
         self.server.register_function(self.getutreexoproof)
@@ -42,8 +44,8 @@ class MockUtreexod:
 
     def run(self):
         """Start the mocked Utreexod server"""
-        print("[ MockUtreexod ] [ INFO ]: rpc running")
         self.server.serve_forever()
+        print(f"[ MockUtreexod ] [ INFO ]: rpc running at {self.ip}:{self.port}")
 
     def stop(self):
         """Stop the mocked Utreexod server"""
