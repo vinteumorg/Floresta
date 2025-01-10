@@ -677,7 +677,7 @@ where
                     // to be invalidated.
                     match e {
                         BlockValidationErrors::InvalidCoinbase(_)
-                        | BlockValidationErrors::UtxoAlreadySpent(_)
+                        | BlockValidationErrors::UtxoNotFound(_)
                         | BlockValidationErrors::ScriptValidationError(_)
                         | BlockValidationErrors::InvalidOutput
                         | BlockValidationErrors::ScriptError
