@@ -21,7 +21,7 @@ floresta-watch-only = { path = "../floresta-watch-only" }
 floresta-compact-filters = { path = "../floresta-compact-filters" }
 floresta-wire = { path = "../floresta-wire" }
 
-rustreexo = "0.3.0"
+rustreexo = "0.4"
 sha2 = "^0.10.6"
 tokio = { version = "1.0", features = ["full"] }
 tokio-rustls = "0.22"

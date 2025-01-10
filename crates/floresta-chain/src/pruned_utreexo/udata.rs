@@ -295,7 +295,7 @@ pub mod proof_util {
     use bitcoin::TxOut;
     use bitcoin::WPubkeyHash;
     use bitcoin::WScriptHash;
-    use rustreexo::accumulator::node_hash::NodeHash;
+    use rustreexo::accumulator::node_hash::BitcoinNodeHash;
     use rustreexo::accumulator::proof::Proof;
 
     use super::LeafData;
@@ -339,7 +339,7 @@ pub mod proof_util {
             .proof
             .hashes
             .iter()
-            .map(|hash| NodeHash::Some(*hash.as_byte_array()))
+            .map(|hash| BitcoinNodeHash::Some(*hash.as_byte_array()))
             .collect();
         let proof = Proof::new(targets, hashes);
         let mut hashes = Vec::new();

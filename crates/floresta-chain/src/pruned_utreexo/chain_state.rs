@@ -30,7 +30,7 @@ use log::trace;
 use log::warn;
 #[cfg(feature = "metrics")]
 use metrics;
-use rustreexo::accumulator::node_hash::NodeHash;
+use rustreexo::accumulator::node_hash::BitcoinNodeHash;
 use rustreexo::accumulator::proof::Proof;
 use rustreexo::accumulator::stump::Stump;
 use spin::RwLock;
@@ -634,7 +634,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         assert_eq!(acc.len() % 32, 0);
         while acc.len() >= 32 {
             let root = acc.drain(0..32).collect::<Vec<u8>>();
-            let root = NodeHash::from(&*root);
+            let root = BitcoinNodeHash::from(&*root);
             roots.push(root);
         }
         Stump { leaves, roots }
@@ -831,7 +831,7 @@ impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedSta
         // verify the proof
         let del_hashes = del_hashes
             .iter()
-            .map(|hash| NodeHash::from(hash.as_byte_array()))
+            .map(|hash| BitcoinNodeHash::from(hash.as_byte_array()))
             .collect::<Vec<_>>();
 
         if !acc.verify(&proof, &del_hashes)? {
@@ -1170,7 +1170,7 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
         Ok(())
     }
 
-    fn get_root_hashes(&self) -> Vec<NodeHash> {
+    fn get_root_hashes(&self) -> Vec<BitcoinNodeHash> {
         let inner = read_lock!(self);
         inner.acc.roots.clone()
     }

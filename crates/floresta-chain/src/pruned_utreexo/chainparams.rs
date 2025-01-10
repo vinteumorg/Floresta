@@ -7,7 +7,7 @@ use bitcoin::p2p::ServiceFlags;
 use bitcoin::params::Params;
 use bitcoin::Block;
 use bitcoin::BlockHash;
-use rustreexo::accumulator::node_hash::NodeHash;
+use rustreexo::accumulator::node_hash::BitcoinNodeHash;
 
 use crate::prelude::*;
 use crate::AssumeValidArg;
@@ -74,7 +74,7 @@ pub struct AssumeUtreexoValue {
     /// Same as block_hash, but in height
     pub height: u32,
     /// The roots of the Utreexo accumulator at this block
-    pub roots: Vec<NodeHash>,
+    pub roots: Vec<BitcoinNodeHash>,
     /// The number of leaves in the Utreexo accumulator at this block
     pub leaves: u64,
 }
@@ -109,7 +109,7 @@ impl ChainParams {
                     "972ea2c7472c22e4eab49e9c2db5757a048b271b6251883ce89ccfeaa38b47ab",
                 ]
                 .into_iter()
-                .map(|x| NodeHash::from_str(x).unwrap())
+                .map(|x| BitcoinNodeHash::from_str(x).unwrap())
                 .collect(),
                 leaves: 2587882501,
             },
