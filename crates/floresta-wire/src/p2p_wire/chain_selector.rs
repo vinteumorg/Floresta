@@ -59,7 +59,7 @@ use floresta_chain::UtreexoBlock;
 use floresta_common::service_flags;
 use log::info;
 use log::warn;
-use rustreexo::accumulator::node_hash::NodeHash;
+use rustreexo::accumulator::node_hash::BitcoinNodeHash;
 use rustreexo::accumulator::stump::Stump;
 use tokio::sync::RwLock;
 use tokio::time::timeout;
@@ -185,7 +185,7 @@ where
             let slice = acc.drain(0..32);
             let mut root = [0u8; 32];
             root.copy_from_slice(&slice.collect::<Vec<u8>>());
-            roots.push(NodeHash::from(root));
+            roots.push(BitcoinNodeHash::from(root));
         }
         Ok(Stump { leaves, roots })
     }

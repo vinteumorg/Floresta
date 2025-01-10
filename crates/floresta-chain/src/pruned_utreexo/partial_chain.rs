@@ -22,6 +22,7 @@
 //!     threads, as long as the origin thread gives away the ownership.
 use bitcoin::BlockHash;
 use floresta_common::prelude::*;
+use rustreexo::accumulator::node_hash::BitcoinNodeHash;
 extern crate alloc;
 
 use core::cell::UnsafeCell;
@@ -318,7 +319,7 @@ impl UpdatableChainstate for PartialChainState {
             .process_block(block, proof, inputs, del_hashes)
     }
 
-    fn get_root_hashes(&self) -> Vec<rustreexo::accumulator::node_hash::NodeHash> {
+    fn get_root_hashes(&self) -> Vec<BitcoinNodeHash> {
         self.inner().current_acc.roots.clone()
     }
 
