@@ -16,7 +16,7 @@ categories = ["cryptography::cryptocurrencies", "network-programming"]
 
 
 [dependencies]
-rustreexo = "0.3.0"
+rustreexo = { git = "https://github.com/mit-dci/rustreexo", rev = "54f4ee492ec2cbc20bd168377fbcdd1c2e14c899" }
 sha2 = "^0.10.6"
 tokio = { version = "1", features = ["full"] }
 log = "0.4"

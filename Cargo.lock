@@ -2008,8 +2008,7 @@ checksum = "16f1201b3c9a7ee8039bcadc17b7e605e2945b27eee7631788c1bd2b0643674b"
 [[package]]
 name = "rustreexo"
 version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3b4e6061c2c36ec0f30c8c2e737efc0b69ffc22b57a79a28aefc849c35a1523a"
+source = "git+https://github.com/mit-dci/rustreexo?rev=54f4ee492ec2cbc20bd168377fbcdd1c2e14c899#54f4ee492ec2cbc20bd168377fbcdd1c2e14c899"
 dependencies = [
  "bitcoin_hashes 0.14.0",
 ]

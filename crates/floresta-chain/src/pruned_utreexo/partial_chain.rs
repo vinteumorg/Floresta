@@ -22,6 +22,7 @@
 //!     threads, as long as the origin thread gives away the ownership.
 use bitcoin::BlockHash;
 use floresta_common::prelude::*;
+use rustreexo::accumulator::node_hash::BitcoinNodeHash;
 extern crate alloc;
 
 use core::cell::UnsafeCell;
@@ -318,7 +319,7 @@ impl UpdatableChainstate for PartialChainState {
             .process_block(block, proof, inputs, del_hashes)
     }
 
-    fn get_root_hashes(&self) -> Vec<rustreexo::accumulator::node_hash::NodeHash> {
+    fn get_root_hashes(&self) -> Vec<BitcoinNodeHash> {
         self.inner().current_acc.roots.clone()
     }
 
@@ -506,7 +507,7 @@ mod tests {
     use bitcoin::block::Header;
     use bitcoin::consensus::deserialize;
     use bitcoin::Block;
-    use rustreexo::accumulator::node_hash::NodeHash;
+    use rustreexo::accumulator::node_hash::BitcoinNodeHash;
     use rustreexo::accumulator::proof::Proof;
     use rustreexo::accumulator::stump::Stump;
 
@@ -641,7 +642,7 @@ mod tests {
             "bedb648c9a3c5741660f926c1552d83ebb4cb1842cca6855b6d1089bb4951ce1",
         ]
         .iter()
-        .map(|hash| NodeHash::from_str(hash).unwrap())
+        .map(|hash| BitcoinNodeHash::from_str(hash).unwrap())
         .collect();
 
         let acc2 = Stump { roots, leaves: 100 };
@@ -682,7 +683,7 @@ mod tests {
             "1864a4982532447dcb3d9a5d2fea9f8ed4e3b1e759d55b8a427fb599fed0c302",
         ]
         .iter()
-        .map(|x| NodeHash::from(hex::decode(x).unwrap().as_slice()))
+        .map(|x| BitcoinNodeHash::from(hex::decode(x).unwrap().as_slice()))
         .collect::<Vec<_>>();
 
         let expected_acc: Stump = Stump { leaves: 150, roots };

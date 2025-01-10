@@ -21,7 +21,7 @@ use bitcoin::TxIn;
 use bitcoin::TxOut;
 use bitcoin::Txid;
 use floresta_common::prelude::*;
-use rustreexo::accumulator::node_hash::NodeHash;
+use rustreexo::accumulator::node_hash::BitcoinNodeHash;
 use rustreexo::accumulator::proof::Proof;
 use rustreexo::accumulator::stump::Stump;
 use sha2::Digest;
@@ -295,7 +295,7 @@ impl Consensus {
         let mut leaf_hashes = Vec::new();
         let del_hashes = del_hashes
             .iter()
-            .map(|hash| NodeHash::from(hash.as_byte_array()))
+            .map(|hash| BitcoinNodeHash::from(hash.as_byte_array()))
             .collect::<Vec<_>>();
         // Get inputs from the block, we'll need this HashSet to check if an output is spent
         // in the same block. If it is, we don't need to add it to the accumulator.
@@ -322,9 +322,9 @@ impl Consensus {
             }
         }
         // Convert the leaf hashes to NodeHashes used in Rustreexo
-        let hashes: Vec<NodeHash> = leaf_hashes
+        let hashes: Vec<BitcoinNodeHash> = leaf_hashes
             .iter()
-            .map(|&hash| NodeHash::from(hash.as_byte_array()))
+            .map(|&hash| BitcoinNodeHash::from(hash.as_byte_array()))
             .collect();
         // Update the accumulator
         let acc = acc.modify(&hashes, &del_hashes, &proof)?.0;
