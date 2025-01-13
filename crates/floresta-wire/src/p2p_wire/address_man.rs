@@ -13,7 +13,8 @@ use std::time::UNIX_EPOCH;
 use bitcoin::p2p::address::AddrV2;
 use bitcoin::p2p::address::AddrV2Message;
 use bitcoin::p2p::ServiceFlags;
-use floresta_chain::DnsSeed;
+
+use floresta_chain::pruned_utreexo::dns_seeds::DnsSeed;
 use floresta_chain::Network;
 use floresta_common::service_flags;
 use log::info;
@@ -653,7 +654,8 @@ mod test {
 
     use bitcoin::p2p::address::AddrV2;
     use bitcoin::p2p::ServiceFlags;
-    use floresta_chain::get_chain_dns_seeds;
+
+    use floresta_chain::pruned_utreexo::dns_seeds::DnsSeed;
     use floresta_chain::Network;
     use floresta_common::service_flags;
     use rand::Rng;
@@ -771,7 +773,7 @@ mod test {
         assert!(!AddressMan::get_net_seeds(Network::Testnet).is_empty());
 
         assert!(address_man
-            .get_seeds_from_dns(&get_chain_dns_seeds(Network::Signet)[0], 8333)
+            .get_seeds_from_dns(&DnsSeed::get_chain_dns_seeds(Network::Signet)[0], 8333)
             .is_ok());
 
         address_man.rearrange_buckets();

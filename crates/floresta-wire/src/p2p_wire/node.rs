@@ -20,7 +20,8 @@ use bitcoin::p2p::address::AddrV2Message;
 use bitcoin::p2p::ServiceFlags;
 use bitcoin::BlockHash;
 use bitcoin::Txid;
-use floresta_chain::pruned_utreexo::chainparams::get_chain_dns_seeds;
+
+use floresta_chain::pruned_utreexo::dns_seeds::DnsSeed;
 use floresta_chain::pruned_utreexo::BlockchainInterface;
 use floresta_chain::pruned_utreexo::UpdatableChainstate;
 use floresta_chain::Network;
@@ -706,7 +707,7 @@ where
             self.datadir.clone(),
             self.get_default_port(),
             self.network,
-            &get_chain_dns_seeds(self.network),
+            &DnsSeed::get_chain_dns_seeds(self.network),
         )?;
         for address in anchors {
             self.open_connection(ConnectionKind::Regular, address.id, address)

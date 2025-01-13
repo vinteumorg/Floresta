@@ -4,7 +4,7 @@
 use std::net::SocketAddr;
 
 use bitcoin::Network;
-use floresta_chain::AssumeUtreexoValue;
+use floresta_chain::pruned_utreexo::consensus::AssumeUtreexoValue;
 
 #[derive(Debug, Clone)]
 /// Configuration for the Utreexo node.
