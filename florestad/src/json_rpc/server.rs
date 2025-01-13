@@ -1,6 +1,8 @@
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Instant;
 
 use axum::extract::State;
 use axum::http::Method;
@@ -49,6 +51,11 @@ use super::res::ScriptSigJson;
 use super::res::TxInJson;
 use super::res::TxOutJson;
 
+pub(super) struct InflightRpc {
+    pub method: String,
+    pub when: Instant,
+}
+
 pub struct RpcImpl {
     pub(super) block_filter_storage: Option<Arc<NetworkFilters<FlatFiltersStore>>>,
     pub(super) network: Network,
@@ -56,6 +63,9 @@ pub struct RpcImpl {
     pub(super) wallet: Arc<AddressCache<KvDatabase>>,
     pub(super) node: Arc<NodeInterface>,
     pub(super) kill_signal: Arc<RwLock<bool>>,
+    pub(super) inflight: Arc<RwLock<HashMap<Value, InflightRpc>>>,
+    pub(super) log_dir: String,
+    pub(super) start_time: Instant,
 }
 
 type Result<T> = std::result::Result<T, Error>;
@@ -194,21 +204,25 @@ impl RpcImpl {
         .await
         .map_err(|e| Error::Node(e.to_string()))?
     }
-
-    async fn stop(&self) -> Result<bool> {
-        *self.kill_signal.write().await = true;
-        Ok(true)
-    }
 }
 
 async fn handle_json_rpc_request(req: Value, state: Arc<RpcImpl>) -> Result<serde_json::Value> {
     let method = req["method"].as_str().ok_or(Error::MethodNotFound)?;
     let params = req["params"].as_array().ok_or(Error::MissingParams)?;
     let version = req["jsonrpc"].as_str().ok_or(Error::MissingReq)?;
+    let id = req["id"].clone();
 
     if version != "2.0" {
         return Err(Error::InvalidRequest);
     }
+
+    state.inflight.write().await.insert(
+        id.clone(),
+        InflightRpc {
+            method: req["method"].as_str().unwrap().to_string(),
+            when: Instant::now(),
+        },
+    );
 
     match method {
         // blockchain
@@ -316,6 +330,32 @@ async fn handle_json_rpc_request(req: Value, state: Arc<RpcImpl>) -> Result<serd
                 .map(|v| ::serde_json::to_value(v).unwrap())
         }
 
+        // control
+        "getmemoryinfo" => {
+            let mode = params.first().and_then(|v| v.as_str()).unwrap_or("stats");
+
+            state
+                .get_memory_info(mode)
+                .map(|v| ::serde_json::to_value(v).unwrap())
+        }
+
+        "getrpcinfo" => state
+            .get_rpc_info()
+            .await
+            .map(|v| ::serde_json::to_value(v).unwrap()),
+
+        // help
+        // logging
+        "stop" => state
+            .stop()
+            .await
+            .map(|v| ::serde_json::to_value(v).unwrap()),
+
+        "uptime" => {
+            let uptime = state.uptime();
+            Ok(serde_json::to_value(uptime).unwrap())
+        }
+
         // network
         "getpeerinfo" => state
             .get_peer_info()
@@ -351,12 +391,6 @@ async fn handle_json_rpc_request(req: Value, state: Arc<RpcImpl>) -> Result<serd
                 .map(|v| ::serde_json::to_value(v).unwrap())
         }
 
-        // control
-        "stop" => state
-            .stop()
-            .await
-            .map(|v| ::serde_json::to_value(v).unwrap()),
-
         _ => {
             let error = Error::MethodNotFound;
             Err(error)
@@ -381,7 +415,8 @@ fn get_http_error_code(err: &Error) -> u16 {
         | Error::Decode(_)
         | Error::MissingParams
         | Error::MissingReq
-        | Error::NoBlockFilters => 400,
+        | Error::NoBlockFilters
+        | Error::InvalidMemInfoMode => 400,
 
         // idunnolol
         Error::MethodNotFound | Error::BlockNotFound | Error::TxNotFound => 404,
@@ -410,7 +445,8 @@ fn get_json_rpc_error_code(err: &Error) -> i32 {
         | Error::InvalidNetwork
         | Error::InvalidVerbosityLevel
         | Error::TxNotFound
-        | Error::BlockNotFound => -32600,
+        | Error::BlockNotFound
+        | Error::InvalidMemInfoMode => -32600,
 
         // server error
         Error::InInitialBlockDownload
@@ -444,7 +480,9 @@ async fn json_rpc_request(
             .unwrap();
     };
 
-    let res = handle_json_rpc_request(req, state).await;
+    let res = handle_json_rpc_request(req, state.clone()).await;
+
+    state.inflight.write().await.remove(&id);
 
     match res {
         Ok(res) => {
@@ -645,6 +683,7 @@ impl RpcImpl {
         network: Network,
         block_filter_storage: Option<Arc<NetworkFilters<FlatFiltersStore>>>,
         address: Option<SocketAddr>,
+        log_path: String,
     ) {
         let address = address.unwrap_or_else(|| {
             format!("127.0.0.1:{}", Self::get_port(&network))
@@ -670,6 +709,9 @@ impl RpcImpl {
                 kill_signal,
                 network,
                 block_filter_storage,
+                inflight: Arc::new(RwLock::new(HashMap::new())),
+                log_dir: log_path,
+                start_time: Instant::now(),
             }));
 
         axum::serve(listener, router)

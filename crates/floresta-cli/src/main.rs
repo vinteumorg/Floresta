@@ -97,6 +97,12 @@ fn do_request(cmd: &Cli, client: Client) -> anyhow::Result<String> {
             script,
             height_hint.unwrap_or(0),
         )?)?,
+        Methods::GetMemoryInfo { mode } => {
+            let mode = mode.unwrap_or("stats".to_string());
+            serde_json::to_string_pretty(&client.get_memory_info(mode)?)?
+        }
+        Methods::GetRpcInfo => serde_json::to_string_pretty(&client.get_rpc_info()?)?,
+        Methods::Uptime => serde_json::to_string_pretty(&client.uptime()?)?,
     })
 }
 
@@ -188,4 +194,13 @@ pub enum Methods {
         script: String,
         height_hint: Option<u32>,
     },
+    /// Returns stats about our memory usage
+    #[command(name = "getmemoryinfo")]
+    GetMemoryInfo { mode: Option<String> },
+    /// Returns information about the RPC server
+    #[command(name = "getrpcinfo")]
+    GetRpcInfo,
+    /// Returns for how long the node has been running, in seconds
+    #[command(name = "uptime")]
+    Uptime,
 }

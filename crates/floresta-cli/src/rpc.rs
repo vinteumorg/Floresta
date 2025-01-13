@@ -100,7 +100,7 @@ pub trait FlorestaRPC {
     /// Stops the florestad process
     ///
     /// This can be used to gracefully stop the florestad process.
-    fn stop(&self) -> Result<bool>;
+    fn stop(&self) -> Result<String>;
     /// Tells florestad to connect with a peer
     ///
     /// You can use this to connect with a given node, providing it's IP address and port.
@@ -117,6 +117,12 @@ pub trait FlorestaRPC {
         script: String,
         height_hint: u32,
     ) -> Result<Value>;
+    /// Returns stats about our memory usage
+    fn get_memory_info(&self, mode: String) -> Result<GetMemInfoRes>;
+    /// Returns stats about our RPC server
+    fn get_rpc_info(&self) -> Result<GetRpcInfoRes>;
+    /// Returns for how long florestad has been running, in seconds
+    fn uptime(&self) -> Result<u32>;
 }
 
 /// Since the workflow for jsonrpc is the same for all methods, we can implement a trait
@@ -149,11 +155,24 @@ impl<T: JsonRPCClient> FlorestaRPC for T {
             ],
         )
     }
+
+    fn uptime(&self) -> Result<u32> {
+        self.call("uptime", &[])
+    }
+
+    fn get_memory_info(&self, mode: String) -> Result<GetMemInfoRes> {
+        self.call("getmemoryinfo", &[Value::String(mode)])
+    }
+
+    fn get_rpc_info(&self) -> Result<GetRpcInfoRes> {
+        self.call("getrpcinfo", &[])
+    }
+
     fn add_node(&self, node: String) -> Result<bool> {
         self.call("addnode", &[Value::String(node)])
     }
 
-    fn stop(&self) -> Result<bool> {
+    fn stop(&self) -> Result<String> {
         self.call("stop", &[])
     }
 

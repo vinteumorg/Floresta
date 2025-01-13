@@ -28,6 +28,7 @@ use daemonize::Daemonize;
 use florestad::Config;
 use florestad::Florestad;
 use futures::executor::block_on;
+use log::info;
 use tokio::sync::RwLock;
 use tokio::time::sleep;
 
@@ -89,17 +90,19 @@ fn main() {
         let _stop_signal = stop_signal.clone();
         ctrlc::set_handler(move || {
             block_on(async {
-                *(stop_signal.write().await) = true;
+                *(_stop_signal.write().await) = true;
             })
         })
         .expect("Could not setup ctr+c handler");
 
         loop {
-            if *_stop_signal.read().await {
+            if florestad.should_stop() || *stop_signal.read().await {
+                info!("Shutting down florestad");
                 florestad.stop();
                 florestad.wait_shutdown().await;
                 break;
             }
+
             sleep(Duration::from_secs(5)).await;
         }
     });
