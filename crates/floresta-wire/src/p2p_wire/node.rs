@@ -21,7 +21,7 @@ use bitcoin::p2p::ServiceFlags;
 use bitcoin::BlockHash;
 use bitcoin::Txid;
 
-use floresta_chain::pruned_utreexo::consensus::DnsSeed;
+use floresta_chain::pruned_utreexo::dns_seeds::DnsSeed;
 use floresta_chain::pruned_utreexo::BlockchainInterface;
 use floresta_chain::pruned_utreexo::UpdatableChainstate;
 use floresta_chain::Network;

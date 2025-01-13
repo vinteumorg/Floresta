@@ -14,7 +14,7 @@ use bitcoin::p2p::address::AddrV2;
 use bitcoin::p2p::address::AddrV2Message;
 use bitcoin::p2p::ServiceFlags;
 
-use floresta_chain::pruned_utreexo::consensus::DnsSeed;
+use floresta_chain::pruned_utreexo::dns_seeds::DnsSeed;
 use floresta_chain::Network;
 use floresta_common::service_flags;
 use log::info;
@@ -655,7 +655,7 @@ mod test {
     use bitcoin::p2p::address::AddrV2;
     use bitcoin::p2p::ServiceFlags;
 
-    use floresta_chain::pruned_utreexo::consensus::DnsSeed;
+    use floresta_chain::pruned_utreexo::dns_seeds::DnsSeed;
     use floresta_chain::Network;
     use floresta_common::service_flags;
     use rand::Rng;
