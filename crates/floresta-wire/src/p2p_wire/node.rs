@@ -20,7 +20,8 @@ use bitcoin::p2p::address::AddrV2Message;
 use bitcoin::p2p::ServiceFlags;
 use bitcoin::BlockHash;
 use bitcoin::Txid;
-use floresta_chain::pruned_utreexo::chainparams::get_chain_dns_seeds;
+
+use floresta_chain::pruned_utreexo::consensus::get_chain_dns_seeds;
 use floresta_chain::pruned_utreexo::BlockchainInterface;
 use floresta_chain::pruned_utreexo::UpdatableChainstate;
 use floresta_chain::Network;
