@@ -5,6 +5,7 @@
 extern crate alloc;
 
 use alloc::vec::Vec;
+use bitcoin::constants::genesis_block;
 use bitcoin::p2p::ServiceFlags;
 use bitcoin::params::Params;
 use bitcoin::Block;
@@ -15,6 +16,7 @@ use rustreexo::accumulator::node_hash::NodeHash;
 use super::error::BlockValidationErrors;
 use super::error::BlockchainError;
 
+use crate::AssumeValidArg;
 use crate::Network;
 use crate::TransactionError;
 use bitcoin::block::Header as BlockHeader;
@@ -48,8 +50,9 @@ pub const UTREEXO_TAG_V1: [u8; 64] = [
     0x15, 0x6e, 0xb3, 0x15, 0x1e, 0x0e, 0xd1, 0xb3, 0x09, 0x8b, 0xdc, 0x84, 0x45, 0x86, 0x18, 0x85,
 ];
 
-/// This struct contains all the information and methods needed to validate a block,
-/// it is used by the [ChainState] to validate blocks and transactions.
+/// This struct holds data to interpret blocks at any height.
+///
+/// Most of them are pre-defined constants, relative to the network we are using.
 #[derive(Debug, Clone)]
 pub struct ConsensusParameters {
     pub params: Params,
@@ -74,6 +77,9 @@ pub struct ConsensusParameters {
 }
 
 impl ConsensusParameters {
+    /// Returns the pre-computed utreexo accumulator for the given network.
+    ///
+    /// Only the Bitcoin network has a pre-computed accumulator, the other networks dont.
     pub fn get_assume_utreexo(network: Network) -> AssumeUtreexoValue {
         let genesis = genesis_block(Params::new(network.into()));
         match network {
@@ -128,6 +134,7 @@ impl ConsensusParameters {
         }
     }
 
+    /// Returns the block hash to be assumed as valid, given the network and the arg: [`AssumeValidArg`].
     pub fn get_assume_valid(network: Network, arg: AssumeValidArg) -> Option<BlockHash> {
         fn get_hash(hash: &str) -> BlockHash {
             BlockHash::from_str(hash).expect("hardcoded hash should not fail")
@@ -211,9 +218,7 @@ impl ConsensusParameters {
     ///     - The transaction must not have duplicate inputs
     ///     - The transaction must not spend more coins than it claims in the inputs
     ///     - The transaction must have valid scripts
-    #[allow(unused)]
     pub fn verify_block_transactions(
-        height: u32,
         mut utxos: HashMap<OutPoint, TxOut>,
         transactions: &[Transaction],
         subsidy: u64,
@@ -339,6 +344,7 @@ impl ConsensusParameters {
             ),
         }
     }
+    /// Validates the locktime of a transaction input.
     #[allow(unused)]
     fn validate_locktime(
         input: &TxIn,
@@ -359,6 +365,7 @@ impl ConsensusParameters {
         }
         Ok(())
     }
+    /// Receives a coinbase and checks if it`s valid.
     fn verify_coinbase(transaction: &Transaction) -> Result<(), BlockValidationErrors> {
         // The prevout input of a coinbase must be all zeroes
         if transaction.input[0].previous_output.txid != Txid::all_zeros() {
@@ -376,6 +383,7 @@ impl ConsensusParameters {
         }
         Ok(())
     }
+
     /// Calculates the next target for the proof of work algorithm, given the
     /// current target and the time it took to mine the last 2016 blocks.
     pub fn calc_next_work_required(
@@ -392,6 +400,7 @@ impl ConsensusParameters {
         )
         .into()
     }
+
     /// Updates our accumulator with the new block. This is done by calculating the new
     /// root hash of the accumulator, and then verifying the proof of inclusion of the
     /// deleted nodes. If the proof is valid, we return the new accumulator. Otherwise,
@@ -585,6 +594,7 @@ mod tests {
         );
     }
 }
+
 /// A dns seed is a authoritative DNS server that returns the IP addresses of nodes that are
 /// likely to be accepting incoming connections. This is our preferred way of finding new peers
 /// on the first startup, as peers returned by seeds are likely to be online and accepting
@@ -609,6 +619,98 @@ impl DnsSeed {
             seed,
             filters,
         }
+    }
+    pub fn get_chain_dns_seeds(network: Network) -> Vec<DnsSeed> {
+        // DNS seeds taken from Bitcoin Core at commit 382b692a503355df7347efd9c128aff465b5583e
+        let mut seeds = Vec::new();
+
+        // Some dns seeds lets us filter the returned peers by advertised services. We are interested
+        // in peers with: UTREEXO, COMPACT_FILTERS, WITNESS and NETWORK. Not all seeds supports all
+        // bits, so from this list, we pick the ones they support, and ask for this
+
+        // x9 or 0x09 means NETWORK + WITNESS
+        let x9: ServiceFlags = ServiceFlags::from(0x9);
+        // this mean NETWORK + WITNESS + COMPACT_FILTERS
+        let x49 = ServiceFlags::from(0x49);
+        // this mean NETWORK + WITNESS + COMPACT_FILTERS + UTREEXO
+        let x1000049 = ServiceFlags::from(0x1000049);
+        // this means NETWORK + WITNESS + UTREEXO
+        let x1000009 = ServiceFlags::from(0x1000009);
+        // filters aren't supported (usually returns a static list of peers)
+        let none = ServiceFlags::NONE;
+
+        match network {
+            Network::Bitcoin => {
+                seeds.push(DnsSeed::new(
+                    Network::Bitcoin,
+                    "seed.calvinkim.info",
+                    x1000009,
+                ));
+                seeds.push(DnsSeed::new(
+                    Network::Bitcoin,
+                    "seed.bitcoin.sipa.be",
+                    x9, // no COMPACT_FILTERS
+                ));
+                seeds.push(DnsSeed::new(Network::Bitcoin, "dnsseed.bluematt.me", x49));
+                seeds.push(DnsSeed::new(
+                    Network::Bitcoin,
+                    "dnsseed.bitcoin.dashjr.org",
+                    none, // no filter
+                ));
+                seeds.push(DnsSeed::new(Network::Bitcoin, "seed.bitcoinstats.com", x49));
+                seeds.push(DnsSeed::new(
+                    Network::Bitcoin,
+                    "seed.bitcoin.jonasschnelli.ch",
+                    x49,
+                ));
+                seeds.push(DnsSeed::new(
+                    Network::Bitcoin,
+                    "seed.btc.petertodd.org",
+                    x49,
+                ));
+                seeds.push(DnsSeed::new(
+                    Network::Bitcoin,
+                    "seed.bitcoin.sprovoost.nl",
+                    x49,
+                ));
+                seeds.push(DnsSeed::new(Network::Bitcoin, "dnsseed.emzy.de", x49));
+                seeds.push(DnsSeed::new(Network::Bitcoin, "seed.bitcoin.wiz.biz", x49));
+            }
+            Network::Testnet => {
+                seeds.push(DnsSeed::new(
+                    Network::Testnet,
+                    "testnet-seed.bitcoin.jonasschnelli.ch",
+                    x49,
+                ));
+                seeds.push(DnsSeed::new(
+                    Network::Testnet,
+                    "seed.tbtc.petertodd.org",
+                    x49,
+                ));
+                seeds.push(DnsSeed::new(
+                    Network::Testnet,
+                    "seed.testnet.bitcoin.sprovoost.nl",
+                    x49,
+                ));
+                seeds.push(DnsSeed::new(
+                    Network::Testnet,
+                    "testnet-seed.bluematt.me",
+                    none,
+                ));
+            }
+            Network::Signet => {
+                seeds.push(DnsSeed::new(
+                    Network::Signet,
+                    "seed.signet.bitcoin.sprovoost.nl",
+                    x49,
+                ));
+                seeds.push(DnsSeed::new(Network::Signet, "seed.dlsouza.lol", x1000049));
+            }
+            Network::Regtest => {
+                // No seeds for regtest
+            }
+        };
+        seeds
     }
 }
 
@@ -719,98 +821,4 @@ impl From<Network> for ConsensusParameters {
             },
         }
     }
-}
-use crate::AssumeValidArg;
-use bitcoin::blockdata::constants::genesis_block;
-pub fn get_chain_dns_seeds(network: Network) -> Vec<DnsSeed> {
-    // DNS seeds taken from Bitcoin Core at commit 382b692a503355df7347efd9c128aff465b5583e
-    let mut seeds = Vec::new();
-
-    // Some dns seeds lets us filter the returned peers by advertised services. We are interested
-    // in peers with: UTREEXO, COMPACT_FILTERS, WITNESS and NETWORK. Not all seeds supports all
-    // bits, so from this list, we pick the ones they support, and ask for this
-
-    // x9 or 0x09 means NETWORK + WITNESS
-    let x9: ServiceFlags = ServiceFlags::from(0x9);
-    // this mean NETWORK + WITNESS + COMPACT_FILTERS
-    let x49 = ServiceFlags::from(0x49);
-    // this mean NETWORK + WITNESS + COMPACT_FILTERS + UTREEXO
-    let x1000049 = ServiceFlags::from(0x1000049);
-    // this means NETWORK + WITNESS + UTREEXO
-    let x1000009 = ServiceFlags::from(0x1000009);
-    // filters aren't supported (usually returns a static list of peers)
-    let none = ServiceFlags::NONE;
-
-    match network {
-        Network::Bitcoin => {
-            seeds.push(DnsSeed::new(
-                Network::Bitcoin,
-                "seed.calvinkim.info",
-                x1000009,
-            ));
-            seeds.push(DnsSeed::new(
-                Network::Bitcoin,
-                "seed.bitcoin.sipa.be",
-                x9, // no COMPACT_FILTERS
-            ));
-            seeds.push(DnsSeed::new(Network::Bitcoin, "dnsseed.bluematt.me", x49));
-            seeds.push(DnsSeed::new(
-                Network::Bitcoin,
-                "dnsseed.bitcoin.dashjr.org",
-                none, // no filter
-            ));
-            seeds.push(DnsSeed::new(Network::Bitcoin, "seed.bitcoinstats.com", x49));
-            seeds.push(DnsSeed::new(
-                Network::Bitcoin,
-                "seed.bitcoin.jonasschnelli.ch",
-                x49,
-            ));
-            seeds.push(DnsSeed::new(
-                Network::Bitcoin,
-                "seed.btc.petertodd.org",
-                x49,
-            ));
-            seeds.push(DnsSeed::new(
-                Network::Bitcoin,
-                "seed.bitcoin.sprovoost.nl",
-                x49,
-            ));
-            seeds.push(DnsSeed::new(Network::Bitcoin, "dnsseed.emzy.de", x49));
-            seeds.push(DnsSeed::new(Network::Bitcoin, "seed.bitcoin.wiz.biz", x49));
-        }
-        Network::Testnet => {
-            seeds.push(DnsSeed::new(
-                Network::Testnet,
-                "testnet-seed.bitcoin.jonasschnelli.ch",
-                x49,
-            ));
-            seeds.push(DnsSeed::new(
-                Network::Testnet,
-                "seed.tbtc.petertodd.org",
-                x49,
-            ));
-            seeds.push(DnsSeed::new(
-                Network::Testnet,
-                "seed.testnet.bitcoin.sprovoost.nl",
-                x49,
-            ));
-            seeds.push(DnsSeed::new(
-                Network::Testnet,
-                "testnet-seed.bluematt.me",
-                none,
-            ));
-        }
-        Network::Signet => {
-            seeds.push(DnsSeed::new(
-                Network::Signet,
-                "seed.signet.bitcoin.sprovoost.nl",
-                x49,
-            ));
-            seeds.push(DnsSeed::new(Network::Signet, "seed.dlsouza.lol", x1000049));
-        }
-        Network::Regtest => {
-            // No seeds for regtest
-        }
-    };
-    seeds
 }

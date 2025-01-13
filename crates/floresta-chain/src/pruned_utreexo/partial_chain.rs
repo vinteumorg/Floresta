@@ -247,7 +247,6 @@ impl PartialChainStateInner {
         #[cfg(not(feature = "bitcoinconsensus"))]
         let flags = 0;
         ConsensusParameters::verify_block_transactions(
-            height,
             inputs,
             &block.txdata,
             subsidy,
