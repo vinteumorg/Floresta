@@ -12,7 +12,7 @@ use floresta::chain::ChainState;
 use floresta::chain::KvChainStore;
 use floresta::chain::Network;
 use floresta_chain::pruned_utreexo::chain_state_builder::ChainStateBuilder;
-use floresta_chain::ChainParams;
+use floresta_chain::pruned_utreexo::consensus::ConsensusParameters;
 use rustreexo::accumulator::stump::Stump;
 
 const DATA_DIR: &str = "./tmp-db";
@@ -44,7 +44,7 @@ async fn main() {
     // the accumulator to the state of the blockchain at that height too.
     let _chain: ChainState<KvChainStore> = ChainStateBuilder::new()
         .with_assume_valid(BlockHash::all_zeros())
-        .with_chain_params(ChainParams::from(Network::Bitcoin))
+        .with_chain_params(ConsensusParameters::from(Network::Bitcoin))
         .with_tip(
             (genesis_block(bitcoin::Network::Bitcoin).block_hash(), 0),
             genesis_block(bitcoin::Network::Bitcoin).header,

@@ -4,7 +4,7 @@
 use std::net::SocketAddr;
 
 use bitcoin::Network;
-use floresta_chain::AssumeUtreexoValue;
+use floresta_chain::pruned_utreexo::consensus::AssumeUtreexoValue;
 
 #[derive(Debug, Clone)]
 /// Configuration for the Utreexo node.
@@ -82,6 +82,129 @@ impl Default for UtreexoNodeConfig {
             assume_utreexo: None,
             filter_start_height: None,
             user_agent: format!("floresta:{}", env!("CARGO_PKG_VERSION")),
+        }
+    }
+}
+
+pub mod dns_seeds {
+    use bitcoin::p2p::ServiceFlags;
+
+    extern crate alloc;
+    use alloc::vec::Vec;
+
+    use floresta_chain::Network;
+
+    /// A dns seed is a authoritative DNS server that returns the IP addresses of nodes that are
+    /// likely to be accepting incoming connections. This is our preferred way of finding new peers
+    /// on the first startup, as peers returned by seeds are likely to be online and accepting
+    /// connections. We may use this as a fallback if we don't have any peers to connect in
+    /// subsequent startups.
+    ///
+    /// Some seeds allow filtering by service flags, so we may use this to find peers that are
+    /// likely to be running Utreexo, for example.
+    pub struct DnsSeed {
+        /// The network this peer supports (e.g, mainnet, testnet, etc)
+        pub network: Network,
+        /// The domain name of the seed
+        pub seed: &'static str,
+        /// Useful filters we can use to find relevant peers
+        pub filters: ServiceFlags,
+    }
+
+    impl DnsSeed {
+        pub fn new(network: Network, seed: &'static str, filters: ServiceFlags) -> Self {
+            DnsSeed {
+                network,
+                seed,
+                filters,
+            }
+        }
+        pub fn get_chain_dns_seeds(network: Network) -> Vec<DnsSeed> {
+            // DNS seeds taken from Bitcoin Core at commit 382b692a503355df7347efd9c128aff465b5583e
+            let mut seeds = Vec::new();
+
+            // Some dns seeds lets us filter the returned peers by advertised services. We are interested
+            // in peers with: UTREEXO, COMPACT_FILTERS, WITNESS and NETWORK. Not all seeds supports all
+            // bits, so from this list, we pick the ones they support, and ask for this
+
+            // x9 or 0x09 means NETWORK + WITNESS
+            let x9: ServiceFlags = ServiceFlags::from(0x9);
+            // this mean NETWORK + WITNESS + COMPACT_FILTERS
+            let x49 = ServiceFlags::from(0x49);
+            // this mean NETWORK + WITNESS + COMPACT_FILTERS + UTREEXO
+            let x1000049 = ServiceFlags::from(0x1000049);
+            // this means NETWORK + WITNESS + UTREEXO
+            let x1000009 = ServiceFlags::from(0x1000009);
+            // filters aren't supported (usually returns a static list of peers)
+            let none = ServiceFlags::NONE;
+
+            match network {
+                Network::Bitcoin => {
+                    seeds.push(DnsSeed::new(
+                        Network::Bitcoin,
+                        "seed.calvinkim.info",
+                        x1000009,
+                    ));
+                    seeds.push(DnsSeed::new(
+                        Network::Bitcoin,
+                        "seed.bitcoin.sipa.be",
+                        x9, // no COMPACT_FILTERS
+                    ));
+                    seeds.push(DnsSeed::new(Network::Bitcoin, "dnsseed.bluematt.me", x49));
+                    seeds.push(DnsSeed::new(Network::Bitcoin, "seed.bitcoinstats.com", x49));
+                    seeds.push(DnsSeed::new(
+                        Network::Bitcoin,
+                        "seed.btc.petertodd.org",
+                        x49,
+                    ));
+                    seeds.push(DnsSeed::new(
+                        Network::Bitcoin,
+                        "seed.bitcoin.luisschwab.com",
+                        x1000049,
+                    ));
+                    seeds.push(DnsSeed::new(
+                        Network::Bitcoin,
+                        "seed.bitcoin.sprovoost.nl",
+                        x49,
+                    ));
+                    seeds.push(DnsSeed::new(Network::Bitcoin, "dnsseed.emzy.de", x49));
+                    seeds.push(DnsSeed::new(Network::Bitcoin, "seed.bitcoin.wiz.biz", x49));
+                }
+                Network::Testnet => {
+                    seeds.push(DnsSeed::new(
+                        Network::Testnet,
+                        "testnet-seed.bitcoin.jonasschnelli.ch",
+                        x49,
+                    ));
+                    seeds.push(DnsSeed::new(
+                        Network::Testnet,
+                        "seed.tbtc.petertodd.org",
+                        x49,
+                    ));
+                    seeds.push(DnsSeed::new(
+                        Network::Testnet,
+                        "seed.testnet.bitcoin.sprovoost.nl",
+                        x49,
+                    ));
+                    seeds.push(DnsSeed::new(
+                        Network::Testnet,
+                        "testnet-seed.bluematt.me",
+                        none,
+                    ));
+                }
+                Network::Signet => {
+                    seeds.push(DnsSeed::new(
+                        Network::Signet,
+                        "seed.signet.bitcoin.sprovoost.nl",
+                        x49,
+                    ));
+                    seeds.push(DnsSeed::new(Network::Signet, "seed.dlsouza.lol", x1000049));
+                }
+                Network::Regtest => {
+                    // No seeds for regtest
+                }
+            };
+            seeds
         }
     }
 }

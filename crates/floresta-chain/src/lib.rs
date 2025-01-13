@@ -15,7 +15,6 @@
 pub mod pruned_utreexo;
 pub(crate) use floresta_common::prelude;
 pub use pruned_utreexo::chain_state::*;
-pub use pruned_utreexo::chainparams::*;
 pub use pruned_utreexo::chainstore::*;
 pub use pruned_utreexo::error::*;
 pub use pruned_utreexo::udata::*;

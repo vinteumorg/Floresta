@@ -5,7 +5,7 @@ use rustreexo::accumulator::stump::Stump;
 
 use super::chain_state::BestChain;
 use super::chain_state::ChainState;
-use super::chainparams::ChainParams;
+use super::consensus::ConsensusParameters;
 use super::ChainStore;
 
 #[derive(Clone, Debug)]
@@ -18,7 +18,7 @@ pub struct ChainStateBuilder<PersistedState: ChainStore> {
     acc: Option<Stump>,
     chainstore: Option<PersistedState>,
     ibd: bool,
-    chain_params: Option<ChainParams>,
+    chain_params: Option<ConsensusParameters>,
     assume_valid: Option<BlockHash>,
     tip: Option<(BlockHash, u32)>,
     first: Option<BlockHeader>,
@@ -69,7 +69,7 @@ impl<T: ChainStore> ChainStateBuilder<T> {
         self.ibd = ibd;
         self
     }
-    pub fn with_chain_params(mut self, chain_params: ChainParams) -> Self {
+    pub fn with_chain_params(mut self, chain_params: ConsensusParameters) -> Self {
         self.chain_params = Some(chain_params);
         self
     }
@@ -95,7 +95,7 @@ impl<T: ChainStore> ChainStateBuilder<T> {
     pub fn ibd(&self) -> bool {
         self.ibd
     }
-    pub fn chain_params(&self) -> ChainParams {
+    pub fn chain_params(&self) -> ConsensusParameters {
         self.chain_params.clone().unwrap()
     }
     pub fn best_block(&self) -> BestChain {

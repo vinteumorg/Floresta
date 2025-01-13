@@ -188,6 +188,7 @@ pub fn serialize(root: UtreexoRoots) -> Vec<u8> {
     buffer
 }
 
+#[allow(dead_code)]
 pub fn create_false_acc(tip: usize) -> Vec<u8> {
     let mut bytes = [0u8; 32];
     OsRng.fill_bytes(&mut bytes);

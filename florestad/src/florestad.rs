@@ -17,9 +17,10 @@ pub use bitcoin::Network;
 use fern::colors::Color;
 use fern::colors::ColoredLevelConfig;
 use fern::FormatCallback;
+use floresta_chain::pruned_utreexo::consensus::AssumeUtreexoValue;
+use floresta_chain::pruned_utreexo::consensus::ConsensusParameters;
 #[cfg(feature = "zmq-server")]
 use floresta_chain::pruned_utreexo::BlockchainInterface;
-pub use floresta_chain::AssumeUtreexoValue;
 use floresta_chain::AssumeValidArg;
 use floresta_chain::BlockchainError;
 use floresta_chain::ChainState;
@@ -376,7 +377,7 @@ impl Florestad {
 
         // If this network already allows pow fraud proofs, we should use it instead of assumeutreexo
         let assume_utreexo = match (pow_fraud_proofs, self.config.assume_utreexo) {
-            (false, true) => Some(floresta_chain::ChainParams::get_assume_utreexo(
+            (false, true) => Some(ConsensusParameters::get_assume_utreexo(
                 Self::get_net(&self.config.network).into(),
             )),
             _ => None,

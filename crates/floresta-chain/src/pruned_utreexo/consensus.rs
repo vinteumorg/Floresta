@@ -4,12 +4,15 @@
 //! We use this to avoid code reuse among the different implementations of the chainstate.
 extern crate alloc;
 
+use alloc::vec::Vec;
 use core::ffi::c_uint;
 
 use bitcoin::block::Header as BlockHeader;
 use bitcoin::consensus::Encodable;
+use bitcoin::constants::genesis_block;
 use bitcoin::hashes::sha256;
 use bitcoin::hashes::Hash;
+use bitcoin::params::Params;
 use bitcoin::Block;
 use bitcoin::BlockHash;
 use bitcoin::CompactTarget;
@@ -27,9 +30,10 @@ use rustreexo::accumulator::stump::Stump;
 use sha2::Digest;
 use sha2::Sha512_256;
 
-use super::chainparams::ChainParams;
 use super::error::BlockValidationErrors;
 use super::error::BlockchainError;
+use crate::AssumeValidArg;
+use crate::Network;
 use crate::TransactionError;
 
 /// The value of a single coin in satoshis.
@@ -45,20 +49,123 @@ pub const UTREEXO_TAG_V1: [u8; 64] = [
     0x15, 0x6e, 0xb3, 0x15, 0x1e, 0x0e, 0xd1, 0xb3, 0x09, 0x8b, 0xdc, 0x84, 0x45, 0x86, 0x18, 0x85,
 ];
 
-/// This struct contains all the information and methods needed to validate a block,
-/// it is used by the [ChainState] to validate blocks and transactions.
+/// This struct holds data to interpret blocks at any height.
+///
+/// Most of them are pre-defined constants, relative to the network we are using.
 #[derive(Debug, Clone)]
-pub struct Consensus {
-    /// The parameters of the chain we are validating, it is usually hardcoded
-    /// constants. See [ChainParams] for more information.
-    pub parameters: ChainParams,
+pub struct ConsensusParameters {
+    pub params: Params,
+    /// The network's first block, also called genesis block.
+    pub genesis: Block,
+    /// Interval of blocks until the block reward halves
+    pub subsidy_halving_interval: u64,
+    /// When we retarget we expect this many seconds to be elapsed since last time. If
+    /// it's more, we decrease difficulty, if it's less we increase difficulty
+    pub pow_target_timespan: u64,
+    /// We wait this many blocks before a coinbase output can be spent
+    pub coinbase_maturity: u32,
+    /// The height at which segwit is activated
+    pub segwit_activation_height: u32,
+    /// The height at which csv(CHECK_SEQUENCE_VERIFY) is activated
+    pub csv_activation_height: u32,
+    /// A list of exceptions to the rules, where the key is the block hash and the value is the
+    /// verification flags
+    pub exceptions: HashMap<BlockHash, c_uint>,
+    /// The network this chain params is for
+    pub network: bitcoin::Network,
 }
 
-impl Consensus {
+impl ConsensusParameters {
+    /// Returns the pre-computed utreexo accumulator for the given network.
+    ///
+    /// For now, only the Bitcoin network has a pre-computed accumulator, the other networks dont.
+    pub fn get_assume_utreexo(network: Network) -> AssumeUtreexoValue {
+        let genesis = genesis_block(Params::new(network.into()));
+        match network {
+            Network::Bitcoin => AssumeUtreexoValue {
+                block_hash: BlockHash::from_str(
+                    "00000000000000000000569f4d863c27e667cbee8acc8da195e7e5551658e6e9",
+                )
+                .unwrap(),
+                height: 855571,
+                roots: [
+                    "4dcc014cc23611dda2dcf0f34a3e62e7d302146df4b0b01ac701d440358c19d6",
+                    "988e0a883e4ad0c5559432f4747395115112755ec1138dcdd62e2f5741c31c2c",
+                    "49ecba683e12823d44f2ad190120d3028386d8bb7860a3eea62a250a1f293c60",
+                    "7c02e55ae35f12501134f0b81a351abb6c5e7a2529641d0c537a7534a560c770",
+                    "59cb07c73d71164ce1a4f953cfd01ef0e3269080e29d34022d4251523cb1e8ac",
+                    "ff96c9983b6765092403f8089fe5d0cdd6a94c58e4dcd14e77570c8b10c17628",
+                    "47ed934529b2ea03a7382febcf0c05e0bfc5884cc1235c2ad42624a56234b9a6",
+                    "d5c9373ed35de281d426888bd656f04a36623197a33706932ab82014d67f26ae",
+                    "05de50991df991f0b78d9166d06ce3c61cb29e07dc7c53ba75d75df6455e6967",
+                    "ebfdaf53b7240e9cd25d7c63b35d462763253f9282cc97d8d0c92ea9ade6aa02",
+                    "c349b6850f75346224cf7cf1e0a69e194306c59489017cd4f4a045c001f1fefc",
+                    "7edfd925905e88fd14c47edaaf09606cf0ae19f3b898239a2feb607d175d9a90",
+                    "442dadd38fd16949d2ef03d799aa6b61ad8c0b7c611aaa5e218bc6360c4f41ce",
+                    "2a57b73e540c7a72cb44fdc4ab7fcc3f0f148be7885667f07fce345430f08a15",
+                    "66dc66000a8baaacacef280783a0245b4d33bd7eba5f1f14b939bd3a54e135cb",
+                    "67ba89afe6bce9bafbf0b88013e4446c861e6c746e291c3921e0b65c93671ba3",
+                    "972ea2c7472c22e4eab49e9c2db5757a048b271b6251883ce89ccfeaa38b47ab",
+                ]
+                .into_iter()
+                .map(|x| NodeHash::from_str(x).unwrap())
+                .collect(),
+                leaves: 2587882501,
+            },
+            Network::Testnet => AssumeUtreexoValue {
+                block_hash: genesis.block_hash(),
+                height: 0,
+                leaves: 0,
+                roots: Vec::new(),
+            },
+            Network::Signet => AssumeUtreexoValue {
+                block_hash: genesis.block_hash(),
+                height: 0,
+                leaves: 0,
+                roots: Vec::new(),
+            },
+            Network::Regtest => AssumeUtreexoValue {
+                block_hash: genesis.block_hash(),
+                height: 0,
+                leaves: 0,
+                roots: Vec::new(),
+            },
+        }
+    }
+
+    /// Returns the block hash to assume signatures as valid given the network and the arg: [`AssumeValidArg`].
+    pub fn get_assume_valid(network: Network, arg: AssumeValidArg) -> Option<BlockHash> {
+        fn get_hash(hash: &str) -> BlockHash {
+            BlockHash::from_str(hash).expect("hardcoded hash should not fail")
+        }
+        match arg {
+            AssumeValidArg::Disabled => None,
+            AssumeValidArg::UserInput(hash) => Some(hash),
+            AssumeValidArg::Hardcoded => match network {
+                Network::Bitcoin => {
+                    get_hash("00000000000000000000569f4d863c27e667cbee8acc8da195e7e5551658e6e9")
+                        .into()
+                }
+                Network::Testnet => {
+                    get_hash("000000000000001142ad197bff16a1393290fca09e4ca904dd89e7ae98a90fcd")
+                        .into()
+                }
+                Network::Signet => {
+                    get_hash("0000003ed17b9c93954daab00d73ccbd0092074c4ebfc751c7458d58b827dfea")
+                        .into()
+                }
+                Network::Regtest => {
+                    get_hash("0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206")
+                        .into()
+                }
+            },
+        }
+    }
+
     /// Returns the amount of block subsidy to be paid in a block, given it's height.
     /// Bitcoin Core source: https://github.com/bitcoin/bitcoin/blob/2b211b41e36f914b8d0487e698b619039cc3c8e2/src/validation.cpp#L1501-L1512
     pub fn get_subsidy(&self, height: u32) -> u64 {
-        let halvings = height / self.parameters.subsidy_halving_interval as u32;
+        let halvings = height / self.subsidy_halving_interval as u32;
         // Force block reward to zero when right shift is undefined.
         if halvings >= 64 {
             return 0;
@@ -110,9 +217,7 @@ impl Consensus {
     ///     - The transaction must not have duplicate inputs
     ///     - The transaction must not spend more coins than it claims in the inputs
     ///     - The transaction must have valid scripts
-    #[allow(unused)]
     pub fn verify_block_transactions(
-        height: u32,
         mut utxos: HashMap<OutPoint, TxOut>,
         transactions: &[Transaction],
         subsidy: u64,
@@ -230,6 +335,8 @@ impl Consensus {
             ),
         }
     }
+
+    /// Validates the locktime of a transaction input.
     #[allow(unused)]
     fn validate_locktime(
         input: &TxIn,
@@ -250,6 +357,7 @@ impl Consensus {
         }
         Ok(())
     }
+    /// Receives a coinbase and checks if it`s valid.
     fn verify_coinbase(transaction: &Transaction) -> Result<(), BlockValidationErrors> {
         // The prevout input of a coinbase must be all zeroes
         if transaction.input[0].previous_output.txid != Txid::all_zeros() {
@@ -267,18 +375,24 @@ impl Consensus {
         }
         Ok(())
     }
+
     /// Calculates the next target for the proof of work algorithm, given the
     /// current target and the time it took to mine the last 2016 blocks.
     pub fn calc_next_work_required(
         last_block: &BlockHeader,
         first_block: &BlockHeader,
-        params: ChainParams,
+        params: ConsensusParameters,
     ) -> Target {
         let actual_timespan = last_block.time - first_block.time;
 
-        CompactTarget::from_next_work_required(first_block.bits, actual_timespan as u64, params)
-            .into()
+        CompactTarget::from_next_work_required(
+            first_block.bits,
+            actual_timespan as u64,
+            params.params,
+        )
+        .into()
     }
+
     /// Updates our accumulator with the new block. This is done by calculating the new
     /// root hash of the accumulator, and then verifying the proof of inclusion of the
     /// deleted nodes. If the proof is valid, we return the new accumulator. Otherwise,
@@ -411,8 +525,8 @@ mod tests {
         let small_script =
             ScriptBuf::from_hex("76a9149206a30c09cc853bb03bd917a4f9f29b089c1bc788ac").unwrap();
 
-        assert!(Consensus::validate_script_size(&small_script).is_ok());
-        assert!(Consensus::validate_script_size(&large_script).is_err());
+        assert!(ConsensusParameters::validate_script_size(&small_script).is_ok());
+        assert!(ConsensusParameters::validate_script_size(&large_script).is_err());
     }
 
     #[test]
@@ -420,10 +534,10 @@ mod tests {
         let valid_one = coinbase(true);
         let invalid_one = coinbase(false);
         // The case that should be valid
-        assert!(Consensus::verify_coinbase(&valid_one).is_ok());
+        assert!(ConsensusParameters::verify_coinbase(&valid_one).is_ok());
         // Invalid coinbase script
         assert_eq!(
-            Consensus::verify_coinbase(&invalid_one)
+            ConsensusParameters::verify_coinbase(&invalid_one)
                 .unwrap_err()
                 .to_string(),
             "Invalid coinbase: \"Invalid ScriptSig size\""
@@ -470,5 +584,114 @@ mod tests {
                 outpoint
             )),
         );
+    }
+}
+
+/// If enabled, the node will assume that the provided Utreexo state is valid, and will
+/// start running from there. You may use this to make your node start faster, but you
+/// should be sure that the provided state is valid. You may or not verify the state,
+/// by downloading all blocks on background, and then verifying the final Utreexo state.
+#[derive(Debug, Clone)]
+pub struct AssumeUtreexoValue {
+    /// The latest block assumed to be valid. This acc is the roots at this block
+    pub block_hash: BlockHash,
+    /// Same as block_hash, but in height
+    pub height: u32,
+    /// The roots of the Utreexo accumulator at this block
+    pub roots: Vec<NodeHash>,
+    /// The number of leaves in the Utreexo accumulator at this block
+    pub leaves: u64,
+}
+
+#[cfg(feature = "bitcoinconsensus")]
+fn get_exceptions() -> HashMap<BlockHash, c_uint> {
+    // For some reason, some blocks in the mainnet and testnet have different rules than it should
+    // be, so we need to keep a list of exceptions and treat them differently
+
+    use bitcoinconsensus::VERIFY_NONE;
+    use bitcoinconsensus::VERIFY_P2SH;
+    use bitcoinconsensus::VERIFY_WITNESS;
+    let mut exceptions = HashMap::new();
+    exceptions.insert(
+        BlockHash::from_str("00000000000002dc756eebf4f49723ed8d30cc28a5f108eb94b1ba88ac4f9c22")
+            .unwrap(),
+        VERIFY_NONE,
+    ); // BIP16 exception on main net
+    exceptions.insert(
+        BlockHash::from_str("0000000000000000000f14c35b2d841e986ab5441de8c585d5ffe55ea1e395ad")
+            .unwrap(),
+        VERIFY_P2SH | VERIFY_WITNESS,
+    ); // Taproot exception on main net
+    exceptions.insert(
+        BlockHash::from_str("00000000dd30457c001f4095d208cc1296b0eed002427aa599874af7a432b105")
+            .unwrap(),
+        VERIFY_NONE,
+    ); // BIP16 exception on test net
+    exceptions
+}
+
+#[cfg(not(feature = "bitcoinconsensus"))]
+fn get_exceptions() -> HashMap<BlockHash, c_uint> {
+    HashMap::new()
+}
+
+impl AsRef<Params> for ConsensusParameters {
+    fn as_ref(&self) -> &Params {
+        &self.params
+    }
+}
+
+impl From<Network> for ConsensusParameters {
+    fn from(net: Network) -> Self {
+        let genesis = genesis_block(Params::new(net.into()));
+        let exceptions = get_exceptions();
+
+        match net {
+            Network::Bitcoin => ConsensusParameters {
+                params: Params::new(net.into()),
+                network: net.into(),
+                genesis,
+                pow_target_timespan: 14 * 24 * 60 * 60, // two weeks
+                subsidy_halving_interval: 210_000,
+                coinbase_maturity: 100,
+                segwit_activation_height: 481824,
+                csv_activation_height: 419328,
+                exceptions,
+            },
+            Network::Testnet => ConsensusParameters {
+                params: Params::new(net.into()),
+                network: net.into(),
+                genesis,
+                pow_target_timespan: 14 * 24 * 60 * 60, // two weeks
+                subsidy_halving_interval: 210_000,
+                coinbase_maturity: 100,
+
+                segwit_activation_height: 834_624,
+                csv_activation_height: 770_112,
+                exceptions,
+            },
+            Network::Signet => ConsensusParameters {
+                params: Params::new(net.into()),
+                network: net.into(),
+                genesis,
+                pow_target_timespan: 14 * 24 * 60 * 60, // two weeks
+                subsidy_halving_interval: 210_000,
+                coinbase_maturity: 100,
+                csv_activation_height: 1,
+                segwit_activation_height: 1,
+                exceptions,
+            },
+            Network::Regtest => ConsensusParameters {
+                params: Params::new(net.into()),
+                network: net.into(),
+                genesis,
+                pow_target_timespan: 14 * 24 * 60 * 60, // two weeks
+                subsidy_halving_interval: 150,
+                coinbase_maturity: 100,
+                csv_activation_height: 0,
+                segwit_activation_height: 0,
+                exceptions,
+            },
+        }
     }
 }

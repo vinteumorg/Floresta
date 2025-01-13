@@ -2,7 +2,6 @@ extern crate alloc;
 
 pub mod chain_state;
 pub mod chain_state_builder;
-pub mod chainparams;
 pub mod chainstore;
 pub mod consensus;
 pub mod error;
