@@ -9,7 +9,6 @@ use std::net::SocketAddr;
 use std::ops::Deref;
 use std::ops::DerefMut;
 use std::sync::Arc;
-use std::sync::Mutex;
 use std::time::Duration;
 use std::time::Instant;
 use std::time::SystemTime;
@@ -39,7 +38,7 @@ use tokio::spawn;
 use tokio::sync::mpsc::unbounded_channel;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::mpsc::UnboundedSender;
-use tokio::sync::RwLock;
+use tokio::sync::Mutex;
 use tokio::time::timeout;
 
 use super::address_man::AddressMan;
@@ -48,6 +47,7 @@ use super::address_man::LocalAddress;
 use super::error::AddrParseError;
 use super::error::WireError;
 use super::mempool::Mempool;
+use super::mempool::MempoolProof;
 use super::node_context::NodeContext;
 use super::node_interface::NodeInterface;
 use super::node_interface::PeerInfo;
@@ -134,7 +134,7 @@ impl Default for RunningNode {
             last_feeler: Instant::now(),
             last_address_rearrange: Instant::now(),
             user_requests: Arc::new(NodeInterface {
-                requests: Mutex::new(Vec::new()),
+                requests: std::sync::Mutex::new(Vec::new()),
             }),
             last_invs: HashMap::default(),
             inflight_filters: BTreeMap::new(),
@@ -146,7 +146,7 @@ pub struct NodeCommon<Chain: BlockchainInterface + UpdatableChainstate> {
     // 1. Core Blockchain and Transient Data
     pub(crate) chain: Chain,
     pub(crate) blocks: HashMap<BlockHash, (PeerId, UtreexoBlock)>,
-    pub(crate) mempool: Arc<RwLock<Mempool>>,
+    pub(crate) mempool: Arc<tokio::sync::Mutex<Mempool>>,
     pub(crate) block_filters: Option<Arc<NetworkFilters<FlatFiltersStore>>>,
     pub(crate) last_filter: BlockHash,
 
@@ -217,7 +217,7 @@ where
     pub fn new(
         config: UtreexoNodeConfig,
         chain: Chain,
-        mempool: Arc<RwLock<Mempool>>,
+        mempool: Arc<Mutex<Mempool>>,
         block_filters: Option<Arc<NetworkFilters<FlatFiltersStore>>>,
     ) -> Result<Self, WireError> {
         let (node_tx, node_rx) = unbounded_channel();
@@ -735,16 +735,54 @@ where
 
             for transaction in transactions {
                 let txid = transaction.compute_txid();
-                self.mempool.write().await.accept_to_mempool(transaction);
-                peer.channel
-                    .send(NodeRequest::BroadcastTransaction(txid))
-                    .map_err(WireError::ChannelSend)?;
-            }
-            let stale = self.mempool.write().await.get_stale();
-            for tx in stale {
-                peer.channel
-                    .send(NodeRequest::BroadcastTransaction(tx))
-                    .map_err(WireError::ChannelSend)?;
+                let mut mempool = self.mempool.lock().await;
+
+                if self.network == Network::Regtest {
+                    match mempool.try_prove(&transaction, &self.chain) {
+                        Ok(proof) => {
+                            let MempoolProof {
+                                proof,
+                                target_hashes,
+                                leaves,
+                            } = proof;
+
+                            let leaves = transaction
+                                .input
+                                .iter()
+                                .cloned()
+                                .map(|input| input.previous_output)
+                                .zip(leaves.into_iter())
+                                .collect::<Vec<_>>();
+
+                            let targets = proof.targets.clone();
+                            try_and_log!(mempool.accept_to_mempool(
+                                transaction,
+                                proof,
+                                &leaves,
+                                &target_hashes,
+                                &targets,
+                            ));
+                        }
+                        Err(e) => {
+                            log::error!(
+                                "Could not prove tx {} because: {:?}",
+                                transaction.compute_txid(),
+                                e
+                            );
+                        }
+                    }
+
+                    peer.channel
+                        .send(NodeRequest::BroadcastTransaction(txid))
+                        .map_err(WireError::ChannelSend)?;
+                }
+
+                let stale = self.mempool.lock().await.get_stale();
+                for tx in stale {
+                    peer.channel
+                        .send(NodeRequest::BroadcastTransaction(tx))
+                        .map_err(WireError::ChannelSend)?;
+                }
             }
         }
         Ok(())
@@ -906,7 +944,7 @@ where
         address: LocalAddress,
         requests_rx: UnboundedReceiver<NodeRequest>,
         peer_id_count: u32,
-        mempool: Arc<RwLock<Mempool>>,
+        mempool: Arc<Mutex<Mempool>>,
         network: bitcoin::Network,
         node_tx: UnboundedSender<NodeNotification>,
         user_agent: String,
@@ -949,7 +987,7 @@ where
     pub(crate) async fn open_proxy_connection(
         proxy: SocketAddr,
         kind: ConnectionKind,
-        mempool: Arc<RwLock<Mempool>>,
+        mempool: Arc<Mutex<Mempool>>,
         network: bitcoin::Network,
         node_tx: UnboundedSender<NodeNotification>,
         peer_id: usize,

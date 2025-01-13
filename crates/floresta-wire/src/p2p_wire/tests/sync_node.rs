@@ -12,6 +12,8 @@ mod tests_utils {
     use floresta_chain::ChainState;
     use floresta_chain::KvChainStore;
     use floresta_chain::UtreexoBlock;
+    use rustreexo::accumulator::pollard::Pollard;
+    use tokio::sync::Mutex;
     use tokio::sync::RwLock;
     use tokio::time::timeout;
 
@@ -33,7 +35,7 @@ mod tests_utils {
     ) -> Arc<ChainState<KvChainStore<'static>>> {
         let datadir = format!("./tmp-db/{}.sync_node", rand::random::<u32>());
         let chainstore = KvChainStore::new(datadir.clone()).unwrap();
-        let mempool = Arc::new(RwLock::new(Mempool::new()));
+        let mempool = Arc::new(Mutex::new(Mempool::new(Pollard::default(), 1000)));
         let chain = ChainState::new(chainstore, network, AssumeValidArg::Disabled);
         let chain = Arc::new(chain);
 

@@ -36,7 +36,7 @@ use tokio::spawn;
 use tokio::sync::mpsc::unbounded_channel;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::mpsc::UnboundedSender;
-use tokio::sync::RwLock;
+use tokio::sync::Mutex;
 
 use self::peer_utils::make_pong;
 use super::mempool::Mempool;
@@ -148,7 +148,7 @@ pub fn create_tcp_stream_actor(
 }
 
 pub struct Peer<T: AsyncWrite + Unpin> {
-    mempool: Arc<RwLock<Mempool>>,
+    mempool: Arc<Mutex<Mempool>>,
     network: Network,
     blocks_only: bool,
     services: ServiceFlags,
@@ -582,13 +582,13 @@ impl<T: AsyncWrite + Unpin> Peer<T> {
     pub async fn handle_get_data(&mut self, inv: Inventory) -> Result<()> {
         match inv {
             Inventory::WitnessTransaction(txid) => {
-                let tx = self.mempool.read().await.get_from_mempool(&txid).cloned();
+                let tx = self.mempool.lock().await.get_from_mempool(&txid).cloned();
                 if let Some(tx) = tx {
                     self.write(NetworkMessage::Tx(tx)).await?;
                 }
             }
             Inventory::Transaction(txid) => {
-                let tx = self.mempool.read().await.get_from_mempool(&txid).cloned();
+                let tx = self.mempool.lock().await.get_from_mempool(&txid).cloned();
                 if let Some(tx) = tx {
                     self.write(NetworkMessage::Tx(tx)).await?;
                 }
@@ -601,7 +601,7 @@ impl<T: AsyncWrite + Unpin> Peer<T> {
     #[allow(clippy::too_many_arguments)]
     pub async fn create_peer(
         id: u32,
-        mempool: Arc<RwLock<Mempool>>,
+        mempool: Arc<Mutex<Mempool>>,
         network: Network,
         node_tx: UnboundedSender<NodeNotification>,
         node_requests: UnboundedReceiver<NodeRequest>,
