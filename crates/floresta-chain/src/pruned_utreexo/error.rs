@@ -46,7 +46,7 @@ pub enum BlockValidationErrors {
     BadMerkleRoot,
     BadWitnessCommitment,
     NotEnoughMoney,
-    FirstTxIsnNotCoinbase,
+    FirstTxIsNotCoinbase,
     BadCoinbaseOutValue,
     EmptyBlock,
     BlockExtendsAnOrphanChain,
@@ -92,7 +92,7 @@ impl Display for BlockValidationErrors {
             BlockValidationErrors::NotEnoughMoney => {
                 write!(f, "A transaction spends more than it should")
             }
-            BlockValidationErrors::FirstTxIsnNotCoinbase => {
+            BlockValidationErrors::FirstTxIsNotCoinbase => {
                 write!(f, "The first transaction in a block isn't a coinbase")
             }
             BlockValidationErrors::BadCoinbaseOutValue => {

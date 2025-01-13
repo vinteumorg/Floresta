@@ -123,22 +123,22 @@ impl Consensus {
         if transactions.is_empty() {
             return Err(BlockValidationErrors::EmptyBlock.into());
         }
+
+        // Total block fees that the miner can claim in the coinbase
         let mut fee = 0;
-        let mut wu: u64 = 0;
 
         for (n, transaction) in transactions.iter().enumerate() {
             if n == 0 {
-                if transaction.is_coinbase() {
-                    Self::verify_coinbase(transaction).map_err(|error| TransactionError {
-                        txid: transaction.compute_txid(),
-                        error,
-                    })?;
-                    // Skip the rest of checks for the coinbase transaction
-                    continue;
-                } else {
-                    // First tx not coinbase
-                    return Err(BlockValidationErrors::FirstTxIsnNotCoinbase.into());
+                if !transaction.is_coinbase() {
+                    return Err(BlockValidationErrors::FirstTxIsNotCoinbase.into());
                 }
+
+                Self::verify_coinbase(transaction).map_err(|error| TransactionError {
+                    txid: transaction.compute_txid(),
+                    error,
+                })?;
+                // Skip the rest of checks for the coinbase transaction
+                continue;
             }
 
             // Sum tx output amounts, check their locking script sizes (scriptpubkey)
@@ -199,14 +199,6 @@ impl Consensus {
                         error: BlockValidationErrors::ScriptValidationError(err.to_string()),
                     })?;
             };
-
-            // Sum the transaction weights to get the total block weight
-            wu += transaction.weight().to_wu();
-        }
-
-        // Checks if the block weight is fine
-        if wu > 4_000_000 {
-            return Err(BlockValidationErrors::BlockTooBig.into());
         }
 
         // Checks if the miner isn't trying to create inflation
