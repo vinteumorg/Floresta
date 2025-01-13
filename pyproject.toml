@@ -42,6 +42,9 @@ florestacli-getpeerinfo-test = "python tests/run_tests.py --test-name floresta_c
 florestacli-addnode-test = "python tests/run_tests.py --test-name floresta_cli_addnode"
 florestacli-stop-test = "python tests/run_tests.py --test-name floresta_cli_stop"
 florestacli-getroots-test = "python tests/run_tests.py --test-name floresta_cli_getroots"
+florestacli-getrpcinfo-test = "python tests/run_tests.py --test-name floresta_cli_getrpcinfo"
+florestacli-getmemoryinfo-test = "python tests/run_tests.py --test-name floresta_cli_getmemoryinfo"
+florestacli-uptime-test = "python tests/run_tests.py --test-name floresta_cli_uptime"
 tests = [
   "restart-test",
   "florestacli-getblockchaininfo-test",
@@ -50,7 +53,10 @@ tests = [
   "florestacli-getpeerinfo-test",
   "florestacli-addnode-test",
   "florestacli-stop-test",
-  "florestacli-getroots-test"
+  "florestacli-getroots-test",
+  "florestacli-getrpcinfo-test",
+  "florestacli-getmemoryinfo-test",
+  "florestacli-uptime-test"
 ]
 pre-commit = ["format", "lint", "tests"]
 

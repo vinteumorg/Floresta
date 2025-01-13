@@ -13,6 +13,8 @@ The difference is that our node will run withing a `cargo run` subprocess, defin
 `add_node_settings`.
 """
 
+import os
+import tempfile
 import subprocess
 from test_framework.floresta_rpc import FlorestaRPC
 
@@ -110,6 +112,45 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
         """
         raise NotImplementedError
 
+    @staticmethod
+    def get_integration_test_dir():
+        """
+        Get path for florestad used in integration tests, generally on
+        /tmp/floresta-integration-tests.<some git commit>
+        """
+        with subprocess.Popen(
+            ["git", "rev-parse", "HEAD"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        ) as cmd:
+
+            # get the git rev-parse
+            stdout, stderr = cmd.communicate()
+
+            # check for any error
+            if isinstance(stderr, str) and stderr != "":
+                raise RuntimeError(stderr)
+
+            gitrev = stdout.rstrip()
+            return os.path.normpath(
+                os.path.join(
+                    tempfile.gettempdir(),
+                    f"floresta-integration-tests.{gitrev}",
+                    "florestad",
+                    "debug",
+                )
+            )
+
+    @staticmethod
+    def get_target_release_dir():
+        """ "
+        Get path for built florestad, generally on
+        ./target/release/florestad
+        """
+        dirname = os.path.dirname(__file__)
+        return os.path.normpath(os.path.join(dirname, "..", "..", "target", "release"))
+
     # Framework
     def add_node_settings(
         self, chain: str, extra_args: list[str], rpcserver: dict
@@ -119,13 +160,32 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
 
         extra_args should be a list of string in the --key=value strings
         (see florestad --help for a list of available commands)
-
         """
+        # PR #331 introduced a preparatory environment at
+        # /tmp/floresta-integration-tests.$(git rev-parse HEAD).
+        tmpdir = FlorestaTestFramework.get_integration_test_dir()
+        targetdir = FlorestaTestFramework.get_target_release_dir()
 
+        # So, check for it first before define the florestad path.
+        if os.path.exists(tmpdir):
+            florestad = os.path.normpath(os.path.join(tmpdir, "florestad"))
+
+        # If not exists, define the one at ./target/release.
+        elif os.path.exists(targetdir):
+            florestad = os.path.normpath(os.path.join(targetdir, "florestad"))
+
+        # In case any test florestad is found, raise an exception
+        else:
+            raise RuntimeError(
+                f"Not found 'florestad' in '{tmpdir}' or '{targetdir}'. "
+                "Run 'tests/prepare.sh' or 'cargo build --release'."
+            )
+
+        print(f"Using {florestad}")
         setting = {
             "chain": chain,
             "config": [
-                "florestad",
+                florestad,
                 "--network",
                 chain,
                 "--no-ssl",
