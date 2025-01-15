@@ -288,7 +288,31 @@ class FlorestaRPC:
 
     def get_roots(self):
         """
-        Returns the roots of our current forest state performing
+        Returns the roots of our current floresta state performing
         `perform_request('getroots')`
         """
         return self.perform_request("getroots")
+
+    def get_memoryinfo(self, mode: str):
+        """
+        Returns stats about our memory usage performing
+        `perform_request('getmemoryinfo', params=[str])`
+        """
+        if mode not in ("stats", "mallocinfo"):
+            raise ValueError(f"Invalid getmemoryinfo mode: '{mode}'")
+
+        return self.perform_request("getmemoryinfo", params=[mode])
+
+    def get_rpcinfo(self):
+        """
+        Returns stats about our RPC server performing
+        `perform_request('getrpcinfo')`
+        """
+        return self.perform_request("getrpcinfo")
+
+    def uptime(self):
+        """
+        Returns for how long florestad has been running, in seconds, performing
+        `perform_request('uptime')`
+        """
+        return self.perform_request("uptime")
