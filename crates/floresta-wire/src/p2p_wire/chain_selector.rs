@@ -533,9 +533,9 @@ where
 
         let fork_height = self.chain.get_block_height(&fork)?.unwrap_or(0);
         let acc = self.find_accumulator_for_block(fork_height, fork).await?;
-        let is_valid = self
-            .chain
-            .validate_block(&block.block, proof, inputs, del_hashes, acc);
+        let is_valid =
+            self.chain
+                .validate_block(&block.block, proof, inputs.into(), del_hashes, acc);
 
         if is_valid.is_err() {
             let best_block = self.chain.get_best_block()?.1;
