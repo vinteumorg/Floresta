@@ -18,9 +18,9 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
-          cache: 'poetry'
-          cache-dependency-path: './poetry.lock'
+          python-version: "3.12"
+          cache: "poetry"
+          cache-dependency-path: "./poetry.lock"
 
       - name: Prepare environment
         run: poetry install --no-root
@@ -34,8 +34,8 @@ jobs:
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
 
-      - name: Build Floresta
-        run: cargo build
+      - name: Tests Setup
+        run: bash tests/prepare.sh
 
       - name: Run functional tests tasks
-        run: poetry run poe tests
+        run: bash tests/run.sh

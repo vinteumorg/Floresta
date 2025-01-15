@@ -121,16 +121,11 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
         (see florestad --help for a list of available commands)
 
         """
+
         setting = {
             "chain": chain,
             "config": [
-                "cargo",
-                "run",
-                "--features",
-                "json-rpc",
-                "--bin",
                 "florestad",
-                "--",
                 "--network",
                 chain,
                 "--no-ssl",

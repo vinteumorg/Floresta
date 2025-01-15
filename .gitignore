@@ -2,6 +2,7 @@
 /target
 /builds
 /result
+/bin
 
 # Temporary files and generated data
 tmp/
