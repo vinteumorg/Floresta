@@ -687,7 +687,7 @@ where
                         | BlockValidationErrors::BadMerkleRoot
                         | BlockValidationErrors::BadWitnessCommitment
                         | BlockValidationErrors::NotEnoughMoney
-                        | BlockValidationErrors::FirstTxIsnNotCoinbase
+                        | BlockValidationErrors::FirstTxIsNotCoinbase
                         | BlockValidationErrors::BadCoinbaseOutValue
                         | BlockValidationErrors::EmptyBlock
                         | BlockValidationErrors::BlockExtendsAnOrphanChain
