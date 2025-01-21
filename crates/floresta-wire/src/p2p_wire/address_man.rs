@@ -449,16 +449,23 @@ impl AddressMan {
         self.push_addresses(&persisted_peers);
 
         let mut peers_from_dns = 0;
+        info!("Starting peer discovery via DNS seeds");
         for seed in dns_seeds {
             match self.get_seeds_from_dns(seed, default_port) {
-                Ok(peers) => peers_from_dns += peers,
+                Ok(peers) => {
+                    peers_from_dns += peers;
+                    info!("Got {} peers from {}", peers, seed.seed);
+                }
                 Err(e) => {
                     info!("Error getting peers from DNS seed {}: {e:?}", seed.seed);
                 }
             }
         }
-
-        info!("Got {peers_from_dns} peers from DNS Seeds",);
+        info!(
+            "Got {} peers from {} DNS seeds",
+            peers_from_dns,
+            dns_seeds.len()
+        );
 
         let anchors = std::fs::read_to_string(format!("{datadir}/anchors.json"))?;
         let anchors = serde_json::from_str::<Vec<DiskLocalAddress>>(&anchors)?;
