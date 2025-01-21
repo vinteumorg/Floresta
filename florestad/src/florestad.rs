@@ -446,7 +446,7 @@ impl Florestad {
                     .json_rpc_address
                     .as_ref()
                     .map(|x| Self::get_ip_address(x, 8332)),
-                data_dir.clone() + "/output.log",
+                data_dir.clone() + "output.log",
             ));
 
             if self.json_rpc.set(server).is_err() {
