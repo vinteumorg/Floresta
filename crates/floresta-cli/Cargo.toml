@@ -36,6 +36,6 @@ name = "floresta_cli"
 path = "src/lib.rs"
 
 [[bin]]
-name = "floresta_cli"
+name = "floresta-cli"
 path = "src/main.rs"
 required-features = ["with-jsonrpc"]

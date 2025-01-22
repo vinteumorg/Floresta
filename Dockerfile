@@ -31,7 +31,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 FROM debian:11.6-slim@sha256:171530d298096f0697da36b3324182e872db77c66452b85783ea893680cc1b62
 
 COPY --from=builder /opt/app/target/release/florestad /usr/local/bin/florestad
-COPY --from=builder /opt/app/target/release/floresta_cli /usr/local/bin/floresta-cli
+COPY --from=builder /opt/app/target/release/floresta-cli /usr/local/bin/floresta-cli
 RUN chmod +x /usr/local/bin/florestad
 
 EXPOSE 50001
