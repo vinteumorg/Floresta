@@ -349,18 +349,10 @@ docker-compose up -d --build
 Grafana should now be available to you at http://localhost:3000. To log in, please check the credentials defined in the `docker-compose.yml` file.
 
 ## Contributing
-Contributions are welcome, feel free to open an issue or a pull request.
+Contributions are welcome, feel free to open an issue or a pull request.  Check out our [CONTRIBUTING.md](CONTRIBUTING.md) for more 
+information on best practices and guidelines.
 
 If you want to contribute but don't know where to start, take a look at the issues, there's a few of them marked as `good first issue`.
-
-Here's some Guidelines:
-- Has to compile.
-- Has to run.
-- Use [pre-commit](https://pre-commit.com/) for the language that you're using (if possible 👍).
-
-You can run `just pcc`, which stands for pre-commit check, to check everything is correct before opening a pull request.
-
-You can also accomplish that using our flake.nix for development.
 
 ## Developing on Floresta with Nix
 
