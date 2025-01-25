@@ -1,0 +1,53 @@
+name: Fuzz Tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  fuzz:
+    name: Run Fuzzing Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      # Check out the repository
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      # Install Nightly Rust
+      - name: Install Nightly Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          override: true
+          components: rustfmt, clippy
+
+      # Install cargo-fuzz
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz
+
+      # Install libfuzzer dependencies
+      - name: Install libfuzzer dependencies
+        run: sudo apt-get update && sudo apt-get install -y build-essential cmake clang
+
+      # Run fuzzing tests
+      - name: Run fuzzing tests
+        run: |
+          cd fuzz
+          cargo fuzz list
+          for target in $(cargo fuzz list); do
+            echo "Running fuzz target: $target"
+            cargo fuzz run $target -- -max_total_time=300
+          done
+
+      # Upload artifacts (if crashes are found)
+      - name: Upload artifacts
+        if: failure()
+        uses: actions/upload-artifact@v3
+        with:
+          name: fuzz-artifacts
+          path: fuzz/artifacts
