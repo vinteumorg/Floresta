@@ -277,21 +277,16 @@ pub fn get_chain_dns_seeds(network: Network) -> Vec<DnsSeed> {
         Network::Bitcoin => {
             seeds.push(DnsSeed::new(
                 Network::Bitcoin,
+                "seed.bitcoin.luisschwab.com",
+                x1000049,
+            ));
+            seeds.push(DnsSeed::new(
+                Network::Bitcoin,
                 "seed.bitcoin.sipa.be",
                 x9, // no COMPACT_FILTERS
             ));
             seeds.push(DnsSeed::new(Network::Bitcoin, "dnsseed.bluematt.me", x49));
-            seeds.push(DnsSeed::new(
-                Network::Bitcoin,
-                "dnsseed.bitcoin.dashjr.org",
-                none, // no filter
-            ));
             seeds.push(DnsSeed::new(Network::Bitcoin, "seed.bitcoinstats.com", x49));
-            seeds.push(DnsSeed::new(
-                Network::Bitcoin,
-                "seed.bitcoin.jonasschnelli.ch",
-                x49,
-            ));
             seeds.push(DnsSeed::new(
                 Network::Bitcoin,
                 "seed.btc.petertodd.org",
