@@ -189,7 +189,7 @@ pub fn validate_block_time(
 Security
 --------
 
-Given the critical nature of Floresta as a node implementation, we take security very serious. If you have any security vulnerability to report, please send it to `me AT dlsouza DOT lol` preferentially using my [PGP key `2C8E0F 836FD7D BBBB9E 9B2EF899 64EC3AB 22B2E3`](https://blog.dlsouza.lol/assets/pgp.asc).
+Given the critical nature of Floresta as a node implementation, we take security very serious. If you have any security vulnerability to report, please send it to `me AT dlsouza DOT lol` preferentially using my [PGP key `2C8E0F 836FD7D BBBB9E 9B2EF899 64EC3AB 22B2E3`](https://blog.dlsouza.lol/assets/gpg.asc).
 
 Testing
 -------
