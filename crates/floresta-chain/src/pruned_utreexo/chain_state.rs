@@ -38,10 +38,8 @@ use rustreexo::accumulator::stump::Stump;
 use spin::RwLock;
 
 use super::chain_state_builder::ChainStateBuilder;
-use super::chainparams::ChainParams;
 use super::chainstore::DiskBlockHeader;
 use super::chainstore::KvChainStore;
-use super::consensus::Consensus;
 use super::error::BlockValidationErrors;
 use super::error::BlockchainError;
 use super::partial_chain::PartialChainState;
@@ -50,6 +48,7 @@ use super::BlockchainInterface;
 use super::ChainStore;
 use super::UpdatableChainstate;
 use crate::prelude::*;
+use crate::pruned_utreexo::consensus::ConsensusParameters;
 use crate::read_lock;
 use crate::write_lock;
 use crate::Network;
@@ -88,7 +87,7 @@ pub struct ChainStateInner<PersistedState: ChainStore> {
     /// Are we in Initial Block Download?
     ibd: bool,
     /// Parameters for the chain and functions that verify the chain.
-    consensus: Consensus,
+    consensus: ConsensusParameters,
     /// Assume valid is a Core-specific config that tells the node to not validate signatures
     /// in blocks before this one. Note that we only skip signature validation, everything else
     /// is still validated.
@@ -132,7 +131,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
     #[cfg(feature = "bitcoinconsensus")]
     /// Returns the validation flags, given the current block height
     fn get_validation_flags(&self, height: u32, hash: BlockHash) -> c_uint {
-        let chain_params = &read_lock!(self).consensus.parameters;
+        let chain_params = &read_lock!(self).consensus;
 
         if let Some(flag) = chain_params.exceptions.get(&hash) {
             return *flag;
@@ -434,10 +433,10 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
     }
 
     /// Returns the chain_params struct for the current network
-    fn chain_params(&self) -> ChainParams {
+    fn chain_params(&self) -> ConsensusParameters {
         let inner = read_lock!(self);
         // We clone the parameters here, because we don't want to hold the lock for too long
-        inner.consensus.parameters.clone()
+        inner.consensus.clone()
     }
     // This function should be only called if a block is guaranteed to be on chain
     fn get_block_header_by_height(&self, height: u32) -> BlockHeader {
@@ -477,8 +476,8 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         network: Network,
         assume_valid: AssumeValidArg,
     ) -> ChainState<PersistedState> {
-        let parameters = network.into();
-        let genesis = genesis_block(&parameters);
+        let parameters: ConsensusParameters = network.into();
+        let genesis = genesis_block(&parameters.params);
 
         chainstore
             .save_header(&super::chainstore::DiskBlockHeader::FullyValid(
@@ -491,7 +490,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             .update_block_index(0, genesis.block_hash())
             .expect("Error updating index");
 
-        let assume_valid = ChainParams::get_assume_valid(network, assume_valid);
+        let assume_valid = ConsensusParameters::get_assume_valid(network, assume_valid);
         ChainState {
             inner: RwLock::new(ChainStateInner {
                 chainstore,
@@ -507,7 +506,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
                 subscribers: Vec::new(),
                 fee_estimation: (1_f64, 1_f64, 1_f64),
                 ibd: true,
-                consensus: Consensus { parameters },
+                consensus: parameters,
                 assume_valid,
             }),
         }
@@ -579,10 +578,8 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             fee_estimation: (1_f64, 1_f64, 1_f64),
             subscribers: Vec::new(),
             ibd: true,
-            consensus: Consensus {
-                parameters: network.into(),
-            },
-            assume_valid: ChainParams::get_assume_valid(network, assume_valid),
+            consensus: network.into(),
+            assume_valid: ConsensusParameters::get_assume_valid(network, assume_valid),
         };
         info!(
             "Chainstate loaded at height: {}, checking if we have all blocks",
@@ -690,7 +687,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         next_height: u32,
         next_header: &BlockHeader,
     ) -> Target {
-        let params: ChainParams = self.chain_params();
+        let params: ConsensusParameters = self.chain_params();
         // Special testnet rule, if a block takes more than 20 minutes to mine, we can
         // mine a block with diff 1
         if params.params.allow_min_difficulty_blocks
@@ -705,8 +702,11 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             let first_block = self.get_block_header_by_height(next_height - 2016);
             let last_block = self.get_block_header_by_height(next_height - 1);
 
-            let target =
-                Consensus::calc_next_work_required(&last_block, &first_block, self.chain_params());
+            let target = ConsensusParameters::calc_next_work_required(
+                &last_block,
+                &first_block,
+                self.chain_params(),
+            );
 
             if target < params.params.max_attainable_target {
                 return target;
@@ -777,8 +777,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         let flags = self.get_validation_flags(height, block.header.block_hash());
         #[cfg(not(feature = "bitcoinconsensus"))]
         let flags = 0;
-        Consensus::verify_block_transactions(
-            height,
+        ConsensusParameters::verify_block_transactions(
             inputs,
             &block.txdata,
             subsidy,
@@ -809,7 +808,7 @@ impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedSta
         proof: Proof,
         del_hashes: Vec<sha256::Hash>,
     ) -> Result<Stump, Self::Error> {
-        Consensus::update_acc(&acc, &block.block, height, proof, del_hashes)
+        ConsensusParameters::update_acc(&acc, &block.block, height, proof, del_hashes)
     }
 
     fn get_chain_tips(&self) -> Result<Vec<BlockHash>, Self::Error> {
@@ -1092,7 +1091,7 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
         }
 
         self.validate_block_no_acc(block, height, inputs)?;
-        let acc = Consensus::update_acc(&self.acc(), block, height, proof, del_hashes)?;
+        let acc = ConsensusParameters::update_acc(&self.acc(), block, height, proof, del_hashes)?;
 
         self.update_view(height, &block.header, acc)?;
 
@@ -1199,9 +1198,8 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
         let inner = PartialChainStateInner {
             error: None,
             blocks,
-            consensus: Consensus {
-                parameters: self.chain_params(),
-            },
+            consensus: self.chain_params(),
+
             current_acc: acc,
             final_height,
             assume_valid: false,
@@ -1224,9 +1222,7 @@ impl<T: ChainStore> From<ChainStateBuilder<T>> for ChainState<T> {
             broadcast_queue: Vec::new(),
             subscribers: Vec::new(),
             fee_estimation: (1_f64, 1_f64, 1_f64),
-            consensus: Consensus {
-                parameters: builder.chain_params(),
-            },
+            consensus: builder.chain_params(),
         };
 
         let inner = RwLock::new(inner);
@@ -1343,12 +1339,11 @@ mod test {
     use rustreexo::accumulator::proof::Proof;
 
     use super::BlockchainInterface;
-    use super::ChainParams;
     use super::ChainState;
     use super::DiskBlockHeader;
     use super::UpdatableChainstate;
     use crate::prelude::HashMap;
-    use crate::pruned_utreexo::consensus::Consensus;
+    use crate::pruned_utreexo::consensus::ConsensusParameters;
     use crate::AssumeValidArg;
     use crate::KvChainStore;
     use crate::Network;
@@ -1460,10 +1455,10 @@ mod test {
         let last_block = Vec::from_hex("00000020dec6741f7dc5df6661bcb2d3ec2fceb14bd0e6def3db80da904ed1eeb8000000d1f308132e6a72852c04b059e92928ea891ae6d513cd3e67436f908c804ec7be51df535fae77031e4d00f800").unwrap();
         let last_block: BlockHeader = deserialize(&last_block).unwrap();
 
-        let next_target = Consensus::calc_next_work_required(
+        let next_target = ConsensusParameters::calc_next_work_required(
             &last_block,
             &first_block,
-            ChainParams::from(Network::Signet),
+            ConsensusParameters::from(Network::Signet),
         );
 
         assert_eq!(0x1e012fa7, next_target.to_compact_lossy().to_consensus());
