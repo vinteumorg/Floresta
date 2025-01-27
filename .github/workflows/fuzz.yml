@@ -2,11 +2,8 @@ name: Fuzz Tests
 
 on:
   push:
-    branches:
-      - main
   pull_request:
-    branches:
-      - main
+    branches: ["master"]
 
 jobs:
   fuzz:
