@@ -15,7 +15,6 @@ use bitcoin::block::Header as BlockHeader;
 use bitcoin::hashes::sha256;
 use bitcoin::Block;
 use bitcoin::BlockHash;
-use bitcoin::OutPoint;
 use bitcoin::Transaction;
 use bitcoin::TxOut;
 use rustreexo::accumulator::node_hash::NodeHash;
@@ -23,6 +22,7 @@ use rustreexo::accumulator::proof::Proof;
 use rustreexo::accumulator::stump::Stump;
 
 use self::partial_chain::PartialChainState;
+use self::utxo_data::UtxoMap;
 use crate::prelude::*;
 use crate::BestChain;
 use crate::BlockConsumer;
@@ -88,7 +88,7 @@ pub trait BlockchainInterface {
         &self,
         block: &Block,
         proof: Proof,
-        inputs: HashMap<OutPoint, TxOut>,
+        inputs: UtxoMap,
         del_hashes: Vec<sha256::Hash>,
         acc: Stump,
     ) -> Result<(), Self::Error>;
@@ -108,7 +108,7 @@ pub trait UpdatableChainstate {
         &self,
         block: &Block,
         proof: Proof,
-        inputs: HashMap<OutPoint, TxOut>,
+        inputs: UtxoMap,
         del_hashes: Vec<sha256::Hash>,
     ) -> Result<u32, BlockchainError>;
 
@@ -155,6 +155,17 @@ pub trait UpdatableChainstate {
     /// This mimics the behaviour of checking every block before this block, and continues
     /// from this point
     fn mark_chain_as_assumed(&self, acc: Stump, tip: BlockHash) -> Result<bool, BlockchainError>;
+
+    /// Get the mtp of the block from the given height
+    ///
+    /// The mtp is a 11 timestamps sorted array that is used to calculate the median time past of
+    /// the last 11 blocks.
+    ///
+    /// The value of a MTP is, from the sorted array, array[array.len()/2].
+    /// array.len()/2 being a unsigned integer greater than 1.
+    ///
+    /// Fails if the block isnt found.
+    fn get_mtp(&self, height: u32) -> Result<u32, BlockchainError>;
 }
 
 /// [ChainStore] is a trait defining how we interact with our chain database. This definitions
@@ -201,6 +212,10 @@ pub enum Notification {
 }
 
 impl<T: UpdatableChainstate> UpdatableChainstate for Arc<T> {
+    fn get_mtp(&self, height: u32) -> Result<u32, BlockchainError> {
+        T::get_mtp(self, height)
+    }
+
     fn flush(&self) -> Result<(), BlockchainError> {
         T::flush(self)
     }
@@ -213,7 +228,7 @@ impl<T: UpdatableChainstate> UpdatableChainstate for Arc<T> {
         &self,
         block: &Block,
         proof: Proof,
-        inputs: HashMap<OutPoint, TxOut>,
+        inputs: UtxoMap,
         del_hashes: Vec<sha256::Hash>,
     ) -> Result<u32, BlockchainError> {
         T::connect_block(self, block, proof, inputs, del_hashes)
@@ -347,7 +362,7 @@ impl<T: BlockchainInterface> BlockchainInterface for Arc<T> {
         &self,
         block: &Block,
         proof: Proof,
-        inputs: HashMap<OutPoint, TxOut>,
+        inputs: UtxoMap,
         del_hashes: Vec<sha256::Hash>,
         acc: Stump,
     ) -> Result<(), Self::Error> {
@@ -357,4 +372,121 @@ impl<T: BlockchainInterface> BlockchainInterface for Arc<T> {
     fn get_fork_point(&self, block: BlockHash) -> Result<BlockHash, Self::Error> {
         T::get_fork_point(self, block)
     }
+}
+/// Module to delegate local-time context.
+///
+/// The consumer of `Floresta-chain` has the option to implement [`NodeTime`] if on a non-std environment.([`get_time()`] implementation that returns 0u32 will disable time checks.)
+///
+/// On std you can just use a instance [`StdNodeTime`] as input.
+pub mod nodetime {
+    /// Disable empty struct.
+    ///
+    /// Meant to be used in cases to disable time verifications
+    pub struct DisableTime;
+    /// One Hour in seconds constant.
+    pub const HOUR: u32 = 60 * 60;
+    /// Trait to return time-related context of the chain.
+    ///
+    /// [`get_time()`] should return a the latest [unix timestamp](https://en.wikipedia.org/wiki/Unix_time) when the consumer has time-notion.
+    ///
+    /// if the consumer does not have any time notion or MTP control, its safe to use `0u32` to disable any validations on time.
+    pub trait NodeTime {
+        /// Should return a unix timestamp or 0 to skip any time related validation.
+        fn get_time(&self) -> u32;
+    }
+    impl NodeTime for DisableTime {
+        fn get_time(&self) -> u32 {
+            // we simply return zero to disable time checks
+            0
+        }
+    }
+    #[cfg(feature = "std")]
+    /// A module to provide the standard implementation of [`NodeTime`] trait. It uses [`std::time::SystemTime`] to get the current time.
+    pub mod standard_node_time {
+        extern crate std;
+        use std::time;
+        /// A empty struct to implement [`NodeTime`] trait using [`std::time::SystemTime`]
+        pub struct StdNodeTime;
+        impl super::NodeTime for StdNodeTime {
+            fn get_time(&self) -> u32 {
+                time::SystemTime::now()
+                    .duration_since(time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs() as u32
+            }
+        }
+    }
+}
+///Module to hold methods and structs related to UTXO data.
+pub mod utxo_data {
+
+    use bitcoin::OutPoint;
+
+    use super::*;
+
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    /// A struct to hold unverified UTXOs and its metadata.
+    pub struct UtxoData {
+        /// The transaction output that created this UTXO.
+        pub(crate) txout: bitcoin::TxOut,
+        /// The time lock value of the utxo.
+        pub(crate) locked_by: u32,
+    }
+
+    impl From<TxOut> for UtxoData {
+        fn from(txout: TxOut) -> Self {
+            UtxoData {
+                txout,
+                locked_by: 0,
+            }
+        }
+    }
+    impl From<&TxOut> for UtxoData {
+        fn from(txout: &TxOut) -> Self {
+            UtxoData {
+                txout: txout.clone(),
+                locked_by: 0,
+            }
+        }
+    }
+
+    /// From a transaction, gets the u32 value thats locking this outpoint.
+    ///
+    /// Returns 0 if isnt time locked at all.
+    pub fn extract_lock_value(tx: &Transaction) -> u32 {
+        if !tx.is_lock_time_enabled() {
+            return 0;
+        }
+        if tx.is_lock_time_enabled() {
+            return tx.lock_time.to_consensus_u32();
+        }
+
+        // # Getting the value
+        //
+        // Sometimes the sequence holds a u16 value when its set to
+        // lock the input as a relative time lock.
+        //
+        // Here i checking if any of the sequences present is set
+        // to lock the transaction and i store the highest lock from
+        // the transaction.
+        let mut sequence_value: u32 = 0;
+
+        let mut is_sequence_locked: bool = false;
+
+        for inp in tx.input.iter() {
+            if inp.sequence.is_time_locked() {
+                if &inp.sequence.0 > &sequence_value {
+                    sequence_value = inp.sequence.0.clone();
+                    is_sequence_locked = true;
+                    continue;
+                }
+            }
+        }
+
+        if is_sequence_locked {
+            return sequence_value;
+        }
+        return 0;
+    }
+    pub(crate) type UtxoMap = HashMap<OutPoint, UtxoData>;
 }

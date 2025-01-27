@@ -21,10 +21,8 @@ use bitcoin::hashes::Hash;
 use bitcoin::script;
 use bitcoin::Block;
 use bitcoin::BlockHash;
-use bitcoin::OutPoint;
 use bitcoin::Target;
 use bitcoin::Transaction;
-use bitcoin::TxOut;
 use bitcoin::Work;
 use floresta_common::Channel;
 use log::info;
@@ -44,8 +42,10 @@ use super::chainstore::KvChainStore;
 use super::consensus::Consensus;
 use super::error::BlockValidationErrors;
 use super::error::BlockchainError;
+use super::nodetime::DisableTime;
 use super::partial_chain::PartialChainState;
 use super::partial_chain::PartialChainStateInner;
+use super::utxo_data::UtxoMap;
 use super::BlockchainInterface;
 use super::ChainStore;
 use super::UpdatableChainstate;
@@ -750,8 +750,20 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         &self,
         block: &Block,
         height: u32,
-        inputs: HashMap<OutPoint, TxOut>,
+        inputs: UtxoMap,
     ) -> Result<(), BlockchainError> {
+        let mtp = match self.get_mtp(height) {
+            Ok(mtp) => {
+                #[cfg(not(feature = "std"))]
+                let time = DisableTime;
+                #[cfg(feature = "std")]
+                let time = StdNodeTime;
+                Consensus::validate_block_time(block.header.time, mtp, time)?;
+                Some(mtp)
+            }
+            _ => None,
+        };
+
         if !block.check_merkle_root() {
             return Err(BlockValidationErrors::BadMerkleRoot.into());
         }
@@ -773,12 +785,14 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         // Validate block transactions
         let subsidy = read_lock!(self).consensus.get_subsidy(height);
         let verify_script = self.verify_script(height);
+
         #[cfg(feature = "bitcoinconsensus")]
         let flags = self.get_validation_flags(height, block.header.block_hash());
         #[cfg(not(feature = "bitcoinconsensus"))]
         let flags = 0;
         Consensus::verify_block_transactions(
             height,
+            mtp,
             inputs,
             &block.txdata,
             subsidy,
@@ -826,7 +840,7 @@ impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedSta
         &self,
         block: &Block,
         proof: Proof,
-        inputs: HashMap<OutPoint, TxOut>,
+        inputs: UtxoMap,
         del_hashes: Vec<sha256::Hash>,
         acc: Stump,
     ) -> Result<(), Self::Error> {
@@ -999,6 +1013,37 @@ impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedSta
     }
 }
 impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedState> {
+    fn get_mtp(&self, height: u32) -> Result<u32, BlockchainError> {
+        let mut initial_array = [0u32; 11];
+
+        for i in 0..11 {
+            let time = match self.get_block_hash(height.saturating_sub(i)) {
+                Ok(hash) => self.get_block_header(&hash)?.time,
+                _ => {
+                    warn!("Block timestamp : {i} Not found");
+                    0
+                }
+            };
+            initial_array[10 - i as usize] = time;
+        }
+
+        // This is the case where we didnt find even the block in the given height
+        if initial_array[10] == 0 {
+            return Err(BlockchainError::BlockNotPresent);
+        }
+
+        let mut ret = initial_array
+            .iter()
+            .filter(|t| **t != 0)
+            .collect::<Vec<_>>();
+
+        ret.sort();
+
+        // At this point we have at least 1 block inside the array so we can safely
+        // divide the length by 2 to have its median.
+        Ok(*ret[ret.len() / 2])
+    }
+
     fn switch_chain(&self, new_tip: BlockHash) -> Result<(), BlockchainError> {
         let new_tip = self.get_block_header(&new_tip)?;
         self.reorg(new_tip)
@@ -1069,7 +1114,7 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
         &self,
         block: &Block,
         proof: Proof,
-        inputs: HashMap<OutPoint, TxOut>,
+        inputs: UtxoMap,
         del_hashes: Vec<sha256::Hash>,
     ) -> Result<u32, BlockchainError> {
         let header = self.get_disk_block_header(&block.block_hash())?;
@@ -1349,6 +1394,7 @@ mod test {
     use super::UpdatableChainstate;
     use crate::prelude::HashMap;
     use crate::pruned_utreexo::consensus::Consensus;
+    use crate::pruned_utreexo::utxo_data::UtxoData;
     use crate::AssumeValidArg;
     use crate::KvChainStore;
     use crate::Network;
@@ -1365,7 +1411,7 @@ mod test {
     fn decode_block_and_inputs(
         block_file: File,
         stxos_file: File,
-    ) -> (Block, HashMap<OutPoint, TxOut>) {
+    ) -> (Block, HashMap<OutPoint, UtxoData>) {
         let block_bytes = zstd::decode_all(block_file).unwrap();
         let block: Block = deserialize(&block_bytes).unwrap();
 
@@ -1379,7 +1425,15 @@ mod test {
             .iter()
             .skip(1) // Skip the coinbase transaction
             .flat_map(|tx| &tx.input)
-            .map(|txin| (txin.previous_output, stxos.remove(0)))
+            .map(|txin| {
+                (
+                    txin.previous_output,
+                    UtxoData {
+                        txout: stxos.remove(0),
+                        locked_by: 0,
+                    },
+                )
+            })
             .collect();
 
         assert!(stxos.is_empty(), "Moved all stxos to the inputs map");
