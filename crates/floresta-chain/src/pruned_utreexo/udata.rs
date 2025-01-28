@@ -316,6 +316,26 @@ pub mod proof_util {
         EmptyStack,
     }
 
+    pub fn get_script_type(script: &ScriptBuf) -> ScriptPubkeyType {
+        if script.is_p2pkh() {
+            return ScriptPubkeyType::PubKeyHash;
+        }
+
+        if script.is_p2sh() {
+            return ScriptPubkeyType::ScriptHash;
+        }
+
+        if script.is_p2wpkh() {
+            return ScriptPubkeyType::WitnessV0PubKeyHash;
+        }
+
+        if script.is_p2wsh() {
+            return ScriptPubkeyType::WitnessV0ScriptHash;
+        }
+
+        ScriptPubkeyType::Other(script.to_bytes().into_boxed_slice())
+    }
+
     pub fn reconstruct_leaf_data(
         leaf: &CompactLeafData,
         input: &TxIn,

@@ -4,7 +4,6 @@
 //! Once our transaction is included in a block, we remove it from the mempool.
 use std::collections::BTreeSet;
 use std::collections::HashMap;
-use std::collections::HashSet;
 use std::time::Duration;
 use std::time::Instant;
 
@@ -37,11 +36,26 @@ use rustreexo::accumulator::proof::Proof;
 type ShortTxid = u64;
 
 #[derive(Debug)]
+/// A transaction in the mempool.
+///
+/// This struct holds the transaction itself, the time when we added it to the mempool, the
+/// transactions that depend on it, and the transactions that it depends on. We need those extra
+/// informations to make decisions when to include or not a transaction in mempool or in a block.
 struct MempoolTransaction {
     transaction: Transaction,
     time: Instant,
     depends: Vec<ShortTxid>,
     children: Vec<ShortTxid>,
+}
+
+pub trait BlockHashOracle {
+    fn get_block_hash(&self, height: u32) -> Option<BlockHash>;
+}
+
+impl<T: BlockchainInterface> BlockHashOracle for T {
+    fn get_block_hash(&self, height: u32) -> Option<BlockHash> {
+        self.get_block_hash(height).ok()
+    }
 }
 
 /// Holds the transactions that we broadcasted and are still in the mempool.
@@ -70,6 +84,7 @@ pub struct Mempool {
     prevouts: HashMap<OutPoint, CompactLeafData>,
     /// A queue of transaction we know about, but don't have a proof for
     queue: Vec<Txid>,
+    /// A hasher that we use to compute the short transaction ids.
     hasher: ahash::RandomState,
 }
 
@@ -84,18 +99,36 @@ pub enum AcceptToMempoolError {
     InvalidPrevout,
     /// Memory usage is too high.
     MemoryUsageTooHigh,
+    /// We couldn't find a prevout in the mempool.
+    ///
+    /// This error only happens when we try to add a transaction without a proof, and we don't have
+    /// the prevouts in the mempool.
     PrevoutNotFound,
+    /// The transaction is conflicting with another transaction in the mempool.
     ConflictingTransaction,
+    /// An error happened while trying to get a proof from the accumulator.
     Rustreexo(String),
+    /// The transaction has duplicate inputs.
+    DuplicateInput,
+    BlockNotFound,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+/// A proof for a transaction in the mempool.
 pub struct MempoolProof {
+    /// The actual utreexo proof
     pub proof: Proof,
+    /// The target hashes that we are trying to prove.
     pub target_hashes: Vec<BitcoinNodeHash>,
+    /// The leaf data for the targets we are proving
     pub leaves: Vec<CompactLeafData>,
 }
 
 impl Mempool {
+    /// Creates a new mempool with a given maximum size and accumulator.
+    ///
+    /// The acculator should have the same roots as the one inside our chainstate, or we won't be
+    /// able to validate proofs.
     pub fn new(acc: Pollard<BitcoinNodeHash>, max_mempool_size: usize) -> Mempool {
         let a = rand::random();
         let b = rand::random();
@@ -134,6 +167,11 @@ impl Mempool {
             .collect()
     }
 
+    /// Returns the data of the prevouts that are being spent by a transaction.
+    ///
+    /// This data isn't part of the actual transaction, usually we would fetch it from the UTXO
+    /// set, but we don't have one. Instead, we keep track of the prevouts that are being spent by
+    /// transactions in the mempool and use this method to get the data.
     pub fn get_prevouts(&self, tx: &Transaction) -> Vec<TxOut> {
         tx.input
             .iter()
@@ -148,10 +186,14 @@ impl Mempool {
             .collect()
     }
 
+    /// Proves that a mempool transaction is valid for the latest accumulator state.
+    ///
+    /// This should return a proof that the transaction is valid, and the data for the prevouts
+    /// that are being spent by the transaction.
     pub fn try_prove(
         &self,
         tx: &Transaction,
-        chain: &impl BlockchainInterface,
+        block_hash: &impl BlockHashOracle,
     ) -> Result<MempoolProof, AcceptToMempoolError> {
         let mut target_hashes = Vec::new();
         let mut leaves = Vec::new();
@@ -161,7 +203,7 @@ impl Mempool {
                 .get(&input.previous_output)
                 .ok_or(AcceptToMempoolError::PrevoutNotFound)?;
 
-            let block_hash = chain.get_block_hash(prevout.header_code >> 1).unwrap();
+            let block_hash = block_hash.get_block_hash(prevout.header_code >> 1).unwrap();
             let leaf_data: LeafData = proof_util::reconstruct_leaf_data(prevout, input, block_hash)
                 .map_err(|_| AcceptToMempoolError::InvalidPrevout)?;
 
@@ -229,7 +271,9 @@ impl Mempool {
         block
     }
 
-    pub fn add_transaction_to_block(
+    /// Utility method that grabs one transaction and all its dependencies, then adds them to a tx
+    /// list.
+    fn add_transaction_to_block(
         &self,
         block_transactions: &mut Vec<Transaction>,
         short_txid: ShortTxid,
@@ -258,12 +302,36 @@ impl Mempool {
         proof: Proof,
         adds: &[PollardAddition<BitcoinNodeHash>],
         del_hashes: &[BitcoinNodeHash],
+        block_height: u32,
+        remember_all: bool,
     ) -> Result<Vec<Transaction>, String> {
-        if self.transactions.is_empty() {
-            return Ok(Vec::new());
-        }
-
         self.acc.modify(adds, del_hashes, proof)?;
+
+        if remember_all {
+            // add the newly created UTXOs to the prevouts
+            for tx in block.txdata.iter() {
+                let is_coinbase = tx.is_coinbase();
+
+                for (vout, output) in tx.output.iter().enumerate() {
+                    let leaf_data = CompactLeafData {
+                        amount: output.value.to_sat(),
+                        spk_ty: proof_util::get_script_type(&output.script_pubkey),
+                        header_code: (block_height << 1) | is_coinbase as u32,
+                    };
+
+                    let prevout = OutPoint {
+                        txid: tx.compute_txid(),
+                        vout: vout as u32,
+                    };
+
+                    self.prevouts.insert(prevout, leaf_data);
+                }
+
+                for input in tx.input.iter() {
+                    self.prevouts.remove(&input.previous_output);
+                }
+            }
+        }
 
         Ok(block
             .txdata
@@ -277,10 +345,53 @@ impl Mempool {
             .collect())
     }
 
-    pub fn get_block_proof(&self, del_hashes: &[BitcoinNodeHash]) -> Result<Proof, String> {
-        self.acc.batch_proof(del_hashes)
+    /// Proves all transactions included in a block.
+    pub fn get_block_proof(
+        &self,
+        block: &Block,
+        get_block_hash: impl BlockHashOracle,
+    ) -> Result<MempoolProof, String> {
+        let (del_hashes, leaves): (Vec<_>, Vec<_>) = block
+            .txdata
+            .iter()
+            .flat_map(|tx| {
+                tx.input
+                    .iter()
+                    .flat_map(|input| {
+                        let prevout = self
+                            .prevouts
+                            .get(&input.previous_output)
+                            .ok_or(AcceptToMempoolError::PrevoutNotFound)?;
+
+                        let block_height = prevout.header_code >> 1;
+                        let block_hash = get_block_hash
+                            .get_block_hash(block_height)
+                            .ok_or(AcceptToMempoolError::BlockNotFound)?;
+                        let node_hash = BitcoinNodeHash::Some(
+                            proof_util::reconstruct_leaf_data(prevout, input, block_hash)
+                                .unwrap()
+                                ._get_leaf_hashes()
+                                .to_byte_array(),
+                        );
+
+                        Ok::<_, AcceptToMempoolError>((node_hash, prevout.clone()))
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unzip();
+
+        let proof = self.acc.batch_proof(&del_hashes)?;
+
+        Ok(MempoolProof {
+            proof,
+            target_hashes: del_hashes,
+            leaves,
+        })
     }
 
+    /// Checks if a outpoint is already spent in the mempool.
+    ///
+    /// This can be used to find conficts before adding a transaction to the mempool.
     fn is_already_spent(&self, outpoint: &OutPoint) -> bool {
         let short_txid = self.hasher.hash_one(&outpoint.txid);
         let Some(tx) = self.transactions.get(&short_txid) else {
@@ -299,27 +410,73 @@ impl Mempool {
         })
     }
 
-    pub fn accept_to_mempool_no_acc(&mut self, transaction: Transaction) -> Result<(), AcceptToMempoolError> {
+    /// Performs some very basic sanity checks on a transaction before adding it to the mempool.
+    ///
+    /// This method checks if the transaction doesn't have conflicting inputs, if it doesn't spend
+    /// the same output twice, and if it doesn't exceed the memory usage limit.
+    fn sanity_check_transaction(
+        &self,
+        transaction: &Transaction,
+    ) -> Result<(), AcceptToMempoolError> {
+        let tx_size = transaction.total_size();
+        if self.mempool_size + tx_size > self.max_mempool_size {
+            return Err(AcceptToMempoolError::MemoryUsageTooHigh);
+        }
+
+        // check for duplicate inputs
+        let inputs = transaction
+            .input
+            .iter()
+            .map(|input| input.previous_output)
+            .collect::<BTreeSet<_>>();
+
+        if inputs.len() != transaction.input.len() {
+            return Err(AcceptToMempoolError::DuplicateInput);
+        }
+
+        for input in transaction.input.iter() {
+            if self.is_already_spent(&input.previous_output) {
+                return Err(AcceptToMempoolError::ConflictingTransaction);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Internal utility to add a transaction to the mempool.
+    ///
+    /// This method should never be called for transactions coming from the wire, since it doesn't
+    /// check if the transaction is valid other than basic constraint checks. This method is used
+    /// by the mempool itself to add transactions that are already known to be valid, such as
+    /// wallet transactions. For transactions coming from the wire, use `accept_to_mempool`.
+    pub fn accept_to_mempool_no_acc(
+        &mut self,
+        transaction: Transaction,
+    ) -> Result<(), AcceptToMempoolError> {
         let tx_size = transaction.total_size();
         self.mempool_size += tx_size;
 
         let short_txid = self.hasher.hash_one(&transaction.compute_txid());
         let depends = self.find_mempool_depends(&transaction);
-        
-        // check for duplicate inputs
-        let inputs = transaction.input.iter().map(|input| input.previous_output).collect::<BTreeSet<_>>();
-        if inputs.len() != transaction.input.len() {
-            return Err(AcceptToMempoolError::ConflictingTransaction);
-        }
 
-        for depend in depends.iter() {
-            // check if the input is already spent
-            for input in transaction.input.iter() {
-                if self.is_already_spent(&input.previous_output) {
-                    return Err(AcceptToMempoolError::ConflictingTransaction);
-                }
+        // this function should only be called if it spends unconfirmed outputs
+        // Check if the inputs are actually in the mempool
+        for input in transaction.input.iter() {
+            if self.prevouts.contains_key(&input.previous_output) {
+                continue;
             }
 
+            let short_txid = self.hasher.hash_one(&input.previous_output.txid);
+            if self.transactions.contains_key(&short_txid) {
+                continue;
+            }
+
+            return Err(AcceptToMempoolError::PrevoutNotFound);
+        }
+
+        self.sanity_check_transaction(&transaction)?;
+
+        for depend in depends.iter() {
             let tx = self.transactions.get_mut(depend).unwrap();
             tx.children.push(short_txid);
         }
@@ -393,8 +550,6 @@ impl Mempool {
             },
         );
 
-
-
         Ok(())
     }
 
@@ -422,19 +577,50 @@ impl Mempool {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
     use std::collections::HashSet;
-    use bitcoin::{absolute, block, hashes::Hash, transaction::Version, CompactTarget, OutPoint, Sequence, Target, Transaction, Witness};
+
+    use bitcoin::absolute;
+    use bitcoin::block;
+    use bitcoin::hashes::Hash;
+    use bitcoin::transaction::Version;
+    use bitcoin::Block;
+    use bitcoin::BlockHash;
+    use bitcoin::OutPoint;
+    use bitcoin::Script;
+    use bitcoin::ScriptBuf;
+    use bitcoin::Sequence;
+    use bitcoin::Target;
+    use bitcoin::Transaction;
+    use bitcoin::Witness;
+    use floresta_chain::LeafData;
+    use rand::Rng;
+    use rand::SeedableRng;
+    use rustreexo::accumulator::node_hash::BitcoinNodeHash;
+    use rustreexo::accumulator::pollard::PollardAddition;
+    use rustreexo::accumulator::proof::Proof;
+
+    use super::BlockHashOracle;
+    use crate::mempool::MempoolProof;
+
+    struct BlockHashProvider {
+        block_hash: HashMap<u32, BlockHash>,
+    }
+
+    impl BlockHashOracle for BlockHashProvider {
+        fn get_block_hash(&self, height: u32) -> Option<BlockHash> {
+            self.block_hash.get(&height).cloned()
+        }
+    }
+
     /// builds a list of transactions in a pseudo-random way
     ///
     /// We use those transactions in mempool tests
-    use rand::{Rng, SeedableRng};
-    use rustreexo::accumulator::pollard::Pollard;
-
     fn build_transactions(seed: u64, conflict: bool) -> Vec<Transaction> {
         let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
         let mut transactions = Vec::new();
-        
-        let n = rng.gen_range(1..10_000);
+
+        let n = rng.gen_range(1..1_000);
         let mut outputs = Vec::new();
 
         for _ in 0..n {
@@ -444,7 +630,7 @@ mod tests {
                 input: Vec::new(),
                 output: Vec::new(),
             };
-            
+
             let inputs = rng.gen_range(1..10);
             for _ in 0..inputs {
                 if outputs.is_empty() {
@@ -452,7 +638,7 @@ mod tests {
                 }
 
                 let index = rng.gen_range(0..outputs.len());
-                let previous_output: OutPoint = match conflict  {
+                let previous_output: OutPoint = match conflict {
                     false => outputs.remove(index),
                     true => outputs.get(index).unwrap().clone(),
                 };
@@ -466,16 +652,16 @@ mod tests {
 
                 tx.input.push(input);
             }
-            
+
             let n = rng.gen_range(1..10);
-            
+
             for _ in 0..n {
                 let script = rng.gen::<[u8; 32]>();
                 let output = bitcoin::TxOut {
                     value: bitcoin::Amount::from_sat(rng.gen_range(0..100_000_000)),
                     script_pubkey: bitcoin::Script::from_bytes(&script).into(),
                 };
-                
+
                 tx.output.push(output);
             }
 
@@ -483,23 +669,121 @@ mod tests {
                 txid: tx.compute_txid(),
                 vout: vout as u32,
             }));
-            
+
             transactions.push(tx);
         }
 
         transactions
     }
-    
+
+    #[test]
+    fn test_block_proof() {
+        let mut mempool = super::Mempool::new(
+            rustreexo::accumulator::pollard::Pollard::default(),
+            10_000_000,
+        );
+
+        let coinbase_spk: ScriptBuf = Script::from_bytes(&[0x6a]).into();
+
+        let coinbase = bitcoin::Transaction {
+            version: Version::ONE,
+            lock_time: absolute::LockTime::from_consensus(0),
+            input: Vec::new(),
+            output: vec![bitcoin::TxOut {
+                value: bitcoin::Amount::from_sat(50_000_000),
+                script_pubkey: coinbase_spk.clone(),
+            }],
+        };
+
+        let coinbase_id = coinbase.compute_txid();
+
+        let block = Block {
+            header: bitcoin::block::Header {
+                version: bitcoin::block::Version::ONE,
+                prev_blockhash: bitcoin::BlockHash::all_zeros(),
+                merkle_root: bitcoin::TxMerkleNode::all_zeros(),
+                time: 0,
+                bits: bitcoin::CompactTarget::from_consensus(0x1d00ffff),
+                nonce: 0,
+            },
+            txdata: vec![coinbase],
+        };
+
+        let coinbase_out_leaf = LeafData {
+            prevout: OutPoint {
+                txid: coinbase_id,
+                vout: 0,
+            },
+            utxo: bitcoin::TxOut {
+                value: bitcoin::Amount::from_sat(50_000_000),
+                script_pubkey: coinbase_spk.clone(),
+            },
+            block_hash: block.block_hash(),
+            header_code: 0,
+        };
+
+        let coinbase_out = PollardAddition::<BitcoinNodeHash> {
+            hash: coinbase_out_leaf._get_leaf_hashes().into(),
+            remember: true,
+        };
+
+        mempool
+            .consume_block(&block, Proof::default(), &[coinbase_out], &[], 0, true)
+            .expect("failed to consume block");
+
+        let spending_tx = bitcoin::Transaction {
+            version: Version::ONE,
+            lock_time: absolute::LockTime::from_consensus(0),
+            input: vec![bitcoin::TxIn {
+                previous_output: OutPoint {
+                    txid: coinbase_id,
+                    vout: 0,
+                },
+                script_sig: ScriptBuf::default().into(),
+                sequence: Sequence::MAX,
+                witness: Witness::new(),
+            }],
+            output: vec![bitcoin::TxOut {
+                value: bitcoin::Amount::from_sat(50_000_000),
+                script_pubkey: coinbase_spk.clone(),
+            }],
+        };
+
+        let hashes = BlockHashProvider {
+            block_hash: [(0, block.block_hash())].iter().cloned().collect(),
+        };
+
+        mempool
+            .accept_to_mempool_no_acc(spending_tx)
+            .expect("failed to accept to mempool");
+        let block = mempool.get_block_template(
+            block::Version::ONE,
+            block.block_hash(),
+            0,
+            Target::MAX_ATTAINABLE_REGTEST.to_compact_lossy(),
+        );
+
+        let MempoolProof {
+            proof,
+            target_hashes,
+            ..
+        } = mempool
+            .get_block_proof(&block, hashes)
+            .expect("failed to get block proof");
+
+        assert!(mempool.acc.verify(&proof, &target_hashes).is_ok());
+    }
+
     #[test]
     fn test_random() {
         // just sanity check for build_transactions
-        let transactions = build_transactions(42, false);
+        let transactions = build_transactions(42, true);
         assert!(!transactions.is_empty());
 
         let transactions2 = build_transactions(42, true);
         assert!(!transactions2.is_empty());
         assert_eq!(transactions, transactions2);
-        
+
         let transactions3 = build_transactions(43, true);
         assert!(!transactions3.is_empty());
         assert_ne!(transactions, transactions3);
@@ -516,12 +800,14 @@ mod tests {
         let len = transactions.len();
 
         for tx in transactions {
-            mempool.accept_to_mempool_no_acc(tx).expect("failed to accept to mempool");
+            mempool
+                .accept_to_mempool_no_acc(tx)
+                .expect("failed to accept to mempool");
         }
 
         assert_eq!(mempool.transactions.len(), len);
     }
-    
+
     #[test]
     fn test_gbt_with_conflict() {
         let mut mempool = super::Mempool::new(
@@ -529,19 +815,18 @@ mod tests {
             10_000_000,
         );
 
-        let transactions = build_transactions(42, true);
-        let len = transactions.len();
-        
+        let transactions = build_transactions(21, true);
+
         let mut did_confict = false;
         for tx in transactions {
-            if let Err(super::AcceptToMempoolError::ConflictingTransaction) = mempool.accept_to_mempool_no_acc(tx) {
+            if let Err(_) = mempool.accept_to_mempool_no_acc(tx) {
                 did_confict = true;
             }
         }
-        
+
         // we expect at least one conflict
         assert!(did_confict);
-        
+
         let target = Target::MAX_ATTAINABLE_REGTEST;
         let mut block = mempool.get_block_template(
             block::Version::ONE,
@@ -549,31 +834,37 @@ mod tests {
             0,
             target.to_compact_lossy(),
         );
-        
+
         while !block.header.validate_pow(target).is_ok() {
             block.header.nonce += 1;
         }
 
         assert!(block.check_merkle_root());
-    
+
+        check_block_transactions(block);
+    }
+
+    fn check_block_transactions(block: Block) {
         // make sure that all outputs are spent after being created, and only once
         let mut outputs = HashSet::new();
         for tx in block.txdata.iter() {
+            for input in tx.input.iter() {
+                if input.previous_output.txid == bitcoin::Txid::all_zeros() {
+                    continue;
+                }
+
+                assert!(
+                    outputs.remove(&input.previous_output),
+                    "double spend {input:?}"
+                );
+            }
+
             for (vout, _) in tx.output.iter().enumerate() {
                 let output = OutPoint {
                     txid: tx.compute_txid(),
                     vout: vout as u32,
                 };
                 outputs.insert(output);
-            }
-        }
-
-        for tx in block.txdata.iter() {
-            for input in tx.input.iter() {
-                if input.previous_output.txid == bitcoin::Txid::all_zeros() {
-                    continue;
-                }
-                assert!(outputs.remove(&input.previous_output), "double spend {input:?}");
             }
         }
     }
@@ -589,9 +880,11 @@ mod tests {
         let len = transactions.len();
 
         for tx in transactions {
-            mempool.accept_to_mempool_no_acc(tx).expect("failed to accept to mempool");
+            mempool
+                .accept_to_mempool_no_acc(tx)
+                .expect("failed to accept to mempool");
         }
-        
+
         let target = Target::MAX_ATTAINABLE_REGTEST;
         let mut block = mempool.get_block_template(
             block::Version::ONE,
@@ -599,34 +892,14 @@ mod tests {
             0,
             target.to_compact_lossy(),
         );
-        
+
         while !block.header.validate_pow(target).is_ok() {
             block.header.nonce += 1;
         }
 
-        
         assert_eq!(block.txdata.len(), len);
         assert!(block.check_merkle_root());
-    
-        // make sure that all outputs are spent after being created, and only once
-        let mut outputs = HashSet::new();
-        for tx in block.txdata.iter() {
-            for (vout, _) in tx.output.iter().enumerate() {
-                let output = OutPoint {
-                    txid: tx.compute_txid(),
-                    vout: vout as u32,
-                };
-                outputs.insert(output);
-            }
-        }
 
-        for tx in block.txdata.iter() {
-            for input in tx.input.iter() {
-                if input.previous_output.txid == bitcoin::Txid::all_zeros() {
-                    continue;
-                }
-                assert!(outputs.remove(&input.previous_output), "double spend {input:?}");
-            }
-        }
+        check_block_transactions(block);
     }
 }

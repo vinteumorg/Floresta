@@ -746,7 +746,7 @@ where
                     .mempool
                     .lock()
                     .await
-                    .consume_block(&block.block, proof, &adds, &del_hashes)
+                    .consume_block(&block.block, proof, &adds, &del_hashes, block_height, false)
                     .unwrap_or(Vec::new());
 
                 debug!(
