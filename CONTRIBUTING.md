@@ -45,16 +45,17 @@ messages follow the ["Conventional Commits 1.0.0"](https://www.conventionalcommi
 Peer review
 -----------
 
-To make sure our code has the highest quality and is maintainable for the posterity, we have a thorough peer review process, where pull requests needs to be reviewed by at least one maintainer, and must not have any outstanding comment from regular contributors.
+To make sure our code has the highest quality and is maintainable for posterity, we have a thorough peer review process, where pull requests need to be reviewed by at least one maintainer, and must not have any outstanding comment from regular contributors.
 
-We welcome everyone to review and give their feedbacks on changes to Floresta. The conventions on how to communicate in a code review are based on[Bitcoin Core](https://github.com/bitcoin/bitcoin/blob/v23.0/CONTRIBUTING.md#peer-review)
+We welcome everyone to review and give their feedback on changes to Floresta. The conventions on how to communicate in a code review are based on [Bitcoin Core](https://github.com/bitcoin/bitcoin/blob/v23.0/CONTRIBUTING.md#peer-review)
 
 ### Conceptual Review
 
-A review can be a conceptual review, where the reviewer leaves a comment
+A review can be a conceptual review, where the reviewer leaves a comment:
 
-Concept (N)ACK, meaning "I do (not) agree with the general goal of this pull request",
-Approach (N)ACK, meaning Concept ACK, but "I do (not) agree with the approach of this change".
+- Concept (N)ACK: "I do (not) agree with the general goal of this pull request",
+- Approach (N)ACK: Concept (N)ACK, but "I do (not) agree with the approach of this change".
+
 A NACK needs to include a rationale why the change is not worthwhile. NACKs without accompanying reasoning may be disregarded.
 
 ### Code Review
