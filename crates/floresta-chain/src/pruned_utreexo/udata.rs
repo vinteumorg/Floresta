@@ -316,6 +316,26 @@ pub mod proof_util {
         EmptyStack,
     }
 
+    pub fn get_script_type(script: &ScriptBuf) -> ScriptPubkeyType {
+        if script.is_p2pkh() {
+            return ScriptPubkeyType::PubKeyHash;
+        }
+
+        if script.is_p2sh() {
+            return ScriptPubkeyType::ScriptHash;
+        }
+
+        if script.is_p2wpkh() {
+            return ScriptPubkeyType::WitnessV0PubKeyHash;
+        }
+
+        if script.is_p2wsh() {
+            return ScriptPubkeyType::WitnessV0ScriptHash;
+        }
+
+        ScriptPubkeyType::Other(script.to_bytes().into_boxed_slice())
+    }
+
     pub fn reconstruct_leaf_data(
         leaf: &CompactLeafData,
         input: &TxIn,
@@ -378,6 +398,8 @@ pub mod proof_util {
             .expect("parent_hash: Engines shouldn't be Err")
     }
 
+    /// From a block, gets the roots that will be included on the acc, certifying
+    /// that any utxo will not be spend in the same block.
     pub fn get_block_adds(
         block: &Block,
         height: u32,
