@@ -1,7 +1,7 @@
 ---
 name: 🔥 Enhancement
 about: New feature request
-title: "[Enhancement] summarize the new feature or enhancement"
+title: ''
 labels: enhancement
 assignees: ''
 
