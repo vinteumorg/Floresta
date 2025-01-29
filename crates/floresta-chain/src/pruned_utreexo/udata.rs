@@ -300,6 +300,7 @@ pub mod proof_util {
 
     use super::LeafData;
     use crate::prelude::*;
+    use crate::pruned_utreexo::utxo_data::UtxoData;
     use crate::pruned_utreexo::BlockchainInterface;
     use crate::CompactLeafData;
     use crate::ScriptPubkeyType;
@@ -333,7 +334,7 @@ pub mod proof_util {
         udata: &UData,
         transactions: &[Transaction],
         chain: &Chain,
-    ) -> Result<(Proof, Vec<sha256::Hash>, HashMap<OutPoint, TxOut>), Chain::Error> {
+    ) -> Result<(Proof, Vec<sha256::Hash>, HashMap<OutPoint, UtxoData>), Chain::Error> {
         let targets = udata.proof.targets.iter().map(|target| target.0).collect();
         let hashes = udata
             .proof
@@ -357,7 +358,11 @@ pub mod proof_util {
                         txid,
                         vout: vout as u32,
                     },
-                    out.clone(),
+                    UtxoData {
+                        txout: out.clone(),
+                        commited_height: 0,
+                        commited_time: 0,
+                    },
                 );
             }
 
@@ -366,10 +371,18 @@ pub mod proof_util {
                     if let Some(leaf) = leaves_iter.next() {
                         let height = leaf.header_code >> 1;
                         let hash = chain.get_block_hash(height)?;
+                        let time = chain.get_block_header(&hash)?.time;
                         let leaf =
                             reconstruct_leaf_data(&leaf, input, hash).expect("Invalid proof");
                         hashes.push(leaf._get_leaf_hashes());
-                        inputs.insert(leaf.prevout, leaf.utxo);
+                        inputs.insert(
+                            leaf.prevout,
+                            UtxoData {
+                                txout: leaf.utxo,
+                                commited_height: height,
+                                commited_time: time,
+                            },
+                        );
                     }
                 }
             }
