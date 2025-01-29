@@ -170,6 +170,7 @@ pub struct Peer<T: AsyncWrite + Unpin> {
     actor_receiver: UnboundedReceiver<ReaderMessage>, // Add the receiver for messages from TcpStreamActor
     writer: T,
     our_user_agent: String,
+    cancellation_sender: tokio::sync::oneshot::Sender<()>,
 }
 
 #[derive(Debug, Error)]
@@ -239,6 +240,13 @@ impl<T: AsyncWrite + Unpin> Peer<T> {
         if let Err(shutdown_err) = self.writer.shutdown().await {
             debug!(
                 "Failed to shutdown writer for Peer {}: {shutdown_err:?}",
+                self.id
+            );
+        }
+
+        if let Err(cancellation_err) = self.cancellation_sender.send(()) {
+            debug!(
+                "Failed to propagate cancellation signal for Peer {}: {cancellation_err:?}",
                 self.id
             );
         }
@@ -602,6 +610,7 @@ impl<T: AsyncWrite + Unpin> Peer<T> {
         actor_receiver: UnboundedReceiver<ReaderMessage>,
         writer: WriteHalf<TcpStream>,
         our_user_agent: String,
+        cancellation_sender: tokio::sync::oneshot::Sender<()>,
     ) {
         let peer = Peer {
             address_id,
@@ -626,6 +635,7 @@ impl<T: AsyncWrite + Unpin> Peer<T> {
             actor_receiver, // Add the receiver for messages from TcpStreamActor
             writer,
             our_user_agent,
+            cancellation_sender,
         };
 
         spawn(peer.read_loop());
