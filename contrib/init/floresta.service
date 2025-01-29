@@ -1,0 +1,58 @@
+[Unit]
+Description=Floresta: A Lightweight Utreexo-powered Bitcoin full node implementation
+Documentation=https://github.com/vinteumorg/Floresta
+After=network-online.target time-set.target
+Wants=network-online.target
+
+
+[Service]
+ExecStart=/usr/bin/florestad --data-dir=/var/lib/florestad --config-file /etc/florestad/config.toml
+
+# Don't enter a restart loop, as it might corrupt our database
+Restart=no
+
+TimeoutStartSec=infinity
+TimeoutStopSec=600
+
+# Make sure we can read from the config file
+ExecStartPre=/bin/chgrp florestad /etc/florestad
+User=florestad
+Group=florestad
+
+# /run/florestad
+RuntimeDirectory=florestad
+RuntimeDirectoryMode=0710
+
+# /etc/florestad
+ConfigurationDirectory=florestad
+ConfigurationDirectoryMode=0710
+
+# /var/lib/florestad
+StateDirectory=florestad
+StateDirectoryMode=0710
+
+# Provide a private /tmp and /var/tmp.
+PrivateTmp=true
+
+# Mount /usr, /boot/ and /etc read-only for the process.
+ProtectSystem=full
+
+# Deny access to /home, /root and /run/user
+ProtectHome=true
+
+# Disallow the process and all of its children to gain
+# new privileges through execve().
+NoNewPrivileges=true
+
+# Use a new /dev namespace only populated with API pseudo devices
+# such as /dev/null, /dev/zero and /dev/random.
+PrivateDevices=true
+
+# Deny the creation of writable and executable memory mappings.
+MemoryDenyWriteExecute=true
+
+# Restrict ABIs to help ensure MemoryDenyWriteExecute is enforced
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target
