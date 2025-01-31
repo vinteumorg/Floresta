@@ -1,12 +1,7 @@
 #!/usr/bin/env bash
 
 # Some necessary global variables
-if [ $(id -u) == "0" ]; then
-  me=$(who am i | awk '{print $1}')
-else
-  me=$(whoami)
-fi
-
+me=$(whoami)
 defaultRepo="vinteumorg"
 defaultTag="0.7.0"
 tarSrc="https://github.com/$defaultRepo/Floresta/archive/refs/tags/$defaultTag.tar.gz"
@@ -25,7 +20,7 @@ export CARGO_TARGET_DIR=$bdlDir/target
 # CLI options
 wallet_xpub=""
 wallet_descriptor=""
-assume_utreexo=false
+assume_utreexo=true
 enable_ssl=false
 network="bitcoin"
 
@@ -39,7 +34,7 @@ show_usage () {
   echo "  -x <XPUB>    Define a xpub to be loaded onto config.toml."
   echo "  -d <DESC>    Define a descriptor to be loaded onto config.toml."
   echo "  -n <NETWORK> Pass --network onto built service (bitcoin, signet, testnet, regtest)."          
-  echo "  -u           Pass --assume-utreexo onto built service."
+  echo "  -u           Pass --assume-utreexo onto built service (default: enabled)."
   echo "  -s           Enable ssl into Floresta electrum server."
   echo "               This will create openssl key and certificate."
   echo ""
@@ -241,7 +236,7 @@ After=network-online.target time-set.target
 Wants=network-online.target
 
 [Service]
-ExecStart=/usr/local/bin/florestad --daemon --network=$network --data-dir=$florestaDir --config-file=$florestaLib/config.toml --pid-file=$florestaRun/florestad.pid --log-to-file $([ "$assume_utreexo" = true ] && echo "--assume-utreexo")$([ "$enable_ssl" = true ] && echo "--ssl-cert-path /etc/florestad/ssl/florestad.crt --ssl-key-path /etc/florestad/ssl/florestad.key --ssl-electrum-address 0.0.0.0:50002")
+ExecStart=/usr/local/bin/florestad --daemon --network=$network --data-dir=$florestaDir --config-file=$florestaLib/config.toml --pid-file=$florestaRun/florestad.pid --log-to-file $([ "$assume_utreexo" = true ] && echo "--assume-utreexo ")$([ "$enable_ssl" = true ] && echo "--ssl-cert-path /etc/florestad/ssl/florestad.crt --ssl-key-path /etc/florestad/ssl/florestad.key --ssl-electrum-address 0.0.0.0:50002")
 
 # Ensure that the service is ready after the MainPID exists
 Type=forking
@@ -296,7 +291,67 @@ SystemCallArchitectures=native
 [Install]
 WantedBy=multi-user.target
 EOF
+  echo "✅ $florestaService generated!"
 }
+
+# Apt cleanup
+# check if the specified packages exist and
+# then clean all of them from the system
+cleanup_apt() {
+  local packages=("$@")
+  local pkg_manager
+
+  # Package removal only if packages are specified
+  if [ ${#packages[@]} -gt 0 ] && [ "$pkg_manager" != "unknown" ]; then
+    local to_remove=()
+
+    # Check installed packages
+    for pkg in "${packages[@]}"; do
+      if dpkg -l | grep -q "^ii  $pkg "; then
+        to_remove+=("$pkg")
+      fi
+    done
+
+    # Remove packages if any
+    if [ ${#to_remove[@]} -gt 0 ]; then
+      echo "🧹 Removing packages: ${to_remove[*]}"
+      sudo apt-get remove -y --purge "${to_remove[@]}"
+      sudo apt-get autoremove -y
+      sudo apt-get clean -y
+    fi
+  fi
+  echo "✅ Aptget cleanup complete!"
+}
+
+# Rust cleanup
+# Remove toolchai and directories built within
+# $HOME/.cargo/bin/rustup
+cleanup_rust() {
+  echo "🧹 Cleaning up Rust toolchain"
+  if command -v rustup >/dev/null 2>&1; then
+    echo 'y' | rustup self uninstall
+  elif [ -f "$HOME/.cargo/bin/rustup" ]; then
+    echo 'y' | "$HOME/.cargo/bin/rustup" self uninstall
+  fi
+
+  # Remove cargo/rust directories
+  local rust_dirs=(
+    "$HOME/.cargo"
+    "$HOME/.rustup"
+    "$HOME/.cache/cargo"
+    "$HOME/.config/cargo"
+  )
+
+  for dir in "${rust_dirs[@]}"; do
+    if [ -d "$dir" ]; then
+      echo "🧹 Removing $dir"
+      rm -rf "$dir"
+    fi
+  done
+
+  echo "✅ Rust cleanup complete!"
+}
+
 
 # show some useful information before start floresta node
 show_done() {
@@ -318,4 +373,6 @@ install_rustup
 setup_service
 download_floresta
 build_floresta
+cleanup_apt gcc build-essential pkg-config libssl-dev mold
+cleanup_rust
 show_done
