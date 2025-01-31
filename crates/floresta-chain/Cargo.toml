@@ -18,7 +18,7 @@ categories = ["cryptography::cryptocurrencies", "database"]
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-rustreexo = "0.3.0"
+rustreexo = { git = "https://github.com/mit-dci/rustreexo", rev = "54f4ee492ec2cbc20bd168377fbcdd1c2e14c899" }
 sha2 = "^0.10.6"
 log = "0.4"
 kv = "0.24.0"

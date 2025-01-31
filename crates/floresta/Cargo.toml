@@ -30,7 +30,7 @@ floresta-watch-only = { path = "../floresta-watch-only", optional = true, versio
 floresta-electrum = { path = "../floresta-electrum", optional = true, version = "0.3.0" }
 
 [dev-dependencies]
-rustreexo = "0.3.0"
+rustreexo = { git = "https://github.com/mit-dci/rustreexo", rev = "54f4ee492ec2cbc20bd168377fbcdd1c2e14c899" }
 miniscript = "11"
 tokio = { version = "1", features = ["full"] }
 bitcoin = { version = "0.32", features = [

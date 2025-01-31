@@ -7,11 +7,9 @@ extern crate alloc;
 use core::ffi::c_uint;
 
 use bitcoin::block::Header as BlockHeader;
-use bitcoin::consensus::Encodable;
 use bitcoin::hashes::sha256;
 use bitcoin::hashes::Hash;
 use bitcoin::Block;
-use bitcoin::BlockHash;
 use bitcoin::CompactTarget;
 use bitcoin::OutPoint;
 use bitcoin::ScriptBuf;
@@ -21,15 +19,14 @@ use bitcoin::TxIn;
 use bitcoin::TxOut;
 use bitcoin::Txid;
 use floresta_common::prelude::*;
-use rustreexo::accumulator::node_hash::NodeHash;
+use rustreexo::accumulator::node_hash::BitcoinNodeHash;
 use rustreexo::accumulator::proof::Proof;
 use rustreexo::accumulator::stump::Stump;
-use sha2::Digest;
-use sha2::Sha512_256;
 
 use super::chainparams::ChainParams;
 use super::error::BlockValidationErrors;
 use super::error::BlockchainError;
+use super::udata;
 use crate::TransactionError;
 
 /// The value of a single coin in satoshis.
@@ -69,37 +66,6 @@ impl Consensus {
         subsidy
     }
 
-    /// Returns the hash of a leaf node in the utreexo accumulator.
-    #[inline]
-    fn get_leaf_hashes(
-        transaction: &Transaction,
-        vout: u32,
-        height: u32,
-        block_hash: BlockHash,
-    ) -> sha256::Hash {
-        let header_code = height << 1;
-
-        let mut ser_utxo = Vec::new();
-        let utxo = transaction.output.get(vout as usize).unwrap();
-        utxo.consensus_encode(&mut ser_utxo).unwrap();
-        let header_code = if transaction.is_coinbase() {
-            header_code | 1
-        } else {
-            header_code
-        };
-
-        let leaf_hash = Sha512_256::new()
-            .chain_update(UTREEXO_TAG_V1)
-            .chain_update(UTREEXO_TAG_V1)
-            .chain_update(block_hash)
-            .chain_update(transaction.compute_txid())
-            .chain_update(vout.to_le_bytes())
-            .chain_update(header_code.to_le_bytes())
-            .chain_update(ser_utxo)
-            .finalize();
-        sha256::Hash::from_slice(leaf_hash.as_slice())
-            .expect("parent_hash: Engines shouldn't be Err")
-    }
     /// Verify if all transactions in a block are valid. Here we check the following:
     /// - The block must contain at least one transaction, and this transaction must be coinbase
     /// - The first transaction in the block must be coinbase
@@ -279,6 +245,7 @@ impl Consensus {
         CompactTarget::from_next_work_required(first_block.bits, actual_timespan as u64, params)
             .into()
     }
+
     /// Updates our accumulator with the new block. This is done by calculating the new
     /// root hash of the accumulator, and then verifying the proof of inclusion of the
     /// deleted nodes. If the proof is valid, we return the new accumulator. Otherwise,
@@ -292,55 +259,16 @@ impl Consensus {
         del_hashes: Vec<sha256::Hash>,
     ) -> Result<Stump, BlockchainError> {
         let block_hash = block.block_hash();
-        let mut leaf_hashes = Vec::new();
         let del_hashes = del_hashes
             .iter()
-            .map(|hash| NodeHash::from(hash.as_byte_array()))
+            .map(|hash| BitcoinNodeHash::from(hash.as_byte_array()))
             .collect::<Vec<_>>();
-        // Get inputs from the block, we'll need this HashSet to check if an output is spent
-        // in the same block. If it is, we don't need to add it to the accumulator.
-        let mut block_inputs = HashSet::new();
-        for transaction in block.txdata.iter() {
-            for input in transaction.input.iter() {
-                block_inputs.insert((input.previous_output.txid, input.previous_output.vout));
-            }
-        }
 
-        // Get all leaf hashes that will be added to the accumulator
-        for transaction in block.txdata.iter() {
-            for (i, output) in transaction.output.iter().enumerate() {
-                if !Self::is_unspendable(&output.script_pubkey)
-                    && !block_inputs.contains(&(transaction.compute_txid(), i as u32))
-                {
-                    leaf_hashes.push(Self::get_leaf_hashes(
-                        transaction,
-                        i as u32,
-                        height,
-                        block_hash,
-                    ))
-                }
-            }
-        }
-        // Convert the leaf hashes to NodeHashes used in Rustreexo
-        let hashes: Vec<NodeHash> = leaf_hashes
-            .iter()
-            .map(|&hash| NodeHash::from(hash.as_byte_array()))
-            .collect();
+        let adds = udata::proof_util::get_block_adds(block, height, block_hash);
+
         // Update the accumulator
-        let acc = acc.modify(&hashes, &del_hashes, &proof)?.0;
+        let acc = acc.modify(&adds, &del_hashes, &proof)?.0;
         Ok(acc)
-    }
-
-    fn is_unspendable(script: &ScriptBuf) -> bool {
-        if script.len() > 10_000 {
-            return true;
-        }
-
-        if !script.is_empty() && script.as_bytes()[0] == 0x6a {
-            return true;
-        }
-
-        false
     }
 }
 #[cfg(test)]

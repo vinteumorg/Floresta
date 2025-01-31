@@ -45,6 +45,7 @@ use log::warn;
 use log::Record;
 #[cfg(feature = "metrics")]
 use metrics;
+use rustreexo::accumulator::pollard::Pollard;
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 use tokio::task;
@@ -402,11 +403,12 @@ impl Florestad {
             user_agent: self.config.user_agent.clone(),
         };
 
+        let acc = Pollard::new();
         // Chain Provider (p2p)
         let chain_provider = UtreexoNode::new(
             config,
             blockchain_state.clone(),
-            Arc::new(tokio::sync::RwLock::new(Mempool::new())),
+            Arc::new(tokio::sync::Mutex::new(Mempool::new(acc, 300_000_000))),
             cfilters.clone(),
         )
         .expect("Could not create a chain provider");
