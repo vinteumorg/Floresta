@@ -26,5 +26,6 @@ rand = "0.8.5"
 [features]
 default = ["std"]
 memory-database = []
+no-std = []
 # The default features in common are `std` and `descriptors-std` (which is a superset of `descriptors-no-std`)
 std = ["floresta-common/default", "serde/std"]
