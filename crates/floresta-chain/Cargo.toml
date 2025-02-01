@@ -45,7 +45,6 @@ hex = "0.4.3"
 default = []
 bitcoinconsensus = ["bitcoin/bitcoinconsensus", "dep:bitcoinconsensus"]
 metrics = ["dep:metrics"]
-no-std = []
 
 [[bench]]
 name = "chain_state_bench"
