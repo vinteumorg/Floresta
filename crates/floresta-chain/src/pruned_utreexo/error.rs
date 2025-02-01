@@ -3,8 +3,6 @@ use core::fmt::Debug;
 use bitcoin::blockdata::script;
 use bitcoin::OutPoint;
 use bitcoin::Txid;
-#[cfg(feature = "cli-blockchain")]
-use btcd_rpc::error::UtreexodError;
 use floresta_common::impl_error_from;
 
 use crate::prelude::*;
@@ -12,9 +10,6 @@ pub trait DatabaseError: Debug + Send + Sync + 'static {}
 #[derive(Debug)]
 pub enum BlockchainError {
     BlockNotPresent,
-    #[cfg(feature = "cli-blockchain")]
-    #[error("Json-Rpc error")]
-    JsonRpcError(#[from] UtreexodError),
     Parsing(String),
     BlockValidation(BlockValidationErrors),
     TransactionError(TransactionError),
