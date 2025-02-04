@@ -691,9 +691,16 @@ impl RpcImpl {
                 .unwrap()
         });
 
-        let listener = tokio::net::TcpListener::bind(address)
-            .await
-            .expect("failed to bind rpc server");
+        let listener = match tokio::net::TcpListener::bind(address).await {
+            Ok(listener) => listener,
+            Err(_) => {
+                error!(
+                    "Failed to bind to address {}. Floresta is probably already running.",
+                    address
+                );
+                std::process::exit(-1);
+            }
+        };
 
         let router = Router::new()
             .route("/", post(json_rpc_request).get(cannot_get))

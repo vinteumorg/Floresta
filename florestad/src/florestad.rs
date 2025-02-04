@@ -495,11 +495,16 @@ impl Florestad {
         // Spawn all services
 
         // Non-TLS Electrum accept loop
-        let non_tls_listener = Arc::new(
-            block_on(TcpListener::bind(e_addr))
-                .unwrap_or_else(|e| panic!("Cannot bind to electrum address {}: {}", e_addr, e)),
-        );
-
+        let non_tls_listener = match block_on(TcpListener::bind(e_addr)) {
+            Ok(listener) => Arc::new(listener),
+            Err(_) => {
+                error!(
+                    "Failed to bind to address {}. An Electrum server is probably already running.",
+                    e_addr
+                );
+                std::process::exit(1);
+            }
+        };
         task::spawn(client_accept_loop(
             non_tls_listener,
             electrum_server.message_transmitter.clone(),
@@ -508,10 +513,13 @@ impl Florestad {
 
         // TLS Electrum accept loop
         if let Some(tls_acceptor) = tls_acceptor {
-            let tls_listener =
-                Arc::new(block_on(TcpListener::bind(ssl_e_addr)).unwrap_or_else(|e| {
-                    panic!("Cannot bind to ssl electrum address {}: {}", ssl_e_addr, e)
-                }));
+            let tls_listener = match block_on(TcpListener::bind(ssl_e_addr)) {
+                Ok(listener) => Arc::new(listener),
+                Err(_) => {
+                    error!("Failed to bind to address {}. An SSL Electrum server is probably already running.", e_addr);
+                    std::process::exit(1);
+                }
+            };
             task::spawn(client_accept_loop(
                 tls_listener,
                 electrum_server.message_transmitter.clone(),
@@ -689,8 +697,13 @@ impl Florestad {
     }
 
     fn load_wallet(data_dir: &String) -> AddressCache<KvDatabase> {
-        let database = KvDatabase::new(data_dir.to_owned()).expect("Could not create a database");
-        AddressCache::new(database)
+        match KvDatabase::new(data_dir.to_owned()) {
+            Ok(database) => AddressCache::new(database),
+            Err(_) => {
+                error!("Cannot obtain a lock on data directory {data_dir}. Floresta is probably already running.");
+                std::process::exit(1);
+            }
+        }
     }
 
     fn get_net(net: &crate::Network) -> bitcoin::Network {
