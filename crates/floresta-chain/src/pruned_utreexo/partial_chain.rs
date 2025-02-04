@@ -11,7 +11,7 @@
 //! This choice removes the use of costly atomic operations, but opens space for design flaws
 //! and memory unsoundness, so here are some tips about this module and how people looking for
 //! extend or use this code should proceed:
-//!   
+//!
 //!   - Shared ownership is forbidden: if you have two threads or tasks owning this, you'll have
 //!     data race. If you want to hold shared ownership for this module, you need to place a
 //!     [PartialChainState] inside an `Arc<Mutex>` yourself. Don't just Arc this and expect it to
@@ -32,8 +32,7 @@ use bitcoin::block::Header as BlockHeader;
 use log::info;
 use rustreexo::accumulator::stump::Stump;
 
-use super::chainparams::ChainParams;
-use super::consensus::Consensus;
+use super::consensus::ConsensusParameters;
 use super::error::BlockValidationErrors;
 use super::error::BlockchainError;
 use super::BlockchainInterface;
@@ -65,7 +64,7 @@ pub(crate) struct PartialChainStateInner {
     /// pull that afterwards.
     pub(crate) error: Option<BlockValidationErrors>,
     /// The consensus parameters, we need this to validate the blocks.
-    pub(crate) consensus: Consensus,
+    pub(crate) consensus: ConsensusParameters,
     /// Whether we assume the signatures in this interval as valid, this is used to
     /// speed up syncing, by assuming signatures in old blocks are valid.
     pub(crate) assume_valid: bool,
@@ -114,7 +113,7 @@ impl PartialChainStateInner {
     #[cfg(feature = "bitcoinconsensus")]
     /// Returns the validation flags, given the current block height
     fn get_validation_flags(&self, height: u32) -> c_uint {
-        let chains_params = &self.consensus.parameters;
+        let chains_params = &self.consensus;
         let hash = self.get_block(height).unwrap().block_hash();
         if let Some(flag) = chains_params.exceptions.get(&hash) {
             return *flag;
@@ -154,8 +153,8 @@ impl PartialChainStateInner {
 
     #[inline]
     /// Returns the parameters for this chain
-    fn chain_params(&self) -> ChainParams {
-        self.consensus.parameters.clone()
+    fn chain_params(&self) -> ConsensusParameters {
+        self.consensus.clone()
     }
 
     #[inline]
@@ -182,7 +181,13 @@ impl PartialChainStateInner {
             return Err(BlockchainError::BlockValidation(e));
         }
 
-        let acc = match Consensus::update_acc(&self.current_acc, block, height, proof, del_hashes) {
+        let acc = match ConsensusParameters::update_acc(
+            &self.current_acc,
+            block,
+            height,
+            proof,
+            del_hashes,
+        ) {
             Ok(acc) => acc,
             Err(_) => {
                 self.error = Some(BlockValidationErrors::InvalidProof);
@@ -242,8 +247,7 @@ impl PartialChainStateInner {
         let flags = self.get_validation_flags(height);
         #[cfg(not(feature = "bitcoinconsensus"))]
         let flags = 0;
-        Consensus::verify_block_transactions(
-            height,
+        ConsensusParameters::verify_block_transactions(
             inputs,
             &block.txdata,
             subsidy,
@@ -511,11 +515,10 @@ mod tests {
     use rustreexo::accumulator::stump::Stump;
 
     use super::PartialChainState;
-    use crate::pruned_utreexo::chainparams::ChainParams;
-    use crate::pruned_utreexo::consensus::Consensus;
-    use crate::pruned_utreexo::error::BlockValidationErrors;
+    use crate::pruned_utreexo::consensus::ConsensusParameters;
     use crate::pruned_utreexo::partial_chain::PartialChainStateInner;
     use crate::pruned_utreexo::UpdatableChainstate;
+    use crate::BlockValidationErrors;
     use crate::BlockchainError;
     use crate::Network;
 
@@ -543,9 +546,8 @@ mod tests {
     fn get_empty_pchain(blocks: Vec<Header>) -> PartialChainState {
         PartialChainStateInner {
             assume_valid: true,
-            consensus: Consensus {
-                parameters: ChainParams::from(Network::Regtest),
-            },
+            consensus: ConsensusParameters::from(Network::Regtest),
+
             current_height: 0,
             current_acc: Stump::default(),
             final_height: 1,
@@ -569,9 +571,7 @@ mod tests {
         }
         let chainstate: PartialChainState = PartialChainStateInner {
             assume_valid: true,
-            consensus: Consensus {
-                parameters: ChainParams::from(Network::Regtest),
-            },
+            consensus: ConsensusParameters::from(Network::Regtest),
             current_height: 0,
             current_acc: Stump::default(),
             final_height: 100,
@@ -606,9 +606,7 @@ mod tests {
         let (blocks1, blocks2) = parsed_blocks.split_at(101);
         let mut chainstate1 = PartialChainStateInner {
             assume_valid: true,
-            consensus: Consensus {
-                parameters: ChainParams::from(Network::Regtest),
-            },
+            consensus: ConsensusParameters::from(Network::Regtest),
             current_height: 0,
             current_acc: Stump::default(),
             final_height: 100,
@@ -654,9 +652,7 @@ mod tests {
 
         let chainstate2: PartialChainState = PartialChainStateInner {
             assume_valid: true,
-            consensus: Consensus {
-                parameters: ChainParams::from(Network::Regtest),
-            },
+            consensus: ConsensusParameters::from(Network::Regtest),
             current_height: 100,
             current_acc: acc2,
             final_height: 150,
