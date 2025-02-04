@@ -152,7 +152,6 @@ pub struct DefaultResolver;
     derive(Serialize, Deserialize),
     serde(crate = "serde_crate")
 )]
-#[cfg_attr(feature = "strict_encoding", derive(StrictEncode, StrictDecode))]
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 #[non_exhaustive]
 pub enum KeyApplication {
