@@ -50,7 +50,6 @@ macro_rules! impl_from_error {
         }
     };
 }
-// impl_from_error!(Parsing, bitcoin::hashes::hex::Error);
 
 impl_from_error!(Encode, encode::Error);
 impl_from_error!(Db, kv::Error);
