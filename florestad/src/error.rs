@@ -1,14 +1,10 @@
 use bitcoin::consensus::encode;
-#[cfg(feature = "cli-blockchain")]
-use btcd_rpc::error::UtreexodError;
 use floresta_chain::BlockValidationErrors;
 use floresta_chain::BlockchainError;
 
 use crate::slip132;
 #[derive(Debug)]
 pub enum Error {
-    #[cfg(feature = "cli-blockchain")]
-    UtreexodError(UtreexodError),
     Encode(encode::Error),
     Db(kv::Error),
     ParseNum(std::num::ParseIntError),
@@ -28,8 +24,6 @@ impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Error::Encode(err) => write!(f, "Encode error: {err}"),
-            #[cfg(feature = "cli-blockchain")]
-            Error::UtreexodError(_) => write!(f, "UtreexodError"),
             Error::Db(err) => write!(f, "Database error {err}"),
             Error::ParseNum(err) => write!(f, "int parse error: {err}"),
             Error::Rustreexo(err) => write!(f, "Rustreexo error: {err}"),
@@ -56,9 +50,7 @@ macro_rules! impl_from_error {
         }
     };
 }
-// impl_from_error!(Parsing, bitcoin::hashes::hex::Error);
-#[cfg(feature = "cli-blockchain")]
-impl_from_error!(UtreexodError, UtreexodError);
+
 impl_from_error!(Encode, encode::Error);
 impl_from_error!(Db, kv::Error);
 impl_from_error!(ParseNum, std::num::ParseIntError);

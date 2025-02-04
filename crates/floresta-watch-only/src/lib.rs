@@ -1,6 +1,4 @@
 // SPDX-License-Identifier: MIT
-
-#![cfg_attr(feature = "no-std", no_std)]
 use core::cmp::Ordering;
 use core::fmt::Debug;
 

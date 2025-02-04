@@ -1,6 +1,4 @@
 extern crate alloc;
-#[cfg(not(feature = "no-std"))]
-extern crate std;
 
 use alloc::borrow::ToOwned;
 use alloc::fmt::format;
