@@ -50,7 +50,7 @@ const PING_TIMEOUT: u64 = 30;
 /// If the last message we've got was more than XX, send out a ping
 const SEND_PING_TIMEOUT: u64 = 60;
 /// The inv element type for a utreexo block with witness data
-const INV_UTREEXO_BLOCK: u32 = 0x40000002 | 1 << 24;
+const INV_UTREEXO_BLOCK: u32 = 0x40000002 | (1 << 24);
 
 #[derive(Debug, PartialEq)]
 enum State {
