@@ -55,7 +55,6 @@ impl NodeContext for SyncNode {
 
 /// Node methods for a [`UtreexoNode`] where its Context is a [`SyncNode`].
 /// See [node](crates/floresta-wire/src/p2p_wire/node.rs) for more information.
-
 impl<Chain> UtreexoNode<Chain, SyncNode>
 where
     WireError: From<<Chain as BlockchainInterface>::Error>,
