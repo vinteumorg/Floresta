@@ -666,16 +666,18 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
     }
     fn verify_script(&self, height: u32) -> bool {
         let inner = self.inner.read();
-
-        inner.assume_valid.map_or(true, |hash| {
-            match inner.chainstore.get_header(&hash).unwrap() {
-                // If the assume-valid block is in the best chain, only verify scripts if we are higher
-                Some(DiskBlockHeader::HeadersOnly(_, assume_h))
-                | Some(DiskBlockHeader::FullyValid(_, assume_h)) => height > assume_h,
-                // Assume-valid is not in the best chain, so verify all the scripts
-                _ => true,
+        match inner.assume_valid {
+            Some(hash) => {
+                match inner.chainstore.get_header(&hash).unwrap() {
+                    // If the assume-valid block is in the best chain, only verify scripts if we are higher
+                    Some(DiskBlockHeader::HeadersOnly(_, assume_h))
+                    | Some(DiskBlockHeader::FullyValid(_, assume_h)) => height > assume_h,
+                    // Assume-valid is not in the best chain, so verify all the scripts
+                    _ => true,
+                }
             }
-        })
+            None => true,
+        }
     }
     pub fn acc(&self) -> Stump {
         read_lock!(self).acc.to_owned()

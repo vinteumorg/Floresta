@@ -1,17 +1,13 @@
 #[cfg(test)]
 mod tests_utils {
-    use std::collections::HashMap;
     use std::mem::ManuallyDrop;
     use std::sync::Arc;
     use std::time::Duration;
 
-    use bitcoin::block::Header;
-    use bitcoin::BlockHash;
     use floresta_chain::pruned_utreexo::UpdatableChainstate;
     use floresta_chain::AssumeValidArg;
     use floresta_chain::ChainState;
     use floresta_chain::KvChainStore;
-    use floresta_chain::UtreexoBlock;
     use rustreexo::accumulator::pollard::Pollard;
     use tokio::sync::Mutex;
     use tokio::sync::RwLock;
@@ -23,13 +19,14 @@ mod tests_utils {
     use crate::p2p_wire::tests::utils::create_peer;
     use crate::p2p_wire::tests::utils::get_node_config;
     use crate::p2p_wire::tests::utils::get_test_headers;
+    use crate::p2p_wire::tests::utils::BlockDataMap;
+    use crate::p2p_wire::tests::utils::BlockHashMap;
+    use crate::p2p_wire::tests::utils::HeaderList;
+
+    type PeerData = (HeaderList, BlockHashMap, BlockDataMap);
 
     pub async fn setup_node(
-        peers: Vec<(
-            Vec<Header>,
-            HashMap<BlockHash, UtreexoBlock>,
-            HashMap<BlockHash, Vec<u8>>,
-        )>,
+        peers: Vec<PeerData>,
         pow_fraud_proofs: bool,
         network: floresta_chain::Network,
     ) -> Arc<ChainState<KvChainStore<'static>>> {
@@ -102,16 +99,19 @@ mod tests {
 
     #[tokio::test]
     async fn test_sync_valid_blocks() {
-        let (headers, blocks, _, _, _) = get_essentials();
+        let essentials = get_essentials();
         let chain = setup_node(
-            vec![(Vec::new(), blocks.clone(), HashMap::new())],
+            vec![(Vec::new(), essentials.blocks.clone(), HashMap::new())],
             false,
             floresta_chain::Network::Signet,
         )
         .await;
 
         assert_eq!(chain.get_validation_index().unwrap(), 9);
-        assert_eq!(chain.get_best_block().unwrap().1, headers[9].block_hash());
+        assert_eq!(
+            chain.get_best_block().unwrap().1,
+            essentials.headers[9].block_hash()
+        );
         assert!(!chain.is_in_idb());
     }
 
@@ -123,14 +123,19 @@ mod tests {
         // THIS SIMULATION WILL TEST:
         // 1) SENDING BLOCK WITH A BADMERKLEROOT: 7TH BLOCK WILL BE INVALIDATED.
 
-        let (headers, mut blocks, _, _, invalid_block) = get_essentials();
+        let mut essentials = get_essentials();
 
-        blocks.insert(headers[7].block_hash(), invalid_block);
-        let peer = vec![(Vec::new(), blocks.clone(), HashMap::new())];
+        essentials
+            .blocks
+            .insert(essentials.headers[7].block_hash(), essentials.invalid_block);
+        let peer = vec![(Vec::new(), essentials.blocks.clone(), HashMap::new())];
         let chain = setup_node(peer, false, floresta_chain::Network::Signet).await;
 
         assert_eq!(chain.get_validation_index().unwrap(), 6);
-        assert_eq!(chain.get_best_block().unwrap().1, headers[6].block_hash());
+        assert_eq!(
+            chain.get_best_block().unwrap().1,
+            essentials.headers[6].block_hash()
+        );
         assert!(!chain.is_in_idb());
     }
 
@@ -146,17 +151,22 @@ mod tests {
         //
         // SO FINALLY THE LAST VALIDATED BLOCK WILL BE 9.
 
-        let (headers, mut blocks, _, _, _) = get_essentials();
-        let v_blocks = blocks.clone();
+        let mut essentials = get_essentials();
+        let v_blocks = essentials.blocks.clone();
 
-        let u_block = blocks.get(&headers[3].block_hash().clone()).unwrap();
+        let u_block = essentials
+            .blocks
+            .get(&essentials.headers[3].block_hash().clone())
+            .unwrap();
         let block = UtreexoBlock {
             block: u_block.block.clone(),
             udata: None,
         };
-        blocks.insert(headers[3].block_hash(), block);
+        essentials
+            .blocks
+            .insert(essentials.headers[3].block_hash(), block);
 
-        let liar = (Vec::new(), blocks, HashMap::new());
+        let liar = (Vec::new(), essentials.blocks, HashMap::new());
         let honest1 = (Vec::new(), v_blocks.clone(), HashMap::new());
         let honest2 = (Vec::new(), v_blocks, HashMap::new());
 
@@ -168,7 +178,10 @@ mod tests {
         .await;
 
         assert_eq!(chain.get_validation_index().unwrap(), 9);
-        assert_eq!(chain.get_best_block().unwrap().1, headers[9].block_hash());
+        assert_eq!(
+            chain.get_best_block().unwrap().1,
+            essentials.headers[9].block_hash()
+        );
         assert!(!chain.is_in_idb());
     }
 }

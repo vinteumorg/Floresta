@@ -13,9 +13,6 @@ use bitcoin::p2p::ServiceFlags;
 use bitcoin::BlockHash;
 use floresta_chain::UtreexoBlock;
 use floresta_common::service_flags;
-use hex;
-use rand::rngs::OsRng;
-use rand::RngCore;
 use serde::Deserialize;
 use serde::Serialize;
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -31,7 +28,20 @@ use crate::p2p_wire::node::ConnectionKind;
 use crate::p2p_wire::peer::PeerMessages;
 use crate::p2p_wire::peer::Version;
 use crate::UtreexoNodeConfig;
+/// A list of headers, used to represent the collection of headers.
+pub type HeaderList = Vec<Header>;
+/// A map that associates block hashes with their corresponding `UtreexoBlock` objects.
+/// This is useful for efficiently looking up blocks by their hash.
+pub type BlockHashMap = HashMap<BlockHash, UtreexoBlock>;
+/// A map of block hashes to raw block data (represented as bytes vector).
+pub type BlockDataMap = HashMap<BlockHash, Vec<u8>>;
 
+/// A collection of essential data related to blocks and headers.
+pub struct Essentials {
+    pub headers: HeaderList,
+    pub blocks: BlockHashMap,
+    pub invalid_block: UtreexoBlock,
+}
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct UtreexoRoots {
     roots: Option<Vec<String>>,
@@ -188,19 +198,6 @@ pub fn serialize(root: UtreexoRoots) -> Vec<u8> {
     buffer
 }
 
-pub fn create_false_acc(tip: usize) -> Vec<u8> {
-    let mut bytes = [0u8; 32];
-    OsRng.fill_bytes(&mut bytes);
-    let node_hash = hex::encode(bytes);
-
-    let utreexo_root = UtreexoRoots {
-        roots: Some(vec![node_hash]),
-        numleaves: tip,
-    };
-
-    serialize(utreexo_root)
-}
-
 pub fn get_test_headers() -> Vec<Header> {
     let mut headers: Vec<Header> = Vec::new();
 
@@ -260,22 +257,20 @@ pub fn generate_invalid_block() -> UtreexoBlock {
     block
 }
 
-pub fn get_essentials() -> (
-    Vec<Header>,
-    HashMap<BlockHash, UtreexoBlock>,
-    HashMap<BlockHash, Vec<u8>>,
-    BlockHash,
-    UtreexoBlock,
-) {
+pub fn get_essentials() -> Essentials {
     let headers = get_test_headers();
     let blocks = get_test_blocks().unwrap();
-    let true_filters = get_test_filters().unwrap();
+    let _filters = get_test_filters().unwrap();
     let invalid_block = generate_invalid_block();
 
     // BlockHash of chain_tip: 0000035f0e5513b26bba7cead874fdf06241a934e4bc4cf7a0381c60e4cdd2bb (119)
-    let tip_hash =
+    let _tip_hash =
         BlockHash::from_str("0000035f0e5513b26bba7cead874fdf06241a934e4bc4cf7a0381c60e4cdd2bb")
             .unwrap();
 
-    (headers, blocks, true_filters, tip_hash, invalid_block)
+    Essentials {
+        headers,
+        blocks,
+        invalid_block,
+    }
 }
