@@ -374,6 +374,10 @@ impl BlockchainInterface for PartialChainState {
         self.inner().chain_params().params
     }
 
+    fn acc(&self) -> Stump {
+        self.inner().current_acc.clone()
+    }
+
     fn get_height(&self) -> Result<u32, Self::Error> {
         Ok(self.inner().current_height)
     }

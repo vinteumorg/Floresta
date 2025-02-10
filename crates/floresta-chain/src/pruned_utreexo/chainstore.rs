@@ -12,6 +12,7 @@ use kv::Bucket;
 use spin::RwLock;
 
 use crate::prelude::*;
+
 #[derive(Debug, Clone, Copy)]
 /// This enum is used to store a block header in the database.
 /// It contains the header along with metadaba about the validation state of the block, and, if applicable, also its height.
