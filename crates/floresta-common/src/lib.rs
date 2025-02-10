@@ -99,6 +99,7 @@ pub mod prelude {
     extern crate alloc;
     pub use alloc::borrow::ToOwned;
     pub use alloc::boxed::Box;
+    pub use alloc::format;
     pub use alloc::string::String;
     pub use alloc::string::ToString;
     pub use alloc::vec;
@@ -129,6 +130,7 @@ pub mod prelude {
 pub mod prelude {
     extern crate alloc;
     extern crate std;
+    pub use alloc::format;
     pub use alloc::string::ToString;
     pub use std::borrow::ToOwned;
     pub use std::boxed::Box;

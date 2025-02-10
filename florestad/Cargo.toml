@@ -52,6 +52,7 @@ path = "src/main.rs"
 pretty_assertions = "1"
 
 [features]
+experimental-db = ["floresta-chain/experimental-db"]
 compact-filters = ["dep:floresta-compact-filters"]
 zmq-server = ["dep:zmq"]
 experimental-p2p = []
