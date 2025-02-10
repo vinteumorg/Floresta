@@ -2,9 +2,10 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use super::res::Error;
+use super::server::RpcChain;
 use super::server::RpcImpl;
 
-impl RpcImpl {
+impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
     pub(super) fn get_memory_info(&self, mode: &str) -> Result<GetMemInfoRes, Error> {
         #[cfg(target_env = "gnu")]
         match mode {
