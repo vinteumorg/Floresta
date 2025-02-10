@@ -13,6 +13,7 @@ pub struct AppMetrics {
     registry: Registry,
     pub memory_usage: Gauge<f64, AtomicU64>,
     pub block_height: Gauge,
+    pub peer_count: Gauge<f64, AtomicU64>,
 }
 
 impl AppMetrics {
@@ -20,8 +21,15 @@ impl AppMetrics {
         let mut registry = <Registry>::default();
         let memory_usage = Gauge::<f64, AtomicU64>::default();
         let block_height = Gauge::default();
+        let peer_count = Gauge::<f64, AtomicU64>::default();
 
         registry.register("block_height", "Current block height", block_height.clone());
+        registry.register(
+            "peer_count",
+            "Number of connected peers",
+            peer_count.clone(),
+        );
+
         registry.register(
             "memory_usage_gigabytes",
             "System memory usage in GB",
@@ -32,6 +40,7 @@ impl AppMetrics {
             registry,
             block_height,
             memory_usage,
+            peer_count,
         }
     }
 

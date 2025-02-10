@@ -400,6 +400,15 @@ where
             initial_height: peer.height,
         })
     }
+
+    #[cfg(feature = "metrics")]
+    pub(crate) fn update_peer_metrics(&self) {
+        use metrics::get_metrics;
+
+        let metrics = get_metrics();
+        metrics.peer_count.set(self.peer_ids.len() as f64);
+    }
+
     pub(crate) async fn handle_disconnection(
         &mut self,
         peer: u32,
@@ -448,6 +457,9 @@ where
             self.inflight.remove(&req.0);
             self.redo_inflight_request(req.0.clone()).await?;
         }
+
+        #[cfg(feature = "metrics")]
+        self.update_peer_metrics();
 
         Ok(())
     }
@@ -592,6 +604,9 @@ where
 
             self.peer_ids.push(peer);
         }
+
+        #[cfg(feature = "metrics")]
+        self.update_peer_metrics();
         Ok(())
     }
 
