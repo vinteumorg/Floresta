@@ -9,6 +9,7 @@ use std::time::Duration;
 use std::time::Instant;
 
 use bitcoin::bip158::BlockFilter;
+use bitcoin::hashes::Hash;
 use bitcoin::p2p::address::AddrV2;
 use bitcoin::p2p::address::AddrV2Message;
 use bitcoin::p2p::message_blockdata::Inventory;
@@ -25,6 +26,8 @@ use log::debug;
 use log::error;
 use log::info;
 use log::warn;
+use rustreexo::accumulator::node_hash::BitcoinNodeHash;
+use rustreexo::accumulator::pollard::PollardAddition;
 use rustreexo::accumulator::stump::Stump;
 use tokio::sync::RwLock;
 use tokio::time::timeout;
@@ -666,9 +669,10 @@ where
 
             let (proof, del_hashes, inputs) =
                 floresta_chain::proof_util::process_proof(udata, &block.block.txdata, &self.chain)?;
-            if let Err(e) = self
-                .chain
-                .connect_block(&block.block, proof, inputs, del_hashes)
+
+            if let Err(e) =
+                self.chain
+                    .connect_block(&block.block, proof.clone(), inputs, del_hashes.clone())
             {
                 error!("Invalid block received by peer {} reason: {:?}", peer, e);
                 if let BlockchainError::BlockValidation(e) = e {
@@ -712,7 +716,39 @@ where
             }
 
             if !self.chain.is_in_idb() {
-                let mempool_delta = self.mempool.write().await.consume_block(&block.block);
+                let del_hashes: Vec<BitcoinNodeHash> = del_hashes
+                    .iter()
+                    .map(|hash| BitcoinNodeHash::from(hash.as_byte_array()))
+                    .collect();
+
+                let block_height = self
+                    .chain
+                    .get_block_height(&block.block.block_hash())?
+                    .unwrap();
+
+                let block_hash = block.block.block_hash();
+
+                let adds = floresta_chain::proof_util::get_block_adds(
+                    &block.block,
+                    block_height,
+                    block_hash,
+                );
+
+                let adds: Vec<PollardAddition<BitcoinNodeHash>> = adds
+                    .into_iter()
+                    .map(|add| PollardAddition {
+                        remember: true,
+                        hash: add,
+                    })
+                    .collect();
+
+                let mempool_delta = self
+                    .mempool
+                    .lock()
+                    .await
+                    .consume_block(&block.block, proof, &adds, &del_hashes, block_height, false)
+                    .unwrap_or(Vec::new());
+
                 debug!(
                     "Block {} accepted, confirmed transactions: {:?}",
                     block.block.block_hash(),
@@ -726,6 +762,7 @@ where
                 Ok(_next_block) => next_block = _next_block,
                 Err(_) => break,
             }
+
             debug!("accepted block {}", block.block.block_hash());
         }
 

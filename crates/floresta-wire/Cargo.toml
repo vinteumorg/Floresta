@@ -16,7 +16,7 @@ categories = ["cryptography::cryptocurrencies", "network-programming"]
 
 
 [dependencies]
-rustreexo = "0.3.0"
+rustreexo = "0.4"
 sha2 = "^0.10.6"
 tokio = { version = "1", features = ["full"] }
 log = "0.4"
@@ -33,6 +33,7 @@ floresta-compact-filters = { path = "../floresta-compact-filters" }
 thiserror = "1.0"
 floresta-common = { path = "../floresta-common" }
 oneshot = "0.1.5"
+ahash = "0.8.11"
 
 [dev-dependencies]
 zstd = "0.13.2"

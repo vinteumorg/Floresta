@@ -24,6 +24,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e89da841a80418a9b391ebaea17f5c112ffaaa96f621d2c285b5174da76b9011"
 dependencies = [
  "cfg-if",
+ "getrandom",
  "once_cell",
  "version_check",
  "zerocopy",
@@ -952,6 +953,7 @@ dependencies = [
 name = "floresta-wire"
 version = "0.3.0"
 dependencies = [
+ "ahash",
  "bitcoin 0.32.4",
  "dns-lookup 1.0.8",
  "floresta-chain",
@@ -2007,9 +2009,9 @@ checksum = "16f1201b3c9a7ee8039bcadc17b7e605e2945b27eee7631788c1bd2b0643674b"
 
 [[package]]
 name = "rustreexo"
-version = "0.3.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3b4e6061c2c36ec0f30c8c2e737efc0b69ffc22b57a79a28aefc849c35a1523a"
+checksum = "64bce4e1e36c12aaee94f9604187b1dbb2b826bbcb6807f757f41b1cc9946bc7"
 dependencies = [
  "bitcoin_hashes 0.14.0",
 ]

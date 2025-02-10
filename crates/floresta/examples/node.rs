@@ -19,6 +19,8 @@ use floresta_chain::AssumeValidArg;
 use floresta_wire::node_interface::NodeMethods;
 use floresta_wire::running_node::RunningNode;
 use floresta_wire::UtreexoNodeConfig;
+use rustreexo::accumulator::pollard::Pollard;
+use tokio::sync::Mutex;
 use tokio::sync::RwLock;
 
 const DATA_DIR: &str = "./tmp-db";
@@ -60,7 +62,7 @@ async fn main() {
     let p2p: UtreexoNode<Arc<ChainState<KvChainStore>>, RunningNode> = UtreexoNode::new(
         config,
         chain.clone(),
-        Arc::new(RwLock::new(Mempool::new())),
+        Arc::new(Mutex::new(Mempool::new(Pollard::default(), 1000))),
         None,
     )
     .unwrap();

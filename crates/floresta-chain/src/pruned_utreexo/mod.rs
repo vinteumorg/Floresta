@@ -18,7 +18,7 @@ use bitcoin::BlockHash;
 use bitcoin::OutPoint;
 use bitcoin::Transaction;
 use bitcoin::TxOut;
-use rustreexo::accumulator::node_hash::NodeHash;
+use rustreexo::accumulator::node_hash::BitcoinNodeHash;
 use rustreexo::accumulator::proof::Proof;
 use rustreexo::accumulator::stump::Stump;
 
@@ -132,7 +132,7 @@ pub trait UpdatableChainstate {
     /// marked as invalid.
     fn mark_block_as_valid(&self, block: BlockHash) -> Result<(), BlockchainError>;
     /// Returns the root hashes of our utreexo forest
-    fn get_root_hashes(&self) -> Vec<NodeHash>;
+    fn get_root_hashes(&self) -> Vec<BitcoinNodeHash>;
     /// Returns a partial chainstate from a range of blocks.
     ///
     /// [PartialChainState] is a simplified version of `ChainState` that is used during IBD.
@@ -223,7 +223,7 @@ impl<T: UpdatableChainstate> UpdatableChainstate for Arc<T> {
         T::accept_header(self, header)
     }
 
-    fn get_root_hashes(&self) -> Vec<NodeHash> {
+    fn get_root_hashes(&self) -> Vec<BitcoinNodeHash> {
         T::get_root_hashes(self)
     }
 

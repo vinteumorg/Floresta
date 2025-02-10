@@ -919,6 +919,7 @@ mod test {
     use futures::executor::block_on;
     use rcgen::generate_simple_self_signed;
     use rcgen::CertifiedKey;
+    use rustreexo::accumulator::pollard::Pollard;
     use serde_json::json;
     use serde_json::Number;
     use serde_json::Value;
@@ -926,6 +927,7 @@ mod test {
     use tokio::io::AsyncWriteExt;
     use tokio::net::TcpListener;
     use tokio::net::TcpStream;
+    use tokio::sync::Mutex;
     use tokio::task;
     use tokio::time::timeout;
     use tokio_rustls::rustls::Certificate;
@@ -1061,7 +1063,7 @@ mod test {
             UtreexoNode::new(
                 u_config,
                 chain.clone(),
-                Arc::new(tokio::sync::RwLock::new(Mempool::new())),
+                Arc::new(Mutex::new(Mempool::new(Pollard::default(), 0))),
                 None,
             )
             .unwrap();

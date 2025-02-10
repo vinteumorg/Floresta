@@ -283,9 +283,12 @@ impl From<Block> for UtreexoBlock {
 
 pub mod proof_util {
     use bitcoin::blockdata::script::Instruction;
+    use bitcoin::consensus::Encodable;
     use bitcoin::hashes::sha256;
     use bitcoin::hashes::Hash;
     use bitcoin::Amount;
+    use bitcoin::Block;
+    use bitcoin::BlockHash;
     use bitcoin::OutPoint;
     use bitcoin::PubkeyHash;
     use bitcoin::ScriptBuf;
@@ -295,11 +298,14 @@ pub mod proof_util {
     use bitcoin::TxOut;
     use bitcoin::WPubkeyHash;
     use bitcoin::WScriptHash;
-    use rustreexo::accumulator::node_hash::NodeHash;
+    use rustreexo::accumulator::node_hash::BitcoinNodeHash;
     use rustreexo::accumulator::proof::Proof;
+    use sha2::Digest;
+    use sha2::Sha512_256;
 
     use super::LeafData;
     use crate::prelude::*;
+    use crate::pruned_utreexo::consensus::UTREEXO_TAG_V1;
     use crate::pruned_utreexo::BlockchainInterface;
     use crate::CompactLeafData;
     use crate::ScriptPubkeyType;
@@ -308,6 +314,26 @@ pub mod proof_util {
     #[derive(Debug)]
     pub enum Error {
         EmptyStack,
+    }
+
+    pub fn get_script_type(script: &ScriptBuf) -> ScriptPubkeyType {
+        if script.is_p2pkh() {
+            return ScriptPubkeyType::PubKeyHash;
+        }
+
+        if script.is_p2sh() {
+            return ScriptPubkeyType::ScriptHash;
+        }
+
+        if script.is_p2wpkh() {
+            return ScriptPubkeyType::WitnessV0PubKeyHash;
+        }
+
+        if script.is_p2wsh() {
+            return ScriptPubkeyType::WitnessV0ScriptHash;
+        }
+
+        ScriptPubkeyType::Other(script.to_bytes().into_boxed_slice())
     }
 
     pub fn reconstruct_leaf_data(
@@ -328,6 +354,85 @@ pub mod proof_util {
         })
     }
 
+    fn is_unspendable(script: &ScriptBuf) -> bool {
+        if script.len() > 10_000 {
+            return true;
+        }
+
+        if !script.is_empty() && script.as_bytes()[0] == 0x6a {
+            return true;
+        }
+
+        false
+    }
+
+    /// Returns the hash of a leaf node in the utreexo accumulator.
+    #[inline]
+    fn get_leaf_hashes(
+        transaction: &Transaction,
+        vout: u32,
+        height: u32,
+        block_hash: BlockHash,
+    ) -> sha256::Hash {
+        let header_code = height << 1;
+
+        let mut ser_utxo = Vec::new();
+        let utxo = transaction.output.get(vout as usize).unwrap();
+        utxo.consensus_encode(&mut ser_utxo).unwrap();
+        let header_code = if transaction.is_coinbase() {
+            header_code | 1
+        } else {
+            header_code
+        };
+
+        let leaf_hash = Sha512_256::new()
+            .chain_update(UTREEXO_TAG_V1)
+            .chain_update(UTREEXO_TAG_V1)
+            .chain_update(block_hash)
+            .chain_update(transaction.compute_txid())
+            .chain_update(vout.to_le_bytes())
+            .chain_update(header_code.to_le_bytes())
+            .chain_update(ser_utxo)
+            .finalize();
+        sha256::Hash::from_slice(leaf_hash.as_slice())
+            .expect("parent_hash: Engines shouldn't be Err")
+    }
+
+    /// From a block, gets the roots that will be included on the acc, certifying
+    /// that any utxo will not be spend in the same block.
+    pub fn get_block_adds(
+        block: &Block,
+        height: u32,
+        block_hash: BlockHash,
+    ) -> Vec<BitcoinNodeHash> {
+        let mut leaf_hashes = Vec::new();
+        // Get inputs from the block, we'll need this HashSet to check if an output is spent
+        // in the same block. If it is, we don't need to add it to the accumulator.
+        let mut block_inputs = HashSet::new();
+        for transaction in block.txdata.iter() {
+            for input in transaction.input.iter() {
+                block_inputs.insert((input.previous_output.txid, input.previous_output.vout));
+            }
+        }
+
+        // Get all leaf hashes that will be added to the accumulator
+        for transaction in block.txdata.iter() {
+            for (i, output) in transaction.output.iter().enumerate() {
+                if !is_unspendable(&output.script_pubkey)
+                    && !block_inputs.contains(&(transaction.compute_txid(), i as u32))
+                {
+                    leaf_hashes.push(get_leaf_hashes(transaction, i as u32, height, block_hash))
+                }
+            }
+        }
+
+        // Convert the leaf hashes to NodeHashes used in Rustreexo
+        leaf_hashes
+            .iter()
+            .map(|&hash| BitcoinNodeHash::from(hash.as_byte_array()))
+            .collect()
+    }
+
     #[allow(clippy::type_complexity)]
     pub fn process_proof<Chain: BlockchainInterface>(
         udata: &UData,
@@ -339,7 +444,7 @@ pub mod proof_util {
             .proof
             .hashes
             .iter()
-            .map(|hash| NodeHash::Some(*hash.as_byte_array()))
+            .map(|hash| BitcoinNodeHash::Some(*hash.as_byte_array()))
             .collect();
         let proof = Proof::new(targets, hashes);
         let mut hashes = Vec::new();
@@ -378,7 +483,10 @@ pub mod proof_util {
         Ok((proof, hashes, inputs))
     }
 
-    fn reconstruct_script_pubkey(leaf: &CompactLeafData, input: &TxIn) -> Result<ScriptBuf, Error> {
+    pub fn reconstruct_script_pubkey(
+        leaf: &CompactLeafData,
+        input: &TxIn,
+    ) -> Result<ScriptBuf, Error> {
         match &leaf.spk_ty {
             ScriptPubkeyType::Other(spk) => Ok(ScriptBuf::from(spk.clone().into_vec())),
             ScriptPubkeyType::PubKeyHash => {
