@@ -53,7 +53,7 @@ use super::node_context::NodeContext;
 use super::node_interface::NodeInterface;
 use super::node_interface::PeerInfo;
 use super::node_interface::UserRequest;
-use super::peer::create_tcp_stream_actor;
+use super::peer::create_actors;
 use super::peer::Peer;
 use super::peer::PeerMessages;
 use super::peer::Version;
@@ -61,6 +61,7 @@ use super::running_node::RunningNode;
 use super::socks::Socks5Addr;
 use super::socks::Socks5Error;
 use super::socks::Socks5StreamBuilder;
+use super::transport;
 use super::UtreexoNodeConfig;
 use crate::node_context::PeerId;
 
@@ -1017,9 +1018,11 @@ where
 
         stream.set_nodelay(true)?;
         let (reader, writer) = tokio::io::split(stream);
+        let (transport_reader, transport_writer) =
+            transport::new(reader, writer, network, true).await?;
 
         let (cancellation_sender, cancellation_receiver) = tokio::sync::oneshot::channel();
-        let (actor_receiver, actor) = create_tcp_stream_actor(reader);
+        let (actor_receiver, actor) = create_actors(transport_reader);
         tokio::spawn(async move {
             tokio::select! {
                 _ = cancellation_receiver => {}
@@ -1031,13 +1034,12 @@ where
         Peer::<WriteHalf>::create_peer(
             peer_id_count,
             mempool,
-            network,
             node_tx.clone(),
             requests_rx,
             peer_id,
             kind,
             actor_receiver,
-            writer,
+            transport_writer,
             user_agent,
             cancellation_sender,
         )
@@ -1058,7 +1060,7 @@ where
         requests_rx: UnboundedReceiver<NodeRequest>,
         peer_id_count: u32,
         user_agent: String,
-    ) -> Result<(), Socks5Error> {
+    ) -> Result<(), WireError> {
         let addr = match address.get_address() {
             AddrV2::Cjdns(addr) => Socks5Addr::Ipv6(addr),
             AddrV2::I2p(addr) => Socks5Addr::Domain(addr.into()),
@@ -1067,16 +1069,18 @@ where
             AddrV2::TorV2(addr) => Socks5Addr::Domain(addr.into()),
             AddrV2::TorV3(addr) => Socks5Addr::Domain(addr.into()),
             AddrV2::Unknown(_, _) => {
-                return Err(Socks5Error::InvalidAddress);
+                return Err(WireError::Socks(Socks5Error::InvalidAddress));
             }
         };
 
         let proxy = TcpStream::connect(proxy).await?;
         let stream = Socks5StreamBuilder::connect(proxy, addr, address.get_port()).await?;
         let (reader, writer) = tokio::io::split(stream);
+        let (transport_reader, transport_writer) =
+            transport::new(reader, writer, network, true).await?;
 
         let (cancellation_sender, cancellation_receiver) = tokio::sync::oneshot::channel();
-        let (actor_receiver, actor) = create_tcp_stream_actor(reader);
+        let (actor_receiver, actor) = create_actors(transport_reader);
         tokio::spawn(async move {
             tokio::select! {
                 _ = cancellation_receiver => {}
@@ -1087,13 +1091,12 @@ where
         Peer::<WriteHalf>::create_peer(
             peer_id_count,
             mempool,
-            network,
             node_tx,
             requests_rx,
             peer_id,
             kind,
             actor_receiver,
-            writer,
+            transport_writer,
             user_agent,
             cancellation_sender,
         )
