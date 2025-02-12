@@ -28,11 +28,14 @@ use crate::p2p_wire::node::ConnectionKind;
 use crate::p2p_wire::peer::PeerMessages;
 use crate::p2p_wire::peer::Version;
 use crate::UtreexoNodeConfig;
+
 /// A list of headers, used to represent the collection of headers.
 pub type HeaderList = Vec<Header>;
+
 /// A map that associates block hashes with their corresponding `UtreexoBlock` objects.
 /// This is useful for efficiently looking up blocks by their hash.
 pub type BlockHashMap = HashMap<BlockHash, UtreexoBlock>;
+
 /// A map of block hashes to raw block data (represented as bytes vector).
 pub type BlockDataMap = HashMap<BlockHash, Vec<u8>>;
 
@@ -42,6 +45,7 @@ pub struct Essentials {
     pub blocks: BlockHashMap,
     pub invalid_block: UtreexoBlock,
 }
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct UtreexoRoots {
     roots: Option<Vec<String>>,
