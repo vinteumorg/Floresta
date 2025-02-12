@@ -1057,6 +1057,7 @@ mod test {
             backfill: false,
             filter_start_height: None,
             user_agent: "floresta".to_string(),
+            allow_v1_fallback: true,
         };
 
         let chain_provider: UtreexoNode<Arc<ChainState<KvChainStore>>, RunningNode> =
