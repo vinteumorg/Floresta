@@ -25,6 +25,7 @@ use floresta_chain::pruned_utreexo::UpdatableChainstate;
 use floresta_chain::Network;
 use floresta_chain::UtreexoBlock;
 use floresta_common::service_flags;
+use floresta_common::FractionAvg;
 use floresta_compact_filters::flat_filters_store::FlatFiltersStore;
 use floresta_compact_filters::network_filters::NetworkFilters;
 use log::debug;
@@ -176,6 +177,7 @@ pub struct NodeCommon<Chain: BlockchainInterface + UpdatableChainstate> {
     pub(crate) last_get_address_request: Instant,
     pub(crate) last_broadcast: Instant,
     pub(crate) last_send_addresses: Instant,
+    pub(crate) block_sync_avg: FractionAvg,
 
     // 6. Configuration and Metadata
     pub(crate) config: UtreexoNodeConfig,
@@ -233,6 +235,7 @@ where
 
         Ok(UtreexoNode {
             common: NodeCommon {
+                block_sync_avg: FractionAvg::new(0, 0),
                 last_filter: chain.get_block_hash(0).unwrap(),
                 block_filters,
                 inflight: HashMap::new(),

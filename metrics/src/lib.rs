@@ -14,6 +14,7 @@ pub struct AppMetrics {
     pub memory_usage: Gauge<f64, AtomicU64>,
     pub block_height: Gauge,
     pub peer_count: Gauge<f64, AtomicU64>,
+    pub avg_block_processing_time: Gauge<f64, AtomicU64>,
 }
 
 impl AppMetrics {
@@ -22,12 +23,19 @@ impl AppMetrics {
         let memory_usage = Gauge::<f64, AtomicU64>::default();
         let block_height = Gauge::default();
         let peer_count = Gauge::<f64, AtomicU64>::default();
+        let avg_block_processing_time = Gauge::<f64, AtomicU64>::default();
 
         registry.register("block_height", "Current block height", block_height.clone());
         registry.register(
             "peer_count",
             "Number of connected peers",
             peer_count.clone(),
+        );
+
+        registry.register(
+            "avg_block_processing_time",
+            "Average block processing time in seconds",
+            avg_block_processing_time.clone(),
         );
 
         registry.register(
@@ -41,6 +49,7 @@ impl AppMetrics {
             block_height,
             memory_usage,
             peer_count,
+            avg_block_processing_time,
         }
     }
 

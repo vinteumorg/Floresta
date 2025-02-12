@@ -655,6 +655,8 @@ where
 
         self.blocks.insert(block.block.block_hash(), (peer, block));
         while let Some((peer, block)) = self.blocks.remove(&next_block) {
+            let start = Instant::now();
+
             debug!("processing block {}", block.block.block_hash(),);
             let Some(udata) = &block.udata else {
                 warn!("peer {peer} sent us a block without udata");
@@ -764,6 +766,18 @@ where
             }
 
             debug!("accepted block {}", block.block.block_hash());
+
+            let elapsed = start.elapsed().as_secs();
+            self.block_sync_avg.add(elapsed);
+
+            #[cfg(feature = "metrics")]
+            {
+                use metrics::get_metrics;
+
+                let avg = self.block_sync_avg.value();
+                let metrics = get_metrics();
+                metrics.avg_block_processing_time.set(avg);
+            }
         }
 
         // Remove confirmed transactions from the mempool.

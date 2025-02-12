@@ -36,6 +36,43 @@ pub mod service_flags {
     pub const UTREEXO_FILTER: u64 = 1 << 25;
 }
 
+#[derive(Debug, Clone)]
+/// A simple fraction struct that allows adding numbers to the numerator and denominator
+///
+/// If we want compute a rolling-average, we would naively hold all elements in a list and
+/// compute the average from it. This is not efficient, as it requires O(n) memory and O(n)
+/// time to compute the average. Instead, we can use a fraction to compute the average in O(1)
+/// time and O(1) memory, by keeping track of the sum of all elements and the number of elements.
+pub struct FractionAvg {
+    numerator: u64,
+    denominator: u64,
+}
+
+impl FractionAvg {
+    /// Creates a new fraction with the given numerator and denominator
+    pub fn new(numerator: u64, denominator: u64) -> Self {
+        Self {
+            numerator,
+            denominator,
+        }
+    }
+
+    /// Adds a number to the numerator and increments the denominator
+    pub fn add(&mut self, other: u64) {
+        self.numerator += other;
+        self.denominator += 1;
+    }
+
+    /// Returns the average of the fraction
+    pub fn value(&self) -> f64 {
+        if self.denominator == 0 {
+            return 0.0;
+        }
+
+        self.numerator as f64 / self.denominator as f64
+    }
+}
+
 #[cfg(any(feature = "descriptors-std", feature = "descriptors-no-std"))]
 pub fn parse_descriptors(
     descriptors: &[String],
