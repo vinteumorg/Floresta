@@ -62,7 +62,7 @@ json-rpc = [
     "compact-filters"
 ]
 default = ["experimental-p2p", "json-rpc"]
-metrics = ["dep:metrics"]
+metrics = ["dep:metrics", "floresta-wire/metrics"]
 
 [build-dependencies]
 toml = "0.5.10"

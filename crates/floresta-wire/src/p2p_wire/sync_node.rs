@@ -181,6 +181,7 @@ where
         let mut next_block = self.chain.get_block_hash(next_block)?;
 
         while let Some((peer, block)) = self.blocks.remove(&next_block) {
+            let start = Instant::now();
             if block.udata.is_none() {
                 error!("Block without proof received from peer {}", peer);
                 self.send_to_peer(peer, NodeRequest::Shutdown).await?;
@@ -249,6 +250,7 @@ where
                         AddressState::Banned(SyncNode::BAN_TIME),
                     );
                 }
+
                 self.send_to_peer(peer, NodeRequest::Shutdown).await?;
                 return Err(WireError::PeerMisbehaving);
             }
@@ -259,7 +261,20 @@ where
                 Ok(_next_block) => next_block = _next_block,
                 Err(_) => break,
             }
+
             debug!("accepted block {}", block.block.block_hash());
+
+            let elapsed = start.elapsed().as_secs();
+            self.block_sync_avg.add(elapsed);
+
+            #[cfg(feature = "metrics")]
+            {
+                use metrics::get_metrics;
+
+                let avg = self.block_sync_avg.value();
+                let metrics = get_metrics();
+                metrics.avg_block_processing_time.set(avg);
+            }
         }
 
         if self.inflight.len() < 4 {
@@ -270,6 +285,9 @@ where
     }
     /// Process a message from a peer and handle it accordingly between the variants of [`PeerMessages`].
     async fn handle_message(&mut self, msg: NodeNotification) {
+        #[cfg(feature = "metrics")]
+        self.register_message_time(&msg);
+
         match msg {
             NodeNotification::FromPeer(peer, notification) => match notification {
                 PeerMessages::Block(block) => {

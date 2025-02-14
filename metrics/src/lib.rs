@@ -6,6 +6,7 @@ use axum::routing::get;
 use axum::Router;
 use prometheus_client::encoding::text::encode;
 use prometheus_client::metrics::gauge::Gauge;
+use prometheus_client::metrics::histogram::Histogram;
 use prometheus_client::registry::Registry;
 use sysinfo::System;
 
@@ -13,6 +14,9 @@ pub struct AppMetrics {
     registry: Registry,
     pub memory_usage: Gauge<f64, AtomicU64>,
     pub block_height: Gauge,
+    pub peer_count: Gauge<f64, AtomicU64>,
+    pub avg_block_processing_time: Gauge<f64, AtomicU64>,
+    pub message_times: Histogram,
 }
 
 impl AppMetrics {
@@ -20,18 +24,42 @@ impl AppMetrics {
         let mut registry = <Registry>::default();
         let memory_usage = Gauge::<f64, AtomicU64>::default();
         let block_height = Gauge::default();
+        let peer_count = Gauge::<f64, AtomicU64>::default();
+        let avg_block_processing_time = Gauge::<f64, AtomicU64>::default();
+        let message_times = Histogram::new([0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0].into_iter());
 
         registry.register("block_height", "Current block height", block_height.clone());
+        registry.register(
+            "peer_count",
+            "Number of connected peers",
+            peer_count.clone(),
+        );
+
+        registry.register(
+            "avg_block_processing_time",
+            "Average block processing time in seconds",
+            avg_block_processing_time.clone(),
+        );
+
         registry.register(
             "memory_usage_gigabytes",
             "System memory usage in GB",
             memory_usage.clone(),
         );
 
+        registry.register(
+            "message_times",
+            "A time-series of how long our peers take to respond to our requests. Timed out requests are not included.",
+            message_times.clone(),
+        );
+
         Self {
             registry,
             block_height,
             memory_usage,
+            peer_count,
+            avg_block_processing_time,
+            message_times,
         }
     }
 

@@ -25,6 +25,7 @@ use floresta_chain::pruned_utreexo::UpdatableChainstate;
 use floresta_chain::Network;
 use floresta_chain::UtreexoBlock;
 use floresta_common::service_flags;
+use floresta_common::FractionAvg;
 use floresta_compact_filters::flat_filters_store::FlatFiltersStore;
 use floresta_compact_filters::network_filters::NetworkFilters;
 use log::debug;
@@ -176,6 +177,7 @@ pub struct NodeCommon<Chain: BlockchainInterface + UpdatableChainstate> {
     pub(crate) last_get_address_request: Instant,
     pub(crate) last_broadcast: Instant,
     pub(crate) last_send_addresses: Instant,
+    pub(crate) block_sync_avg: FractionAvg,
 
     // 6. Configuration and Metadata
     pub(crate) config: UtreexoNodeConfig,
@@ -233,6 +235,7 @@ where
 
         Ok(UtreexoNode {
             common: NodeCommon {
+                block_sync_avg: FractionAvg::new(0, 0),
                 last_filter: chain.get_block_hash(0).unwrap(),
                 block_filters,
                 inflight: HashMap::new(),
@@ -272,6 +275,51 @@ where
             Network::Testnet => 18333,
             Network::Regtest => 18444,
         }
+    }
+
+    #[cfg(feature = "metrics")]
+    /// Register a message on `self.inflights` hooking it to metrics
+    pub(crate) fn register_message_time(&self, notification: &NodeNotification) -> Option<()> {
+        use metrics::get_metrics;
+        let now = Instant::now();
+        let NodeNotification::FromPeer(peer, message) = notification;
+
+        let when = match message {
+            PeerMessages::Block(block) => {
+                let inflight = self
+                    .inflight
+                    .get(&InflightRequests::Blocks(block.block.block_hash()))?;
+
+                inflight.1
+            }
+
+            PeerMessages::Ready(_) => {
+                let inflight = self.inflight.get(&InflightRequests::Connect(*peer))?;
+                inflight.1
+            }
+
+            PeerMessages::Headers(_) => {
+                let inflight = self.inflight.get(&InflightRequests::Headers)?;
+                inflight.1
+            }
+
+            PeerMessages::BlockFilter((_, _)) => {
+                let inflight = self.inflight.get(&InflightRequests::GetFilters)?;
+                inflight.1
+            }
+
+            PeerMessages::UtreexoState(_) => {
+                let inflight = self.inflight.get(&InflightRequests::UtreexoState(*peer))?;
+                inflight.1
+            }
+
+            _ => return None,
+        };
+
+        let metrics = get_metrics();
+        let elapsed = now.duration_since(when).as_secs_f64();
+        metrics.message_times.observe(elapsed);
+        Some(())
     }
 
     /// Resolves a string address into a LocalAddress
@@ -400,6 +448,15 @@ where
             initial_height: peer.height,
         })
     }
+
+    #[cfg(feature = "metrics")]
+    pub(crate) fn update_peer_metrics(&self) {
+        use metrics::get_metrics;
+
+        let metrics = get_metrics();
+        metrics.peer_count.set(self.peer_ids.len() as f64);
+    }
+
     pub(crate) async fn handle_disconnection(
         &mut self,
         peer: u32,
@@ -448,6 +505,9 @@ where
             self.inflight.remove(&req.0);
             self.redo_inflight_request(req.0.clone()).await?;
         }
+
+        #[cfg(feature = "metrics")]
+        self.update_peer_metrics();
 
         Ok(())
     }
@@ -592,6 +652,9 @@ where
 
             self.peer_ids.push(peer);
         }
+
+        #[cfg(feature = "metrics")]
+        self.update_peer_metrics();
         Ok(())
     }
 
