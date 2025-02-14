@@ -277,6 +277,51 @@ where
         }
     }
 
+    #[cfg(feature = "metrics")]
+    /// Register a message on `self.inflights` hooking it to metrics
+    pub(crate) fn register_message_time(&self, notification: &NodeNotification) -> Option<()> {
+        use metrics::get_metrics;
+        let now = Instant::now();
+        let NodeNotification::FromPeer(peer, message) = notification;
+
+        let when = match message {
+            PeerMessages::Block(block) => {
+                let inflight = self
+                    .inflight
+                    .get(&InflightRequests::Blocks(block.block.block_hash()))?;
+
+                inflight.1
+            }
+
+            PeerMessages::Ready(_) => {
+                let inflight = self.inflight.get(&InflightRequests::Connect(*peer))?;
+                inflight.1
+            }
+
+            PeerMessages::Headers(_) => {
+                let inflight = self.inflight.get(&InflightRequests::Headers)?;
+                inflight.1
+            }
+
+            PeerMessages::BlockFilter((_, _)) => {
+                let inflight = self.inflight.get(&InflightRequests::GetFilters)?;
+                inflight.1
+            }
+
+            PeerMessages::UtreexoState(_) => {
+                let inflight = self.inflight.get(&InflightRequests::UtreexoState(*peer))?;
+                inflight.1
+            }
+
+            _ => return None,
+        };
+
+        let metrics = get_metrics();
+        let elapsed = now.duration_since(when).as_secs_f64();
+        metrics.message_times.observe(elapsed);
+        Some(())
+    }
+
     /// Resolves a string address into a LocalAddress
     ///
     /// This function should get an address in the format `<address>[<:port>]` and return a

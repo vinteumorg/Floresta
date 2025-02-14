@@ -790,6 +790,9 @@ where
         &mut self,
         notification: NodeNotification,
     ) -> Result<(), WireError> {
+        #[cfg(feature = "metrics")]
+        self.register_message_time(&notification);
+
         match notification {
             NodeNotification::FromPeer(peer, message) => match message {
                 PeerMessages::NewBlock(block) => {

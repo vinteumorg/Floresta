@@ -285,6 +285,9 @@ where
     }
     /// Process a message from a peer and handle it accordingly between the variants of [`PeerMessages`].
     async fn handle_message(&mut self, msg: NodeNotification) {
+        #[cfg(feature = "metrics")]
+        self.register_message_time(&msg);
+
         match msg {
             NodeNotification::FromPeer(peer, notification) => match notification {
                 PeerMessages::Block(block) => {

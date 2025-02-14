@@ -809,37 +809,42 @@ where
         &mut self,
         notification: Option<NodeNotification>,
     ) -> Result<(), WireError> {
-        if let Some(NodeNotification::FromPeer(peer, message)) = notification {
-            match message {
-                PeerMessages::Headers(headers) => {
-                    self.inflight.remove(&InflightRequests::Headers);
-                    return self.handle_headers(peer, headers).await;
-                }
+        let Some(notification) = notification else {
+            return Ok(());
+        };
 
-                PeerMessages::Ready(version) => {
-                    self.handle_peer_ready(peer, &version).await?;
-                    if matches!(self.context.state, ChainSelectorState::LookingForForks(_)) {
-                        let locator = self.chain.get_block_locator().unwrap();
-                        self.send_to_peer(peer, NodeRequest::GetHeaders(locator))
-                            .await?;
-                    }
-                }
+        #[cfg(feature = "metrics")]
+        self.register_message_time(&notification);
 
-                PeerMessages::Disconnected(idx) => {
-                    if peer == self.context.sync_peer {
-                        self.context.state = ChainSelectorState::CreatingConnections;
-                    }
-                    self.handle_disconnection(peer, idx).await?;
-                }
-
-                PeerMessages::Addr(addresses) => {
-                    let addresses: Vec<_> =
-                        addresses.iter().cloned().map(|addr| addr.into()).collect();
-                    self.address_man.push_addresses(&addresses);
-                }
-
-                _ => {}
+        let NodeNotification::FromPeer(peer, message) = notification;
+        match message {
+            PeerMessages::Headers(headers) => {
+                self.inflight.remove(&InflightRequests::Headers);
+                return self.handle_headers(peer, headers).await;
             }
+
+            PeerMessages::Ready(version) => {
+                self.handle_peer_ready(peer, &version).await?;
+                if matches!(self.context.state, ChainSelectorState::LookingForForks(_)) {
+                    let locator = self.chain.get_block_locator().unwrap();
+                    self.send_to_peer(peer, NodeRequest::GetHeaders(locator))
+                        .await?;
+                }
+            }
+
+            PeerMessages::Disconnected(idx) => {
+                if peer == self.context.sync_peer {
+                    self.context.state = ChainSelectorState::CreatingConnections;
+                }
+                self.handle_disconnection(peer, idx).await?;
+            }
+
+            PeerMessages::Addr(addresses) => {
+                let addresses: Vec<_> = addresses.iter().cloned().map(|addr| addr.into()).collect();
+                self.address_man.push_addresses(&addresses);
+            }
+
+            _ => {}
         }
         Ok(())
     }
