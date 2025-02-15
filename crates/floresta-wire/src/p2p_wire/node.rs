@@ -209,7 +209,18 @@ pub struct NodeCommon<Chain: BlockchainInterface + UpdatableChainstate> {
     pub(crate) kill_signal: Arc<tokio::sync::RwLock<bool>>,
 }
 
-pub struct UtreexoNode<Chain: BlockchainInterface + UpdatableChainstate, Context> {
+/// The main node that operates while florestad is up.
+///
+/// [`UtreexoNode`] aims to be modular where `Chain` can be any implementation
+/// of a [`BlockchainInterface`] and [`UpdatableChainstate`].
+///
+/// `Context` refers to which state the [`UtreexoNode`] is on, being
+/// [`RunningNode`], [`SyncNode`], and [`ChainSelector`]. Defaults to
+/// [`RunningNode`] which automatically transitions between contexts.
+///
+/// [`SyncNode`]: super::sync_node::SyncNode
+/// [`ChainSelector`]: super::chain_selector::ChainSelector
+pub struct UtreexoNode<Chain: BlockchainInterface + UpdatableChainstate, Context = RunningNode> {
     pub(crate) common: NodeCommon<Chain>,
     pub(crate) context: Context,
 }
