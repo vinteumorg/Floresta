@@ -77,8 +77,10 @@ and build with cargo build
 
 ```bash
 cargo build --release
-# Optionally, you can add florestad to the path with
+
+# Optionally, you can add florestad and floresta-cli to the path with
 cargo install --path ./florestad
+cargo install --path ./crates/floresta-cli
 ```
 
 ### Instructions for macOS Users
