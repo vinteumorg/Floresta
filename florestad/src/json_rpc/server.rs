@@ -297,8 +297,15 @@ async fn handle_json_rpc_request(req: Value, state: Arc<RpcImpl>) -> Result<serd
         "gettxoutproof" => {
             let txid = Txid::from_str(params[0].as_str().ok_or(Error::InvalidHash)?)
                 .map_err(|_| Error::InvalidHash)?;
+            let blockhash = match params[1].as_str() {
+                Some(hash) if !hash.is_empty() => {
+                    Some(BlockHash::from_str(hash).map_err(|_| Error::InvalidHash)?)
+                }
+                _ => None,
+            };
             state
-                .get_tx_proof(txid)
+                .get_tx_proof(txid, blockhash)
+                .await
                 .map(|v| ::serde_json::to_value(v).unwrap())
         }
 

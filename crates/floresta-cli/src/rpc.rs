@@ -48,7 +48,7 @@ pub trait FlorestaRPC {
     ///
     /// This method returns the Merkle proof, showing that a transaction was included in a block.
     /// The pooof is returned as a vector hexadecimal string.
-    fn get_tx_proof(&self, tx_id: Txid) -> Result<Vec<String>>;
+    fn get_tx_proof(&self, tx_id: Txid, block_hash: Option<BlockHash>) -> Result<Vec<String>>;
     /// Loads up a descriptor into the wallet
     ///
     /// This method loads up a descriptor into the wallet. If the rescan option is not None,
@@ -228,8 +228,19 @@ impl<T: JsonRPCClient> FlorestaRPC for T {
         )
     }
 
-    fn get_tx_proof(&self, tx_id: Txid) -> Result<Vec<String>> {
-        self.call("gettxoutproof", &[Value::String(tx_id.to_string())])
+    fn get_tx_proof(&self, tx_id: Txid, block_hash: Option<BlockHash>) -> Result<Vec<String>> {
+        let blockhash;
+
+        if block_hash.is_some() {
+            blockhash = block_hash.unwrap().to_string();
+        } else {
+            blockhash = String::new();
+        }
+
+        self.call(
+            "gettxoutproof",
+            &[Value::String(tx_id.to_string()), Value::String(blockhash)],
+        )
     }
 
     fn get_peer_info(&self) -> Result<Vec<PeerInfo>> {
