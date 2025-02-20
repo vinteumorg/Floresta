@@ -146,7 +146,7 @@ pub enum Methods {
     #[command(name = "gettxproof")]
     GetTxProof {
         txids: Txid,
-        blockhashs: Option<BlockHash>,
+        blockhash: Option<BlockHash>,
     },
     /// Returns the transaction, assuming it is cached by our watch only wallet
     #[command(name = "gettransaction")]
