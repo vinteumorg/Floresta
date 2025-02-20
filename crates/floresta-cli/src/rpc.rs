@@ -229,13 +229,10 @@ impl<T: JsonRPCClient> FlorestaRPC for T {
     }
 
     fn get_tx_proof(&self, tx_id: Txid, block_hash: Option<BlockHash>) -> Result<Vec<String>> {
-        let blockhash;
-
-        if block_hash.is_some() {
-            blockhash = block_hash.unwrap().to_string();
-        } else {
-            blockhash = String::new();
-        }
+        let blockhash = match block_hash {
+            Some(hash) => hash.to_string(),
+            None => String::new(),
+        };
 
         self.call(
             "gettxoutproof",
