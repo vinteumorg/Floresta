@@ -6,7 +6,6 @@ edition = "2021"
 [dependencies]
 rustreexo = "0.4"
 clap = { version = "4.0.29", features = ["derive"] }
-sha2 = "^0.10.6"
 tokio = { version = "1", features = ["full"] }
 tokio-rustls = "0.22"
 log = "0.4"
@@ -15,9 +14,8 @@ serde_json = "1.0"
 kv = "0.24.0"
 miniscript = "12"
 futures = "0.3.4"
-toml = "0.5.10"
+toml = "0.5.11"
 dirs = "4.0.0"
-rand = "0.8.5"
 bitcoin = { version = "0.32", features = ["serde", "std", "bitcoinconsensus"] }
 ctrlc = "3.2.5"
 fern = { version = "0.6", features = ["colored"] }
@@ -65,4 +63,4 @@ default = ["experimental-p2p", "json-rpc"]
 metrics = ["dep:metrics", "floresta-wire/metrics"]
 
 [build-dependencies]
-toml = "0.5.10"
+toml = "0.5.11"

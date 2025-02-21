@@ -843,14 +843,12 @@ dependencies = [
  "core2",
  "criterion",
  "floresta-common",
- "hashbrown 0.14.5",
  "hex",
  "kv",
  "log",
  "metrics",
  "rand",
  "rustreexo",
- "secp256k1 0.29.1",
  "serde",
  "serde_json",
  "sha2",
@@ -891,9 +889,7 @@ version = "0.3.0"
 dependencies = [
  "bitcoin 0.32.4",
  "floresta-chain",
- "floresta-common",
  "kv",
- "log",
 ]
 
 [[package]]
@@ -908,20 +904,16 @@ dependencies = [
  "floresta-watch-only",
  "floresta-wire",
  "futures",
- "kv",
  "log",
- "miniscript 12.2.0",
  "rand",
  "rcgen",
  "rustreexo",
  "serde",
  "serde_json",
- "sha2",
  "thiserror",
  "tokio",
  "tokio-rustls",
- "toml 0.5.11",
- "zstd 0.13.2",
+ "zstd 0.13.3",
 ]
 
 [[package]]
@@ -946,7 +938,6 @@ dependencies = [
  "rand",
  "serde",
  "serde_json",
- "thiserror",
 ]
 
 [[package]]
@@ -961,7 +952,6 @@ dependencies = [
  "floresta-compact-filters",
  "futures",
  "hex",
- "kv",
  "log",
  "metrics",
  "oneshot",
@@ -969,11 +959,9 @@ dependencies = [
  "rustreexo",
  "serde",
  "serde_json",
- "sha2",
  "thiserror",
  "tokio",
- "toml 0.5.11",
- "zstd 0.13.2",
+ "zstd 0.13.3",
 ]
 
 [[package]]
@@ -1003,11 +991,9 @@ dependencies = [
  "metrics",
  "miniscript 12.2.0",
  "pretty_assertions",
- "rand",
  "rustreexo",
  "serde",
  "serde_json",
- "sha2",
  "tokio",
  "tokio-rustls",
  "toml 0.5.11",
@@ -2973,9 +2959,9 @@ dependencies = [
 
 [[package]]
 name = "zstd"
-version = "0.13.2"
+version = "0.13.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fcf2b778a664581e31e389454a7072dab1647606d44f7feea22cd5abb9c9f3f9"
+checksum = "e91ee311a569c327171651566e07972200e76fcfe2242a4fa446149a3881c08a"
 dependencies = [
  "zstd-safe 7.2.1",
 ]

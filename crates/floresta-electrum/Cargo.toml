@@ -22,16 +22,12 @@ floresta-compact-filters = { path = "../floresta-compact-filters" }
 floresta-wire = { path = "../floresta-wire" }
 
 rustreexo = "0.4"
-sha2 = "^0.10.6"
 tokio = { version = "1.0", features = ["full"] }
 tokio-rustls = "0.22"
 log = "0.4"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-kv = "0.24.0"
-miniscript = "12"
 futures = "0.3.4"
-toml = "0.5.10"
 bitcoin = { version = "0.32", features = ["serde", "std", "bitcoinconsensus"] }
 thiserror = "1.0"
 core2 = { version = "0.4.0", default-features = false }
@@ -39,4 +35,4 @@ core2 = { version = "0.4.0", default-features = false }
 [dev-dependencies]
 rand = "0.8.5"
 rcgen = "0.13"
-zstd = "0.13.2"
+zstd = "0.13.3"

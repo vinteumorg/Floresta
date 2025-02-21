@@ -27,8 +27,6 @@ bitcoin = { version = "0.32", features = [
 ], default-features = false }
 spin = "0.9.8"
 core2 = { version = "0.4.0", default-features = false }
-hashbrown = { version = "0.14.0", optional = true }
-secp256k1 = { version = "*", features = ["alloc"], optional = true }
 floresta-common = { path = "../floresta-common", default-features = false, features = ["std"] }
 bitcoinconsensus = { version = "0.106.0", optional = true, default-features = false }
 metrics = { path = "../../metrics", optional = true }
@@ -38,7 +36,7 @@ criterion = "0.5.1"
 rand = "0.8.5"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-zstd = "0.12.3"
+zstd = "0.12.4"
 hex = "0.4.3"
 
 [features]
