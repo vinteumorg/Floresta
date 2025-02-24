@@ -14,7 +14,7 @@ serde_json = "1.0"
 kv = "0.24.0"
 miniscript = "12"
 futures = "0.3.4"
-toml = "0.5.11"
+toml = "0.8.20"
 dirs = "4.0.0"
 bitcoin = { version = "0.32", features = ["serde", "std", "bitcoinconsensus"] }
 ctrlc = "3.2.5"
@@ -63,4 +63,4 @@ default = ["experimental-p2p", "json-rpc"]
 metrics = ["dep:metrics", "floresta-wire/metrics"]
 
 [build-dependencies]
-toml = "0.5.11"
+toml = "0.8.20"
