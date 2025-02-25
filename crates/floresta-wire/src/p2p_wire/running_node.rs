@@ -21,10 +21,12 @@ use floresta_chain::BlockValidationErrors;
 use floresta_chain::BlockchainError;
 use floresta_chain::UtreexoBlock;
 use floresta_common::service_flags;
+use floresta_common::service_flags::UTREEXO;
 use log::debug;
 use log::error;
 use log::info;
 use log::warn;
+use rand::random;
 use rustreexo::accumulator::node_hash::BitcoinNodeHash;
 use rustreexo::accumulator::pollard::PollardAddition;
 use rustreexo::accumulator::stump::Stump;
@@ -52,7 +54,6 @@ use crate::p2p_wire::sync_node::SyncNode;
 
 #[derive(Debug, Clone)]
 pub struct RunningNode {
-    pub(crate) last_feeler: Instant,
     pub(crate) last_address_rearrange: Instant,
     pub(crate) user_requests: Arc<NodeInterface>,
     /// To find peers with a good connectivity, keep track of what peers sent us an inv message
@@ -146,8 +147,14 @@ where
                         port,
                         self.peer_id_count as usize,
                     );
-                    self.open_connection(ConnectionKind::Regular, 0, local_addr)
-                        .await;
+
+                    self.open_connection(
+                        ConnectionKind::Regular(ServiceFlags::NONE),
+                        0,
+                        local_addr,
+                    )
+                    .await;
+
                     self.peer_id_count += 1;
                     self.context.user_requests.send_answer(
                         UserRequest::Connect((addr, port)),
@@ -251,7 +258,7 @@ where
         Ok(())
     }
 
-    pub async fn catch_up(self, kill_signal: Arc<RwLock<bool>>) -> Self {
+    async fn catch_up(self, kill_signal: Arc<RwLock<bool>>) -> Self {
         let mut sync = UtreexoNode::<Chain, SyncNode> {
             context: SyncNode::default(),
             common: self.common,
@@ -262,6 +269,61 @@ where
             common: sync.common,
             context: self.context,
         }
+    }
+
+    /// This function is called periodically to check if we have:
+    /// - 10 connections
+    /// - At least one utreexo peer
+    /// - At least one compact filters peer
+    ///
+    /// If we are missing the speciall peers but have 10 connections, we should disconnect one
+    /// random peer and try to connect to a utreexo and a compact filters peer.
+    async fn check_connections(&mut self) -> Result<(), WireError> {
+        // We're always looking for a peer with the following services
+        let base_services: ServiceFlags = ServiceFlags::NETWORK | ServiceFlags::WITNESS;
+
+        // if we have 10 connections, but not a single utreexo or CBF one, disconnect one random
+        // peer and create a utreexo and CBS connection
+        if !self.has_utreexo_peers() {
+            if self.peer_ids.len() == 10 {
+                let peer = random::<usize>() % self.peer_ids.len();
+                let peer = self
+                    .peer_ids
+                    .get(peer)
+                    .expect("we've modulo before, we should have it");
+                self.send_to_peer(*peer, NodeRequest::Shutdown).await?;
+            }
+
+            self.create_connection(ConnectionKind::Regular(base_services | UTREEXO.into()))
+                .await;
+        }
+
+        if self.block_filters.is_none() {
+            return Ok(());
+        }
+
+        if !self.has_compact_filters_peer() {
+            if self.peer_ids.len() == 10 {
+                let peer = random::<usize>() % self.peer_ids.len();
+                let peer = self
+                    .peer_ids
+                    .get(peer)
+                    .expect("we've modulo before, we should have it");
+                self.send_to_peer(*peer, NodeRequest::Shutdown).await?;
+            }
+
+            self.create_connection(ConnectionKind::Regular(
+                base_services | ServiceFlags::COMPACT_FILTERS,
+            ))
+            .await;
+        }
+
+        if self.peers.len() < 10 {
+            self.create_connection(ConnectionKind::Regular(base_services))
+                .await;
+        }
+
+        Ok(())
     }
 
     pub async fn run(
@@ -375,7 +437,7 @@ where
 
             // Perhaps we need more connections
             periodic_job!(
-                self.maybe_open_connection().await,
+                self.check_connections().await,
                 self.last_connection,
                 TRY_NEW_CONNECTION,
                 RunningNode
@@ -390,7 +452,7 @@ where
             // Open new feeler connection periodically
             periodic_job!(
                 self.open_feeler_connection().await,
-                self.context.last_feeler,
+                self.last_feeler,
                 FEELER_INTERVAL,
                 RunningNode
             );
@@ -841,7 +903,7 @@ where
                         let peer_to_disconnect = self
                             .peers
                             .iter()
-                            .filter(|(_, info)| matches!(info.kind, ConnectionKind::Regular))
+                            .filter(|(_, info)| matches!(info.kind, ConnectionKind::Regular(_)))
                             .min_by_key(|(k, _)| self.get_peer_score(**k))
                             .map(|(peer, _)| *peer);
 
@@ -852,7 +914,7 @@ where
 
                         // update the peer info
                         self.peers.entry(peer).and_modify(|info| {
-                            info.kind = ConnectionKind::Regular;
+                            info.kind = ConnectionKind::Regular(peer_info.services);
                         });
                     }
 
@@ -877,8 +939,8 @@ where
                 }
                 PeerMessages::Addr(addresses) => {
                     debug!("Got {} addresses from peer {}", addresses.len(), peer);
-                    let addresses: Vec<_> =
-                        addresses.iter().cloned().map(|addr| addr.into()).collect();
+                    let addresses: Vec<_> = addresses.into_iter().map(|addr| addr.into()).collect();
+
                     self.address_man.push_addresses(&addresses);
                 }
                 PeerMessages::BlockFilter((hash, filter)) => {

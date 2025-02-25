@@ -690,10 +690,19 @@ where
                 try_and_log!(self.handle_notification(notification).await);
             }
 
+            // Checks if we need to open a new connection
             periodic_job!(
-                self.maybe_open_connection().await,
+                self.maybe_open_connection(ServiceFlags::NONE).await,
                 self.last_connection,
                 TRY_NEW_CONNECTION,
+                ChainSelector
+            );
+
+            // Open new feeler connection periodically
+            periodic_job!(
+                self.open_feeler_connection().await,
+                self.last_feeler,
+                FEELER_INTERVAL,
                 ChainSelector
             );
 

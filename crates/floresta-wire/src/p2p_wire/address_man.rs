@@ -21,7 +21,10 @@ use serde::Deserialize;
 use serde::Serialize;
 use thiserror::Error;
 
-const RETRY_TIME: u64 = 60 * 60; // 1 hour
+/// How long we'll wait before trying to connect to a peer that failed
+const RETRY_TIME: u64 = 10 * 60; // 10 minutes
+
+/// A type alias for a list of addresses to send to our peers
 type AddressToSend = Vec<(AddrV2, u64, ServiceFlags, u16)>;
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
@@ -360,19 +363,42 @@ impl AddressMan {
             if let AddressState::Banned(_) = address.state {
                 return None;
             }
+
             return Some((*peer, address));
         };
 
-        let (id, peer) = self
-            .get_address_by_service(required_service)
-            .or_else(|| self.get_random_address(required_service))?;
+        for _ in 0..10 {
+            let (id, peer) = self
+                .get_address_by_service(required_service)
+                .or_else(|| self.get_random_address(required_service))?;
 
-        match peer.state {
-            AddressState::Banned(_) | AddressState::Connected => None,
-            AddressState::NeverTried | AddressState::Tried(_) | AddressState::Failed(_) => {
-                Some((id, peer))
+            match peer.state {
+                AddressState::NeverTried | AddressState::Tried(_) => {
+                    return Some((id, peer));
+                }
+
+                AddressState::Banned(when) | AddressState::Failed(when) => {
+                    let now = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs();
+
+                    if when + RETRY_TIME < now {
+                        return Some((id, peer));
+                    }
+
+                    if let Some(peers) = self.good_peers_by_service.get_mut(&required_service) {
+                        peers.retain(|&x| x != id)
+                    }
+
+                    self.good_addresses.retain(|&x| x != id);
+                }
+
+                AddressState::Connected => {}
             }
         }
+
+        None
     }
 
     pub fn dump_peers(&self, datadir: &str) -> std::io::Result<()> {
@@ -507,17 +533,66 @@ impl AddressMan {
         }
     }
 
+    /// Attept to find one random peer that advertises the required service
+    ///
+    /// If we cannot find a peer that advertises the required service, we return any peer
+    /// that we have in our list of known peers. Luckily, either we'll connect to a peer that has
+    /// this but we didn't know, or one of those peers will give us useful addresses.
+    fn try_with_service(&self, service: ServiceFlags) -> Option<(usize, LocalAddress)> {
+        if let Some(peers) = self.peers_by_service.get(&service) {
+            let peers = peers
+                .iter()
+                .filter(|&x| {
+                    if let Some(address) = self.addresses.get(x) {
+                        // skip banned and peers that just failed
+                        if address.state == AddressState::NeverTried
+                            || matches!(address.state, AddressState::Tried(_))
+                        {
+                            return true;
+                        }
+
+                        if let AddressState::Failed(when) = address.state {
+                            let now = SystemTime::now()
+                                .duration_since(UNIX_EPOCH)
+                                .unwrap()
+                                .as_secs();
+
+                            if when + RETRY_TIME < now {
+                                return true;
+                            }
+                        }
+                    }
+
+                    false
+                })
+                .collect::<Vec<_>>();
+
+            if peers.is_empty() {
+                return None;
+            }
+
+            let idx = rand::random::<usize>() % peers.len();
+            let utreexo_peer = peers.get(idx)?;
+            return Some((**utreexo_peer, self.addresses.get(utreexo_peer)?.to_owned()));
+        }
+
+        None
+    }
+
     fn get_random_address(&self, service: ServiceFlags) -> Option<(usize, LocalAddress)> {
         if self.addresses.is_empty() {
             return None;
         }
-        if let Some(peers) = self.peers_by_service.get(&service) {
-            let idx = rand::random::<usize>() % peers.len();
-            let utreexo_peer = peers.get(idx)?;
-            Some((*utreexo_peer, self.addresses.get(utreexo_peer)?.to_owned()))
-        } else {
-            None
+
+        if let Some(address) = self.try_with_service(service) {
+            return Some(address);
         }
+
+        // if we can't find a peer that advertises the required service, get any peer
+        let idx = rand::random::<usize>() % self.addresses.len();
+        let peer = self.addresses.keys().nth(idx)?;
+
+        Some((*peer, self.addresses.get(peer)?.to_owned()))
     }
 
     /// Updates the state of an address
@@ -548,6 +623,9 @@ impl AddressMan {
             }
             AddressState::Failed(_) => {
                 self.good_addresses.retain(|&x| x != idx);
+                for peers in self.good_peers_by_service.values_mut() {
+                    peers.retain(|&x| x != idx);
+                }
             }
         }
 

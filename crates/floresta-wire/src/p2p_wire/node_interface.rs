@@ -7,7 +7,6 @@ use bitcoin::BlockHash;
 use bitcoin::Transaction;
 use bitcoin::Txid;
 use floresta_chain::UtreexoBlock;
-use serde::Deserialize;
 use serde::Serialize;
 
 use super::node::ConnectionKind;
@@ -21,14 +20,15 @@ pub enum UserRequest {
     GetPeerInfo,
     Connect((IpAddr, u16)),
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+
+#[derive(Debug, Clone, Serialize)]
 pub struct PeerInfo {
     pub address: String,
     pub services: String,
     pub user_agent: String,
     pub initial_height: u32,
-    pub kind: ConnectionKind,
     pub state: PeerStatus,
+    pub kind: ConnectionKind,
 }
 
 #[derive(Debug, Clone)]
