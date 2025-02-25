@@ -401,6 +401,7 @@ impl Florestad {
             backfill: false,
             filter_start_height: self.config.filters_start_height,
             user_agent: self.config.user_agent.clone(),
+            allow_v1_fallback: true,
         };
 
         let acc = Pollard::new();
