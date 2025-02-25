@@ -50,6 +50,22 @@ pub enum BlockValidationErrors {
     CoinbaseNotMatured,
 }
 
+// Helpful macro for generating a TransactionError
+macro_rules! tx_err {
+    ($txid_fn:expr, $variant:ident, $msg:expr) => {
+        TransactionError {
+            txid: ($txid_fn)(),
+            error: BlockValidationErrors::$variant($msg.into()),
+        }
+    };
+    ($txid_fn:expr, $variant:ident) => {
+        TransactionError {
+            txid: ($txid_fn)(),
+            error: BlockValidationErrors::$variant,
+        }
+    };
+}
+
 impl Display for TransactionError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "Transaction {} is invalid: {}", self.txid, self.error)

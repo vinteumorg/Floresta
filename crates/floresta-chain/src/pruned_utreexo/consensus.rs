@@ -87,22 +87,21 @@ impl Consensus {
     ) -> Result<(), BlockchainError> {
         // Blocks must contain at least one transaction (i.e. the coinbase)
         if transactions.is_empty() {
-            return Err(BlockValidationErrors::EmptyBlock.into());
+            return Err(BlockValidationErrors::EmptyBlock)?;
         }
 
         // Total block fees that the miner can claim in the coinbase
         let mut fee = 0;
 
         for (n, transaction) in transactions.iter().enumerate() {
+            let txid = || transaction.compute_txid();
+
             if n == 0 {
                 if !transaction.is_coinbase() {
-                    return Err(BlockValidationErrors::FirstTxIsNotCoinbase.into());
+                    return Err(BlockValidationErrors::FirstTxIsNotCoinbase)?;
                 }
+                Self::verify_coinbase(transaction)?;
 
-                Self::verify_coinbase(transaction).map_err(|error| TransactionError {
-                    txid: transaction.compute_txid(),
-                    error,
-                })?;
                 // Skip the rest of checks for the coinbase transaction
                 continue;
             }
@@ -112,44 +111,27 @@ impl Consensus {
             for output in transaction.output.iter() {
                 out_value += output.value.to_sat();
 
-                Self::validate_script_size(&output.script_pubkey).map_err(|error| {
-                    TransactionError {
-                        txid: transaction.compute_txid(),
-                        error,
-                    }
-                })?;
+                Self::validate_script_size(&output.script_pubkey, txid)?;
             }
 
             // Sum tx input amounts, check their unlocking script sizes (scriptsig and TODO witness)
             let mut in_value = 0;
             for input in transaction.input.iter() {
-                let txo = Self::get_utxo(input, &utxos).map_err(|error| TransactionError {
-                    txid: transaction.compute_txid(),
-                    error,
-                })?;
+                let txo = Self::get_utxo(input, &utxos, txid)?;
 
                 in_value += txo.value.to_sat();
 
-                Self::validate_script_size(&input.script_sig).map_err(|error| {
-                    TransactionError {
-                        txid: transaction.compute_txid(),
-                        error,
-                    }
-                })?;
+                Self::validate_script_size(&input.script_sig, txid)?;
                 // TODO check also witness script size
             }
 
             // Value in should be greater or equal to value out. Otherwise, inflation.
             if out_value > in_value {
-                return Err(TransactionError {
-                    txid: transaction.compute_txid(),
-                    error: BlockValidationErrors::NotEnoughMoney,
-                }
-                .into());
+                return Err(tx_err!(txid, NotEnoughMoney))?;
             }
             // Sanity check
             if out_value > 21_000_000 * COIN_VALUE {
-                return Err(BlockValidationErrors::TooManyCoins.into());
+                return Err(BlockValidationErrors::TooManyCoins)?;
             }
 
             // Fee is the difference between inputs and outputs
@@ -160,10 +142,7 @@ impl Consensus {
             if verify_script {
                 transaction
                     .verify_with_flags(|outpoint| utxos.remove(outpoint), flags)
-                    .map_err(|err| TransactionError {
-                        txid: transaction.compute_txid(),
-                        error: BlockValidationErrors::ScriptValidationError(err.to_string()),
-                    })?;
+                    .map_err(|e| tx_err!(txid, ScriptValidationError, e.to_string()))?;
             };
         }
 
@@ -174,28 +153,29 @@ impl Consensus {
                 .iter()
                 .fold(0, |acc, out| acc + out.value.to_sat())
         {
-            return Err(BlockValidationErrors::BadCoinbaseOutValue.into());
+            return Err(BlockValidationErrors::BadCoinbaseOutValue)?;
         }
 
         Ok(())
     }
+
     /// Returns the TxOut being spent by the given input.
     ///
     /// Fails if the UTXO is not present in the given hashmap.
-    fn get_utxo<'a>(
+    fn get_utxo<'a, F: Fn() -> Txid>(
         input: &TxIn,
         utxos: &'a HashMap<OutPoint, TxOut>,
-    ) -> Result<&'a TxOut, BlockValidationErrors> {
+        txid: F,
+    ) -> Result<&'a TxOut, TransactionError> {
         match utxos.get(&input.previous_output) {
             Some(txout) => Ok(txout),
-            None => Err(
-                // This is the case when the spender:
-                // - Spends an UTXO that doesn't exist
-                // - Spends an UTXO that was already spent
-                BlockValidationErrors::UtxoNotFound(input.previous_output),
-            ),
+            // This is the case when the spender:
+            // - Spends an UTXO that doesn't exist
+            // - Spends an UTXO that was already spent
+            None => Err(tx_err!(txid, UtxoNotFound, input.previous_output)),
         }
     }
+
     #[allow(unused)]
     fn validate_locktime(
         input: &TxIn,
@@ -204,35 +184,42 @@ impl Consensus {
     ) -> Result<(), BlockValidationErrors> {
         unimplemented!("validate_locktime")
     }
+
     /// Validates the script size and the number of sigops in a scriptpubkey or scriptsig.
-    fn validate_script_size(script: &ScriptBuf) -> Result<(), BlockValidationErrors> {
+    fn validate_script_size<F: Fn() -> Txid>(
+        script: &ScriptBuf,
+        txid: F,
+    ) -> Result<(), TransactionError> {
         // The maximum script size for non-taproot spends is 10,000 bytes
         // https://github.com/bitcoin/bitcoin/blob/v28.0/src/script/script.h#L39
         if script.len() > 10_000 {
-            return Err(BlockValidationErrors::ScriptError);
+            return Err(tx_err!(txid, ScriptError));
         }
         if script.count_sigops() > 80_000 {
-            return Err(BlockValidationErrors::ScriptError);
+            return Err(tx_err!(txid, ScriptError));
         }
         Ok(())
     }
-    fn verify_coinbase(transaction: &Transaction) -> Result<(), BlockValidationErrors> {
-        // The prevout input of a coinbase must be all zeroes
-        if transaction.input[0].previous_output.txid != Txid::all_zeros() {
-            return Err(BlockValidationErrors::InvalidCoinbase(
-                "Invalid coinbase txid".to_string(),
-            ));
-        }
-        let scriptsig_size = transaction.input[0].script_sig.len();
 
-        // The scriptsig size must be between 2 and 100 bytes (https://github.com/bitcoin/bitcoin/blob/v28.0/src/consensus/tx_check.cpp#L49)
+    fn verify_coinbase(tx: &Transaction) -> Result<(), TransactionError> {
+        let txid = || tx.compute_txid();
+        let input = &tx.input[0];
+
+        // The prevout input of a coinbase must be all zeroes
+        if input.previous_output.txid != Txid::all_zeros() {
+            return Err(tx_err!(txid, InvalidCoinbase, "Invalid Coinbase PrevOut"));
+        }
+
+        let scriptsig_size = input.script_sig.len();
+
+        // The scriptsig size must be between 2 and 100 bytes
+        // https://github.com/bitcoin/bitcoin/blob/v28.0/src/consensus/tx_check.cpp#L49
         if !(2..=100).contains(&scriptsig_size) {
-            return Err(BlockValidationErrors::InvalidCoinbase(
-                "Invalid ScriptSig size".to_string(),
-            ));
+            return Err(tx_err!(txid, InvalidCoinbase, "Invalid ScriptSig size"));
         }
         Ok(())
     }
+
     /// Calculates the next target for the proof of work algorithm, given the
     /// current target and the time it took to mine the last 2016 blocks.
     pub fn calc_next_work_required(
@@ -271,6 +258,7 @@ impl Consensus {
         Ok(acc)
     }
 }
+
 #[cfg(test)]
 mod tests {
     use bitcoin::absolute::LockTime;
@@ -332,6 +320,9 @@ mod tests {
 
     #[test]
     fn test_validate_script_size() {
+        use bitcoin::hashes::Hash;
+        let dummy_txid = || Txid::all_zeros();
+
         // Generate a script larger than 10,000 bytes (e.g., 10,001 bytes)
         let large_script = ScriptBuf::from_hex(&format!("{:0>20002}", "")).unwrap();
         assert_eq!(large_script.len(), 10_001);
@@ -339,8 +330,8 @@ mod tests {
         let small_script =
             ScriptBuf::from_hex("76a9149206a30c09cc853bb03bd917a4f9f29b089c1bc788ac").unwrap();
 
-        assert!(Consensus::validate_script_size(&small_script).is_ok());
-        assert!(Consensus::validate_script_size(&large_script).is_err());
+        assert!(Consensus::validate_script_size(&small_script, dummy_txid).is_ok());
+        assert!(Consensus::validate_script_size(&large_script, dummy_txid).is_err());
     }
 
     #[test]
@@ -353,6 +344,7 @@ mod tests {
         assert_eq!(
             Consensus::verify_coinbase(&invalid_one)
                 .unwrap_err()
+                .error
                 .to_string(),
             "Invalid coinbase: \"Invalid ScriptSig size\""
         );
