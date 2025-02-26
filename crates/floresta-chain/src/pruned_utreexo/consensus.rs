@@ -100,9 +100,9 @@ impl Consensus {
                 if !transaction.is_coinbase() {
                     return Err(BlockValidationErrors::FirstTxIsNotCoinbase)?;
                 }
+                // Check coinbase input and output script limits
                 Self::verify_coinbase(transaction)?;
-
-                // Skip the rest of checks for the coinbase transaction
+                // Skip next checks: coinbase input is exempt, coinbase reward checked later
                 continue;
             }
 
@@ -146,13 +146,15 @@ impl Consensus {
             };
         }
 
-        // Checks if the miner isn't trying to create inflation
-        if fee + subsidy
-            < transactions[0]
-                .output
-                .iter()
-                .fold(0, |acc, out| acc + out.value.to_sat())
-        {
+        // Check coinbase output values to ensure the miner isn't producing excess coins
+        let allowed_reward = fee + subsidy;
+        let coinbase_total: u64 = transactions[0]
+            .output
+            .iter()
+            .map(|out| out.value.to_sat())
+            .sum();
+
+        if coinbase_total > allowed_reward {
             return Err(BlockValidationErrors::BadCoinbaseOutValue)?;
         }
 
@@ -201,22 +203,32 @@ impl Consensus {
         Ok(())
     }
 
+    /// Validates the coinbase transaction's input and enforces the limits on each
+    /// output's script. The check for output values is not performed here.
     fn verify_coinbase(tx: &Transaction) -> Result<(), TransactionError> {
         let txid = || tx.compute_txid();
-        let input = &tx.input[0];
+        let input = match tx.input.as_slice() {
+            [i] => i,
+            _ => return Err(tx_err!(txid, InvalidCoinbase, "Coinbase must have 1 input")),
+        };
 
         // The prevout input of a coinbase must be all zeroes
         if input.previous_output.txid != Txid::all_zeros() {
             return Err(tx_err!(txid, InvalidCoinbase, "Invalid Coinbase PrevOut"));
         }
 
-        let scriptsig_size = input.script_sig.len();
-
         // The scriptsig size must be between 2 and 100 bytes
         // https://github.com/bitcoin/bitcoin/blob/v28.0/src/consensus/tx_check.cpp#L49
-        if !(2..=100).contains(&scriptsig_size) {
+        let size = input.script_sig.len();
+        if !(2..=100).contains(&size) {
             return Err(tx_err!(txid, InvalidCoinbase, "Invalid ScriptSig size"));
         }
+
+        // Finally check all the output scripts
+        for output in tx.output.iter() {
+            Self::validate_script_size(&output.script_pubkey, txid)?;
+        }
+
         Ok(())
     }
 
