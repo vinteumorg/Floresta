@@ -12,8 +12,6 @@ description = """
 
 [dependencies]
 bitcoin = "0.32"
-floresta-common = { path = "../floresta-common" }
 floresta-chain = { path = "../floresta-chain", default-features = false }
 kv = "0.24.0"
-log = "0.4.20"
 

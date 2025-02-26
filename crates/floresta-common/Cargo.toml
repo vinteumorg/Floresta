@@ -16,7 +16,7 @@ bitcoin = { version = "0.32", default-features = false, features = ["serde"] }
 spin = "0.9.8"
 
 # No-std specific dependencies
-hashbrown = { version = "0.14.0" }
+hashbrown = { version = "0.15.2" }
 core2 = { version = "0.4.0", default-features = false }
 
 # Optional as descriptors feature
