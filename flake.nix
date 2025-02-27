@@ -24,7 +24,7 @@
 
         libsDarwin = with pkgs.darwin.apple_sdk.frameworks; lib.optionals (system == "x86_64-darwin" || system == "aarch64-darwin") [ Security ];
 
-        #This is the dev tools used while developing in Floresta.
+        # This is the dev tools used while developing in Floresta.
         devTools = with pkgs; [
           rustup
           just
@@ -116,7 +116,7 @@
             in
             mkShell {
               inherit buildInputs;
-              inherit devTools;
+              nativeBuildInputs = devTools;
 
               shellHook = ''
                 		${ _shellHook}
