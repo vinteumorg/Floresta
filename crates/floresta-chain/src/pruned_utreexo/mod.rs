@@ -16,7 +16,6 @@ use bitcoin::block::Header as BlockHeader;
 use bitcoin::hashes::sha256;
 use bitcoin::Block;
 use bitcoin::BlockHash;
-use bitcoin::OutPoint;
 use bitcoin::Transaction;
 use bitcoin::TxOut;
 use rustreexo::accumulator::node_hash::BitcoinNodeHash;
@@ -24,6 +23,7 @@ use rustreexo::accumulator::proof::Proof;
 use rustreexo::accumulator::stump::Stump;
 
 use self::partial_chain::PartialChainState;
+use self::utxo_data::UtxoMap;
 use crate::prelude::*;
 use crate::BestChain;
 use crate::BlockConsumer;
@@ -89,13 +89,18 @@ pub trait BlockchainInterface {
         &self,
         block: &Block,
         proof: Proof,
-        inputs: HashMap<OutPoint, TxOut>,
+        inputs: UtxoMap,
         del_hashes: Vec<sha256::Hash>,
         acc: Stump,
     ) -> Result<(), Self::Error>;
 
     fn get_fork_point(&self, block: BlockHash) -> Result<BlockHash, Self::Error>;
     fn get_params(&self) -> bitcoin::params::Params;
+
+    /// Get the Median Time Past of the last 11 blocks from the given height
+    ///
+    /// Fails if all the 11 blocks are not present in the chain.
+    fn get_mtp(&self, height: u32) -> Result<u32, BlockchainError>;
 }
 /// [UpdatableChainstate] is a contract that a is expected from a chainstate
 /// implementation, that wishes to be updated. Using those methods, a backend like the p2p-node,
@@ -109,7 +114,7 @@ pub trait UpdatableChainstate {
         &self,
         block: &Block,
         proof: Proof,
-        inputs: HashMap<OutPoint, TxOut>,
+        inputs: UtxoMap,
         del_hashes: Vec<sha256::Hash>,
     ) -> Result<u32, BlockchainError>;
 
@@ -214,7 +219,7 @@ impl<T: UpdatableChainstate> UpdatableChainstate for Arc<T> {
         &self,
         block: &Block,
         proof: Proof,
-        inputs: HashMap<OutPoint, TxOut>,
+        inputs: UtxoMap,
         del_hashes: Vec<sha256::Hash>,
     ) -> Result<u32, BlockchainError> {
         T::connect_block(self, block, proof, inputs, del_hashes)
@@ -263,6 +268,9 @@ impl<T: BlockchainInterface> BlockchainInterface for Arc<T> {
 
     fn get_tx(&self, txid: &bitcoin::Txid) -> Result<Option<bitcoin::Transaction>, Self::Error> {
         T::get_tx(self, txid)
+    }
+    fn get_mtp(&self, height: u32) -> Result<u32, BlockchainError> {
+        T::get_mtp(self, height)
     }
 
     fn get_params(&self) -> bitcoin::params::Params {
@@ -348,7 +356,7 @@ impl<T: BlockchainInterface> BlockchainInterface for Arc<T> {
         &self,
         block: &Block,
         proof: Proof,
-        inputs: HashMap<OutPoint, TxOut>,
+        inputs: UtxoMap,
         del_hashes: Vec<sha256::Hash>,
         acc: Stump,
     ) -> Result<(), Self::Error> {
@@ -358,4 +366,85 @@ impl<T: BlockchainInterface> BlockchainInterface for Arc<T> {
     fn get_fork_point(&self, block: BlockHash) -> Result<BlockHash, Self::Error> {
         T::get_fork_point(self, block)
     }
+}
+/// Module to delegate local-time context.
+///
+/// The consumer of `Floresta-chain` has the option to implement [`NodeTime`] if on a non-std environment.([`get_time()`] implementation that returns 0u32 will disable time checks.)
+///
+/// On std you can just use a instance [`StdNodeTime`] as input.
+pub mod nodetime {
+    /// Disable empty struct.
+    ///
+    /// Meant to be used in cases to disable time verifications
+    pub struct DisableTime;
+    /// One Hour in seconds constant.
+    pub const HOUR: u32 = 60 * 60;
+    /// Trait to return time-related context of the chain.
+    ///
+    /// [`get_time()`] should return a the latest [unix timestamp](https://en.wikipedia.org/wiki/Unix_time) when the consumer has time-notion.
+    ///
+    /// if the consumer does not have any time notion or MTP control, its safe to use `0u32` to disable any validations on time.
+    pub trait NodeTime {
+        /// Should return a unix timestamp or 0 to skip any time related validation.
+        fn get_time(&self) -> u32;
+    }
+    impl NodeTime for DisableTime {
+        fn get_time(&self) -> u32 {
+            // we simply return zero to disable time checks
+            0
+        }
+    }
+    #[cfg(feature = "std")]
+    /// A module to provide the standard implementation of [`NodeTime`] trait. It uses [`std::time::SystemTime`] to get the current time.
+    pub mod standard_node_time {
+        extern crate std;
+        use std::time;
+        /// A empty struct to implement [`NodeTime`] trait using [`std::time::SystemTime`]
+        pub struct StdNodeTime;
+        impl super::NodeTime for StdNodeTime {
+            fn get_time(&self) -> u32 {
+                time::SystemTime::now()
+                    .duration_since(time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs() as u32
+            }
+        }
+    }
+}
+///Module to hold methods and structs related to UTXO data.
+pub mod utxo_data {
+
+    use bitcoin::OutPoint;
+
+    use super::*;
+
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    /// A struct to hold unverified UTXOs and its metadata.
+    pub struct UtxoData {
+        /// The transaction output that created this UTXO.
+        pub(crate) txout: bitcoin::TxOut,
+        /// The lock value of the utxo.
+        pub(crate) commited_height: u32,
+        pub(crate) commited_time: u32,
+    }
+
+    impl From<TxOut> for UtxoData {
+        fn from(txout: TxOut) -> Self {
+            UtxoData {
+                txout,
+                commited_height: 0,
+                commited_time: 0,
+            }
+        }
+    }
+    impl From<&TxOut> for UtxoData {
+        fn from(txout: &TxOut) -> Self {
+            UtxoData {
+                txout: txout.clone(),
+                commited_height: 0,
+                commited_time: 0,
+            }
+        }
+    }
+    pub(crate) type UtxoMap = HashMap<OutPoint, UtxoData>;
 }

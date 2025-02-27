@@ -220,11 +220,17 @@ where
                     // to be invalidated.
                     match e {
                         BlockValidationErrors::InvalidCoinbase(_)
+                        | BlockValidationErrors::InvalidBlockTimestamp
                         | BlockValidationErrors::UtxoNotFound(_)
+                        | BlockValidationErrors::BadAbsoluteLockTime
+                        | BlockValidationErrors::BadRelativeBlockLock
+                        | BlockValidationErrors::BadRelativeTimeLock
                         | BlockValidationErrors::ScriptValidationError(_)
                         | BlockValidationErrors::InvalidOutput
                         | BlockValidationErrors::ScriptError
                         | BlockValidationErrors::BlockTooBig
+                        | BlockValidationErrors::BlockTooNew
+                        | BlockValidationErrors::BlockTooOld
                         | BlockValidationErrors::NotEnoughPow
                         | BlockValidationErrors::TooManyCoins
                         | BlockValidationErrors::BadMerkleRoot
