@@ -8,16 +8,21 @@
 //! parameter by the caller.
 //!
 //! The three flavors of node are:
-//!  - ChainSelector: This finds the best PoW chain, by downloading multiple candidates and taking
-//!                   the one with more PoW. It should do it's job quickly, as it blocks our main
-//!                   client and can't proceed without this information.
-//!  - SyncNode: Used to download and verify all blocks in a chain. This is computationally
-//!              expensive and may take a while to run. After this ends it's job, it gives us 100%
-//!              centanty that this chain is valid.
-//!  - Running Node: This is the one that users interacts with, and should be the one running most
-//!                  of the time. This node is started right after `ChainSelector` returns, and
-//!                  will handle new blocks (even if `SyncNode` haven't returned) and handle
-//!                  requests by users.
+//!  - ChainSelector:
+//!    This finds the best PoW chain, by downloading multiple candidates and taking
+//!    the one with more PoW. It should do its job quickly, as it blocks our main
+//!    client and can't proceed without this information.
+//!
+//!  - SyncNode:
+//!    Used to download and verify all blocks in a chain. This is computationally
+//!    expensive and may take a while to run. After this ends its job, it gives us 100%
+//!    certainty that this chain is valid.
+//!
+//!  - Running Node:
+//!    This is the one that users interacts with, and should be the one running most
+//!    of the time. This node is started right after `ChainSelector` returns, and
+//!    will handle new blocks (even if `SyncNode` haven't returned) and handle
+//!    requests by users.
 
 use bitcoin::p2p::ServiceFlags;
 
