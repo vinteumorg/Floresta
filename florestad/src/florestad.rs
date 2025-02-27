@@ -164,6 +164,13 @@ pub struct Config {
     pub ssl_key_path: Option<String>,
     /// Whether to disable SSL for the Electrum server
     pub no_ssl: bool,
+    /// Whehter we should backfill
+    ///
+    /// If we assumeutreexo or use pow fraud proofs, you have the option to download and validate
+    /// the blocks that were skipped. This will take a long time, but will run on the background
+    /// and won't affect the node's operation. You may notice that this will take a lot of CPU
+    /// and bandwidth to run.
+    pub backfill: bool,
 }
 
 pub struct Florestad {
@@ -404,12 +411,15 @@ impl Florestad {
         };
 
         let acc = Pollard::new();
+        let kill_signal = self.stop_signal.clone();
+
         // Chain Provider (p2p)
         let chain_provider = UtreexoNode::new(
             config,
             blockchain_state.clone(),
             Arc::new(tokio::sync::Mutex::new(Mempool::new(acc, 300_000_000))),
             cfilters.clone(),
+            kill_signal.clone(),
         )
         .expect("Could not create a chain provider");
 
@@ -538,13 +548,12 @@ impl Florestad {
         }
 
         // Chain provider
-        let kill_signal = self.stop_signal.clone();
         let (sender, receiver) = oneshot::channel();
 
         let mut recv = self.stop_notify.lock().unwrap();
         *recv = Some(receiver);
 
-        task::spawn(chain_provider.run(kill_signal, sender));
+        task::spawn(chain_provider.run(sender));
 
         // Metrics
         #[cfg(feature = "metrics")]
