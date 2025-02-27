@@ -24,7 +24,7 @@ jobs:
         run: cargo +nightly fmt --all --check
 
       - name: Run cargo clippy
-        run: cargo +nightly clippy --all-targets
+        run: cargo +nightly clippy --all-targets -- -D warnings
 
   cross-testing:
     strategy:
