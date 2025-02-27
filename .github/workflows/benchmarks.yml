@@ -1,0 +1,72 @@
+name: Benchmarks
+
+on:
+  push:
+  pull_request:
+    branches: ["master"]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  benchmark:
+    name: Run Benchmarks
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      # Calculate cache keys
+      - name: Set bi-weekly cache key
+        run: |
+          YEAR=$(date +%Y)
+          BIWEEK=$(( ($(date +%U) + 1) / 2 ))
+          echo "CACHE_VERSION=${YEAR}(${BIWEEK})" >> $GITHUB_ENV
+
+          # Hash of all files that could affect the build
+          HASH=$(echo "${{ hashFiles('**/Cargo.lock', '**/Cargo.toml', '.github/workflows/**') }}")
+          echo "BUILD_HASH=${HASH}" >> $GITHUB_ENV
+        shell: bash
+
+      # Restore Rust build cache
+      - name: Restore Rust cache
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-bench-${{ env.CACHE_VERSION }}-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-bench-${{ env.CACHE_VERSION }}-
+            ${{ runner.os }}-cargo-bench-
+
+      # Run benchmarks
+      - name: Run cargo bench
+        run: cargo bench
+
+       # Save Rust cache if there was no exact match
+      - name: Save Rust cache
+        if: success() && steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-bench-${{ env.CACHE_VERSION }}-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+
+      # Store benchmark results
+      - name: Store benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: target/criterion
