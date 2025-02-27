@@ -93,8 +93,6 @@ impl Consensus {
         let mut fee = 0;
 
         for (n, transaction) in transactions.iter().enumerate() {
-            let txid = || transaction.compute_txid();
-
             if n == 0 {
                 if !transaction.is_coinbase() {
                     return Err(BlockValidationErrors::FirstTxIsNotCoinbase)?;
@@ -105,43 +103,11 @@ impl Consensus {
                 continue;
             }
 
-            // Sum tx output amounts. This will be used for the fee calculation
-            let out_value: u64 = transaction
-                .output
-                .iter()
-                .map(|out| out.value.to_sat())
-                .sum();
-
-            // Sum tx input amounts, check their unlocking script sizes (scriptsig and TODO witness)
-            let mut in_value = 0;
-            for input in transaction.input.iter() {
-                let txo = Self::get_utxo(input, &utxos, txid)?;
-
-                in_value += txo.value.to_sat();
-
-                Self::validate_script_size(&input.script_sig, txid)?;
-                // TODO check also witness script size
-            }
-
-            // Value in should be greater or equal to value out. Otherwise, inflation.
-            if out_value > in_value {
-                return Err(tx_err!(txid, NotEnoughMoney))?;
-            }
-            // Sanity check
-            if out_value > 21_000_000 * COIN_VALUE {
-                return Err(BlockValidationErrors::TooManyCoins)?;
-            }
+            let (in_value, out_value) =
+                Self::verify_transaction(transaction, &mut utxos, verify_script, flags)?;
 
             // Fee is the difference between inputs and outputs
             fee += in_value - out_value;
-
-            // Verify the tx script
-            #[cfg(feature = "bitcoinconsensus")]
-            if verify_script {
-                transaction
-                    .verify_with_flags(|outpoint| utxos.remove(outpoint), flags)
-                    .map_err(|e| tx_err!(txid, ScriptValidationError, e.to_string()))?;
-            };
         }
 
         // Check coinbase output values to ensure the miner isn't producing excess coins
@@ -157,6 +123,59 @@ impl Consensus {
         }
 
         Ok(())
+    }
+
+    /// Verifies a single transaction. This function checks the following:
+    ///     - The transaction doesn't spend more coins than it claims in the inputs
+    ///     - The transaction doesn't create more coins than allowed
+    ///     - The transaction has valid scripts
+    ///     - The transaction doesn't have duplicate inputs (TODO)
+    fn verify_transaction(
+        transaction: &Transaction,
+        utxos: &mut HashMap<OutPoint, TxOut>,
+        verify_script: bool,
+        flags: c_uint,
+    ) -> Result<(u64, u64), BlockchainError> {
+        let txid = || transaction.compute_txid();
+
+        // Sum tx output amounts, check their locking script sizes (scriptpubkey)
+        let mut out_value = 0;
+        for output in transaction.output.iter() {
+            out_value += output.value.to_sat();
+
+            Self::validate_script_size(&output.script_pubkey, txid)?;
+        }
+
+        // Sum tx input amounts, check their unlocking script sizes (scriptsig and TODO witness)
+        let mut in_value = 0;
+        for input in transaction.input.iter() {
+            let txo = Self::get_utxo(input, utxos, txid)?;
+
+            in_value += txo.value.to_sat();
+
+            Self::validate_script_size(&input.script_sig, txid)?;
+            // TODO check also witness script size
+        }
+
+        // Value in should be greater or equal to value out. Otherwise, inflation.
+        if out_value > in_value {
+            return Err(tx_err!(txid, NotEnoughMoney))?;
+        }
+
+        // Sanity check
+        if out_value > 21_000_000 * COIN_VALUE {
+            return Err(BlockValidationErrors::TooManyCoins)?;
+        }
+
+        // Verify the tx script
+        #[cfg(feature = "bitcoinconsensus")]
+        if verify_script {
+            transaction
+                .verify_with_flags(|outpoint| utxos.remove(outpoint), flags)
+                .map_err(|e| tx_err!(txid, ScriptValidationError, e.to_string()))?;
+        };
+
+        Ok((in_value, out_value))
     }
 
     /// Returns the TxOut being spent by the given input.
