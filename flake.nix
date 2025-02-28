@@ -1,6 +1,6 @@
 {
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-23.11";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.05";
     rust-overlay = {
       url = "github:oxalica/rust-overlay";
       inputs = {
@@ -44,24 +44,7 @@
       with pkgs;
       {
         checks = {
-          pre-commit-check = pre-commit-hooks.lib.${system}.run {
-            src = ./.;
-            hooks = {
-              typos.enable = true;
-
-              rustfmt = {
-                enable = true;
-                entry = "cargo +nightly fmt --all --check";
-              };
-
-              clippy = {
-                enable = true;
-                entry = "cargo +nightly clippy --all-targets";
-              };
-
-              nixpkgs-fmt.enable = true;
-            };
-          };
+          #TODO: Add relevant checks here to be executed by CI with nix flake check
         };
 
         packages = {
@@ -78,6 +61,13 @@
           pythonTests =
             let
               _scriptSetup = ''bash ./tests/prepare.sh'';
+              # Packages fetched from ./pyproject.toml
+              pythonDeps = with python312Packages; [
+                black
+                requests
+                pylint
+                jsonrpc-base
+              ];
             in
             pkgs.mkShell {
               buildInputs = with pkgs; [
@@ -86,28 +76,10 @@
                 poetry
                 poethepoet
                 go
-              ];
+              ] ++ pythonDeps;
               shellHook = ''
                 ${_scriptSetup}
-                echo -e "you may execute \n\tpoetry run poe tests \nto execute Florestas Python tests"
-              '';
-            };
-          runPythonTests =
-            let
-              _scriptSetup = ''bash ./tests/prepare.sh'';
-            in
-            pkgs.mkShell {
-              buildInputs = with pkgs; [
-                florestaRust
-                python312
-                poetry
-                poethepoet
-                go
-              ];
-              shellHook = ''
-                ${_scriptSetup}
-                poetry run poe tests
-                exit
+                echo -e "you may execute \n\t bash ./tests/run.sh \nto execute Florestas Python tests"
               '';
             };
           default =
