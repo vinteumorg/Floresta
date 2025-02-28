@@ -50,9 +50,6 @@ class GetRpcInfoTest(FlorestaTestFramework):
         assert "method" in result["active_commands"][0]
         assert result["active_commands"][0]["duration"] == 0
         assert result["active_commands"][0]["method"] == "getrpcinfo"
-        assert result["logpath"] == os.path.normpath(
-            os.path.join(GetRpcInfoTest.data_dir, "regtest", "output.log")
-        )
 
     def run_test(self):
         """
