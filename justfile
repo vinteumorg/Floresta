@@ -41,7 +41,11 @@ test-wkspc:
     cargo test --workspace -- --nocapture
 
 # Execute our python integration tests inside /tests using nix for all setup needed.
-test-int-nix:
+test-int-nixrun:
+    nix develop .#runPythonTests
+
+# uses a nix-shell for all setup needed for python integration tests.
+test-int-nixsetup:
     nix develop .#pythonTests
 
 # Execute tests/prepare.sh.
