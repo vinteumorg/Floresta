@@ -84,4 +84,3 @@ fi
 
 
 echo "All done!"
-exit 0

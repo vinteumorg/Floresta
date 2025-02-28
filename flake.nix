@@ -92,24 +92,6 @@
                 echo -e "you may execute \n\tpoetry run poe tests \nto execute Florestas Python tests"
               '';
             };
-          runPythonTests =
-            let
-              _scriptSetup = ''bash ./tests/prepare.sh'';
-            in
-            pkgs.mkShell {
-              buildInputs = with pkgs; [
-                florestaRust
-                python312
-                poetry
-                poethepoet
-                go
-              ];
-              shellHook = ''
-                ${_scriptSetup}
-                poetry run poe tests
-                exit
-              '';
-            };
           default =
             let
               _shellHook = (self.checks.${system}.pre-commit-check.shellHook or "");
