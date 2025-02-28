@@ -120,7 +120,8 @@ impl MerkleProof {
         let pairs = if node_count % 2 == 0 {
             node_count / 2
         } else {
-            (node_count + 1) / 2
+            // (node_count + 1) / 2
+            node_count.div_ceil(2)
         };
 
         for idx in 0..pairs {
