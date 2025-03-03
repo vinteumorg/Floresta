@@ -187,6 +187,7 @@ pub fn get_node_config(
         backfill: false,
         filter_start_height: None,
         user_agent: "node_test".to_string(),
+        allow_v1_fallback: true,
     }
 }
 

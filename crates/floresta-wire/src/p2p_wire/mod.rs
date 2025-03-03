@@ -64,6 +64,9 @@ pub struct UtreexoNodeConfig {
     pub filter_start_height: Option<i32>,
     /// The user agent that we will advertise to our peers. Defaults to `floresta:<version>`.
     pub user_agent: String,
+    /// Whether to allow fallback to v1 transport if v2 connection fails.
+    /// Defaults to true.
+    pub allow_v1_fallback: bool,
 }
 
 impl Default for UtreexoNodeConfig {
@@ -82,6 +85,7 @@ impl Default for UtreexoNodeConfig {
             assume_utreexo: None,
             filter_start_height: None,
             user_agent: format!("floresta:{}", env!("CARGO_PKG_VERSION")),
+            allow_v1_fallback: true,
         }
     }
 }
@@ -100,3 +104,4 @@ pub mod sync_node;
 #[cfg(test)]
 #[doc(hidden)]
 pub mod tests;
+pub mod transport;
