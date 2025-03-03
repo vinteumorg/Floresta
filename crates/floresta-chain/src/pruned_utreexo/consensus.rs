@@ -11,7 +11,6 @@ use bitcoin::hashes::sha256;
 use bitcoin::hashes::Hash;
 use bitcoin::Block;
 use bitcoin::CompactTarget;
-use bitcoin::OutPoint;
 use bitcoin::ScriptBuf;
 use bitcoin::Target;
 use bitcoin::Transaction;
@@ -26,8 +25,13 @@ use rustreexo::accumulator::stump::Stump;
 use super::chainparams::ChainParams;
 use super::error::BlockValidationErrors;
 use super::error::BlockchainError;
+use super::nodetime::NodeTime;
+use super::nodetime::HOUR;
 use super::udata;
+use super::utxo_data::UtxoMap;
 use crate::TransactionError;
+
+pub const SEQUENCE_LOCKTIME_MASK: u32 = 0x0000_ffff;
 
 /// The value of a single coin in satoshis.
 pub const COIN_VALUE: u64 = 100_000_000;
@@ -76,10 +80,10 @@ impl Consensus {
     ///     - The transaction must not have duplicate inputs
     ///     - The transaction must not spend more coins than it claims in the inputs
     ///     - The transaction must have valid scripts
-    #[allow(unused)]
     pub fn verify_block_transactions(
         height: u32,
-        mut utxos: HashMap<OutPoint, TxOut>,
+        block_time: u32,
+        mut utxos: UtxoMap,
         transactions: &[Transaction],
         subsidy: u64,
         verify_script: bool,
@@ -122,6 +126,9 @@ impl Consensus {
                 in_value += txo.value.to_sat();
 
                 Self::validate_script_size(&input.script_sig, txid)?;
+
+                Self::validate_locktime(input, transaction, &utxos, height, block_time)?;
+
                 // TODO check also witness script size
             }
 
@@ -141,7 +148,10 @@ impl Consensus {
             #[cfg(feature = "bitcoinconsensus")]
             if verify_script {
                 transaction
-                    .verify_with_flags(|outpoint| utxos.remove(outpoint), flags)
+                    .verify_with_flags(
+                        |outpoint| utxos.remove(outpoint).map(|utxodata| utxodata.txout),
+                        flags,
+                    )
                     .map_err(|e| tx_err!(txid, ScriptValidationError, e.to_string()))?;
             };
         }
@@ -166,11 +176,11 @@ impl Consensus {
     /// Fails if the UTXO is not present in the given hashmap.
     fn get_utxo<'a, F: Fn() -> Txid>(
         input: &TxIn,
-        utxos: &'a HashMap<OutPoint, TxOut>,
+        utxos: &'a UtxoMap,
         txid: F,
     ) -> Result<&'a TxOut, TransactionError> {
         match utxos.get(&input.previous_output) {
-            Some(txout) => Ok(txout),
+            Some(txout) => Ok(&txout.txout),
             // This is the case when the spender:
             // - Spends an UTXO that doesn't exist
             // - Spends an UTXO that was already spent
@@ -178,13 +188,99 @@ impl Consensus {
         }
     }
 
-    #[allow(unused)]
+    /// From a block timestamp, with a given MTP and a real world time, validate if a block timestamp
+    /// is correct.
+    pub fn validate_block_time(
+        block_timestamp: u32,
+        mtp: u32,
+        time: impl NodeTime,
+    ) -> Result<(), BlockValidationErrors> {
+        if time.get_time() == 0 {
+            return Ok(());
+        } // The check for skipping time validation.
+
+        let its_too_old = mtp > block_timestamp;
+        let its_too_new = block_timestamp > (time.get_time() + (2 * HOUR));
+        if its_too_old {
+            return Err(BlockValidationErrors::BlockTooNew);
+        }
+        if its_too_new {
+            return Err(BlockValidationErrors::BlockTooNew);
+        }
+        Ok(())
+    }
+
+    /// Validate if the transaction doesnt have any timelock invalidating its inclusion inside blocks.
     fn validate_locktime(
         input: &TxIn,
         transaction: &Transaction,
+        out_map: &UtxoMap,
         height: u32,
+        block_time: u32,
     ) -> Result<(), BlockValidationErrors> {
-        unimplemented!("validate_locktime")
+        let is_relative_locked =
+            input.sequence.is_relative_lock_time() && transaction.version.0 >= 2;
+
+        if is_relative_locked {
+            let prevout = match out_map.get(&input.previous_output) {
+                Some(po) => po,
+                None => {
+                    return Err(BlockValidationErrors::UtxoNotFound(input.previous_output));
+                }
+            };
+            // All the unwraps and casts inside this match are unreachable by logic.
+            match input.sequence.to_relative_lock_time() {
+                Some(lock) => {
+                    match (lock.is_block_height(), lock.is_block_time()) {
+                        (true, false) => {
+                            // We are validating a relative block lock
+
+                            let block_diff = bitcoin::relative::Height::from_height(
+                                height.abs_diff(prevout.commited_height) as u16,
+                            );
+
+                            let satisfied = lock.is_satisfied_by_height(block_diff).unwrap();
+
+                            if !satisfied {
+                                return Err(BlockValidationErrors::BadRelativeBlockLock);
+                            }
+                        }
+                        (false, true) => {
+                            // We are validating a relative block lock
+
+                            let time_diff = bitcoin::relative::Time::from_seconds_floor(
+                                block_time.abs_diff(prevout.commited_time),
+                            )
+                            .unwrap();
+
+                            let satisfied = lock.is_satisfied_by_time(time_diff).unwrap();
+
+                            if !satisfied {
+                                return Err(BlockValidationErrors::BadRelativeTimeLock);
+                            }
+                        }
+                        // A relative locktime cannot evaluate to both.
+                        _ => unreachable!(),
+                    }
+                }
+
+                // This should never happen because we already check if the Sequence
+                // refers to a relative locktime
+                _ => unreachable!(),
+            }
+        }
+
+        let is_absolute_locked = transaction.is_lock_time_enabled();
+
+        let is_locktime_satisfied = transaction.is_absolute_timelock_satisfied(
+            bitcoin::absolute::Height::from_consensus(height).unwrap(),
+            bitcoin::absolute::Time::from_consensus(block_time).unwrap(),
+        );
+
+        if !is_locktime_satisfied && is_absolute_locked {
+            return Err(BlockValidationErrors::BadAbsoluteLockTime);
+        }
+        Ok(())
     }
 
     /// Validates the script size and the number of sigops in a scriptpubkey or scriptsig.
@@ -287,6 +383,7 @@ mod tests {
     use bitcoin::Witness;
 
     use super::*;
+    use crate::pruned_utreexo::utxo_data::UtxoData;
 
     fn coinbase(is_valid: bool) -> Transaction {
         // This coinbase transactions was retrieved from https://learnmeabitcoin.com/explorer/block/0000000000000a0f82f8be9ec24ebfca3d5373fde8dc4d9b9a949d538e9ff679
@@ -401,6 +498,178 @@ mod tests {
             Err(bitcoin::transaction::TxVerifyError::UnknownSpentOutput(
                 outpoint
             )),
+        );
+    }
+    /// Validates a relative timelock transaction and return its errors if any.
+    ///
+    /// utxo_lock: is the lock value which can be either a height or a timestamp. Defines the creation time/height of the UTXO.
+    /// Values > 500,000,000 will be considered a unix timestamp, otherwise a height.
+    ///
+    /// sequence: a be u32 sequence to be put in a fake transaction that has only 1 input spending the utxo locked.
+    ///
+    /// actual_tip_lock: the height/time to be considered as the tip of the chain.
+    /// Values > 500,000,000 will be considered a unix timestamp, otherwise a height.
+    pub fn test_reltimelock(
+        utxo_lock: u32,
+        sequence: u32,
+        actual_tip_lock: u32,
+    ) -> Option<BlockValidationErrors> {
+        use bitcoin::hashes::Hash;
+        let base_tx = Transaction {
+            version: Version(2),
+            lock_time: LockTime::ZERO,
+            input: vec![TxIn {
+                previous_output: OutPoint {
+                    txid: Hash::all_zeros(),
+                    vout: 0,
+                },
+                sequence: Sequence::from_consensus(sequence),
+                script_sig: ScriptBuf::default(),
+                witness: Witness::default(),
+            }],
+            output: vec![TxOut {
+                value: Amount::from_sat(0),
+                script_pubkey: ScriptBuf::default(),
+            }],
+        };
+        // Check if the value is set for time and resets the default value for height and vice versa.
+        let mut actual_time = actual_tip_lock;
+        let mut actual_height = actual_tip_lock;
+
+        if actual_tip_lock > 500_000_000 {
+            actual_height = 0;
+        } else {
+            actual_time = 500_000_000;
+        }
+
+        // same for utxo_lock
+        let mut utxo_time = utxo_lock;
+        let mut utxo_height = utxo_lock;
+        if utxo_lock > 500_000_000 {
+            utxo_height = 0;
+        } else {
+            utxo_time = 500_000_000;
+        }
+
+        let mut utxo_state: UtxoMap = HashMap::new();
+
+        utxo_state.insert(
+            OutPoint {
+                txid: Hash::all_zeros(),
+                vout: 0,
+            },
+            UtxoData {
+                txout: TxOut {
+                    value: Amount::from_sat(0),
+                    script_pubkey: ScriptBuf::default(),
+                },
+                commited_time: utxo_time,
+                commited_height: utxo_height,
+            },
+        );
+
+        Consensus::validate_locktime(
+            &base_tx.input[0],
+            &base_tx,
+            &utxo_state,
+            actual_height,
+            actual_time,
+        )
+        .err()
+    }
+
+    /// Validates a timelocked transaction with its timelock set as `height_tx_lock` or `seconds_tx_lock` against `lock`
+    ///
+    /// when testing `height_tx_lock`, `seconds_tx_lock` needs to be `0` and vice-versa.
+    fn test_abstimelock(
+        lock: u32,
+        height_tx_lock: u32,
+        seconds_tx_lock: u32,
+    ) -> Option<BlockValidationErrors> {
+        use bitcoin::hashes::Hash;
+        let base_tx = Transaction {
+            version: Version(2),
+            lock_time: LockTime::from_consensus(lock),
+            input: vec![TxIn {
+                previous_output: OutPoint {
+                    txid: Hash::all_zeros(),
+                    vout: 0,
+                },
+                sequence: Sequence::ENABLE_LOCKTIME_NO_RBF,
+                script_sig: ScriptBuf::default(),
+                witness: Witness::default(),
+            }],
+            output: vec![TxOut {
+                value: Amount::from_sat(0),
+                script_pubkey: ScriptBuf::default(),
+            }],
+        };
+
+        // This is necessary because of the seconds gate in timelock...
+        let mut seconds_tx_lock = seconds_tx_lock;
+
+        if seconds_tx_lock == 0 {
+            seconds_tx_lock = 500000000;
+        }
+
+        Consensus::validate_locktime(
+            &base_tx.input[0],
+            &base_tx,
+            &HashMap::new(),
+            height_tx_lock,
+            seconds_tx_lock,
+        )
+        .err()
+    }
+    #[test]
+    fn test_timelock_validation() {
+        assert!(test_abstimelock(800, 800 + 1, 0).is_none()); //height locked sucess case.
+        assert_eq!(
+            test_abstimelock(800, 800 - 1, 0), //height locked fail case.
+            Some(BlockValidationErrors::BadAbsoluteLockTime)
+        );
+
+        assert!(test_abstimelock(1358114045, 0, 1358114045 + 1).is_none()); //time locked sucess case
+        assert_eq!(
+            test_abstimelock(1358114045, 0, 1358114045 - 1), //time locked fail case
+            Some(BlockValidationErrors::BadAbsoluteLockTime)
+        );
+
+        // relative height locked success case
+        let blocks_to_wait: u16 = 500;
+        let sequence = Sequence::from_height(blocks_to_wait);
+        assert!(
+            test_reltimelock(800_000, sequence.0, 800_000 + (blocks_to_wait + 1) as u32).is_none()
+        );
+
+        // relative height locked fail case
+        let blocks_to_wait: u16 = 500;
+        let sequence = Sequence::from_height(blocks_to_wait);
+        assert_eq!(
+            test_reltimelock(800_000, sequence.0, 800_000 + (blocks_to_wait - 1) as u32),
+            Some(BlockValidationErrors::BadRelativeBlockLock)
+        );
+
+        // relative time locked sucess case
+        let intervals_to_wait: u16 = 1;
+        let sequence = Sequence::from_512_second_intervals(intervals_to_wait);
+        assert!(test_reltimelock(
+            1358114045,
+            sequence.0,
+            1358114045 + ((intervals_to_wait * 512) + 1) as u32
+        )
+        .is_none());
+
+        // relative time locked fail case
+        let intervals_to_wait: u16 = 10;
+        let sequence = Sequence::from_512_second_intervals(intervals_to_wait);
+        assert_eq!(
+            test_reltimelock(
+                1358114045,
+                sequence.0,
+                1358114045 + ((intervals_to_wait * 512) - 1) as u32
+            ),
+            Some(BlockValidationErrors::BadRelativeTimeLock)
         );
     }
 }
