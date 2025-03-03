@@ -15,8 +15,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install stable toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install stable 1.74.1
+        uses: dtolnay/rust-toolchain@1.74.1
+
         with:
           components: rustfmt, clippy
 
@@ -32,7 +33,7 @@ jobs:
           echo "BUILD_HASH=${HASH}" >> $GITHUB_ENV
         shell: bash
 
-      # Restore Rust build cache
+      # Restore Rust build cache and artifacts
       - name: Restore Rust cache
         id: cache
         uses: actions/cache/restore@v4
@@ -41,17 +42,20 @@ jobs:
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-bench-${{ env.CACHE_VERSION }}-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+            target/release/
+            target/criterion/
+          # Cache key depends on the bi-week we are on (cache version)
+          key: ${{ runner.os }}-cargo-${{ env.CACHE_VERSION }}-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-bench-${{ env.CACHE_VERSION }}-
-            ${{ runner.os }}-cargo-bench-
+            ${{ runner.os }}-cargo-${{ env.CACHE_VERSION }}-
+            ${{ runner.os }}-cargo-
 
       # Run benchmarks
       - name: Run cargo bench
         run: cargo bench
 
-       # Save Rust cache if there was no exact match
+      # Save cache only if the previous steps succeeded and there was not an exact cache key match
+      # This happens everytime we modify any `cargo.lock` or `cargo.toml`, or each two weeks (caching recent changes)
       - name: Save Rust cache
         if: success() && steps.cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
@@ -60,9 +64,9 @@ jobs:
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-bench-${{ env.CACHE_VERSION }}-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
-
+            target/release/
+            target/criterion/
+          key: ${{ steps.cache.outputs.cache-primary-key }}
       # Store benchmark results
       - name: Store benchmark results
         uses: actions/upload-artifact@v4
