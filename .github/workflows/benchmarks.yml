@@ -14,18 +14,17 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install rust-toolchain@1.74.1
-        uses: dtolnay/rust-toolchain@1.74.1
-
+      - uses: dtolnay/rust-toolchain@1.74.1
         with:
           components: rustfmt, clippy
 
-      # Calculate cache keys
+        # Bi-weekly numbers to refresh caches every two weeks, ensuring recent project changes are cached
       - name: Set bi-weekly cache key
+        # Use '10#' to always treat week number as base-10 (avoids octal when number has a leading zero)
         run: |
           YEAR=$(date +%Y)
-          BIWEEK=$(( ($(date +%U) + 1) / 2 ))
+          WEEK=$(date +%U)
+          BIWEEK=$(( (10#$WEEK + 1) / 2 ))
           echo "CACHE_VERSION=${YEAR}(${BIWEEK})" >> $GITHUB_ENV
 
           # Hash of all files that could affect the build
@@ -43,9 +42,8 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/release/
-            target/criterion/
           # Cache key depends on the bi-week we are on (cache version)
-          key: ${{ runner.os }}-cargo-${{ env.CACHE_VERSION }}-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+          key: ${{ runner.os }}-cargo-${{ env.CACHE_VERSION }}-${{ env.BUILD_HASH }}
           restore-keys: |
             ${{ runner.os }}-cargo-${{ env.CACHE_VERSION }}-
             ${{ runner.os }}-cargo-
@@ -65,8 +63,8 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/release/
-            target/criterion/
           key: ${{ steps.cache.outputs.cache-primary-key }}
+
       # Store benchmark results
       - name: Store benchmark results
         uses: actions/upload-artifact@v4
