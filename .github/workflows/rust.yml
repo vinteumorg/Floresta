@@ -41,9 +41,11 @@ jobs:
 
       # Bi-weekly numbers to refresh caches every two weeks, ensuring recent project changes are cached
       - name: Set bi-weekly cache key
+        # Use '10#' to always treat week number as base-10 (avoids octal when number has a leading zero)
         run: |
           YEAR=$(date +%Y)
-          BIWEEK=$(( ($(date +%U) + 1) / 2 ))
+          WEEK=$(date +%U)
+          BIWEEK=$(( (10#$WEEK + 1) / 2 ))
           echo "CACHE_VERSION=${YEAR}(${BIWEEK})" >> $GITHUB_ENV
         shell: bash
 
