@@ -197,7 +197,21 @@ impl RpcImpl {
     }
 
     // gettxoutproof
-    pub(super) fn get_tx_proof(&self, tx_id: Txid) -> Result<Vec<String>, RpcError> {
+    pub(super) async fn get_tx_proof(
+        &self,
+        tx_id: Txid,
+        block_hash: Option<BlockHash>,
+    ) -> Result<Vec<String>, RpcError> {
+        if let Some(hash) = block_hash {
+            let block = self.get_block(hash).await?;
+            return Ok(vec![block
+                .tx
+                .iter()
+                .find(|&tx| *tx == tx_id.to_string())
+                .ok_or(RpcError::TxNotFound)?
+                .to_string()]);
+        }
+
         Ok(self
             .wallet
             .get_merkle_proof(&tx_id)
