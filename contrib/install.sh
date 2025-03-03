@@ -2,12 +2,13 @@
 
 # Some necessary global variables
 me=$(whoami)
-wallet_xpub=""
-wallet_descriptor=""
+wallet_xpubs=()
+wallet_descriptors=()
 assume_utreexo=false
 enable_ssl=false
 network="bitcoin"
 uninstall_mode=false
+interactive_mode=true
 defaultRepo="vinteumorg"
 defaultTag="0.7.0"
 tarSrc="https://github.com/$defaultRepo/Floresta/archive/refs/tags/$defaultTag.tar.gz"
@@ -48,11 +49,26 @@ show_usage () {
   echo "                              This will create an OpenSSL key and certificate."
   echo "  -t, --tag <TAG>             Choose another tag (default: 0.7.0)."
   echo "  -U, --uninstall             Uninstall Florestad and remove its files."
+  echo "  -N  --non-interactive       Run this script in a non-interactive mode. Required to use the"
+  echo "                              the options above (default: false)"
   echo ""
 }
 
+# func: check_interactive_mode
+#
+# Check if the interactive mode is set or not.
+# if is true, continue. If is false, exit the process.
+#
+# This function is used during option parsing.
+check_interactive_mode() {
+  if [ "$interactive_mode" = true ]; then
+    echo "❌ Need to set --non-interactive mode first"
+    exit 1
+  fi
+}
+
 # Use getopt for long options
-OPTIONS=$(getopt -o x:d:n:t:Uush --long xpub:,desc:,network:,tag:,assume-utreexo,ssl,uninstall,help -n "$0" -- "$@")
+OPTIONS=$(getopt -o x:d:n:t:usUNh --long xpub:,desc:,network:,tag:,assume-utreexo,ssl,uninstall,non-interactive,help -n "$0" -- "$@")
 if [ $? -ne 0 ]; then
   show_usage
   exit 1
@@ -63,26 +79,32 @@ eval set -- "$OPTIONS"
 while true; do
   case "$1" in
     -x | --xpub)
-      wallet_xpub="$2"
+      check_interactive_mode
+      wallet_xpubs+=("$2")
       shift 2
       ;;
     -d | --desc)
-      wallet_descriptor="$2"
+      check_interactive_mode
+      wallet_descriptors+=("$2")
       shift 2
       ;;
     -n | --network)
+      check_interactive_mode
       network="$2"
       shift 2
       ;;
     -u | --assume-utreexo)
+      check_interactive_mode
       assume_utreexo=true
       shift
       ;;
     -s | --ssl)
+      check_interactive_mode
       enable_ssl=true
       shift
       ;;
     -t | --tag)
+      check_interactive_mode
       defaultTag="$2"
       shift 2
       # Update dependent variables dynamically
@@ -91,7 +113,12 @@ while true; do
       tarDest="$bdlDir.tar.gz"
       ;;
     -U | --uninstall)
+      check_interactive_mode
       uninstall_mode=true
+      shift
+      ;;
+    -N | --non-interactive)
+      interactive_mode=false
       shift
       ;;
     -h | --help)
@@ -273,11 +300,15 @@ setup_service() {
 
   # Build config file
   echo "🐧 Generating $florestaLib/config.toml (need sudo)"
-  sudo tee $florestaLib/config.toml > /dev/null <<EOF
-[wallet]
-xpubs = [$([ -n "$wallet_xpub" ] && echo "$wallet_xpub")]
-descriptors = [$([ -n "$wallet_descriptor" ] && echo "$wallet_descriptor")]
-addresses = []
+  sudo tee "$florestaLib/config.toml" > /dev/null <<EOF
+  [wallet]
+  xpubs = [
+  $(for xpub in "${wallet_xpubs[@]}"; do echo "  \"$xpub\","; done)
+  ]
+  descriptors = [
+  $(for descriptor in "${wallet_descriptors[@]}"; do echo "  \"$descriptor\","; done)
+  ]
+  addresses = []
 EOF
 
   # Build service file
@@ -425,11 +456,41 @@ cleanup_profile () {
   fi
 }
 
+# func: show_done
+#
+# Show some useful information after install and before start floresta node
+show_done() {
+  echo "✅ DONE"
+  echo ""
+  echo "⚠️ Before enable/start, please edit '$florestaService' to your needs. After that, run:"
+  echo ""
+  echo "    sudo systemctl start florestad.service  # this will start the service now"
+  echo "    sudo systemctl status florestad.service # this check if service is running well"
+  echo "    sudo systemctl enable florestad.service # this enable service on boot" 
+  echo "    floresta_cli getblockchaininfo          # this assures all OK"
+  echo ""
+}
+
+install_floresta() {
+  echo "🐧 Installing $tarSrc for $me"
+  validate_network
+  apt_install gcc build-essential pkg-config libssl-dev mold
+  install_rustup
+  setup_service
+  download_floresta
+  build_floresta
+  cleanup_apt gcc build-essential pkg-config libssl-dev mold
+  cleanup_rust
+  cleanup_profile
+  show_done
+}
+
 # func: uninstall_floresta
 #
 # This function stop, deactivate and remove any active florestad.service
 # and its systemfiles
 uninstall_floresta() {
+  echo "🐧 Uninstalling $(which florestad) and $(which floresta_cli) for $me"
   # Stop the service if running
   if systemctl is-active --quiet florestad; then
     echo "🐧 Stopping Florestad service..."
@@ -484,36 +545,317 @@ uninstall_floresta() {
   exit 0
 }
 
+# func: interactive_prepare
+#
+# The interactive mode depends on 'dialog' package.
+# So, if it do not exists on system, install it.
+interactive_prepare() {
+  # Check internet by pinging Google DNS (timeout: 3 seconds, count: 1 packet)
+  if ping -q -c 1 -W 3 8.8.8.8 >/dev/null 2>&1; then
+    echo "✅ Internet connection is available."
+  else
+    echo "❌ No internet connection detected. Please check your network."
+    exit 1  # Exit the script if there's no internet
+  fi
 
-# show some useful information before start floresta node
-show_done() {
-  echo "✅ DONE"
-  echo ""
-  echo "⚠️ Before enable/start, please edit '$florestaService' to your needs. After that, run:"
-  echo ""
-  echo "    sudo systemctl start florestad.service  # this will start the service now"
-  echo "    sudo systemctl status florestad.service # this check if service is running well"
-  echo "    sudo systemctl enable florestad.service # this enable service on boot" 
-  echo "    floresta_cli getblockchaininfo          # this assures all OK"
-  echo ""
+  echo "🐧 Checking if 'dialog' is installed..."
+  sleep 2
+  
+  if ! dpkg -l | grep -q "^ii.*dialog"; then
+    echo "🐧 'dialog' is not installed. Installing..."
+    sudo apt-get install -y -q dialog
+  fi
+}
+
+# func: interactive_greeting
+#
+# This function simply show a "Hello" to
+# user, say about what this script do, what
+# install, what removes from system, etc
+interactive_greeting() {
+  dialog --title "Floresta-Installer" \
+         --msgbox "Welcome to Floresta: a lightweight Bitcoin full node implementation written in Rust and powered by Utreexo, a novel dynamic accumulator designed for the Bitcoin UTXO set.\n\nThis installer will guide you through the various options you can perform on your new node.\n\nIf you have any questions, don't hesitate to contact us via discord (https://discord.gg/p6w6468c) or, if you find any bugs, through github (https://github.com/vinteumorg/Floresta/issues)." \
+         15 60
+}
+
+# func: interactive_main_menu
+#
+# Start asking if user wanst to install or uninstall.
+# Install will through many options and uninstall simply
+# remove all things related to florestad
+interactive_main_menu() {
+  choice=$(dialog --title "Floresta-Installer (Main menu)" \
+                  --menu "Choose your destiny" \
+                  12 45 25 \
+                  1 "Install" \
+                  2 "Uninstall" \
+                  3 "Exit" \
+                  3>&1 1>&2 2>&3)
+
+  case $choice in
+    1) uninstall_mode=false ;;
+    2) uninstall_mode=true ;;
+    3) exit 0 ;;
+    *) exit 1 ;;
+  esac
+}
+
+# func: interactive_select_network
+# 
+# Ask for which network the user want
+# to configure the floresta node
+interactive_select_network() {
+  choice=$(dialog --title "Floresta-Installer" \
+                  --menu "Which network do you want to use?" \
+                  12 45 25 \
+                  1 "bitcoin" \
+                  2 "signet" \
+                  3 "testnet" \
+                  4 "regtest" \
+                  3>&1 1>&2 2>&3)
+
+  case $choice in
+    1) network="bitcoin" ;;
+    2) network="signet" ;;
+    3) network="testnet" ;;
+    4) network="regtest" ;;
+    *) interactive_main_menu ;;
+  esac
+}
+
+# func: interactive_assume_utreexo
+#
+# Ask if user want to use --assume-utreexo or not
+interactive_assume_utreexo() {
+  if dialog --title "Floresta-Installer" --yesno "Do you want to use 'assume-utreexo'?\n\nThis option will significantly speed up the initial block download, by skipping the validation of the first hundreds of thousands of blocks. However, there's an inherent trust in the developer that the utreexo state is correct. Everything after the assumed height will be fully validated." 15 60; then
+    assume_utreexo=true
+  else
+    assume_utreexo=false
+  fi
+}
+
+# func: interactive_ssl
+# 
+# Ask if user want to use SSL (Secure Sockets Layer) and if yes,
+# add --ssl-electrum-address, --ssl-cert-path and --ssl-key-path to florestad process.
+interactive_ssl() {
+  if dialog --title "Floresta-Installer" --yesno "Do you want to use SSL (Secure Sockets Layer)?" 8 45; then
+    enable_ssl=true
+  else
+    enable_ssl=false
+  fi
+}
+
+# func: interactive_ask_for_add_xpubs
+#
+# Ask if user want to add one or more xpubs to our wallet. For each xpub, add it to the wallet_xpubs.
+# Keep asking until user do not want to add more xpubs or if an invalid one appears
+interactive_ask_for_add_xpubs() {
+  if dialog --title "Floresta-Installer (Ask XPUBs)" --yesno "Do you want to add one or more XPUBs to the node's wallet?" 8 45; then
+    while true; do
+      interactive_add_xpub  # Call function to add XPUB
+      if [ $? -ne 0 ]; then
+        # If an invalid XPUB was entered, restart the process
+        wallet_xpubs=()  # Clear XPUBs on error
+        dialog --title "Floresta-Installer" --msgbox "❌ Invalid XPUB detected. Restarting XPUB entry process." 8 45
+        return 1  # Restart XPUB entry process
+      fi
+
+      if ! dialog --title "Add Another XPUB?" --yesno "Do you want to add another XPUB?" 8 45; then
+        break
+      fi
+    done
+  fi
+
+  # If at least one XPUB was added, show the list
+  if [ ${#wallet_xpubs[@]} -gt 0 ]; then
+    xpub_list=""
+    for i in "${!wallet_xpubs[@]}"; do
+      xpub_list+="$(($i+1)). ${wallet_xpubs[$i]}\n"
+    done
+
+    dialog --title "Floresta-Installer (XPUBs Added)" --msgbox "The following XPUBs have been added:\n\n$xpub_list" 15 70
+  else
+    dialog --title "Floresta-Installer" --msgbox "No XPUBs were added." 8 45
+  fi
+}
+
+# func: interactive_add_xpub
+#
+# Ask to user add a valid xpub. If a valid one is provided, add to wallet_xpubs array, show the
+# xpub to user confirm it and back to interactive_ask_for_add_xpubs function (thourgh returning true).
+# If user provided an invalid one, clean the wallet_xpubs list and back to interactive_ask_for_add_xpubs
+# to do all again.
+interactive_add_xpub() {
+  local xpub_regex="^xpub[A-Za-z0-9]{107}$"  # XPUBs are always 111 characters
+
+  while true; do
+    xpub=$(dialog --title "Floresta-Installer (Add XPUB)" \
+                  --inputbox "Provide an XPUB" \
+                  15 60 \
+                  3>&1 1>&2 2>&3)
+
+    # Check if user pressed Cancel or ESC
+    if [ $? -ne 0 ]; then
+      dialog --title "Floresta-Installer" --msgbox "❌ XPUB input canceled. Returning to menu." 8 45
+      return 1  # Return with failure
+    fi
+
+    # Validate XPUB format
+    if [[ "$xpub" =~ $xpub_regex ]]; then
+      wallet_xpubs+=("$xpub")  # Add to array
+      dialog --title "Floresta-Installer" --msgbox "✅ XPUB added successfully:\n\n$xpub" 10 60
+      return 0  # Valid XPUB added successfully
+    else
+      dialog --title "Invalid XPUB" --msgbox "❌ The XPUB you entered is invalid.\n\nXPUBs should:\n- Start with 'xpub'\n- Be exactly 111 characters long\n- Follow Base58Check encoding\n\nReturning to menu." 12 60
+      wallet_xpubs=()  # Clear all added XPUBs
+      return 1  # Return with failure to restart
+    fi
+  done
+}
+
+# func: interactive_ask_for_add_descriptors
+#
+# Ask if user wants to add one or more descriptors to the wallet.
+# For each descriptor, add it to the wallet_descriptors array.
+# Keep asking until the user does not want to add more descriptors or if an invalid one appears.
+interactive_ask_for_add_descriptors() {
+  if dialog --title "Floresta-Installer (Ask Descriptors)" --yesno \
+     "Do you want to add one or more descriptors to the node's wallet?" 8 45; then
+
+    while true; do
+      interactive_add_descriptor  # Call function to add a descriptor
+      if [ $? -ne 0 ]; then
+        # If an invalid descriptor was entered, restart the process
+        wallet_descriptors=()  # Clear descriptors on error
+        dialog --title "Floresta-Installer" --msgbox "❌ Invalid descriptor detected. Restarting descriptor entry process." 8 45
+        return 1  # Restart descriptor entry process
+      fi
+
+      if ! dialog --title "Add Another Descriptor?" --yesno \
+         "Do you want to add another descriptor?" 8 45; then
+        break
+      fi
+    done
+  fi
+
+  # If at least one descriptor was added, show the list
+  if [ ${#wallet_descriptors[@]} -gt 0 ]; then
+    descriptor_list=""
+    for i in "${!wallet_descriptors[@]}"; do
+      descriptor_list+="$(($i+1)). ${wallet_descriptors[$i]}\n"
+    done
+
+    dialog --title "Floresta-Installer (Descriptors Added)" --msgbox \
+      "The following descriptors have been added:\n\n$descriptor_list" 15 70
+  else
+    dialog --title "Floresta-Installer" --msgbox "No descriptors were added." 8 45
+  fi
+}
+
+# func: interactive_add_descriptor
+#
+# Ask the user to add a valid descriptor. If a valid one is provided, add it to the
+# wallet_descriptors array and show a confirmation.
+# If the user provides an invalid one, clear the list and restart the process.
+interactive_add_descriptor() {
+  local temp_file=$(mktemp)  # Create a temporary file for storing input
+  echo "" > "$temp_file"  # Ensure the file is initialized
+
+  while true; do
+    dialog --title "Floresta-Installer (Add Descriptor)" \
+           --editbox "$temp_file" 15 80 2>"$temp_file"  # Capture user input
+
+    # Capture exit status (Cancel or OK)
+    if [ $? -ne 0 ]; then
+      dialog --title "Floresta-Installer" --msgbox "❌ Descriptor input canceled. Returning to menu." 8 45
+      rm -f "$temp_file"  # Clean up temporary file
+      return 1  # Return with failure
+    fi
+
+    # Read input from the temp file (avoids truncation)
+    descriptor=$(<"$temp_file")  # Use `<` to read entire file content
+
+    # Trim leading/trailing whitespace
+    descriptor=$(echo "$descriptor" | tr -d '[:space:]')
+
+    # Ensure descriptor is not empty after trimming
+    if [[ -z "$descriptor" ]]; then
+      dialog --title "Floresta-Installer" --msgbox "❌ Empty descriptor. Please enter a valid one." 8 45
+      continue  # Ask user for input again
+    fi
+
+    wallet_descriptors+=("$descriptor")  # Add to array
+    dialog --title "Floresta-Installer" --msgbox "✅ Descriptor added successfully:\n\n$descriptor" 30 80
+    rm -f "$temp_file"  # Clean up temp file
+    return 0  # Valid descriptor added successfully
+  done
+}
+
+# func: interactive_run
+#
+# Run all interactive_* functions in a logical sequence
+interactive_run() {
+  interactive_prepare
+  interactive_greeting
+  interactive_main_menu
+
+  # If user select uninstall, exit the dialog
+  if [ "$uninstall_mode" = true ]; then
+    return 0
+  fi
+  
+  interactive_select_network
+  interactive_assume_utreexo
+  interactive_ssl
+  interactive_ask_for_add_xpubs
+  interactive_ask_for_add_descriptors
+
+  # Build review message
+  review_message+="Review your choices. Choose 'Yes' to proceed or 'No' to exit this installer.\n\n"
+  review_message+="Network: $network\n"
+  review_message+="Assume Utreexo: $assume_utreexo\n"
+  review_message+="Enable SSL: $enable_ssl\n\n"
+
+  # Append XPUBs
+  review_message+="Wallet XPUBs:\n"
+  if [ ${#wallet_xpubs[@]} -gt 0 ]; then
+    for xpub in "${wallet_xpubs[@]}"; do
+      review_message+="\n$xpub\n"
+    done
+  else
+    review_message+="  No XPUBs added.\n"
+  fi
+
+  review_message+="Wallet descriptors:\n"
+  if [ ${#wallet_descriptors[@]} -gt 0 ]; then
+    for descriptor in "${wallet_descriptors[@]}"; do
+      review_message+="$descriptor\n"
+    done
+  else
+    review_message+="  No descriptors added.\n"
+  fi
+
+  # Show information in a dialog message box
+  dialog --title "Floresta-Installer (Review)" --yesno "$review_message" 20 80
+
+  choice=$?
+  if [ $choice = 0 ]; then
+    return 0
+  else
+    exit 1
+  fi
 }
 
 # MAIN SECTION
-# Run all functions on sequence
-# If the user selects uninstall mode, execute the uninstall function
+if [ "$interactive_mode" = true ]; then
+  interactive_run
+fi
+
 if [ "$uninstall_mode" = true ]; then
-  echo "🐧 Uninstalling $(which florestad) and $(which floresta_cli) for $me"
+  clear
   uninstall_floresta
 else
-  echo "🐧 Installing $tarSrc for $me"
-  validate_network
-  apt_install gcc build-essential pkg-config libssl-dev mold
-  install_rustup
-  setup_service
-  download_floresta
-  build_floresta
-  cleanup_apt gcc build-essential pkg-config libssl-dev mold
-  cleanup_rust
-  cleanup_profile
-  show_done
+  clear
+  install_floresta
 fi
