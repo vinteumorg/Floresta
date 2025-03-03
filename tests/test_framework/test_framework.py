@@ -161,31 +161,11 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
         extra_args should be a list of string in the --key=value strings
         (see florestad --help for a list of available commands)
         """
-        # PR #331 introduced a preparatory environment at
-        # /tmp/floresta-integration-tests.$(git rev-parse HEAD).
-        tmpdir = FlorestaTestFramework.get_integration_test_dir()
-        targetdir = FlorestaTestFramework.get_target_release_dir()
 
-        # So, check for it first before define the florestad path.
-        if os.path.exists(tmpdir):
-            florestad = os.path.normpath(os.path.join(tmpdir, "florestad"))
-
-        # If not exists, define the one at ./target/release.
-        elif os.path.exists(targetdir):
-            florestad = os.path.normpath(os.path.join(targetdir, "florestad"))
-
-        # In case any test florestad is found, raise an exception
-        else:
-            raise RuntimeError(
-                f"Not found 'florestad' in '{tmpdir}' or '{targetdir}'. "
-                "Run 'tests/prepare.sh' or 'cargo build --release'."
-            )
-
-        print(f"Using {florestad}")
         setting = {
             "chain": chain,
             "config": [
-                florestad,
+                "florestad",
                 "--network",
                 chain,
                 "--no-ssl",

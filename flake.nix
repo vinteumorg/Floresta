@@ -77,37 +77,19 @@
         devShells = {
           pythonTests =
             let
-              _scriptSetup = ''
-                mkdir -p ./bin
-
-                cd bin
-
-                # Download and build utreexod
-                ls -la utreexod &>/dev/null
-
-                if [ $? -ne 0 ]
-                then
-                  	git clone https://github.com/utreexo/utreexod
-                fi
-                cd utreexod
-
-                go build . &>/dev/null
-                echo "All done!"
-              '';
-              _scriptRun = "poetry run poe tests";
+              _scriptSetup = ''bash ./tests/prepare.sh'';
             in
             pkgs.mkShell {
               buildInputs = with pkgs; [
-                cargo
+                florestaRust
                 python312
                 poetry
+                poethepoet
                 go
-              ] ++ [ self.packages.${system}.default ];
+              ];
               shellHook = ''
                 ${_scriptSetup}
-                ${_scriptRun}
-
-                exit
+                echo -e "you may execute \n\tpoetry run poe tests \nto execute Florestas Python tests"
               '';
             };
           default =
