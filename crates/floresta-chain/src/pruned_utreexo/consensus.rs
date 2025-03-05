@@ -19,7 +19,6 @@ use bitcoin::TxIn;
 use bitcoin::TxOut;
 use bitcoin::Txid;
 use floresta_common::prelude::*;
-use rustreexo::accumulator::node_hash::BitcoinNodeHash;
 use rustreexo::accumulator::proof::Proof;
 use rustreexo::accumulator::stump::Stump;
 
@@ -258,10 +257,8 @@ impl Consensus {
         del_hashes: Vec<sha256::Hash>,
     ) -> Result<Stump, BlockchainError> {
         let block_hash = block.block_hash();
-        let del_hashes = del_hashes
-            .iter()
-            .map(|hash| BitcoinNodeHash::from(hash.as_byte_array()))
-            .collect::<Vec<_>>();
+        // Convert to BitcoinNodeHashes, from rustreexo
+        let del_hashes: Vec<_> = del_hashes.into_iter().map(Into::into).collect();
 
         let adds = udata::proof_util::get_block_adds(block, height, block_hash);
 

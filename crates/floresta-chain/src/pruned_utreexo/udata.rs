@@ -421,16 +421,13 @@ pub mod proof_util {
                 if !is_unspendable(&output.script_pubkey)
                     && !block_inputs.contains(&(transaction.compute_txid(), i as u32))
                 {
-                    leaf_hashes.push(get_leaf_hashes(transaction, i as u32, height, block_hash))
+                    leaf_hashes
+                        .push(get_leaf_hashes(transaction, i as u32, height, block_hash).into())
                 }
             }
         }
 
-        // Convert the leaf hashes to NodeHashes used in Rustreexo
         leaf_hashes
-            .iter()
-            .map(|&hash| BitcoinNodeHash::from(hash.as_byte_array()))
-            .collect()
     }
 
     #[allow(clippy::type_complexity)]
