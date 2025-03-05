@@ -37,6 +37,7 @@ example-test = "python tests/run_tests.py --test-name example_test"
 restart-test = "python tests/run_tests.py --test-name restart"
 florestacli-getblockchaininfo-test = "python tests/run_tests.py --test-name floresta_cli_getblockchaininfo"
 florestacli-getblockhash-test = "python tests/run_tests.py --test-name floresta_cli_getblockhash"
+florestacli-getblockheader-test = "python tests/run_tests.py --test-name floresta_cli_getblockheader"
 florestacli-getblock-test = "python tests/run_tests.py --test-name floresta_cli_getblock"
 florestacli-getpeerinfo-test = "python tests/run_tests.py --test-name floresta_cli_getpeerinfo"
 florestacli-addnode-test = "python tests/run_tests.py --test-name floresta_cli_addnode"
@@ -49,6 +50,7 @@ tests = [
   "restart-test",
   "florestacli-getblockchaininfo-test",
   "florestacli-getblockhash-test",
+  "florestacli-getblockheader-test",
   "florestacli-getblock-test",
   "florestacli-getpeerinfo-test",
   "florestacli-addnode-test",
