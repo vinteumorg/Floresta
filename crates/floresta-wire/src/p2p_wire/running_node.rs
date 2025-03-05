@@ -9,7 +9,6 @@ use std::time::Duration;
 use std::time::Instant;
 
 use bitcoin::bip158::BlockFilter;
-use bitcoin::hashes::Hash;
 use bitcoin::p2p::address::AddrV2;
 use bitcoin::p2p::address::AddrV2Message;
 use bitcoin::p2p::message_blockdata::Inventory;
@@ -718,10 +717,8 @@ where
             }
 
             if !self.chain.is_in_idb() {
-                let del_hashes: Vec<BitcoinNodeHash> = del_hashes
-                    .iter()
-                    .map(|hash| BitcoinNodeHash::from(hash.as_byte_array()))
-                    .collect();
+                // Convert to BitcoinNodeHashes, from rustreexo
+                let del_hashes: Vec<_> = del_hashes.into_iter().map(Into::into).collect();
 
                 let block_height = self
                     .chain

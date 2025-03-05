@@ -212,30 +212,23 @@ impl PartialChainStateInner {
         inputs: HashMap<bitcoin::OutPoint, bitcoin::TxOut>,
     ) -> Result<(), BlockchainError> {
         if !block.check_merkle_root() {
-            return Err(BlockchainError::BlockValidation(
-                BlockValidationErrors::BadMerkleRoot,
-            ));
+            return Err(BlockValidationErrors::BadMerkleRoot)?;
         }
         if height >= self.chain_params().params.bip34_height
             && block.bip34_block_height() != Ok(height as u64)
         {
-            return Err(BlockchainError::BlockValidation(
-                BlockValidationErrors::BadBip34,
-            ));
+            return Err(BlockValidationErrors::BadBip34)?;
         }
 
         if !block.check_witness_commitment() {
-            return Err(BlockchainError::BlockValidation(
-                BlockValidationErrors::BadWitnessCommitment,
-            ));
+            return Err(BlockValidationErrors::BadWitnessCommitment)?;
         }
 
         let prev_block = self.get_ancestor(height)?;
         if block.header.prev_blockhash != prev_block.block_hash() {
-            return Err(BlockchainError::BlockValidation(
-                BlockValidationErrors::BlockExtendsAnOrphanChain,
-            ));
+            return Err(BlockValidationErrors::BlockExtendsAnOrphanChain)?;
         }
+
         // Validate block transactions
         let subsidy = self.consensus.get_subsidy(height);
         let verify_script = self.assume_valid;
@@ -501,13 +494,11 @@ impl From<PartialChainStateInner> for PartialChainState {
 
 #[cfg(test)]
 mod tests {
-    use core::str::FromStr;
     use std::collections::HashMap;
 
     use bitcoin::block::Header;
     use bitcoin::consensus::deserialize;
     use bitcoin::Block;
-    use rustreexo::accumulator::node_hash::BitcoinNodeHash;
     use rustreexo::accumulator::proof::Proof;
     use rustreexo::accumulator::stump::Stump;
 
@@ -534,7 +525,7 @@ mod tests {
                 _ => panic!("unexpected {res:?}"),
             };
         }
-        run("0000002000226e46111a0b59caaf126043eb5bbf28c34f3a5e332a1fc7b2b73cf188910f39adbcd7823048d34357bdca86cd47172afe2a4af8366b5b34db36df89386d49b23ec964ffff7f20000000000101000000010000000000000000000000000000000000000000000000000000000000000000ffffffff165108feddb99c6b8435060b2f503253482f627463642fffffffff0100f2052a01000000160014806cef41295922d32ddfca09c26cc4acd36c3ed000000000",super::BlockValidationErrors::BlockExtendsAnOrphanChain);
+        run("0000002000226e46111a0b59caaf126043eb5bbf28c34f3a5e332a1fc7b2b73cf188910f39adbcd7823048d34357bdca86cd47172afe2a4af8366b5b34db36df89386d49b23ec964ffff7f20000000000101000000010000000000000000000000000000000000000000000000000000000000000000ffffffff165108feddb99c6b8435060b2f503253482f627463642fffffffff0100f2052a01000000160014806cef41295922d32ddfca09c26cc4acd36c3ed000000000", BlockValidationErrors::BlockExtendsAnOrphanChain);
         run("0000002000226e46111a0b59caaf126043eb5bbf28c34f3a5e332a1fc7b2b73cf188910f40adbcd7823048d34357bdca86cd47172afe2a4af8366b5b34db36df89386d49b23ec964ffff7f20000000000101000000010000000000000000000000000000000000000000000000000000000000000000ffffffff165108feddb99c6b8435060b2f503253482f627463642fffffffff0100f2052a01000000160014806cef41295922d32ddfca09c26cc4acd36c3ed000000000", BlockValidationErrors::BadMerkleRoot);
     }
     fn parse_block(hex: &str) -> Block {
@@ -641,9 +632,8 @@ mod tests {
             "b21aae30bc74e9aef600a5d507ef27d799b9b6ba08e514656d34d717bdb569d2",
             "bedb648c9a3c5741660f926c1552d83ebb4cb1842cca6855b6d1089bb4951ce1",
         ]
-        .iter()
-        .map(|hash| BitcoinNodeHash::from_str(hash).unwrap())
-        .collect();
+        .map(|s| s.parse().unwrap())
+        .to_vec();
 
         let acc2 = Stump { roots, leaves: 100 };
 
@@ -682,9 +672,8 @@ mod tests {
             "e329a7ddcc888130bb6e4f82ce9f5cf5a712a7b0ae05a1aaf21b363866a9b05e",
             "1864a4982532447dcb3d9a5d2fea9f8ed4e3b1e759d55b8a427fb599fed0c302",
         ]
-        .iter()
-        .map(|x| BitcoinNodeHash::from(hex::decode(x).unwrap().as_slice()))
-        .collect::<Vec<_>>();
+        .map(|s| s.parse().unwrap())
+        .to_vec();
 
         let expected_acc: Stump = Stump { leaves: 150, roots };
 
