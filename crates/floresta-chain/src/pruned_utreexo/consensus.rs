@@ -105,13 +105,12 @@ impl Consensus {
                 continue;
             }
 
-            // Sum tx output amounts, check their locking script sizes (scriptpubkey)
-            let mut out_value = 0;
-            for output in transaction.output.iter() {
-                out_value += output.value.to_sat();
-
-                Self::validate_script_size(&output.script_pubkey, txid)?;
-            }
+            // Sum tx output amounts. This will be used for the fee calculation
+            let out_value: u64 = transaction
+                .output
+                .iter()
+                .map(|out| out.value.to_sat())
+                .sum();
 
             // Sum tx input amounts, check their unlocking script sizes (scriptsig and TODO witness)
             let mut in_value = 0;
