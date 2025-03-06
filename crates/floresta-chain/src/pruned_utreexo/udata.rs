@@ -306,6 +306,7 @@ pub mod proof_util {
     use super::LeafData;
     use crate::prelude::*;
     use crate::pruned_utreexo::consensus::UTREEXO_TAG_V1;
+    use crate::pruned_utreexo::utxo_data::UtxoData;
     use crate::pruned_utreexo::BlockchainInterface;
     use crate::CompactLeafData;
     use crate::ScriptPubkeyType;
@@ -433,9 +434,10 @@ pub mod proof_util {
     #[allow(clippy::type_complexity)]
     pub fn process_proof<Chain: BlockchainInterface>(
         udata: &UData,
-        transactions: &[Transaction],
+        block: &Block,
+        height: u32,
         chain: &Chain,
-    ) -> Result<(Proof, Vec<sha256::Hash>, HashMap<OutPoint, TxOut>), Chain::Error> {
+    ) -> Result<(Proof, Vec<sha256::Hash>, HashMap<OutPoint, UtxoData>), Chain::Error> {
         let targets = udata.proof.targets.iter().map(|target| target.0).collect();
         let hashes = udata
             .proof
@@ -446,7 +448,9 @@ pub mod proof_util {
         let proof = Proof::new(targets, hashes);
         let mut hashes = Vec::new();
         let mut leaves_iter = udata.leaves.iter().cloned();
-        let mut tx_iter = transactions.iter();
+        let mut tx_iter = block.txdata.iter();
+
+        let mtp = chain.get_mtp(height)?;
 
         let mut inputs = HashMap::new();
         tx_iter.next(); // Skip coinbase
@@ -459,7 +463,11 @@ pub mod proof_util {
                         txid,
                         vout: vout as u32,
                     },
-                    out.clone(),
+                    UtxoData {
+                        txout: out.clone(),
+                        commited_height: height,
+                        commited_time: mtp,
+                    },
                 );
             }
 
@@ -468,10 +476,18 @@ pub mod proof_util {
                     if let Some(leaf) = leaves_iter.next() {
                         let height = leaf.header_code >> 1;
                         let hash = chain.get_block_hash(height)?;
+                        let time = chain.get_mtp(height)?;
                         let leaf =
                             reconstruct_leaf_data(&leaf, input, hash).expect("Invalid proof");
                         hashes.push(leaf._get_leaf_hashes());
-                        inputs.insert(leaf.prevout, leaf.utxo);
+                        inputs.insert(
+                            leaf.prevout,
+                            UtxoData {
+                                txout: leaf.utxo,
+                                commited_height: height,
+                                commited_time: time,
+                            },
+                        );
                     }
                 }
             }

@@ -36,6 +36,7 @@ bip324 = { version = "0.7.0", features = [ "tokio" ] }
 
 [dev-dependencies]
 zstd = "0.13.3"
+floresta-chain = { path = "../floresta-chain", features = ["non_canonical"]}
 hex = "0.4.3"
 
 [features]

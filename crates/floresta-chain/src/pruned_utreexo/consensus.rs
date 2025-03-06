@@ -11,7 +11,6 @@ use bitcoin::hashes::sha256;
 use bitcoin::hashes::Hash;
 use bitcoin::Block;
 use bitcoin::CompactTarget;
-use bitcoin::OutPoint;
 use bitcoin::ScriptBuf;
 use bitcoin::Target;
 use bitcoin::Transaction;
@@ -25,8 +24,15 @@ use rustreexo::accumulator::stump::Stump;
 use super::chainparams::ChainParams;
 use super::error::BlockValidationErrors;
 use super::error::BlockchainError;
+use super::nodetime::NodeTime;
+use super::nodetime::HOUR;
 use super::udata;
+use super::utxo_data::UtxoMap;
 use crate::TransactionError;
+
+/// This is the sequence mask that we use for extracting
+/// the encoded value inside the sequence field.
+pub const SEQUENCE_LOCKTIME_MASK: u32 = 0x0000_ffff;
 
 /// The value of a single coin in satoshis.
 pub const COIN_VALUE: u64 = 100_000_000;
@@ -75,10 +81,10 @@ impl Consensus {
     ///     - The transaction must not have duplicate inputs
     ///     - The transaction must not spend more coins than it claims in the inputs
     ///     - The transaction must have valid scripts
-    #[allow(unused)]
     pub fn verify_block_transactions(
         height: u32,
-        mut utxos: HashMap<OutPoint, TxOut>,
+        block_time: u32,
+        mut utxos: UtxoMap,
         transactions: &[Transaction],
         subsidy: u64,
         verify_script: bool,
@@ -102,9 +108,15 @@ impl Consensus {
                 continue;
             }
 
-            // Actually verify the transaction
-            let (in_value, out_value) =
-                Self::verify_transaction(transaction, &mut utxos, verify_script, flags)?;
+            // actually verify the transaction
+            let (in_value, out_value) = Self::verify_transaction(
+                height,
+                block_time,
+                transaction,
+                &mut utxos,
+                verify_script,
+                flags,
+            )?;
 
             // Fee is the difference between inputs and outputs
             fee += in_value - out_value;
@@ -131,8 +143,10 @@ impl Consensus {
     ///     - The transaction has valid scripts
     ///     - The transaction doesn't have duplicate inputs (implicitly checked by the hashmap)
     fn verify_transaction(
+        height: u32,
+        block_time: u32,
         transaction: &Transaction,
-        utxos: &mut HashMap<OutPoint, TxOut>,
+        utxos: &mut UtxoMap,
         _verify_script: bool,
         _flags: c_uint,
     ) -> Result<(u64, u64), BlockchainError> {
@@ -149,6 +163,8 @@ impl Consensus {
             let txo = Self::get_utxo(input, utxos, txid)?;
 
             in_value += txo.value.to_sat();
+
+            Self::validate_locktime(input, transaction, utxos, height, block_time)?;
 
             // Check script sizes (spent txo pubkey, and current tx scriptsig and TODO witness)
             Self::validate_script_size(&txo.script_pubkey, || input.previous_output.txid)?;
@@ -169,7 +185,10 @@ impl Consensus {
         #[cfg(feature = "bitcoinconsensus")]
         if _verify_script {
             transaction
-                .verify_with_flags(|outpoint| utxos.remove(outpoint), _flags)
+                .verify_with_flags(
+                    |outpoint| utxos.remove(outpoint).map(|utxodata| utxodata.txout),
+                    _flags,
+                )
                 .map_err(|e| tx_err!(txid, ScriptValidationError, e.to_string()))?;
         };
 
@@ -181,11 +200,11 @@ impl Consensus {
     /// Fails if the UTXO is not present in the given hashmap.
     fn get_utxo<'a, F: Fn() -> Txid>(
         input: &TxIn,
-        utxos: &'a HashMap<OutPoint, TxOut>,
+        utxos: &'a UtxoMap,
         txid: F,
     ) -> Result<&'a TxOut, TransactionError> {
         match utxos.get(&input.previous_output) {
-            Some(txout) => Ok(txout),
+            Some(txout) => Ok(&txout.txout),
             // This is the case when the spender:
             // - Spends an UTXO that doesn't exist
             // - Spends an UTXO that was already spent
@@ -193,13 +212,99 @@ impl Consensus {
         }
     }
 
-    #[allow(unused)]
+    /// From a block timestamp, with a given MTP and a real world time, validate if a block timestamp
+    /// is correct.
+    pub fn validate_block_time(
+        block_timestamp: u32,
+        mtp: u32,
+        time: impl NodeTime,
+    ) -> Result<(), BlockValidationErrors> {
+        if time.get_time() == 0 {
+            return Ok(());
+        } // The check for skipping time validation.
+
+        let its_too_old = mtp > block_timestamp;
+        let its_too_new = block_timestamp > (time.get_time() + (2 * HOUR));
+        if its_too_old {
+            return Err(BlockValidationErrors::BlockTooNew);
+        }
+        if its_too_new {
+            return Err(BlockValidationErrors::BlockTooNew);
+        }
+        Ok(())
+    }
+
+    /// Validate if the transaction doesnt have any timelock invalidating its inclusion inside blocks.
     fn validate_locktime(
         input: &TxIn,
         transaction: &Transaction,
+        out_map: &UtxoMap,
         height: u32,
+        block_time: u32,
     ) -> Result<(), BlockValidationErrors> {
-        unimplemented!("validate_locktime")
+        if block_time == 0 {
+            return Ok(());
+        }
+
+        let is_relative_locked =
+            input.sequence.is_relative_lock_time() && transaction.version.0 >= 2;
+
+        if is_relative_locked {
+            let prevout = match out_map.get(&input.previous_output) {
+                Some(po) => po,
+                None => {
+                    return Err(BlockValidationErrors::UtxoNotFound(input.previous_output));
+                }
+            };
+            // All the unwraps and casts inside this match are unreachable by logic.
+            match input.sequence.to_relative_lock_time() {
+                Some(lock) => {
+                    match (lock.is_block_height(), lock.is_block_time()) {
+                        (true, false) => {
+                            // We are validating a relative block lock
+
+                            let blocklock = lock.to_consensus_u32() & SEQUENCE_LOCKTIME_MASK;
+                            let block_diff = height.abs_diff(prevout.commited_height);
+
+                            if blocklock > block_diff {
+                                return Err(BlockValidationErrors::BadRelativeBlockLock);
+                            }
+                        }
+                        (false, true) => {
+                            // We are validating a relative block lock
+
+                            // When the sequence encodes to a relative lock time, the internal value it has
+                            // refers to intervals of 512 seconds.
+                            let timelock = (lock.to_consensus_u32() & SEQUENCE_LOCKTIME_MASK) * 512;
+
+                            let time_diff = block_time.abs_diff(prevout.commited_time);
+
+                            if timelock > time_diff {
+                                return Err(BlockValidationErrors::BadRelativeTimeLock);
+                            }
+                        }
+                        // A relative locktime cannot evaluate to both.
+                        _ => unreachable!(),
+                    }
+                }
+
+                // This should never happen because we already check if the Sequence
+                // refers to a relative locktime
+                _ => unreachable!(),
+            }
+        }
+
+        let is_absolute_locked = transaction.is_lock_time_enabled();
+
+        let is_locktime_satisfied = transaction.is_absolute_timelock_satisfied(
+            bitcoin::absolute::Height::from_consensus(height).unwrap(),
+            bitcoin::absolute::Time::from_consensus(block_time).unwrap(),
+        );
+
+        if !is_locktime_satisfied && is_absolute_locked {
+            return Err(BlockValidationErrors::BadAbsoluteLockTime);
+        }
+        Ok(())
     }
 
     /// Validates the script size and the number of sigops in a scriptpubkey or scriptsig.
@@ -281,7 +386,6 @@ impl Consensus {
 #[cfg(test)]
 mod tests {
     use bitcoin::absolute::LockTime;
-    #[cfg(feature = "bitcoinconsensus")]
     use bitcoin::consensus::encode::deserialize_hex;
     use bitcoin::hashes::sha256d::Hash;
     use bitcoin::opcodes::all::OP_NOP;
@@ -298,6 +402,7 @@ mod tests {
     use bitcoin::Witness;
 
     use super::*;
+    use crate::pruned_utreexo::utxo_data::UtxoData;
 
     #[cfg(feature = "bitcoinconsensus")]
     /// Some made up transactions that test our script limits checks.
@@ -316,7 +421,7 @@ mod tests {
 	"0200000001540b20c497074bcb8c83869601566749f210ce7965f4e55ec1be9a8f648d743800000000fd9a0801290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901294cc875757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575757575750000000001260200000000000017a9141ea5312cab0ad9a531c35b9051dc136bebc0669e8700000000:260200000000000017a9141ea5312cab0ad9a531c35b9051dc136bebc0669e87",
 	"02000000019ebe6327436c18f978611d3fae6c2f6834cd6fbc08471134bc4bee16f8b9062400000000fdec03012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901294cc86d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d0000000001260200000000000017a914a73ee4302bb9a6e5b7c42cae84b7c548638bc0148700000000:260200000000000017a914a73ee4302bb9a6e5b7c42cae84b7c548638bc01487",
 	"0200000001cbbe326a4360ed38487a6fd1a091da0c22fd5084127401c3fba1ad52b8a37f3300000000fdec03012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901290129012901294cc8acacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacac0000000001260200000000000017a914436c244dc646042e3bafb50ff5729a0e80153e708700000000:260200000000000017a914436c244dc646042e3bafb50ff5729a0e80153e7087",
-	"020000000139cf57739cb5d08335b7ed529792de34987d763d4856957dcc4b258c9cb1d0d300000000d601ff4cd276767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767600000000012602000000000000160014ef814b32b68a6138974b1144603b5c10569eeef600000000:2602000000000000160014ef814b32b68a6138974b1144603b5c10569eeef6",	
+	"020000000139cf57739cb5d08335b7ed529792de34987d763d4856957dcc4b258c9cb1d0d300000000d601ff4cd276767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767600000000012602000000000000160014ef814b32b68a6138974b1144603b5c10569eeef600000000:2602000000000000160014ef814b32b68a6138974b1144603b5c10569eeef6",
 ];
 
     fn coinbase(is_valid: bool) -> Transaction {
@@ -436,7 +541,7 @@ mod tests {
     }
 
     #[cfg(feature = "bitcoinconsensus")]
-    fn create_case(case: &str) -> (Transaction, HashMap<OutPoint, TxOut>) {
+    fn create_case(case: &str) -> (Transaction, UtxoMap) {
         // Transactions to test limits for bitcoin scripts. Every transaction is in the
         // order <spending_tx>:<prevout>.
 
@@ -448,7 +553,15 @@ mod tests {
         let prevout: TxOut = deserialize_hex(prevout).unwrap();
 
         let mut utxos = HashMap::new();
-        utxos.insert(spending.input[0].previous_output, prevout);
+
+        utxos.insert(
+            spending.input[0].previous_output,
+            UtxoData {
+                txout: prevout,
+                commited_time: 0,
+                commited_height: 0,
+            },
+        );
 
         (spending, utxos)
     }
@@ -462,6 +575,8 @@ mod tests {
         for case in TX_VALIDATION_CASES_LEGACY.iter() {
             let (transaction, mut utxos) = create_case(case);
             let result = Consensus::verify_transaction(
+                0,
+                0,
                 &transaction,
                 &mut utxos,
                 true,
@@ -506,14 +621,19 @@ mod tests {
         let mut utxos = HashMap::new();
         utxos.insert(
             OutPoint::null(),
-            TxOut {
-                value: Amount::from_sat(0),
-                script_pubkey: ScriptBuf::from_hex("51").unwrap(),
+            UtxoData {
+                txout: TxOut {
+                    value: Amount::from_sat(0),
+                    script_pubkey: ScriptBuf::from_hex("51").unwrap(),
+                },
+                commited_height: 0,
+                commited_time: 0,
             },
         );
 
         let flags = 0;
-        Consensus::verify_transaction(&tx, &mut utxos, false, flags).unwrap();
+
+        Consensus::verify_transaction(0, 0, &tx, &mut utxos, false, flags).unwrap();
 
         let spending = Transaction {
             version: Version(1),
@@ -539,12 +659,238 @@ mod tests {
                 txid: tx.compute_txid(),
                 vout: 0,
             },
-            TxOut {
-                value: Amount::from_sat(0),
-                script_pubkey: script,
+            UtxoData {
+                txout: TxOut {
+                    value: Amount::from_sat(0),
+                    script_pubkey: script,
+                },
+                commited_height: 0,
+                commited_time: 0,
             },
         );
 
-        Consensus::verify_transaction(&spending, &mut utxos, false, flags).unwrap_err();
+        Consensus::verify_transaction(0, 0, &spending, &mut utxos, false, flags).unwrap_err();
+    }
+
+    /// Validates a relative timelock transaction and return its errors if any.
+    ///
+    /// utxo_lock: is the lock value which can be either a height or a timestamp. Defines the creation time/height of the UTXO.
+    /// Values > 500,000,000 will be considered a unix timestamp, otherwise a height.
+    ///
+    /// sequence: a be u32 sequence to be put in a fake transaction that has only 1 input spending the utxo locked.
+    ///
+    /// actual_tip_lock: the height/time to be considered as the tip of the chain.
+    /// Values > 500,000,000 will be considered a unix timestamp, otherwise a height.
+    pub fn test_reltimelock(
+        utxo_lock: u32,
+        sequence: Sequence,
+        actual_tip_lock: u32,
+    ) -> Option<BlockValidationErrors> {
+        use bitcoin::hashes::Hash;
+        let base_tx = Transaction {
+            version: Version(2),
+            lock_time: LockTime::ZERO,
+            input: vec![TxIn {
+                previous_output: OutPoint {
+                    txid: Hash::all_zeros(),
+                    vout: 0,
+                },
+                sequence,
+                script_sig: ScriptBuf::default(),
+                witness: Witness::default(),
+            }],
+            output: vec![TxOut {
+                value: Amount::from_sat(0),
+                script_pubkey: ScriptBuf::default(),
+            }],
+        };
+        // Check if the value is set for time and resets the default value for height and vice versa.
+        let mut actual_time = actual_tip_lock;
+        let mut actual_height = actual_tip_lock;
+
+        if actual_tip_lock > 500_000_000 {
+            actual_height = 0;
+        } else {
+            actual_time = 500_000_000;
+        }
+
+        // same for utxo_lock
+        let mut utxo_time = utxo_lock;
+        let mut utxo_height = utxo_lock;
+        if utxo_lock > 500_000_000 {
+            utxo_height = 0;
+        } else {
+            utxo_time = 500_000_000;
+        }
+
+        let mut utxo_state: UtxoMap = HashMap::new();
+
+        utxo_state.insert(
+            OutPoint {
+                txid: Hash::all_zeros(),
+                vout: 0,
+            },
+            UtxoData {
+                txout: TxOut {
+                    value: Amount::from_sat(0),
+                    script_pubkey: ScriptBuf::default(),
+                },
+                commited_time: utxo_time,
+                commited_height: utxo_height,
+            },
+        );
+
+        Consensus::validate_locktime(
+            &base_tx.input[0],
+            &base_tx,
+            &utxo_state,
+            actual_height,
+            actual_time,
+        )
+        .err()
+    }
+
+    /// Validates a timelocked transaction with its timelock set as `height_tx_lock` or `seconds_tx_lock` against `lock`
+    ///
+    /// when testing `height_tx_lock`, `seconds_tx_lock` needs to be `0` and vice-versa.
+    fn test_abstimelock(
+        lock: u32,
+        height_tx_lock: u32,
+        seconds_tx_lock: u32,
+    ) -> Option<BlockValidationErrors> {
+        use bitcoin::hashes::Hash;
+        let base_tx = Transaction {
+            version: Version(2),
+            lock_time: LockTime::from_consensus(lock),
+            input: vec![TxIn {
+                previous_output: OutPoint {
+                    txid: Hash::all_zeros(),
+                    vout: 0,
+                },
+                sequence: Sequence::ENABLE_LOCKTIME_NO_RBF,
+                script_sig: ScriptBuf::default(),
+                witness: Witness::default(),
+            }],
+            output: vec![TxOut {
+                value: Amount::from_sat(0),
+                script_pubkey: ScriptBuf::default(),
+            }],
+        };
+
+        // This is necessary because of the seconds gate in timelock...
+        let mut seconds_tx_lock = seconds_tx_lock;
+
+        if seconds_tx_lock == 0 {
+            seconds_tx_lock = 500000000;
+        }
+
+        Consensus::validate_locktime(
+            &base_tx.input[0],
+            &base_tx,
+            &HashMap::new(),
+            height_tx_lock,
+            seconds_tx_lock,
+        )
+        .err()
+    }
+
+    #[test]
+    fn test_timelock_validation() {
+        assert!(test_abstimelock(800, 800 + 1, 0).is_none()); // Height locked success case.
+        assert_eq!(
+            test_abstimelock(800, 800 - 1, 0), // Height locked fail case.
+            Some(BlockValidationErrors::BadAbsoluteLockTime)
+        );
+
+        assert!(test_abstimelock(1358114045, 0, 1358114045 + 1).is_none()); // Time locked success case
+        assert_eq!(
+            test_abstimelock(1358114045, 0, 1358114045 - 1), // Time locked fail case
+            Some(BlockValidationErrors::BadAbsoluteLockTime)
+        );
+
+        // Relative height locked success case
+        let blocks_to_wait: u16 = 500;
+        let sequence = Sequence::from_height(blocks_to_wait);
+        assert!(
+            test_reltimelock(800_000, sequence, 800_000 + (blocks_to_wait + 1) as u32).is_none()
+        );
+
+        // Relative height locked fail case
+        let blocks_to_wait: u16 = 500;
+        let sequence = Sequence::from_height(blocks_to_wait);
+        assert_eq!(
+            test_reltimelock(800_000, sequence, 800_000 + (blocks_to_wait - 1) as u32),
+            Some(BlockValidationErrors::BadRelativeBlockLock)
+        );
+
+        // Relative time locked success case
+        let intervals_to_wait: u16 = 1;
+        let sequence = Sequence::from_512_second_intervals(intervals_to_wait);
+        assert!(test_reltimelock(
+            1358114045,
+            sequence,
+            // When the last mtp is greater than the utxo commitment mtp it means the utxo has waited enough
+            1358114045 + ((intervals_to_wait as u32 * 512) + 1)
+        )
+        .is_none());
+
+        // relative time locked fail case
+        let intervals_to_wait: u16 = 10;
+        let sequence = Sequence::from_512_second_intervals(intervals_to_wait);
+        assert_eq!(
+            test_reltimelock(
+                1358114045,
+                sequence,
+                // When the last mtp is less or equal than the utxo commitment mtp it means the utxo hasnt waited enough
+                1358114045 + (intervals_to_wait as u32 * 512)
+            ),
+            Some(BlockValidationErrors::BadRelativeTimeLock)
+        );
+
+        // relative time locked fail case
+        let intervals_to_wait: u16 = 10;
+        let sequence = Sequence::from_512_second_intervals(intervals_to_wait);
+        assert_eq!(
+            test_reltimelock(
+                1358114045,
+                sequence,
+                // When the last mtp is less or equal than the utxo commitment mtp it means the utxo hasnt waited enough
+                1358114045 + (intervals_to_wait as u32 * 512) - 1
+            ),
+            Some(BlockValidationErrors::BadRelativeTimeLock)
+        );
+    }
+
+    #[test]
+    fn test_timelock_singletx() {
+        let utxo = UtxoData {
+            txout: TxOut {
+                value: Amount::from_sat(213734),
+                script_pubkey: ScriptBuf::from_hex(
+                    "a9141cf336ade3f4c43f05061ef3c21223b74f35ca5787",
+                )
+                .unwrap(),
+            },
+            commited_height: 683167,
+            commited_time: 1620769247,
+        };
+
+        let mut utxos = HashMap::new();
+        utxos.insert(
+            OutPoint {
+                txid: Txid::from_str(
+                    "a67d206a434813f2f120c9b7fae2c67fa0a1491e745924b1ce5821bb8d1067ce",
+                )
+                .unwrap(),
+                vout: 133,
+            },
+            utxo,
+        );
+
+        let tx: Transaction = deserialize_hex("02000000000101ce67108dbb2158ceb12459741e49a1a07fc6e2fab7c920f1f21348436a207da6850000002322002076e49b7d8313c622217bc6c9e06f426f545306c6bdf894020890d7732aff787680ca000002a08601000000000016001429675e0410029bb71051396ceb6fef076273f6cc43ba01000000000017a91452e9dd0222cae3f3872bede12f93b207784a8ed4870300473044022059328c1facf7a3237a41f0502aa53e6e10fe14764f2ca80a6d0236e86f25b02d02205214d2b238217e4dd308c7512d81d4bc223d5845f27d457415d850772df379a4014e210337bc02a430fcb243248bae54b54fd4203940b01782ad98d00a7bbefbd12fd024ad210326b16c98d58ee4b094da0514b08fb68f6891f5daa51843b3d0d0f5f833acb443ac73640380ca00b268590e0d00").unwrap();
+
+        assert!(
+            Consensus::validate_locktime(&tx.input[0], &tx, &utxos, 855645, 1722944388).is_ok()
+        );
     }
 }

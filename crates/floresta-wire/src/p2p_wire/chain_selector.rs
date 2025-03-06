@@ -385,7 +385,8 @@ where
     fn update_acc(&self, acc: Stump, block: UtreexoBlock, height: u32) -> Result<Stump, WireError> {
         let (proof, del_hashes, _) = floresta_chain::proof_util::process_proof(
             block.udata.as_ref().unwrap(),
-            &block.block.txdata,
+            &block.block,
+            height,
             &self.chain,
         )?;
 
@@ -524,14 +525,15 @@ where
             };
             break block;
         };
+        let fork_height = self.chain.get_block_height(&fork)?.unwrap_or(0);
 
         let (proof, del_hashes, inputs) = floresta_chain::proof_util::process_proof(
             block.udata.as_ref().unwrap(),
-            &block.block.txdata,
+            &block.block,
+            fork_height,
             &self.chain,
         )?;
 
-        let fork_height = self.chain.get_block_height(&fork)?.unwrap_or(0);
         let acc = self.find_accumulator_for_block(fork_height, fork).await?;
         let is_valid = self
             .chain

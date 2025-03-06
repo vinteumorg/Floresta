@@ -11,7 +11,7 @@
 //! This choice removes the use of costly atomic operations, but opens space for design flaws
 //! and memory unsoundness, so here are some tips about this module and how people looking for
 //! extend or use this code should proceed:
-//!   
+//!
 //!   - Shared ownership is forbidden: if you have two threads or tasks owning this, you'll have
 //!     data race. If you want to hold shared ownership for this module, you need to place a
 //!     [PartialChainState] inside an `Arc<Mutex>` yourself. Don't just Arc this and expect it to
@@ -37,6 +37,7 @@ use super::chainparams::ChainParams;
 use super::consensus::Consensus;
 use super::error::BlockValidationErrors;
 use super::error::BlockchainError;
+use super::utxo_data::UtxoMap;
 use super::BlockchainInterface;
 use super::UpdatableChainstate;
 use crate::UtreexoBlock;
@@ -172,7 +173,7 @@ impl PartialChainStateInner {
         &mut self,
         block: &bitcoin::Block,
         proof: rustreexo::accumulator::proof::Proof,
-        inputs: HashMap<bitcoin::OutPoint, bitcoin::TxOut>,
+        inputs: UtxoMap,
         del_hashes: Vec<bitcoin::hashes::sha256::Hash>,
     ) -> Result<u32, BlockchainError> {
         let height = self.current_height + 1;
@@ -209,7 +210,7 @@ impl PartialChainStateInner {
         &self,
         block: &bitcoin::Block,
         height: u32,
-        inputs: HashMap<bitcoin::OutPoint, bitcoin::TxOut>,
+        inputs: UtxoMap,
     ) -> Result<(), BlockchainError> {
         if !block.check_merkle_root() {
             return Err(BlockValidationErrors::BadMerkleRoot)?;
@@ -238,6 +239,7 @@ impl PartialChainStateInner {
         let flags = 0;
         Consensus::verify_block_transactions(
             height,
+            block.header.time,
             inputs,
             &block.txdata,
             subsidy,
@@ -256,7 +258,7 @@ impl PartialChainState {
     /// [PartialChainState] is through our APIs, and we make sure this [UnsafeCell] is
     /// always valid.
     /// The reference returned here **should not** leak through the API, as there's no
-    /// synchronization mechanims for it.
+    /// synchronization mechanism for it.
     #[inline(always)]
     #[must_use]
     #[doc(hidden)]
@@ -271,7 +273,7 @@ impl PartialChainState {
     /// [PartialChainState] is through our APIs, and we make sure this [UnsafeCell] is
     /// always valid.
     /// The reference returned here **should not** leak through the API, as there's no
-    /// synchronization mechanims for it.
+    /// synchronization mechanism for it.
     #[inline(always)]
     #[allow(clippy::mut_from_ref)]
     #[must_use]
@@ -305,7 +307,7 @@ impl UpdatableChainstate for PartialChainState {
         &self,
         block: &bitcoin::Block,
         proof: rustreexo::accumulator::proof::Proof,
-        inputs: HashMap<bitcoin::OutPoint, bitcoin::TxOut>,
+        inputs: UtxoMap,
         del_hashes: Vec<bitcoin::hashes::sha256::Hash>,
     ) -> Result<u32, BlockchainError> {
         self.inner_mut()
@@ -366,6 +368,10 @@ impl UpdatableChainstate for PartialChainState {
 impl BlockchainInterface for PartialChainState {
     type Error = BlockchainError;
 
+    fn get_mtp(&self, _height: u32) -> Result<u32, BlockchainError> {
+        unimplemented!("a partialChainState will probably give an incomplete MTP")
+    }
+
     fn get_params(&self) -> bitcoin::params::Params {
         self.inner().chain_params().params
     }
@@ -423,7 +429,7 @@ impl BlockchainInterface for PartialChainState {
         &self,
         _block: &bitcoin::Block,
         _proof: rustreexo::accumulator::proof::Proof,
-        _inputs: HashMap<bitcoin::OutPoint, bitcoin::TxOut>,
+        _inputs: UtxoMap,
         _del_hashes: Vec<bitcoin::hashes::sha256::Hash>,
         _acc: Stump,
     ) -> Result<(), Self::Error> {
