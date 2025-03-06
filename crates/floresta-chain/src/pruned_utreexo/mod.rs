@@ -1,3 +1,12 @@
+//! The pruned utreexo module is where the full blockchain logic is handled (validation, state tracking and interfacing). It uses a pruned chain, which does not keep the historical blocks.
+//!
+//! This module contains the main traits and types for interacting with an utreexo-enabled blockchain.
+//! It also provides some utilities for inspecting the utxo set and managing chain state.
+//!
+//! The key components are:
+//! - [BlockchainInterface]: The main interface for interacting with the blockchain
+//! - [UpdatableChainstate]: Handles updates to the chain state including blocks and transactions
+//! - [ChainStore]: Defines persistence and retrieval of blockchain data
 extern crate alloc;
 
 pub mod chain_state;
@@ -158,10 +167,10 @@ pub trait UpdatableChainstate {
     fn mark_chain_as_assumed(&self, acc: Stump, tip: BlockHash) -> Result<bool, BlockchainError>;
 }
 
-/// [ChainStore] is a trait defining how we interact with our chain database. This definitions
-/// will be used by the [ChainState] to save and retrieve data about the blockchain, likely
+/// This trait is defining how we interact with our chain database. This definitions
+/// will be used by the [ChainState](chain_state::ChainState) to save and retrieve data about the blockchain, likely
 /// on disk.
-/// Right now, you can use the [KvChainStore] in your code, it implements this trait and
+/// Right now, you can use the [KvChainStore](chainstore::KvChainStore) in your code, it implements this trait and
 /// uses a key-value store to save data.
 /// The [DatabaseError] is a simple trait that can be implemented by any error type that
 /// implements [std::error::Error] and [std::fmt::Display]. This is useful to abstract

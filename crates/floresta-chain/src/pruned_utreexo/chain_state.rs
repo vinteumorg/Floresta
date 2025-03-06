@@ -1,3 +1,19 @@
+//! The chain state contains both the blocks and blockchain validation logic
+//!
+//! This module provides the implementation of Bitcoin's consensus rules and chain validation,
+//! enabling verification of transactions and blocks. It maintains:
+//!
+//! - Block headers and chain organization
+//! - Chain selection based on proof-of-work
+//! - Block validation and transaction verification
+//! - UTXO set tracking via a Utreexo accumulator
+//! - Support for Initial Block Download (IBD)
+//!
+//! Key types:
+//! - [ChainState]: Main type implementing chain consensus and block validation
+//! - [ChainStateInner]: Internal state storage and validation data
+//! - [BlockConsumer]: Trait for receiving new block notifications
+//! - [BestChain]: Tracks the current best chain and alternative forks
 extern crate alloc;
 
 use alloc::borrow::ToOwned;

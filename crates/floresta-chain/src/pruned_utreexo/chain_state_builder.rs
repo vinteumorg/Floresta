@@ -1,3 +1,13 @@
+//! This module provides a builder pattern for constructing ChainState instances with various
+//! optional configurations.
+//!
+//! It includes:
+//! - Chain parameters
+//! - Chainstore backend
+//! - Initial block download status
+//! - Assumed valid blocks for validation optimization
+//! - UTREEXO accumulator state
+//! - Current chain tip and header
 use bitcoin::block::Header as BlockHeader;
 use bitcoin::hashes::Hash;
 use bitcoin::BlockHash;

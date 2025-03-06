@@ -21,6 +21,9 @@ pub use pruned_utreexo::error::*;
 pub use pruned_utreexo::udata::*;
 pub use pruned_utreexo::Notification;
 
+/// Simple enum representing the network type.
+///
+/// Possible values are Bitcoin, Testnet, Regtest, and Signet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Network {
     Bitcoin,
