@@ -183,6 +183,7 @@ pub struct NodeCommon<Chain: BlockchainInterface + UpdatableChainstate> {
     pub(crate) config: UtreexoNodeConfig,
     pub(crate) datadir: String,
     pub(crate) network: Network,
+    pub(crate) kill_signal: Arc<tokio::sync::RwLock<bool>>,
 }
 
 pub struct UtreexoNode<Chain: BlockchainInterface + UpdatableChainstate, Context> {
@@ -221,6 +222,7 @@ where
         chain: Chain,
         mempool: Arc<Mutex<Mempool>>,
         block_filters: Option<Arc<NetworkFilters<FlatFiltersStore>>>,
+        kill_signal: Arc<tokio::sync::RwLock<bool>>,
     ) -> Result<Self, WireError> {
         let (node_tx, node_rx) = unbounded_channel();
         let socks5 = config.proxy.map(Socks5StreamBuilder::new);
@@ -259,10 +261,11 @@ where
                 last_get_address_request: Instant::now(),
                 last_send_addresses: Instant::now(),
                 datadir: config.datadir.clone(),
-                socks5,
                 max_banscore: config.max_banscore,
+                socks5,
                 fixed_peer,
                 config,
+                kill_signal,
             },
             context: T::default(),
         })
@@ -964,6 +967,11 @@ where
 
     pub(crate) async fn create_connection(&mut self, kind: ConnectionKind) -> Option<()> {
         let required_services = self.get_required_services();
+        debug!(
+            "openning a new connection with required services: {:?}",
+            required_services
+        );
+
         let address = match &self.fixed_peer {
             Some(address) => Some((0, address.clone())),
             None => self
@@ -975,6 +983,7 @@ where
             "attempting connection with address={:?} kind={:?}",
             address, kind
         );
+
         let (peer_id, address) = address?;
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
