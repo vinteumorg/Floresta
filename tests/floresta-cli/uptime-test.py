@@ -7,8 +7,8 @@ This functional test cli utility to interact with a Floresta node with `uptime`
 import os
 import time
 import tempfile
-from test_framework.test_framework import FlorestaTestFramework
-from test_framework.floresta_rpc import REGTEST_RPC_SERVER
+from tests.test_framework.test_framework import FlorestaTestFramework
+from tests.test_framework.floresta_rpc import REGTEST_RPC_SERVER
 
 
 class UptimeTest(FlorestaTestFramework):

@@ -6,8 +6,8 @@ This functional test cli utility to interact with a Floresta node with `addnode`
 
 import os
 import tempfile
-from test_framework.test_framework import FlorestaTestFramework
-from test_framework.floresta_rpc import REGTEST_RPC_SERVER, JSONRPCError
+from tests.test_framework.test_framework import FlorestaTestFramework
+from tests.test_framework.floresta_rpc import REGTEST_RPC_SERVER, JSONRPCError
 
 # Setup a little node with another port
 ANOTHER_REGTEST_RPC_SERVER = {
