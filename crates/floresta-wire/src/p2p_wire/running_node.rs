@@ -3,13 +3,11 @@
 /// CPU to run, being bound by the number of blocks found in a given period.
 use std::collections::BTreeMap;
 use std::collections::HashMap;
-use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 
 use bitcoin::bip158::BlockFilter;
-use bitcoin::p2p::address::AddrV2;
 use bitcoin::p2p::address::AddrV2Message;
 use bitcoin::p2p::message_blockdata::Inventory;
 use bitcoin::p2p::ServiceFlags;
@@ -36,7 +34,6 @@ use tokio::time::timeout;
 use super::error::WireError;
 use super::peer::PeerMessages;
 use crate::address_man::AddressState;
-use crate::address_man::LocalAddress;
 use crate::node::periodic_job;
 use crate::node::try_and_log;
 use crate::node::ConnectionKind;
@@ -46,7 +43,6 @@ use crate::node::NodeRequest;
 use crate::node::UtreexoNode;
 use crate::node_context::NodeContext;
 use crate::node_context::PeerId;
-use crate::node_interface::NodeInterface;
 use crate::node_interface::NodeResponse;
 use crate::node_interface::UserRequest;
 use crate::p2p_wire::chain_selector::ChainSelector;
@@ -55,7 +51,6 @@ use crate::p2p_wire::sync_node::SyncNode;
 #[derive(Debug, Clone)]
 pub struct RunningNode {
     pub(crate) last_address_rearrange: Instant,
-    pub(crate) user_requests: Arc<NodeInterface>,
     /// To find peers with a good connectivity, keep track of what peers sent us an inv message
     /// for a block, in the first 5 seconds after we get the first inv message. If we ever decide
     /// to disconnect a peer, we should disconnect the ones that didn't send us an inv message
@@ -80,99 +75,6 @@ where
     WireError: From<<Chain as BlockchainInterface>::Error>,
     Chain: BlockchainInterface + UpdatableChainstate + 'static,
 {
-    /// Returns a handle to the node interface that we can use to request data from our
-    /// node. This struct is thread safe, so we can use it from multiple threads and have
-    /// multiple handles. It also doesn't require a mutable reference to the node, or any
-    /// synchronization mechanism.
-    pub fn get_handle(&self) -> Arc<NodeInterface> {
-        self.context.user_requests.clone()
-    }
-
-    async fn handle_user_request(&mut self) -> Result<(), WireError> {
-        let requests = self
-            .context
-            .user_requests
-            .requests
-            .lock()
-            .map_err(|_| WireError::PoisonedLock)?
-            .iter()
-            .filter(|req| {
-                !self
-                    .inflight
-                    .contains_key(&InflightRequests::UserRequest(req.req))
-            })
-            .map(|req| req.req)
-            .collect();
-        self.perform_user_request(requests).await;
-        Ok(())
-    }
-
-    fn handle_get_peer_info(&self) {
-        let mut peers = Vec::new();
-        for peer in self.peer_ids.iter() {
-            peers.push(self.get_peer_info(peer));
-        }
-        let peers = peers.into_iter().flatten().collect();
-        self.context.user_requests.send_answer(
-            UserRequest::GetPeerInfo,
-            Some(NodeResponse::GetPeerInfo(peers)),
-        );
-    }
-
-    async fn perform_user_request(&mut self, user_req: Vec<UserRequest>) {
-        for user_req in user_req {
-            debug!("Performing user request {user_req:?}");
-            if self.inflight.len() >= RunningNode::MAX_INFLIGHT_REQUESTS {
-                return;
-            }
-
-            let req = match user_req {
-                UserRequest::Block(block) => NodeRequest::GetBlock((vec![block], false)),
-                UserRequest::UtreexoBlock(block) => NodeRequest::GetBlock((vec![block], true)),
-                UserRequest::MempoolTransaction(txid) => NodeRequest::MempoolTransaction(txid),
-                UserRequest::GetPeerInfo => {
-                    self.handle_get_peer_info();
-                    continue;
-                }
-                UserRequest::Connect((addr, port)) => {
-                    let addr_v2 = match addr {
-                        IpAddr::V4(addr) => AddrV2::Ipv4(addr),
-                        IpAddr::V6(addr) => AddrV2::Ipv6(addr),
-                    };
-                    let local_addr = LocalAddress::new(
-                        addr_v2,
-                        0,
-                        AddressState::NeverTried,
-                        0.into(),
-                        port,
-                        self.peer_id_count as usize,
-                    );
-
-                    self.open_connection(
-                        ConnectionKind::Regular(ServiceFlags::NONE),
-                        0,
-                        local_addr,
-                    )
-                    .await;
-
-                    self.peer_id_count += 1;
-                    self.context.user_requests.send_answer(
-                        UserRequest::Connect((addr, port)),
-                        Some(NodeResponse::Connect(true)),
-                    );
-                    continue;
-                }
-            };
-            let peer = self.send_to_random_peer(req, ServiceFlags::NONE).await;
-            if let Ok(peer) = peer {
-                self.inflight.insert(
-                    InflightRequests::UserRequest(user_req),
-                    (peer, Instant::now()),
-                );
-            }
-        }
-    }
-
     async fn send_addresses(&mut self) -> Result<(), WireError> {
         let addresses = self
             .address_man
@@ -240,7 +142,7 @@ where
                         .insert(InflightRequests::Headers, (peer, Instant::now()));
                 }
                 InflightRequests::UserRequest(req) => {
-                    self.context.user_requests.send_answer(req, None);
+                    self.user_requests.send_answer(req, None);
                 }
                 InflightRequests::Connect(peer) => {
                     self.peers.remove(&peer);
@@ -659,32 +561,9 @@ where
     /// This block may be a rescan block, a user request or a new block that we
     /// need to process.
     async fn handle_block_data(&mut self, block: UtreexoBlock, peer: u32) -> Result<(), WireError> {
-        // If this block is a request made through the user interface, send it back to the
-        // user.
-        if self
-            .inflight
-            .remove(&InflightRequests::UserRequest(UserRequest::Block(
-                block.block.block_hash(),
-            )))
-            .is_some()
-        {
-            debug!(
-                "answering user request for block {}",
-                block.block.block_hash()
-            );
-            if block.udata.is_some() {
-                self.context.user_requests.send_answer(
-                    UserRequest::UtreexoBlock(block.block.block_hash()),
-                    Some(NodeResponse::UtreexoBlock(block)),
-                );
-                return Ok(());
-            }
-            self.context.user_requests.send_answer(
-                UserRequest::Block(block.block.block_hash()),
-                Some(NodeResponse::Block(block.block)),
-            );
+        let Some(block) = self.check_is_user_block_and_reply(block).await? else {
             return Ok(());
-        }
+        };
 
         // If none of the above, it means that this block is a new block that we need to
         // process.
@@ -873,6 +752,7 @@ where
 
                     self.handle_new_block(block, peer).await?;
                 }
+
                 PeerMessages::Block(block) => {
                     debug!(
                         "Got data for block {} from peer {peer}",
@@ -881,6 +761,7 @@ where
 
                     self.handle_block_data(block, peer).await?;
                 }
+
                 PeerMessages::Headers(headers) => {
                     debug!(
                         "Got headers from peer {peer} with {} headers",
@@ -927,6 +808,7 @@ where
                         self.request_blocks(blocks).await?;
                     }
                 }
+
                 PeerMessages::Ready(version) => {
                     debug!(
                         "handshake with peer={peer} succeeded feeler={:?}",
@@ -934,15 +816,18 @@ where
                     );
                     self.handle_peer_ready(peer, &version).await?;
                 }
+
                 PeerMessages::Disconnected(idx) => {
                     self.handle_disconnection(peer, idx).await?;
                 }
+
                 PeerMessages::Addr(addresses) => {
                     debug!("Got {} addresses from peer {}", addresses.len(), peer);
                     let addresses: Vec<_> = addresses.into_iter().map(|addr| addr.into()).collect();
 
                     self.address_man.push_addresses(&addresses);
                 }
+
                 PeerMessages::BlockFilter((hash, filter)) => {
                     debug!("Got a block filter for block {hash} from peer {peer}");
 
@@ -978,30 +863,31 @@ where
                         }
                     }
                 }
+
                 PeerMessages::NotFound(inv) => match inv {
                     Inventory::Error => {}
                     Inventory::Block(block)
                     | Inventory::WitnessBlock(block)
                     | Inventory::CompactBlock(block) => {
-                        self.context
-                            .user_requests
+                        self.user_requests
                             .send_answer(UserRequest::Block(block), None);
                     }
 
                     Inventory::WitnessTransaction(tx) | Inventory::Transaction(tx) => {
-                        self.context
-                            .user_requests
+                        self.user_requests
                             .send_answer(UserRequest::MempoolTransaction(tx), None);
                     }
                     _ => {}
                 },
+
                 PeerMessages::Transaction(tx) => {
                     debug!("saw a mempool transaction with txid={}", tx.compute_txid());
-                    self.context.user_requests.send_answer(
+                    self.user_requests.send_answer(
                         UserRequest::MempoolTransaction(tx.compute_txid()),
                         Some(NodeResponse::MempoolTransaction(tx)),
                     );
                 }
+
                 PeerMessages::UtreexoState(_) => {
                     warn!(
                         "Utreexo state received from peer {}, but we didn't ask",
