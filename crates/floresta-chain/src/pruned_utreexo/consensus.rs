@@ -97,13 +97,12 @@ impl Consensus {
                 if !transaction.is_coinbase() {
                     return Err(BlockValidationErrors::FirstTxIsNotCoinbase)?;
                 }
-                // Check coinbase input and output script limits
                 Self::verify_coinbase(transaction)?;
                 // Skip next checks: coinbase input is exempt, coinbase reward checked later
                 continue;
             }
 
-            // actually verify the transaction
+            // Actually verify the transaction
             let (in_value, out_value) =
                 Self::verify_transaction(transaction, &mut utxos, verify_script, flags)?;
 
@@ -145,15 +144,15 @@ impl Consensus {
             .map(|out| out.value.to_sat())
             .sum();
 
-        // Sum tx input amounts, check their unlocking script sizes (scriptsig and TODO witness)
         let mut in_value = 0;
         for input in transaction.input.iter() {
             let txo = Self::get_utxo(input, utxos, txid)?;
 
             in_value += txo.value.to_sat();
 
-            Self::validate_script_size(&input.script_sig, txid)?;
+            // Check script sizes (spent txo pubkey, and current tx scriptsig and TODO witness)
             Self::validate_script_size(&txo.script_pubkey, || input.previous_output.txid)?;
+            Self::validate_script_size(&input.script_sig, txid)?;
             // TODO check also witness script size
         }
 
@@ -161,7 +160,6 @@ impl Consensus {
         if out_value > in_value {
             return Err(tx_err!(txid, NotEnoughMoney))?;
         }
-
         // Sanity check
         if out_value > 21_000_000 * COIN_VALUE {
             return Err(BlockValidationErrors::TooManyCoins)?;
@@ -220,8 +218,7 @@ impl Consensus {
         Ok(())
     }
 
-    /// Validates the coinbase transaction's input and enforces the limits on each
-    /// output's script. The check for output values is not performed here.
+    /// Validates the coinbase transaction's input.
     fn verify_coinbase(tx: &Transaction) -> Result<(), TransactionError> {
         let txid = || tx.compute_txid();
         let input = match tx.input.as_slice() {
@@ -239,11 +236,6 @@ impl Consensus {
         let size = input.script_sig.len();
         if !(2..=100).contains(&size) {
             return Err(tx_err!(txid, InvalidCoinbase, "Invalid ScriptSig size"));
-        }
-
-        // Finally check all the output scripts
-        for output in tx.output.iter() {
-            Self::validate_script_size(&output.script_pubkey, txid)?;
         }
 
         Ok(())
@@ -308,7 +300,7 @@ mod tests {
     use super::*;
 
     #[cfg(feature = "bitcoinconsensus")]
-    /// Some made up transactions that tests our script limits checks.
+    /// Some made up transactions that test our script limits checks.
     /// Here's what is wrong with each transaction:
     ///     - tx1: Too many ops (512, should be <= 201)
     ///     - tx2: It's ok, just huge
