@@ -22,12 +22,12 @@ rustreexo = "0.4"
 sha2 = "^0.10.6"
 log = "0.4"
 kv = "0.24.0"
-bitcoin = { version = "0.32", features = [
-    "serde",
-], default-features = false }
+bitcoin = { version = "0.32", features = ["serde"], default-features = false }
 spin = "0.9.8"
 core2 = { version = "0.4.0", default-features = false }
-floresta-common = { path = "../floresta-common", default-features = false, features = ["std"] }
+floresta-common = { path = "../floresta-common", default-features = false, features = [
+    "std",
+] }
 bitcoinconsensus = { version = "0.106.0", optional = true, default-features = false }
 metrics = { path = "../../metrics", optional = true }
 
@@ -41,9 +41,14 @@ hex = "0.4.3"
 
 [features]
 default = []
+std = []
+# This disables floresta_chain dependency on canonical chains.
+# Better while pruned contexts like tests or benchmarks.
+non_canonical = []
 bitcoinconsensus = ["bitcoin/bitcoinconsensus", "dep:bitcoinconsensus"]
 metrics = ["dep:metrics"]
 
 [[bench]]
 name = "chain_state_bench"
+
 harness = false
