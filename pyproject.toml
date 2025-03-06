@@ -1,67 +1,20 @@
-# With this the user can use a custom
-# python environment, like those created
-# with venv or pyenv. The default will be
-# the system python.
-[virtualenvs]
-prefer-active-python = true
-
-# This isn't really needed on pratical aspect
-# since this is only for organize the functional tests
-# but is necessary since its a requirement for poetry.
-[tool.poetry]
+[project]
 name = "floresta-functional-tests"
-version = "0.0.1"
-description = "collection of tools to help with functional testing of Floresta"
-authors = ["The Floresta Project Developers"]
-license = "MIT"
-
-# To add a new dependency, use `poetry add <package>`.
-# To update, first find outdated packages with `poetry show --outdated`,
-# then re-install with `poetry add <package>@<version>`.
-[tool.poetry.dependencies]
-python = ">=3.12"
-jsonrpclib = "^0.2.1"
-requests = "^2.32.3"
-black = "^24.10.0"
-pylint = "^3.3.2"
-poethepoet = "^0.31.1"
-
-# Here we can define some custom tasks
-# (even bash or rust ones can be defined).
-# All of them will run on virtualenv environment.
-# For more information, see guidelines in https://poethepoet.natn.io
-[tool.poe.tasks]
-format = "black ./tests"
-lint = "pylint ./tests"
-example-test = "python tests/run_tests.py --test-name example_test"
-restart-test = "python tests/run_tests.py --test-name restart"
-florestacli-getblockchaininfo-test = "python tests/run_tests.py --test-name floresta_cli_getblockchaininfo"
-florestacli-getblockhash-test = "python tests/run_tests.py --test-name floresta_cli_getblockhash"
-florestacli-getblockheader-test = "python tests/run_tests.py --test-name floresta_cli_getblockheader"
-florestacli-getblock-test = "python tests/run_tests.py --test-name floresta_cli_getblock"
-florestacli-getpeerinfo-test = "python tests/run_tests.py --test-name floresta_cli_getpeerinfo"
-florestacli-addnode-test = "python tests/run_tests.py --test-name floresta_cli_addnode"
-florestacli-stop-test = "python tests/run_tests.py --test-name floresta_cli_stop"
-florestacli-getroots-test = "python tests/run_tests.py --test-name floresta_cli_getroots"
-florestacli-getrpcinfo-test = "python tests/run_tests.py --test-name floresta_cli_getrpcinfo"
-florestacli-getmemoryinfo-test = "python tests/run_tests.py --test-name floresta_cli_getmemoryinfo"
-florestacli-uptime-test = "python tests/run_tests.py --test-name floresta_cli_uptime"
-tests = [
-  "restart-test",
-  "florestacli-getblockchaininfo-test",
-  "florestacli-getblockhash-test",
-  "florestacli-getblockheader-test",
-  "florestacli-getblock-test",
-  "florestacli-getpeerinfo-test",
-  "florestacli-addnode-test",
-  "florestacli-stop-test",
-  "florestacli-getroots-test",
-  "florestacli-getrpcinfo-test",
-  "florestacli-getmemoryinfo-test",
-  "florestacli-uptime-test"
+version = "0.0.2"
+description = "Collection of tools to help with functional testing of Floresta"
+authors = [{name = "The Floresta Project Developers"}]
+license = {text = "MIT"}
+requires-python = ">=3.12"
+dependencies = [
+    "jsonrpclib>=0.2.1",
+    "requests>=2.32.3",
+    "black>=24.10.0",
+    "pylint>=3.3.2",
 ]
-pre-commit = ["format", "lint", "tests"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["tests/test_framework"]
 
 [build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+requires = ["hatchling"]
+build-backend = "hatchling.build"

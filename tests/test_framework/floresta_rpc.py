@@ -1,4 +1,4 @@
-""" 
+"""
 floresta_rpc.py
 
 A test framework for testing JsonRPC calls to a floresta node.
@@ -8,7 +8,7 @@ The list below describe the python method and the related JSONRPC call:
 - get_blockchain_info: `getblochaininfo`;
 - get_blockhash: `getblockhash <height>`;
 - get_block: `getblock <blockhash>`;
-- get_peer_info: `getpeerinfo`; 
+- get_peer_info: `getpeerinfo`;
 - get_stop: `stop`;
 - get_addnode `addnode <ip:port>`;
 - get_roots: `getroots`;
