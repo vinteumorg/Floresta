@@ -51,6 +51,7 @@ use super::mempool::Mempool;
 use super::mempool::MempoolProof;
 use super::node_context::NodeContext;
 use super::node_interface::NodeInterface;
+use super::node_interface::NodeResponse;
 use super::node_interface::PeerInfo;
 use super::node_interface::UserRequest;
 use super::peer::create_tcp_stream_actor;
@@ -134,9 +135,6 @@ impl Default for RunningNode {
         RunningNode {
             last_feeler: Instant::now(),
             last_address_rearrange: Instant::now(),
-            user_requests: Arc::new(NodeInterface {
-                requests: std::sync::Mutex::new(Vec::new()),
-            }),
             last_invs: HashMap::default(),
             inflight_filters: BTreeMap::new(),
         }
@@ -183,6 +181,9 @@ pub struct NodeCommon<Chain: BlockchainInterface + UpdatableChainstate> {
     pub(crate) config: UtreexoNodeConfig,
     pub(crate) datadir: String,
     pub(crate) network: Network,
+
+    // 7. Stuff used by the node handle
+    pub(crate) user_requests: Arc<NodeInterface>,
 }
 
 pub struct UtreexoNode<Chain: BlockchainInterface + UpdatableChainstate, Context> {
@@ -263,9 +264,138 @@ where
                 max_banscore: config.max_banscore,
                 fixed_peer,
                 config,
+                user_requests: Arc::new(NodeInterface {
+                    requests: std::sync::Mutex::new(Vec::new()),
+                }),
             },
             context: T::default(),
         })
+    }
+
+    /// Returns a handle to the node interface that we can use to request data from our
+    /// node. This struct is thread safe, so we can use it from multiple threads and have
+    /// multiple handles. It also doesn't require a mutable reference to the node, or any
+    /// synchronization mechanism.
+    pub fn get_handle(&self) -> Arc<NodeInterface> {
+        self.user_requests.clone()
+    }
+
+    pub(crate) async fn handle_user_request(&mut self) -> Result<(), WireError> {
+        let requests = self
+            .user_requests
+            .requests
+            .lock()
+            .map_err(|_| WireError::PoisonedLock)?
+            .iter()
+            .filter(|req| {
+                !self
+                    .inflight
+                    .contains_key(&InflightRequests::UserRequest(req.req))
+            })
+            .map(|req| req.req)
+            .collect();
+
+        self.perform_user_request(requests).await;
+
+        Ok(())
+    }
+
+    fn handle_get_peer_info(&self) {
+        let mut peers = Vec::new();
+        for peer in self.peer_ids.iter() {
+            peers.push(self.get_peer_info(peer));
+        }
+        let peers = peers.into_iter().flatten().collect();
+        self.user_requests.send_answer(
+            UserRequest::GetPeerInfo,
+            Some(NodeResponse::GetPeerInfo(peers)),
+        );
+    }
+
+    async fn perform_user_request(&mut self, user_req: Vec<UserRequest>) {
+        for user_req in user_req {
+            debug!("Performing user request {user_req:?}");
+            if self.inflight.len() >= RunningNode::MAX_INFLIGHT_REQUESTS {
+                return;
+            }
+
+            let req = match user_req {
+                UserRequest::Block(block) => NodeRequest::GetBlock((vec![block], false)),
+                UserRequest::UtreexoBlock(block) => NodeRequest::GetBlock((vec![block], true)),
+                UserRequest::MempoolTransaction(txid) => NodeRequest::MempoolTransaction(txid),
+                UserRequest::GetPeerInfo => {
+                    self.handle_get_peer_info();
+                    continue;
+                }
+                UserRequest::Connect((addr, port)) => {
+                    let addr_v2 = match addr {
+                        IpAddr::V4(addr) => AddrV2::Ipv4(addr),
+                        IpAddr::V6(addr) => AddrV2::Ipv6(addr),
+                    };
+                    let local_addr = LocalAddress::new(
+                        addr_v2,
+                        0,
+                        AddressState::NeverTried,
+                        0.into(),
+                        port,
+                        self.peer_id_count as usize,
+                    );
+                    self.open_connection(ConnectionKind::Regular, 0, local_addr)
+                        .await;
+                    self.peer_id_count += 1;
+                    self.user_requests.send_answer(
+                        UserRequest::Connect((addr, port)),
+                        Some(NodeResponse::Connect(true)),
+                    );
+                    continue;
+                }
+            };
+            let peer = self.send_to_random_peer(req, ServiceFlags::NONE).await;
+            if let Ok(peer) = peer {
+                self.inflight.insert(
+                    InflightRequests::UserRequest(user_req),
+                    (peer, Instant::now()),
+                );
+            }
+        }
+    }
+
+    pub(crate) async fn check_is_user_block_and_reply(
+        &mut self,
+        block: UtreexoBlock,
+    ) -> Result<Option<UtreexoBlock>, WireError> {
+        // If this block is a request made through the user interface, send it back to the
+        // user.
+        if self
+            .inflight
+            .remove(&InflightRequests::UserRequest(UserRequest::Block(
+                block.block.block_hash(),
+            )))
+            .is_some()
+        {
+            debug!(
+                "answering user request for block {}",
+                block.block.block_hash()
+            );
+
+            if block.udata.is_some() {
+                self.user_requests.send_answer(
+                    UserRequest::UtreexoBlock(block.block.block_hash()),
+                    Some(NodeResponse::UtreexoBlock(block)),
+                );
+
+                return Ok(None);
+            }
+
+            self.user_requests.send_answer(
+                UserRequest::Block(block.block.block_hash()),
+                Some(NodeResponse::Block(block.block)),
+            );
+
+            return Ok(None);
+        }
+
+        Ok(Some(block))
     }
 
     fn get_port(network: Network) -> u16 {
