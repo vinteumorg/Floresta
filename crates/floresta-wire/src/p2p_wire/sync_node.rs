@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 
+use bitcoin::p2p::message_blockdata::Inventory;
 use bitcoin::p2p::ServiceFlags;
 use floresta_chain::pruned_utreexo::BlockchainInterface;
 use floresta_chain::pruned_utreexo::UpdatableChainstate;
@@ -19,6 +20,7 @@ use tokio::sync::RwLock;
 use tokio::time::timeout;
 
 use super::error::WireError;
+use super::node_interface::UserRequest;
 use super::peer::PeerMessages;
 use crate::address_man::AddressState;
 use crate::node::periodic_job;
@@ -30,6 +32,7 @@ use crate::node::NodeRequest;
 use crate::node::UtreexoNode;
 use crate::node_context::NodeContext;
 use crate::node_context::PeerId;
+use crate::node_interface::NodeResponse;
 
 /// [`SyncNode`] is a node that downloads and validates the blockchain.
 /// This node implements:
@@ -94,7 +97,7 @@ where
 
         loop {
             while let Ok(Some(msg)) = timeout(Duration::from_secs(1), self.node_rx.recv()).await {
-                self.handle_message(msg).await;
+                try_and_log!(self.handle_message(msg).await);
             }
 
             if *kill_signal.read().await {
@@ -152,13 +155,19 @@ where
             .map(|(req, (peer, _))| (req.clone(), *peer))
             .collect::<Vec<_>>();
 
-        for (block, peer) in to_remove {
-            self.inflight.remove(&block);
+        for (request, peer) in to_remove {
+            self.inflight.remove(&request);
             try_and_log!(self.increase_banscore(peer, 1).await);
 
-            let InflightRequests::Blocks(block) = block else {
+            if let InflightRequests::UserRequest(req) = request {
+                self.user_requests.send_answer(req, None);
+                continue;
+            }
+
+            let InflightRequests::Blocks(block) = request else {
                 continue;
             };
+
             try_and_log!(self.request_blocks(vec![block]).await);
         }
     }
@@ -172,6 +181,10 @@ where
         peer: PeerId,
         block: UtreexoBlock,
     ) -> Result<(), WireError> {
+        let Some(block) = self.check_is_user_block_and_reply(block).await? else {
+            return Ok(());
+        };
+
         self.inflight
             .remove(&InflightRequests::Blocks(block.block.block_hash()));
 
@@ -284,7 +297,7 @@ where
         Ok(())
     }
     /// Process a message from a peer and handle it accordingly between the variants of [`PeerMessages`].
-    async fn handle_message(&mut self, msg: NodeNotification) {
+    async fn handle_message(&mut self, msg: NodeNotification) -> Result<(), WireError> {
         #[cfg(feature = "metrics")]
         self.register_message_time(&msg);
 
@@ -295,9 +308,11 @@ where
                         error!("Error processing block: {:?}", e);
                     }
                 }
+
                 PeerMessages::Ready(version) => {
                     try_and_log!(self.handle_peer_ready(peer, &version).await);
                 }
+
                 PeerMessages::Disconnected(idx) => {
                     try_and_log!(self.handle_disconnection(peer, idx).await);
 
@@ -309,8 +324,43 @@ where
                         self.inflight.clear();
                     }
                 }
+
+                PeerMessages::NotFound(inv) => match inv {
+                    Inventory::Error => {}
+                    Inventory::Block(block)
+                    | Inventory::WitnessBlock(block)
+                    | Inventory::CompactBlock(block) => {
+                        self.user_requests
+                            .send_answer(UserRequest::Block(block), None);
+                    }
+
+                    Inventory::WitnessTransaction(tx) | Inventory::Transaction(tx) => {
+                        self.user_requests
+                            .send_answer(UserRequest::MempoolTransaction(tx), None);
+                    }
+                    _ => {}
+                },
+
+                PeerMessages::Transaction(tx) => {
+                    debug!("saw a mempool transaction with txid={}", tx.compute_txid());
+                    self.user_requests.send_answer(
+                        UserRequest::MempoolTransaction(tx.compute_txid()),
+                        Some(NodeResponse::MempoolTransaction(tx)),
+                    );
+                }
+
+                PeerMessages::UtreexoState(_) => {
+                    warn!(
+                        "Utreexo state received from peer {}, but we didn't ask",
+                        peer
+                    );
+                    self.increase_banscore(peer, 5).await?;
+                }
+
                 _ => {}
             },
         }
+
+        Ok(())
     }
 }

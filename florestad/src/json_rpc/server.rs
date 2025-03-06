@@ -72,10 +72,6 @@ type Result<T> = std::result::Result<T, Error>;
 
 impl RpcImpl {
     fn add_node(&self, node: String) -> Result<bool> {
-        if self.chain.is_in_idb() {
-            return Err(Error::InInitialBlockDownload);
-        }
-
         let node = node.split(':').collect::<Vec<&str>>();
         let (ip, port) = if node.len() == 2 {
             (node[0], node[1].parse().map_err(|_| Error::InvalidPort)?)
@@ -113,10 +109,6 @@ impl RpcImpl {
     }
 
     fn load_descriptor(&self, descriptor: String) -> Result<bool> {
-        if self.chain.is_in_idb() {
-            return Err(Error::InInitialBlockDownload);
-        }
-
         let Ok(mut parsed) = parse_descriptors(&[descriptor.clone()]) else {
             return Err(Error::InvalidDescriptor);
         };
@@ -160,6 +152,7 @@ impl RpcImpl {
     }
 
     fn rescan(&self, _rescan: u32) -> Result<bool> {
+        // if we are on ibd, we don't have any filters to rescan
         if self.chain.is_in_idb() {
             return Err(Error::InInitialBlockDownload);
         }
@@ -169,6 +162,7 @@ impl RpcImpl {
         if self.block_filter_storage.is_none() {
             return Err(Error::InInitialBlockDownload);
         };
+
         let cfilters = self.block_filter_storage.as_ref().unwrap().clone();
         let node = self.node.clone();
         let chain = self.chain.clone();
@@ -192,10 +186,6 @@ impl RpcImpl {
     }
 
     async fn get_peer_info(&self) -> Result<Vec<PeerInfo>> {
-        if self.chain.is_in_idb() {
-            return Err(Error::InInitialBlockDownload);
-        }
-
         let node = self.node.clone();
         tokio::task::spawn_blocking(move || {
             node.get_peer_info()
