@@ -34,7 +34,6 @@ use log::warn;
 use serde::Deserialize;
 use serde::Serialize;
 use tokio::net::tcp::WriteHalf;
-use tokio::net::TcpStream;
 use tokio::spawn;
 use tokio::sync::mpsc::unbounded_channel;
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -53,14 +52,13 @@ use super::node_context::NodeContext;
 use super::node_interface::NodeInterface;
 use super::node_interface::PeerInfo;
 use super::node_interface::UserRequest;
-use super::peer::create_tcp_stream_actor;
+use super::peer::create_actors;
 use super::peer::Peer;
 use super::peer::PeerMessages;
 use super::peer::Version;
 use super::running_node::RunningNode;
-use super::socks::Socks5Addr;
-use super::socks::Socks5Error;
 use super::socks::Socks5StreamBuilder;
+use super::transport;
 use super::UtreexoNodeConfig;
 use crate::node_context::PeerId;
 
@@ -1011,15 +1009,15 @@ where
         network: bitcoin::Network,
         node_tx: UnboundedSender<NodeNotification>,
         user_agent: String,
+        allow_v1_fallback: bool,
     ) -> Result<(), WireError> {
         let address = (address.get_net_address(), address.get_port());
-        let stream = TcpStream::connect(address).await?;
 
-        stream.set_nodelay(true)?;
-        let (reader, writer) = tokio::io::split(stream);
+        let (transport_reader, transport_writer) =
+            transport::connect(address, network, allow_v1_fallback).await?;
 
         let (cancellation_sender, cancellation_receiver) = tokio::sync::oneshot::channel();
-        let (actor_receiver, actor) = create_tcp_stream_actor(reader);
+        let (actor_receiver, actor) = create_actors(transport_reader);
         tokio::spawn(async move {
             tokio::select! {
                 _ = cancellation_receiver => {}
@@ -1031,13 +1029,12 @@ where
         Peer::<WriteHalf>::create_peer(
             peer_id_count,
             mempool,
-            network,
             node_tx.clone(),
             requests_rx,
             peer_id,
             kind,
             actor_receiver,
-            writer,
+            transport_writer,
             user_agent,
             cancellation_sender,
         )
@@ -1058,25 +1055,13 @@ where
         requests_rx: UnboundedReceiver<NodeRequest>,
         peer_id_count: u32,
         user_agent: String,
-    ) -> Result<(), Socks5Error> {
-        let addr = match address.get_address() {
-            AddrV2::Cjdns(addr) => Socks5Addr::Ipv6(addr),
-            AddrV2::I2p(addr) => Socks5Addr::Domain(addr.into()),
-            AddrV2::Ipv4(addr) => Socks5Addr::Ipv4(addr),
-            AddrV2::Ipv6(addr) => Socks5Addr::Ipv6(addr),
-            AddrV2::TorV2(addr) => Socks5Addr::Domain(addr.into()),
-            AddrV2::TorV3(addr) => Socks5Addr::Domain(addr.into()),
-            AddrV2::Unknown(_, _) => {
-                return Err(Socks5Error::InvalidAddress);
-            }
-        };
-
-        let proxy = TcpStream::connect(proxy).await?;
-        let stream = Socks5StreamBuilder::connect(proxy, addr, address.get_port()).await?;
-        let (reader, writer) = tokio::io::split(stream);
+        allow_v1_fallback: bool,
+    ) -> Result<(), WireError> {
+        let (transport_reader, transport_writer) =
+            transport::connect_proxy(proxy, address, network, allow_v1_fallback).await?;
 
         let (cancellation_sender, cancellation_receiver) = tokio::sync::oneshot::channel();
-        let (actor_receiver, actor) = create_tcp_stream_actor(reader);
+        let (actor_receiver, actor) = create_actors(transport_reader);
         tokio::spawn(async move {
             tokio::select! {
                 _ = cancellation_receiver => {}
@@ -1087,13 +1072,12 @@ where
         Peer::<WriteHalf>::create_peer(
             peer_id_count,
             mempool,
-            network,
             node_tx,
             requests_rx,
             peer_id,
             kind,
             actor_receiver,
-            writer,
+            transport_writer,
             user_agent,
             cancellation_sender,
         )
@@ -1125,6 +1109,7 @@ where
                     requests_rx,
                     self.peer_id_count,
                     self.config.user_agent.clone(),
+                    self.config.allow_v1_fallback,
                 ),
             ));
         } else {
@@ -1140,6 +1125,7 @@ where
                     self.network.into(),
                     self.node_tx.clone(),
                     self.config.user_agent.clone(),
+                    self.config.allow_v1_fallback,
                 ),
             ));
         }
