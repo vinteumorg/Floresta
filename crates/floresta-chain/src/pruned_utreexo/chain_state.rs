@@ -1,3 +1,20 @@
+//! This module is centered around the `ChainState` type, defining it and providing
+//! implementations for the [BlockchainInterface] and [UpdatableChainstate] traits.
+//!
+//! Consequently, `ChainState` serves as the blockchain backend for our node and is
+//! the highest-level type in `floresta-chain`. It is responsible for:
+//!
+//! - Keeping track of the chain state, and using a [ChainStore] for persisted storage
+//! - Correctly updating the state with the help of the `consensus.rs` functions
+//! - Interfacing with other components, and providing data about the current view of the chain
+//!
+//! The primary methods for updating our state are [ChainState::accept_header], which constructs
+//! a chain of headers, and [ChainState::connect_block], which verifies the corresponding blocks.
+//!
+//! Key types:
+//! - [ChainState]: The high-level chain backend
+//! - [BlockConsumer]: Trait for receiving new block notifications
+//! - [BestChain]: Tracks the current best chain and alternative forks
 extern crate alloc;
 
 use alloc::borrow::ToOwned;

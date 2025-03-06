@@ -1,3 +1,14 @@
+//! This module provides configuration and parameters for different Bitcoin networks (mainnet,
+//! testnet, signet, and regtest).
+//!
+//! It includes:
+//! - Network-specific parameters like block reward halving intervals and maturity periods
+//! - DNS seeds for peer discovery
+//! - Assumable validation states for Utreexo
+//! - Block verification flag exceptions
+//!
+//! The main struct [`ChainParams`] encapsulates all chain-specific parameters while
+//! [`DnsSeed`] handles peer discovery through DNS.
 extern crate alloc;
 use alloc::vec::Vec;
 use core::ffi::c_uint;
