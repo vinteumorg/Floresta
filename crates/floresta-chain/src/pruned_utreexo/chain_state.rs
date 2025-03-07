@@ -15,7 +15,6 @@ use bitcoin::consensus::deserialize_partial;
 use bitcoin::consensus::Decodable;
 use bitcoin::consensus::Encodable;
 use bitcoin::hashes::sha256;
-use bitcoin::hashes::Hash;
 use bitcoin::script;
 use bitcoin::Block;
 use bitcoin::BlockHash;
@@ -170,7 +169,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         let prev_block = self.get_disk_block_header(&block_header.prev_blockhash)?;
         let prev_block_height = prev_block.height();
         if prev_block_height.is_none() {
-            return Err(BlockValidationErrors::BlockExtendsAnOrphanChain.into());
+            return Err(BlockValidationErrors::BlockExtendsAnOrphanChain)?;
         }
         let height = prev_block_height.unwrap() + 1;
 
@@ -179,12 +178,12 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
 
         let actual_target = block_header.target();
         if actual_target > expected_target {
-            return Err(BlockValidationErrors::NotEnoughPow.into());
+            return Err(BlockValidationErrors::NotEnoughPow)?;
         }
 
         let block_hash = block_header
             .validate_pow(actual_target)
-            .map_err(|_| BlockchainError::BlockValidation(BlockValidationErrors::NotEnoughPow))?;
+            .map_err(|_| BlockValidationErrors::NotEnoughPow)?;
         Ok(block_hash)
     }
 
@@ -753,21 +752,21 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         inputs: HashMap<OutPoint, TxOut>,
     ) -> Result<(), BlockchainError> {
         if !block.check_merkle_root() {
-            return Err(BlockValidationErrors::BadMerkleRoot.into());
+            return Err(BlockValidationErrors::BadMerkleRoot)?;
         }
 
         let bip34_height = self.chain_params().params.bip34_height;
         // If bip34 is active, check that the encoded block height is correct
         if height >= bip34_height && self.get_bip34_height(block) != Some(height) {
-            return Err(BlockValidationErrors::BadBip34.into());
+            return Err(BlockValidationErrors::BadBip34)?;
         }
 
         if !block.check_witness_commitment() {
-            return Err(BlockValidationErrors::BadWitnessCommitment.into());
+            return Err(BlockValidationErrors::BadWitnessCommitment)?;
         }
 
         if block.weight().to_wu() > 4_000_000 {
-            return Err(BlockValidationErrors::BlockTooBig.into());
+            return Err(BlockValidationErrors::BlockTooBig)?;
         }
 
         // Validate block transactions
@@ -830,14 +829,11 @@ impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedSta
         del_hashes: Vec<sha256::Hash>,
         acc: Stump,
     ) -> Result<(), Self::Error> {
-        // verify the proof
-        let del_hashes = del_hashes
-            .iter()
-            .map(|hash| BitcoinNodeHash::from(hash.as_byte_array()))
-            .collect::<Vec<_>>();
+        // Convert to BitcoinNodeHashes, from rustreexo
+        let del_hashes: Vec<_> = del_hashes.into_iter().map(Into::into).collect();
 
         if !acc.verify(&proof, &del_hashes)? {
-            return Err(BlockValidationErrors::InvalidProof.into());
+            return Err(BlockValidationErrors::InvalidProof)?;
         }
 
         let height = self

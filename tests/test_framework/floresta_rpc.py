@@ -224,6 +224,16 @@ class FlorestaRPC:
         """
         return self.perform_request("getblockhash", params=[height])
 
+    def get_blockheader(self, blockhash: str) -> dict:
+        """
+        Get the header of a block, giving its hash performing
+        `perform_request('getblockheader', params=[<str>])`
+        """
+        if not bool(re.fullmatch(r"^[a-f0-9]{64}$", blockhash)):
+            raise ValueError(f"Invalid blockhash '{blockhash}'.")
+
+        return self.perform_request("getblockheader", params=[blockhash])
+
     def get_block(self, blockhash: str, verbosity: int = 1):
         """
         Get a full block, given its hash performing

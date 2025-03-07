@@ -1,0 +1,72 @@
+name: Benchmarks
+
+on:
+  pull_request:
+    branches: ["master"]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  benchmark:
+    name: Run Benchmarks
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.74.1
+        with:
+          components: rustfmt, clippy
+
+        # Bi-weekly numbers to refresh caches every two weeks, ensuring recent project changes are cached
+      - name: Set bi-weekly cache key
+        # Use '10#' to always treat week number as base-10 (avoids octal when number has a leading zero)
+        run: |
+          YEAR=$(date +%Y)
+          WEEK=$(date +%U)
+          BIWEEK=$(( (10#$WEEK + 1) / 2 ))
+          echo "CACHE_VERSION=${YEAR}(${BIWEEK})" >> $GITHUB_ENV
+
+          # Hash of all files that could affect the build
+          echo "BUILD_HASH=${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}" >> $GITHUB_ENV
+        shell: bash
+
+      # Restore Rust build cache and artifacts
+      - name: Restore Rust cache
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/release/
+          # Cache key depends on the bi-week we are on (cache version)
+          key: ${{ runner.os }}-cargo-${{ env.CACHE_VERSION }}-${{ env.BUILD_HASH }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-${{ env.CACHE_VERSION }}-
+            ${{ runner.os }}-cargo-
+
+      # Run benchmarks
+      - name: Run cargo bench
+        run: cargo bench
+
+      # Save cache only if the previous steps succeeded and there was not an exact cache key match
+      # This happens everytime we modify any `cargo.lock` or `cargo.toml`, or each two weeks (caching recent changes)
+      - name: Save Rust cache
+        if: success() && steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/release/
+          key: ${{ steps.cache.outputs.cache-primary-key }}
+
+      # Store benchmark results
+      - name: Store benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: target/criterion

@@ -84,10 +84,9 @@ impl ChainParams {
         let genesis = genesis_block(Params::new(network.into()));
         match network {
             Network::Bitcoin => AssumeUtreexoValue {
-                block_hash: BlockHash::from_str(
-                    "00000000000000000000569f4d863c27e667cbee8acc8da195e7e5551658e6e9",
-                )
-                .unwrap(),
+                block_hash: "00000000000000000000569f4d863c27e667cbee8acc8da195e7e5551658e6e9"
+                    .parse()
+                    .unwrap(),
                 height: 855571,
                 roots: [
                     "4dcc014cc23611dda2dcf0f34a3e62e7d302146df4b0b01ac701d440358c19d6",
@@ -108,9 +107,8 @@ impl ChainParams {
                     "67ba89afe6bce9bafbf0b88013e4446c861e6c746e291c3921e0b65c93671ba3",
                     "972ea2c7472c22e4eab49e9c2db5757a048b271b6251883ce89ccfeaa38b47ab",
                 ]
-                .into_iter()
-                .map(|x| BitcoinNodeHash::from_str(x).unwrap())
-                .collect(),
+                .map(|s| s.parse().unwrap())
+                .to_vec(),
                 leaves: 2587882501,
             },
             Network::Testnet => AssumeUtreexoValue {

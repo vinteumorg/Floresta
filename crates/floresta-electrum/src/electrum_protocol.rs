@@ -1140,7 +1140,7 @@ mod test {
     /// server.add_peer                         *
     /// server.donation_address                 *
     /// server.features                         *
-    /// server.peers.subscribe                 *
+    /// server.peers.subscribe                  *
     /// server.ping                             *
     /// server.version                          *
     fn generate_request(req_params: &mut Vec<Value>) -> Value {

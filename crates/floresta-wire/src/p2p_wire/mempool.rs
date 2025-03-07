@@ -906,9 +906,8 @@ mod tests {
             "6096c8421c1f86a9caa26e972dccdb964e280164fb060a576d51f5844e259569",
             "fd46029ebb0c19e2d468a9b24d20519c64ccc342e6a32b95c86a57489b6d2504",
         ]
-        .into_iter()
-        .map(|x| BitcoinNodeHash::from_str(x).unwrap())
-        .collect::<Vec<BitcoinNodeHash>>();
+        .map(|s| s.parse().unwrap())
+        .to_vec();
 
         let acc = Pollard::from_roots(roots, 169);
         let proof_hashes = [
@@ -920,15 +919,12 @@ mod tests {
             "15aba691713052033954935777d8089f4ca6b0573c7ad89fe1d0d85bbbe21846",
             "8f22055465f568fd2bf9d19b285fcf2539ffea59a3cb096a3a0645366adea1b0",
         ]
-        .into_iter()
-        .map(|x| BitcoinNodeHash::from_str(x).unwrap())
-        .collect::<Vec<BitcoinNodeHash>>();
+        .map(|s| s.parse().unwrap())
+        .to_vec();
 
         let proof = Proof::new(vec![8], proof_hashes);
         let del_hashes = ["427aceafd82c11cb53a2b78f408ece6fcacf2a5b9feb5fc45cdcf36627d68d76"]
-            .into_iter()
-            .map(|x| BitcoinNodeHash::from_str(x).unwrap())
-            .collect::<Vec<BitcoinNodeHash>>();
+            .map(|s| s.parse().unwrap());
 
         let prevout: LeafData = deserialize_hex("0508085c47cc849eb80ea905cc7800a3be674ffc57263cf210c59d8d00000000c997a5e56e104102fa209c6a852dd90660a20b2d9c352423edce25857fcd3704000000001300000000f2052a0100000043410411db93e1dcdb8a016b49840f8c53bc1eb68a382e97b1482ecad7b148a6909a5cb2e0eaddfb84ccf9744464f82e160bfa9b8b64f9d4c03f999b8643f656b412a3ac").unwrap();
 

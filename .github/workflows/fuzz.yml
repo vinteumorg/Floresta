@@ -29,10 +29,11 @@ jobs:
 
       # Calculate cache keys
       - name: Generate cache keys
-        id: cache-keys
         run: |
           YEAR=$(date +%Y)
-          BIWEEK=$(( ($(date +%U) + 1) / 2 ))
+          WEEK=$(date +%U)
+          # Use '10#' to always treat week number as base-10 (avoids octal when number has a leading zero)
+          BIWEEK=$(( (10#$WEEK + 1) / 2 ))
           echo "CACHE_VERSION=${YEAR}(${BIWEEK})" >> $GITHUB_ENV
           
           # Hash of all files that could affect the build

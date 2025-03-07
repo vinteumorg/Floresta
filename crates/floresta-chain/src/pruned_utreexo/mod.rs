@@ -4,8 +4,9 @@ pub mod chain_state;
 pub mod chain_state_builder;
 pub mod chainparams;
 pub mod chainstore;
-pub mod consensus;
+#[macro_use]
 pub mod error;
+pub mod consensus;
 pub mod partial_chain;
 pub mod udata;
 

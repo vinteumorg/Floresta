@@ -16,7 +16,6 @@ serde_json = { version = "1.0.0", features = ["alloc"] }
 bitcoin = { version = "0.32", features = ["serde"] }
 kv = "0.24.0"
 log = "0.4"
-thiserror = "1.0"
 floresta-common = { path = "../floresta-common", default-features = false, features = ["descriptors-no-std"] }
 floresta-chain = { path = "../floresta-chain" }
 
