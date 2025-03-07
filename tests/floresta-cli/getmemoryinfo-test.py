@@ -8,8 +8,8 @@ import os
 import re
 import sys
 import tempfile
-from test_framework.test_framework import FlorestaTestFramework
-from test_framework.floresta_rpc import REGTEST_RPC_SERVER
+from tests.test_framework.test_framework import FlorestaTestFramework
+from tests.test_framework.floresta_rpc import REGTEST_RPC_SERVER
 
 
 class GetMemoryInfoTest(FlorestaTestFramework):

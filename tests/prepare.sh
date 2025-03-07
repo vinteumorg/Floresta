@@ -35,11 +35,11 @@ then
 	exit 1
 fi
 
-poetry -V  &>/dev/null
+uv -V  &>/dev/null
 
 if [ $? -ne 0 ]
 then
-	echo "You must have poetry installed to run those tests!"
+	echo "You must have uv installed to run those tests!"
 	exit 1
 fi
 

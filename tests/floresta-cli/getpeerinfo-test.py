@@ -4,8 +4,8 @@ floresta_cli_getpeerinfo.py
 This functional test cli utility to interact with a Floresta node with `getpeerinfo`
 """
 
-from test_framework.test_framework import FlorestaTestFramework
-from test_framework.floresta_rpc import REGTEST_RPC_SERVER, JSONRPCError
+from tests.test_framework.test_framework import FlorestaTestFramework
+from tests.test_framework.floresta_rpc import REGTEST_RPC_SERVER, JSONRPCError
 
 
 class GetPeerInfoTest(FlorestaTestFramework):

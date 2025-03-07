@@ -34,9 +34,11 @@ import time
 import argparse
 import tempfile
 
+
 BASE_DIR = os.path.normpath(os.path.join(tempfile.gettempdir(), "floresta-func-tests"))
-SUCCESS_EMOJI = "✔"
+SUCCESS_EMOJI = "✅"
 FAILURE_EMOJI = "❌"
+ALLDONE_EMOJI = "🎉"
 
 
 def main():
@@ -50,8 +52,22 @@ def main():
     options:
         -h, --help                show this help message and exit
         -d, --data-dir DATA_DIR   data directory of the run_tests's functional test logs
-        -t, --test-name TEST_NAME the name of the file to be tested (without .py)
     """
+
+    # lets define the default paths of suites
+    # they should be all folders on tests/ dir,
+    # excluding __pycache__ and test_framework
+    test_dir = os.path.abspath(os.path.dirname(__file__))
+    default_suites = []
+
+    for _dir in os.listdir(test_dir):
+        test_suite_dir = os.path.join(test_dir, _dir)
+        if os.path.isdir(test_suite_dir) and _dir not in (
+            "__pycache__",
+            "test_framework",
+        ):
+            default_suites.append(test_suite_dir)
+
     # Structure the CLI
     parser = argparse.ArgumentParser(
         prog="run_tests",
@@ -66,44 +82,58 @@ def main():
     )
 
     parser.add_argument(
-        "-t", "--test-name", help="the name of the file to be tested (without .py)"
+        "-t",
+        "--test-suite",
+        help="test-suit directory to be tested by %(prog)s's",
+        default=default_suites,
     )
 
     # Parse arguments of CLI
     args = parser.parse_args()
 
-    # Define the data-dir and create it
-    data_dir = os.path.normpath(os.path.join(args.data_dir, args.test_name))
-    if not os.path.isdir(data_dir):
-        os.makedirs(data_dir)
-
     # Setup directories and filenames for the specific test
     test_dir = os.path.abspath(os.path.dirname(__file__))
-    test_filename = os.path.normpath(os.path.join(test_dir, f"{args.test_name}.py"))
-    test_logname = os.path.normpath(os.path.join(data_dir, f"{int(time.time())}.log"))
-    print(f"Writing stuff to {test_logname}")
 
-    # Now start the test
-    with open(test_logname, "wt", encoding="utf-8") as log_file:
-        cli = ["python", test_filename]
-        cli_msg = " ".join(cli)
-        print(f"running '{cli_msg}")
-        with subprocess.Popen(cli, stdout=log_file, stderr=log_file) as test:
-            test.wait()
+    # search for all all tests
+    # inside ./tests/<test-suite>/*-test.py
+    for _dir in args.test_suite:
+        for file in os.listdir(_dir):
+            if file.endswith("-test.py"):
 
-    # Check the test, if failed, log the results
-    # if passed, just show that worked
-    if test.returncode != 0:
-        print(f"Test {args.test_name} not passed {FAILURE_EMOJI}")
-        with open(test_logname, "rt", encoding="utf-8") as log_file:
-            print(log_file.read())
-        raise RuntimeError("Tests failed")
+                # Define the data-dir and create it
+                data_dir = os.path.normpath(os.path.join(args.data_dir, file))
+                if not os.path.isdir(data_dir):
+                    os.makedirs(data_dir)
 
-    print(f"Test {args.test_name} passed {SUCCESS_EMOJI}")
+                # get test file and create a log for it
+                test_filename = os.path.normpath(os.path.join(_dir, file))
+                test_logname = os.path.normpath(
+                    os.path.join(data_dir, f"{int(time.time())}.log")
+                )
 
-    # Add some \n to better visualization on terminal
-    print()
+                # Now start the test
+                with open(test_logname, "wt", encoding="utf-8") as log_file:
+                    cli = ["python", test_filename]
+                    cli_msg = " ".join(cli)
+                    print(f"Running '{cli_msg}'")
+
+                    with subprocess.Popen(
+                        cli, stdout=log_file, stderr=log_file
+                    ) as test:
+                        test.wait()
+                        print(f"Writing stuff to {test_logname}")
+
+                # Check the test, if failed, log the results
+                # if passed, just show that worked
+                if test.returncode != 0:
+                    print(f"Test {file} not passed {FAILURE_EMOJI}")
+                    with open(test_logname, "rt", encoding="utf-8") as log_file:
+                        raise RuntimeError(f"Tests failed: {log_file.read()}")
+
+                print(f"Test {file} passed {SUCCESS_EMOJI}")
+                print()
 
 
 if __name__ == "__main__":
     main()
+    print("🎉 ALL TESTS PASSED! GOOD JOB!")

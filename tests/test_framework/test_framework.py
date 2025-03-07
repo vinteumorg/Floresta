@@ -16,7 +16,7 @@ The difference is that our node will run withing a `cargo run` subprocess, defin
 import os
 import tempfile
 import subprocess
-from test_framework.floresta_rpc import FlorestaRPC
+from tests.test_framework.floresta_rpc import FlorestaRPC
 
 VALID_FLORESTAD_EXTRA_ARGS = [
     "-c",

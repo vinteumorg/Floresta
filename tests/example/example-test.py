@@ -11,19 +11,19 @@ Every test should define, at least, two special methods:
 Any attempt to define a test without these methods will raise a TypeError.
 
 Other methods are available to do more things. Some of them make sense only in `set_test_params`
-and others make sense only in `run_tests`. 
+and others make sense only in `run_tests`.
 
 - `add_node_settings`: register a node settings to create a node after. A node will be a spawned
                        `cargo run --features json-rpc --bin florestad -- --network <chain>` process.
                        In summary, its a `FlorestaRPC` instance.
-                       
+
                        The chain can be one of ["regtest", "signet", "testnet"].
                        You can pass some extra arguments with `extra_args` and it will be appended
                        to the process command. The `rpcserver` is a dictionary defining a "host",
                        "port", "username" and "password". The "data_dir" is optional and can be
                        used to create a temporary directory to store files. It will return an
                        integer pointing an index of a list of nodes.
-                       
+
 - `get_node_settings`: get a registered node settings
 
 - `run_node`: run a node for a registered node settings at some index,
@@ -44,9 +44,9 @@ After the definition of test within a class, you should call `MyTest().main()` a
 """
 
 import json
-from test_framework.test_framework import FlorestaTestFramework
-from test_framework.electrum_client import ElectrumClient
-from test_framework.floresta_rpc import REGTEST_RPC_SERVER
+from tests.test_framework.test_framework import FlorestaTestFramework
+from tests.test_framework.electrum_client import ElectrumClient
+from tests.test_framework.floresta_rpc import REGTEST_RPC_SERVER
 
 
 class ExampleTest(FlorestaTestFramework):

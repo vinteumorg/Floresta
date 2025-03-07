@@ -1,5 +1,5 @@
 """
-    General Bitcoin-related tools for our test framework.
+General Bitcoin-related tools for our test framework.
 """
 
 import struct
