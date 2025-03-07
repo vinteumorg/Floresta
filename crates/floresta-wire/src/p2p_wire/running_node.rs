@@ -668,8 +668,12 @@ where
                 return Ok(());
             };
 
-            let (proof, del_hashes, inputs) =
-                floresta_chain::proof_util::process_proof(udata, &block.block.txdata, &self.chain)?;
+            let (proof, del_hashes, inputs) = floresta_chain::proof_util::process_proof(
+                udata,
+                &block.block,
+                validation_index + 1,
+                &self.chain,
+            )?;
 
             if let Err(e) =
                 self.chain
@@ -682,11 +686,17 @@ where
                     // to be invalidated.
                     match e {
                         BlockValidationErrors::InvalidCoinbase(_)
+                        | BlockValidationErrors::InvalidBlockTimestamp
                         | BlockValidationErrors::UtxoNotFound(_)
+                        | BlockValidationErrors::BadAbsoluteLockTime
+                        | BlockValidationErrors::BadRelativeBlockLock
+                        | BlockValidationErrors::BadRelativeTimeLock
                         | BlockValidationErrors::ScriptValidationError(_)
                         | BlockValidationErrors::InvalidOutput
                         | BlockValidationErrors::ScriptError
                         | BlockValidationErrors::BlockTooBig
+                        | BlockValidationErrors::BlockTooNew
+                        | BlockValidationErrors::BlockTooOld
                         | BlockValidationErrors::NotEnoughPow
                         | BlockValidationErrors::TooManyCoins
                         | BlockValidationErrors::BadMerkleRoot
