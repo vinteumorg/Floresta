@@ -1392,8 +1392,7 @@ mod test {
 
         assert_eq!(
             block.block_hash(),
-            BlockHash::from_str("000000000000000012ea0ca9579299ec120e3f57e7c309216884872592b29970")
-                .unwrap(),
+            bhash!("000000000000000012ea0ca9579299ec120e3f57e7c309216884872592b29970"),
         );
 
         // Check whether the block validation passes or not
@@ -1411,8 +1410,7 @@ mod test {
 
         assert_eq!(
             block.block_hash(),
-            BlockHash::from_str("000000000000000000014ce9ba7c6760053c3c82ce6ab43d60afb101d3c8f1f1")
-                .unwrap(),
+            bhash!("000000000000000000014ce9ba7c6760053c3c82ce6ab43d60afb101d3c8f1f1"),
         );
 
         // Check whether the block validation passes or not
@@ -1480,37 +1478,28 @@ mod test {
                 .unwrap();
         }
 
-        assert_eq!(
-            chain.get_best_block().unwrap(),
-            (
-                10,
-                BlockHash::from_str(
-                    "6e9c49a19038f7db8d13f6c2e70566385536ea11975528b557799e08a014e784"
-                )
-                .unwrap()
-            )
+        let expected = (
+            10,
+            bhash!("6e9c49a19038f7db8d13f6c2e70566385536ea11975528b557799e08a014e784"),
         );
+        assert_eq!(chain.get_best_block().unwrap(), expected);
 
         for fork in blocks[1].iter() {
             let block = Vec::from_hex(fork).unwrap();
             let block: Block = deserialize(&block).unwrap();
             chain.accept_header(block.header).unwrap();
         }
-        let best_block = chain.get_best_block().unwrap();
-        assert_eq!(
-            best_block,
-            (
-                16,
-                BlockHash::from_str(
-                    "4572ac401b94915dde6c4957b706abdb13b5824b000cad7f6065ebd9aea6dad1"
-                )
-                .unwrap()
-            )
+
+        let expected = (
+            16,
+            bhash!("4572ac401b94915dde6c4957b706abdb13b5824b000cad7f6065ebd9aea6dad1"),
         );
+        assert_eq!(chain.get_best_block().unwrap(), expected);
+
         for i in 1..=chain.get_height().unwrap() {
-            if let Ok(DiskBlockHeader::HeadersOnly(_, _)) =
-                chain.get_disk_block_header(&chain.get_block_hash(i).unwrap())
-            {
+            let accepted = chain.get_block_hash(i).unwrap();
+
+            if let Ok(DiskBlockHeader::HeadersOnly(..)) = chain.get_disk_block_header(&accepted) {
                 continue;
             }
             panic!("Block {} is not in the store", i);
