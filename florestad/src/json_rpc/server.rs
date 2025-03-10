@@ -66,6 +66,7 @@ pub struct RpcImpl {
     pub(super) inflight: Arc<RwLock<HashMap<Value, InflightRpc>>>,
     pub(super) log_dir: String,
     pub(super) start_time: Instant,
+    pub(super) descriptors: Arc<RwLock<Vec<String>>>,
 }
 
 type Result<T> = std::result::Result<T, Error>;
@@ -116,11 +117,15 @@ impl RpcImpl {
         if self.chain.is_in_idb() {
             return Err(Error::InInitialBlockDownload);
         }
-
+    
         let Ok(mut parsed) = parse_descriptors(&[descriptor.clone()]) else {
             return Err(Error::InvalidDescriptor);
         };
-
+    
+        // Store the descriptor
+        let mut descriptors = self.descriptors.write().unwrap();
+        descriptors.push(descriptor.clone());
+    
         // It's ok to unwrap because we know there is at least one element in the vector
         let addresses = parsed.pop().unwrap();
         let addresses = (0..100)
@@ -133,29 +138,29 @@ impl RpcImpl {
                 address
             })
             .collect::<Vec<_>>();
-
+    
         debug!(
             "Rescanning with block filters for addresses: {:?}",
             addresses
         );
-
+    
         let addresses = self.wallet.get_cached_addresses();
         let wallet = self.wallet.clone();
         if self.block_filter_storage.is_none() {
             return Err(Error::InInitialBlockDownload);
         };
-
+    
         let cfilters = self.block_filter_storage.as_ref().unwrap().clone();
         let node = self.node.clone();
         let chain = self.chain.clone();
-
+    
         spawn_blocking(move || {
             match Self::rescan_with_block_filters(&addresses, chain, wallet, cfilters, node) {
                 Ok(_) => info!("rescan completed"),
                 Err(e) => error!("error while rescaning {e:?}"),
             }
         });
-
+    
         Ok(true)
     }
 
@@ -374,7 +379,7 @@ async fn handle_json_rpc_request(req: Value, state: Arc<RpcImpl>) -> Result<serd
             let descriptor = params[0].as_str().ok_or(Error::InvalidDescriptor)?;
             state
                 .load_descriptor(descriptor.to_string())
-                .map(|v| ::serde_json::to_value(v).unwrap())
+                .map(|_| serde_json::to_value(true).unwrap())
         }
 
         "rescanblockchain" => {
@@ -389,6 +394,11 @@ async fn handle_json_rpc_request(req: Value, state: Arc<RpcImpl>) -> Result<serd
             state
                 .send_raw_transaction(tx.to_string())
                 .map(|v| ::serde_json::to_value(v).unwrap())
+        }
+
+        "listdescriptors" => {
+            let descriptors = state.list_descriptors()?;
+            Ok(serde_json::to_value(descriptors).unwrap())
         }
 
         _ => {
@@ -454,6 +464,8 @@ fn get_json_rpc_error_code(err: &Error) -> i32 {
         | Error::Chain
         | Error::Encode
         | Error::NoBlockFilters => -32603,
+
+        Error::DescriptorNotFound => -32600,
     }
 }
 
@@ -685,6 +697,8 @@ impl RpcImpl {
         address: Option<SocketAddr>,
         log_path: String,
     ) {
+        let descriptors = Arc::new(RwLock::new(Vec::new()));
+
         let address = address.unwrap_or_else(|| {
             format!("127.0.0.1:{}", Self::get_port(&network))
                 .parse()
@@ -719,6 +733,7 @@ impl RpcImpl {
                 inflight: Arc::new(RwLock::new(HashMap::new())),
                 log_dir: log_path,
                 start_time: Instant::now(),
+                descriptors,
             }));
 
         axum::serve(listener, router)

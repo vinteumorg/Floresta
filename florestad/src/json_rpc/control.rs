@@ -89,6 +89,15 @@ impl RpcImpl {
     pub(super) fn uptime(&self) -> u64 {
         self.start_time.elapsed().as_secs()
     }
+
+    pub(super) fn list_descriptors(&self) -> Result<Vec<String>, Error> {
+        let descriptors = self.descriptors.read().unwrap();
+        if descriptors.is_empty() {
+            Ok(Vec::new())
+        } else {
+            Ok(descriptors.clone())
+        }
+    }
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
