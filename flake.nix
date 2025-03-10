@@ -1,6 +1,6 @@
 {
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-23.11";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.05";
     rust-overlay = {
       url = "github:oxalica/rust-overlay";
       inputs = {
@@ -44,24 +44,7 @@
       with pkgs;
       {
         checks = {
-          pre-commit-check = pre-commit-hooks.lib.${system}.run {
-            src = ./.;
-            hooks = {
-              typos.enable = true;
-
-              rustfmt = {
-                enable = true;
-                entry = "cargo +nightly fmt --all --check";
-              };
-
-              clippy = {
-                enable = true;
-                entry = "cargo +nightly clippy --all-targets";
-              };
-
-              nixpkgs-fmt.enable = true;
-            };
-          };
+          #TODO: Add relevant checks here to be executed by CI with nix flake check
         };
 
         packages = {
@@ -77,37 +60,26 @@
         devShells = {
           pythonTests =
             let
-              _scriptSetup = ''
-                mkdir -p ./bin
-
-                cd bin
-
-                # Download and build utreexod
-                ls -la utreexod &>/dev/null
-
-                if [ $? -ne 0 ]
-                then
-                  	git clone https://github.com/utreexo/utreexod
-                fi
-                cd utreexod
-
-                go build . &>/dev/null
-                echo "All done!"
-              '';
-              _scriptRun = "poetry run poe tests";
+              _scriptSetup = ''bash ./tests/prepare.sh'';
+              # Packages fetched from ./pyproject.toml
+              pythonDeps = with python312Packages; [
+                black
+                requests
+                pylint
+                jsonrpc-base
+              ];
             in
             pkgs.mkShell {
               buildInputs = with pkgs; [
-                cargo
+                florestaRust
                 python312
                 poetry
+                poethepoet
                 go
-              ] ++ [ self.packages.${system}.default ];
+              ] ++ pythonDeps;
               shellHook = ''
                 ${_scriptSetup}
-                ${_scriptRun}
-
-                exit
+                echo -e "you may execute \n\t bash ./tests/run.sh \nto execute Florestas Python tests"
               '';
             };
           default =

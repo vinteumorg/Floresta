@@ -43,6 +43,7 @@ then
 	exit 1
 fi
 
+poetry install --no-root
 
 
 ls $TEMP_DIR &>/dev/null
@@ -80,6 +81,7 @@ then
     cd $FLORESTA_PROJ_DIR
     cargo build --bin florestad --features json-rpc --target-dir $TEMP_DIR/florestad &>/dev/null
 fi
+
 
 echo "All done!"
 exit 0
