@@ -572,12 +572,9 @@ mod test {
                 header_code: $height,
                 spk_ty: ScriptPubkeyType::$spk_type,
             };
-            let spk = super::proof_util::reconstruct_leaf_data(
-                &leaf,
-                &s.input[0],
-                BlockHash::from_str($block_hash).unwrap(),
-            )
-            .unwrap();
+            let spk =
+                super::proof_util::reconstruct_leaf_data(&leaf, &s.input[0], bhash!($block_hash))
+                    .unwrap();
             assert_eq!(
                 spk.utxo.script_pubkey,
                 ScriptBuf::from_hex($expected_spk).unwrap()
@@ -651,8 +648,7 @@ mod test {
         let reconstructed = reconstruct_leaf_data(
             &compact,
             &spending_tx.input[0],
-            BlockHash::from_str("000000de717aa52b6b6ffcf4e2372256a9d620f52b9b4420623c6ae9b9249ef9")
-                .unwrap(),
+            bhash!("000000de717aa52b6b6ffcf4e2372256a9d620f52b9b4420623c6ae9b9249ef9"),
         )
         .unwrap();
         assert_eq!(leaf, reconstructed);
