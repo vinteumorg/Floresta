@@ -1,3 +1,12 @@
+//! This module defines error types specific to the blockchain validation and database operations, along with conversion between types.
+//!
+//! The main error types are:
+//! - [BlockchainError]: High-level error type that encapsulates all the error kinds from our node chain backend operation.
+//! - [TransactionError]: Represents errors in transaction validation
+//! - [BlockValidationErrors]: Errors encountered during block validation that are not tied to any specific transaction
+//!
+//! Each error type implements `Display` and `Debug` for error reporting.
+
 use core::fmt::Debug;
 
 use bitcoin::blockdata::script;
