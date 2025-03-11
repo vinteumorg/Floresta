@@ -164,6 +164,8 @@ pub struct Config {
     pub ssl_key_path: Option<String>,
     /// Whether to disable SSL for the Electrum server
     pub no_ssl: bool,
+    /// Whether to allow fallback to v1 transport if v2 connection fails.
+    pub allow_v1_fallback: bool,
 }
 
 pub struct Florestad {
@@ -401,6 +403,7 @@ impl Florestad {
             backfill: false,
             filter_start_height: self.config.filters_start_height,
             user_agent: self.config.user_agent.clone(),
+            allow_v1_fallback: self.config.allow_v1_fallback,
         };
 
         let acc = Pollard::new();

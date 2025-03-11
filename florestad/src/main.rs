@@ -64,6 +64,7 @@ fn main() {
         ssl_cert_path: params.ssl_cert_path,
         ssl_key_path: params.ssl_key_path,
         no_ssl: params.no_ssl,
+        allow_v1_fallback: !params.no_v1_fallback,
     };
 
     #[cfg(unix)]

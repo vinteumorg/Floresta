@@ -171,6 +171,10 @@ pub struct Cli {
     /// Whether to disable SSL
     pub no_ssl: bool,
 
+    #[arg(long, default_value_t = false)]
+    /// Whether to disable fallback to v1 transport if v2 connection fails
+    pub no_v1_fallback: bool,
+
     #[cfg(unix)]
     #[arg(long, default_value = "false")]
     /// Whether we should run as a daemon
