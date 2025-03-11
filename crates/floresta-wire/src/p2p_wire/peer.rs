@@ -183,7 +183,7 @@ impl<T: AsyncWrite + Unpin + Send + Sync> Peer<T> {
     pub async fn read_loop(mut self) -> Result<()> {
         let err = self.peer_loop_inner().await;
         if err.is_err() {
-            error!("Peer {} connection loop closed: {err:?}", self.id);
+            debug!("Peer {} connection loop closed: {err:?}", self.id);
         }
         self.send_to_node(PeerMessages::Disconnected(self.address_id))
             .await;

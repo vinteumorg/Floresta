@@ -13,6 +13,7 @@ use bitcoin::p2p::ServiceFlags;
 use bitcoin::BlockHash;
 use floresta_chain::UtreexoBlock;
 use floresta_common::service_flags;
+use floresta_common::service_flags::UTREEXO;
 use serde::Deserialize;
 use serde::Serialize;
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -98,7 +99,7 @@ impl TestPeer {
                 | ServiceFlags::WITNESS
                 | ServiceFlags::COMPACT_FILTERS
                 | ServiceFlags::from(1 << 25),
-            kind: ConnectionKind::Regular,
+            kind: ConnectionKind::Regular(UTREEXO.into()),
         };
 
         self.node_tx
@@ -161,7 +162,7 @@ pub fn create_peer(
         state: PeerStatus::Ready,
         channel: sender,
         port: 8333,
-        kind: ConnectionKind::Regular,
+        kind: ConnectionKind::Regular(UTREEXO.into()),
         banscore: 0,
         address_id: 0,
         _last_message: Instant::now(),

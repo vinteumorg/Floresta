@@ -11,14 +11,15 @@ use floresta_chain::BlockValidationErrors;
 use floresta_chain::BlockchainError;
 use floresta_chain::UtreexoBlock;
 use floresta_common::service_flags;
+use floresta_common::service_flags::UTREEXO;
 use log::debug;
 use log::error;
 use log::info;
-use log::warn;
 use tokio::sync::RwLock;
 use tokio::time::timeout;
 
 use super::error::WireError;
+use super::node::PeerStatus;
 use super::peer::PeerMessages;
 use crate::address_man::AddressState;
 use crate::node::periodic_job;
@@ -79,6 +80,25 @@ where
         try_and_log!(self.request_blocks(blocks).await);
     }
 
+    /// While in sync phase, we don't want any non-utreexo connections. This function checks
+    /// if we have any non-utreexo peers and disconnects them.
+    async fn check_connections(&mut self) -> Result<(), WireError> {
+        let to_remove = self.peers.iter().filter_map(|(_, peer)| {
+            if !peer.services.has(UTREEXO.into()) && peer.state == PeerStatus::Ready {
+                return Some(peer);
+            }
+
+            None
+        });
+
+        for peer in to_remove {
+            info!("Disconnecting non-utreexo peer {}", peer.address);
+            peer.channel.send(NodeRequest::Shutdown)?;
+        }
+
+        self.maybe_open_connection(UTREEXO.into()).await
+    }
+
     /// Starts the sync node by updating the last block requested and starting the main loop.
     /// This loop to the following tasks, in order:
     ///     - Receives messages from our peers through the node_tx channel.
@@ -108,19 +128,28 @@ where
             }
 
             periodic_job!(
-                self.maybe_open_connection().await,
+                self.check_connections().await,
                 self.last_connection,
                 TRY_NEW_CONNECTION,
                 SyncNode
             );
 
-            if Instant::now()
+            // Open new feeler connection periodically
+            periodic_job!(
+                self.open_feeler_connection().await,
+                self.last_feeler,
+                FEELER_INTERVAL,
+                SyncNode
+            );
+
+            let assume_stale = Instant::now()
                 .duration_since(self.common.last_tip_update)
                 .as_secs()
-                > SyncNode::ASSUME_STALE
-            {
+                > SyncNode::ASSUME_STALE;
+
+            if assume_stale {
                 self.context.last_block_requested = self.chain.get_validation_index().unwrap();
-                self.create_connection(ConnectionKind::Regular).await;
+                self.create_connection(ConnectionKind::Extra).await;
                 self.last_tip_update = Instant::now();
                 continue;
             }
@@ -152,14 +181,24 @@ where
             .map(|(req, (peer, _))| (req.clone(), *peer))
             .collect::<Vec<_>>();
 
-        for (block, peer) in to_remove {
-            self.inflight.remove(&block);
-            try_and_log!(self.increase_banscore(peer, 1).await);
+        for (request, peer) in to_remove {
+            match request {
+                InflightRequests::Blocks(block) => {
+                    self.inflight.remove(&InflightRequests::Blocks(block));
 
-            let InflightRequests::Blocks(block) = block else {
-                continue;
-            };
-            try_and_log!(self.request_blocks(vec![block]).await);
+                    try_and_log!(self.increase_banscore(peer, 1).await);
+                    try_and_log!(self.request_blocks(vec![block]).await);
+                }
+
+                InflightRequests::Connect(addr) => {
+                    self.inflight.remove(&InflightRequests::Connect(addr));
+                    if let Some(peer) = self.peers.remove(&peer) {
+                        let _ = peer.channel.send(NodeRequest::Shutdown);
+                    }
+                }
+
+                _ => {}
+            }
         }
     }
     /// Process a block received from a peer.
@@ -191,6 +230,7 @@ where
                         service_flags::UTREEXO.into(),
                     )
                     .await?;
+
                 self.inflight.insert(
                     InflightRequests::Blocks(next_block),
                     (next_peer, Instant::now()),
@@ -295,20 +335,22 @@ where
                         error!("Error processing block: {:?}", e);
                     }
                 }
+
                 PeerMessages::Ready(version) => {
                     try_and_log!(self.handle_peer_ready(peer, &version).await);
                 }
+
                 PeerMessages::Disconnected(idx) => {
                     try_and_log!(self.handle_disconnection(peer, idx).await);
-
-                    if !self.has_utreexo_peers() {
-                        warn!("No utreexo peers connected, trying to create a new one");
-                        try_and_log!(self.maybe_open_connection().await);
-                        self.context.last_block_requested =
-                            self.chain.get_validation_index().unwrap();
-                        self.inflight.clear();
-                    }
                 }
+
+                PeerMessages::Addr(addresses) => {
+                    debug!("Got {} addresses from peer {}", addresses.len(), peer);
+                    let addresses: Vec<_> = addresses.into_iter().map(|addr| addr.into()).collect();
+
+                    self.address_man.push_addresses(&addresses);
+                }
+
                 _ => {}
             },
         }

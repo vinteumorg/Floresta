@@ -25,6 +25,7 @@ use floresta_chain::pruned_utreexo::UpdatableChainstate;
 use floresta_chain::Network;
 use floresta_chain::UtreexoBlock;
 use floresta_common::service_flags;
+use floresta_common::service_flags::UTREEXO;
 use floresta_common::FractionAvg;
 use floresta_compact_filters::flat_filters_store::FlatFiltersStore;
 use floresta_compact_filters::network_filters::NetworkFilters;
@@ -98,11 +99,24 @@ pub(crate) enum InflightRequests {
     GetFilters,
 }
 
-#[derive(Debug, PartialEq, Clone, Copy, Deserialize, Serialize)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum ConnectionKind {
     Feeler,
-    Regular,
+    Regular(ServiceFlags),
     Extra,
+}
+
+impl Serialize for ConnectionKind {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            ConnectionKind::Feeler => serializer.serialize_str("feeler"),
+            ConnectionKind::Regular(_) => serializer.serialize_str("regular"),
+            ConnectionKind::Extra => serializer.serialize_str("extra"),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -130,7 +144,6 @@ pub enum RescanStatus {
 impl Default for RunningNode {
     fn default() -> Self {
         RunningNode {
-            last_feeler: Instant::now(),
             last_address_rearrange: Instant::now(),
             user_requests: Arc::new(NodeInterface {
                 requests: std::sync::Mutex::new(Vec::new()),
@@ -176,6 +189,7 @@ pub struct NodeCommon<Chain: BlockchainInterface + UpdatableChainstate> {
     pub(crate) last_broadcast: Instant,
     pub(crate) last_send_addresses: Instant,
     pub(crate) block_sync_avg: FractionAvg,
+    pub(crate) last_feeler: Instant,
 
     // 6. Configuration and Metadata
     pub(crate) config: UtreexoNodeConfig,
@@ -253,6 +267,7 @@ where
                 last_connection: Instant::now(),
                 last_peer_db_dump: Instant::now(),
                 last_broadcast: Instant::now(),
+                last_feeler: Instant::now(),
                 blocks: HashMap::new(),
                 last_get_address_request: Instant::now(),
                 last_send_addresses: Instant::now(),
@@ -438,8 +453,8 @@ where
     pub(crate) fn get_peer_info(&self, peer: &u32) -> Option<PeerInfo> {
         let peer = self.peers.get(peer)?;
         Some(PeerInfo {
-            state: peer.state,
             kind: peer.kind,
+            state: peer.state,
             address: format!("{}:{}", peer.address, peer.port),
             services: peer.services.to_string(),
             user_agent: peer.user_agent.clone(),
@@ -462,7 +477,7 @@ where
     ) -> Result<(), WireError> {
         if let Some(p) = self.peers.remove(&peer) {
             std::mem::drop(p.channel);
-            if p.kind == ConnectionKind::Regular && p.state == PeerStatus::Ready {
+            if matches!(p.kind, ConnectionKind::Regular(_)) && p.state == PeerStatus::Ready {
                 info!("Peer disconnected: {}", peer);
             }
 
@@ -563,6 +578,14 @@ where
         Ok(())
     }
 
+    fn is_peer_good(peer: &LocalPeerView, needs: ServiceFlags) -> bool {
+        if peer.state == PeerStatus::Banned {
+            return false;
+        }
+
+        peer.services.has(needs)
+    }
+
     pub(crate) async fn handle_peer_ready(
         &mut self,
         peer: u32,
@@ -574,9 +597,16 @@ where
                 p.state = PeerStatus::Ready;
             });
 
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+
             self.send_to_peer(peer, NodeRequest::Shutdown).await?;
             self.address_man
-                .update_set_service_flag(version.address_id, version.services);
+                .update_set_service_flag(version.address_id, version.services)
+                .update_set_state(version.address_id, AddressState::Tried(now));
+
             return Ok(());
         }
 
@@ -584,6 +614,7 @@ where
             let locator = self.chain.get_block_locator()?;
             self.send_to_peer(peer, NodeRequest::GetHeaders(locator))
                 .await?;
+
             self.inflight
                 .insert(InflightRequests::Headers, (peer, Instant::now()));
 
@@ -596,29 +627,35 @@ where
         );
 
         if let Some(peer_data) = self.common.peers.get_mut(&peer) {
-            // This peer doesn't have basic services, so we disconnect it
-            if !version
-                .services
-                .has(ServiceFlags::NETWORK | ServiceFlags::WITNESS)
-            {
-                self.send_to_peer(peer, NodeRequest::Shutdown).await?;
-                self.address_man.update_set_state(
-                    version.address_id,
-                    AddressState::Tried(
-                        SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .unwrap()
-                            .as_secs(),
-                    ),
-                );
-                self.address_man
-                    .update_set_service_flag(version.address_id, version.services);
-                return Ok(());
-            }
             peer_data.state = PeerStatus::Ready;
             peer_data.services = version.services;
             peer_data.user_agent.clone_from(&version.user_agent);
             peer_data.height = version.blocks;
+
+            // If this peer doesn't have basic services, we disconnect it
+            if let ConnectionKind::Regular(needs) = version.kind {
+                if !Self::is_peer_good(peer_data, needs) {
+                    info!(
+                        "Disconnecting peer {} for not having the required services. has={} needs={}",
+                        peer, peer_data.services.to_string(), needs.to_string()
+                    );
+                    peer_data.channel.send(NodeRequest::Shutdown)?;
+                    self.address_man.update_set_state(
+                        version.address_id,
+                        AddressState::Tried(
+                            SystemTime::now()
+                                .duration_since(UNIX_EPOCH)
+                                .unwrap()
+                                .as_secs(),
+                        ),
+                    );
+
+                    self.address_man
+                        .update_set_service_flag(version.address_id, version.services);
+
+                    return Ok(());
+                }
+            };
 
             if peer_data.services.has(service_flags::UTREEXO.into()) {
                 self.common
@@ -769,10 +806,12 @@ where
             self.network,
             &get_chain_dns_seeds(self.network),
         )?;
+
         for address in anchors {
-            self.open_connection(ConnectionKind::Regular, address.id, address)
+            self.open_connection(ConnectionKind::Regular(UTREEXO.into()), address.id, address)
                 .await;
         }
+
         Ok(())
     }
 
@@ -879,22 +918,19 @@ where
             .map_err(WireError::Io)
     }
 
-    pub(crate) async fn maybe_open_connection(&mut self) -> Result<(), WireError> {
+    pub(crate) async fn maybe_open_connection(
+        &mut self,
+        required_service: ServiceFlags,
+    ) -> Result<(), WireError> {
         // If the user passes in a `--connect` cli argument, we only connect with
         // that particular peer.
         if self.fixed_peer.is_some() && !self.peers.is_empty() {
             return Ok(());
         }
-        // if we need utreexo peers, we can bypass our max outgoing peers limit in case
-        // we don't have any utreexo peers
-        let bypass = self
-            .context
-            .get_required_services()
-            .has(service_flags::UTREEXO.into())
-            && !self.has_utreexo_peers();
 
-        if self.peers.len() < T::MAX_OUTGOING_PEERS || bypass {
-            self.create_connection(ConnectionKind::Regular).await;
+        let connection_kind = ConnectionKind::Regular(required_service);
+        if self.peers.len() < T::MAX_OUTGOING_PEERS {
+            self.create_connection(connection_kind).await;
         }
 
         Ok(())
@@ -934,34 +970,13 @@ where
         Ok(())
     }
 
-    fn get_required_services(&self) -> ServiceFlags {
-        let required_services = self.context.get_required_services();
-
-        // chain selector should prefer peers that support UTREEXO filters, as
-        // more peers with this service will improve our security for PoW
-        // fraud proofs. This is only true if pow fraud proofs are enabled
-        // in the configuration.
-        if self.config.pow_fraud_proofs && required_services.has(ServiceFlags::from(1 << 25)) {
-            return ServiceFlags::from(1 << 25);
-        }
-
-        // we need at least one utreexo peer
-        if !self.has_utreexo_peers() {
-            return service_flags::UTREEXO.into();
-        }
-
-        // we need at least one peer with compact filters
-        if !self.has_compact_filters_peer() {
-            return ServiceFlags::COMPACT_FILTERS;
-        }
-
-        // we have at least one peer with the required services, so we can connect
-        // with any random peer
-        ServiceFlags::NONE
-    }
-
     pub(crate) async fn create_connection(&mut self, kind: ConnectionKind) -> Option<()> {
-        let required_services = self.get_required_services();
+        let required_services = match kind {
+            ConnectionKind::Feeler => ServiceFlags::NONE,
+            ConnectionKind::Regular(services) => services,
+            ConnectionKind::Extra => ServiceFlags::NONE,
+        };
+
         let address = match &self.fixed_peer {
             Some(address) => Some((0, address.clone())),
             None => self
@@ -973,6 +988,7 @@ where
             "attempting connection with address={:?} kind={:?}",
             address, kind
         );
+
         let (peer_id, address) = address?;
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
