@@ -195,7 +195,7 @@ pub enum Error {
     InInitialBlockDownload,
     Encode,
     InvalidMemInfoMode,
-    WalletError(String),
+    Wallet(String),
 }
 
 impl Display for Error {
@@ -224,7 +224,7 @@ impl Display for Error {
             Error::MissingReq => write!(f, "Missing request field"),
             Error::InvalidVerbosityLevel => write!(f, "Invalid verbosity level"),
             Error::InvalidMemInfoMode => write!(f, "Invalid meminfo mode, should be stats or mallocinfo"),
-            Error::WalletError(e) => write!(f, "Wallet error: {}", e),
+            Error::Wallet(e) => write!(f, "Wallet error: {}", e),
         }
     }
 }

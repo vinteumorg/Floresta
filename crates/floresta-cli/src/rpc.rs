@@ -123,6 +123,9 @@ pub trait FlorestaRPC {
     fn get_rpc_info(&self) -> Result<GetRpcInfoRes>;
     /// Returns for how long florestad has been running, in seconds
     fn uptime(&self) -> Result<u32>;
+
+    /// Returns a list of all descriptors currently loaded in the wallet
+    fn list_descriptors(&self) -> Result<Vec<String>>;
 }
 
 /// Since the workflow for jsonrpc is the same for all methods, we can implement a trait
@@ -266,5 +269,9 @@ impl<T: JsonRPCClient> FlorestaRPC for T {
 
     fn send_raw_transaction(&self, tx: String) -> Result<Txid> {
         self.call("sendrawtransaction", &[Value::String(tx)])
+    }
+
+    fn list_descriptors(&self) -> Result<Vec<String>> {
+        self.call("listdescriptors", &[])
     }
 }

@@ -290,7 +290,7 @@ impl RpcImpl {
         let descriptors = self
             .wallet
             .get_descriptors()
-            .map_err(|e| Error::WalletError(e.to_string()))?;
+            .map_err(|e| Error::Wallet(e.to_string()))?;
         Ok(descriptors)
     }
 }
