@@ -498,6 +498,7 @@ mod tests {
 
     use bitcoin::block::Header;
     use bitcoin::consensus::deserialize;
+    use bitcoin::consensus::encode::deserialize_hex;
     use bitcoin::Block;
     use rustreexo::accumulator::proof::Proof;
     use rustreexo::accumulator::stump::Stump;
@@ -529,8 +530,7 @@ mod tests {
         run("0000002000226e46111a0b59caaf126043eb5bbf28c34f3a5e332a1fc7b2b73cf188910f40adbcd7823048d34357bdca86cd47172afe2a4af8366b5b34db36df89386d49b23ec964ffff7f20000000000101000000010000000000000000000000000000000000000000000000000000000000000000ffffffff165108feddb99c6b8435060b2f503253482f627463642fffffffff0100f2052a01000000160014806cef41295922d32ddfca09c26cc4acd36c3ed000000000", BlockValidationErrors::BadMerkleRoot);
     }
     fn parse_block(hex: &str) -> Block {
-        let block = hex::decode(hex).unwrap();
-        deserialize(&block).unwrap()
+        deserialize_hex(hex).unwrap()
     }
     fn get_empty_pchain(blocks: Vec<Header>) -> PartialChainState {
         PartialChainStateInner {
