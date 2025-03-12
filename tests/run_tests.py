@@ -34,9 +34,21 @@ import time
 import argparse
 import tempfile
 
+
 BASE_DIR = os.path.normpath(os.path.join(tempfile.gettempdir(), "floresta-func-tests"))
-SUCCESS_EMOJI = "✔"
+INFO_EMOJI = "ℹ️"
+SUCCESS_EMOJI = "✅"
 FAILURE_EMOJI = "❌"
+ALLDONE_EMOJI = "🎉"
+
+
+def list_test_suites(test_dir: str):
+    """List all test suites inside ./tests"""
+    print(f"{INFO_EMOJI} Available test suites:")
+    for name in os.listdir(test_dir):
+        p = os.path.join(test_dir, name)
+        if os.path.isdir(p) and name not in ("__pycache__", "test_framework"):
+            print(f"* {name}")
 
 
 def main():
@@ -50,7 +62,6 @@ def main():
     options:
         -h, --help                show this help message and exit
         -d, --data-dir DATA_DIR   data directory of the run_tests's functional test logs
-        -t, --test-name TEST_NAME the name of the file to be tested (without .py)
     """
     # Structure the CLI
     parser = argparse.ArgumentParser(
@@ -66,43 +77,99 @@ def main():
     )
 
     parser.add_argument(
-        "-t", "--test-name", help="the name of the file to be tested (without .py)"
+        "-t",
+        "--test-suite",
+        help="test-suit directory to be tested by %(prog)s's. You can add many ",
+        action="append",
+        default=[],
+    )
+
+    parser.add_argument(
+        "-l",
+        "--list-suites",
+        help="list all available test-suit directories to be tested by %(prog)s's",
+        action="store_true",
+        default=False,
     )
 
     # Parse arguments of CLI
     args = parser.parse_args()
 
-    # Define the data-dir and create it
-    data_dir = os.path.normpath(os.path.join(args.data_dir, args.test_name))
-    if not os.path.isdir(data_dir):
-        os.makedirs(data_dir)
-
     # Setup directories and filenames for the specific test
     test_dir = os.path.abspath(os.path.dirname(__file__))
-    test_filename = os.path.normpath(os.path.join(test_dir, f"{args.test_name}.py"))
-    test_logname = os.path.normpath(os.path.join(data_dir, f"{int(time.time())}.log"))
-    print(f"Writing stuff to {test_logname}")
 
-    # Now start the test
-    with open(test_logname, "wt", encoding="utf-8") as log_file:
-        cli = ["python", test_filename]
-        cli_msg = " ".join(cli)
-        print(f"running '{cli_msg}")
-        with subprocess.Popen(cli, stdout=log_file, stderr=log_file) as test:
-            test.wait()
+    # if list is provided,
+    # only list the available tests
+    # and exit the program
+    if args.list_suites:
+        list_test_suites(test_dir)
+        return
 
-    # Check the test, if failed, log the results
-    # if passed, just show that worked
-    if test.returncode != 0:
-        print(f"Test {args.test_name} not passed {FAILURE_EMOJI}")
-        with open(test_logname, "rt", encoding="utf-8") as log_file:
-            print(log_file.read())
-        raise RuntimeError("Tests failed")
+    # lets define the default paths of suites
+    # in None is provided in CLI.
+    # They should be all folders on tests/ dir,
+    # excluding __pycache__ and test_framework
+    if len(args.test_suite) == 0:
+        for _dir in os.listdir(test_dir):
+            test_suite_dir = os.path.join(test_dir, _dir)
+            if os.path.isdir(test_suite_dir) and _dir not in (
+                "__pycache__",
+                "test_framework",
+            ):
+                args.test_suite.append(test_suite_dir)
 
-    print(f"Test {args.test_name} passed {SUCCESS_EMOJI}")
+    # Run all tests defined by --test_suite if any is (are) provided.
+    # Run all default ones in ./tests/<test-suide-n>/*-test.py
+    for _dir in args.test_suite:
+        test_suite_dir = os.path.join(test_dir, _dir)
 
-    # Add some \n to better visualization on terminal
-    print()
+        # If a suite isnt defined in tests folder
+        # raise an error and show it to the developer
+        if not os.path.exists(test_suite_dir):
+            raise argparse.ArgumentError(
+                argument=None, message=f"Suite '{_dir}' not found"
+            )
+
+        # If the suite is found, run all tests
+        # inside the folder. The tests should have
+        # a suffix "-test.py"
+        for file in os.listdir(test_suite_dir):
+            if file.endswith("-test.py"):
+
+                # Define the data-dir and create it
+                data_dir = os.path.normpath(os.path.join(args.data_dir, file))
+                if not os.path.isdir(data_dir):
+                    os.makedirs(data_dir)
+
+                # get test file and create a log for it
+                test_filename = os.path.normpath(os.path.join(test_suite_dir, file))
+                test_logname = os.path.normpath(
+                    os.path.join(data_dir, f"{int(time.time())}.log")
+                )
+
+                # Now start the test
+                with open(test_logname, "wt", encoding="utf-8") as log_file:
+                    cli = ["python", test_filename]
+                    cli_msg = " ".join(cli)
+                    print(f"Running '{cli_msg}'")
+
+                    with subprocess.Popen(
+                        cli, stdout=log_file, stderr=log_file
+                    ) as test:
+                        test.wait()
+                        print(f"Writing stuff to {test_logname}")
+
+                # Check the test, if failed, log the results
+                # if passed, just show that worked
+                if test.returncode != 0:
+                    print(f"Test {file} not passed {FAILURE_EMOJI}")
+                    with open(test_logname, "rt", encoding="utf-8") as log_file:
+                        raise RuntimeError(f"Tests failed: {log_file.read()}")
+
+                print(f"Test {file} passed {SUCCESS_EMOJI}")
+                print()
+
+    print("🎉 ALL TESTS PASSED! GOOD JOB!")
 
 
 if __name__ == "__main__":

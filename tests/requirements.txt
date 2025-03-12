@@ -1,2 +1,4 @@
-jsonrpclib==0.2.1
-requests==2.32.3
+jsonrpclib>=0.2.1
+requests>=2.32.3
+black>=24.10.0
+pylint>=3.3.2

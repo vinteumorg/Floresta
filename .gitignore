@@ -21,3 +21,9 @@ config.toml
 # IDE configurations
 .idea/
 .vscode/
+
+# uv python management
+.venv
+
+# tests pycache
+tests/**/__pycache__/*
