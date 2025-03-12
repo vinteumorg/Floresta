@@ -286,9 +286,11 @@ impl RpcImpl {
         if self.chain.is_in_idb() {
             return Err(Error::InInitialBlockDownload);
         }
-    
-        let descriptors = self.wallet.get_descriptors()
+
+        let descriptors = self
+            .wallet
+            .get_descriptors()
             .map_err(|e| Error::WalletError(e.to_string()))?;
         Ok(descriptors)
-    }      
+    }
 }
