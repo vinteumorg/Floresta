@@ -391,6 +391,12 @@ async fn handle_json_rpc_request(req: Value, state: Arc<RpcImpl>) -> Result<serd
                 .map(|v| ::serde_json::to_value(v).unwrap())
         }
 
+        "listdescriptors" => {
+            state
+                .list_descriptors()
+                .map(|v| ::serde_json::to_value(v).unwrap())
+        }
+
         _ => {
             let error = Error::MethodNotFound;
             Err(error)
@@ -417,6 +423,7 @@ fn get_http_error_code(err: &Error) -> u16 {
         | Error::MissingReq
         | Error::NoBlockFilters
         | Error::InvalidMemInfoMode => 400,
+          Error::WalletError(_) => 400,
 
         // idunnolol
         Error::MethodNotFound | Error::BlockNotFound | Error::TxNotFound => 404,
@@ -447,6 +454,7 @@ fn get_json_rpc_error_code(err: &Error) -> i32 {
         | Error::TxNotFound
         | Error::BlockNotFound
         | Error::InvalidMemInfoMode => -32600,
+          Error::WalletError(_) => -32600,
 
         // server error
         Error::InInitialBlockDownload
