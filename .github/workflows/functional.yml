@@ -13,23 +13,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install poetry
-        run: pipx install poetry
-
-      - uses: actions/setup-python@v5
+      # see more at
+      # https://docs.astral.sh/uv/guides/integration/github/
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"
-          cache: "poetry"
-          cache-dependency-path: "./poetry.lock"
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
 
       - name: Prepare environment
-        run: poetry install --no-root
+        run: uv sync --all-extras --dev
 
       - name: Run black formatting
-        run: poetry run poe format --check --verbose
+        run: uv run black --check --verbose ./tests
 
       - name: Run pylint linter
-        run: poetry run poe lint --verbose
+        run: uv run pylint --verbose ./tests
 
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2

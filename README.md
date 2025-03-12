@@ -258,53 +258,82 @@ cargo test --release
 
 Additional functional tests are available (minimum python version: 3.12).
 
-* Install [poetry dependencies manager](https://python-poetry.org/docs/#installation). There are many ways to do this:
+* Recommended: install [uv: a rust-based python package and project manager](https://docs.astral.sh/uv/).
+
+* Configure an isolated environment:
 
 ```bash
-# recomended way
-pipx install poetry
+# create a virtual environment
+# (it's good to not mess up with your os)
+uv venv
+
+# Alternatively, you can specify a python version (e.g, 3.12),
+uv venv --python 3.12
+
+# activate the python virtual environment
+source .venv/bin/activate
+
+# check if the python path was modified
+which python
 ```
+
+* Install module dependencies:
 
 ```bash
-# official installer (linux / mac)
-curl -sSL https://install.python-poetry.org | python3 -
+# installs dependencies listed in pyproject.toml.
+# in local development environment
+# it do not remove existing packages.
+uv pip install -r pyproject.toml
+
+# if you're a old-school pythonist,
+# install from requirements.txt
+# without remove existing packages.
+uv pip install -r tests/requirements.txt
+
+# Alternatively, you can synchronize it
+# uses the uv.lock file to enforce
+# reproducible installations.
+uv sync
 ```
 
-```pwsh
-# official isntaller (windows - powershell)
-(Invoke-WebRequest -Uri https://install.python-poetry.org -UseBasicParsing).Content | py -
-```
-
+* Format code
 ```bash
-# mannually
-python3 -m venv $VENV_PATH
-$VENV_PATH/bin/pip install -U pip setuptools
-$VENV_PATH/bin/pip install poetry
+uv run black ./tests
+
+# if you want to just check
+uv run black --check --verbose ./tests
 ```
 
-* Configure an isolated environment and install module dependencies:
 
+* Lint code
 ```bash
-poetry install --no-root
+uv run pylint ./tests
 ```
 
 * Run tests:
 
+Our tests are separated by "test suites". Suites are folders located in `./tests/<suite>` and the tests are the `./tests/<suite>/*-test.py` files. To run all suites, type:
+
 ```bash
-poetry run poe tests
+uv run tests/run_tests.py
 ```
 
-* Before run tests, check the pre-commit:
+You can list all suites with:
 
 ```bash
-poetry run poe pre-commit
+uv run tests/run_tests.py --list-suites
 ```
 
-* Manual way without poetry: install dependencies and run the test script. This is discouraged since that can lead to inconsistences between different python versions:
+To run a specific suite:
 
 ```bash
-pip3 install -r tests/requirements.txt
-python tests/run_tests.py
+uv run tests/run_tests.py --test-suite <suite>
+```
+
+You can even add more:
+
+```bash
+uv run tests/run_tests.py --test-suite <suite_A> --test-suite <suite_B>
 ```
 
 ## Running Benchmarks
