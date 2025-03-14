@@ -20,7 +20,6 @@ use floresta_watch_only::kv_database::KvDatabase;
 use floresta_watch_only::AddressCache;
 use floresta_watch_only::CachedTransaction;
 use floresta_wire::node_interface::NodeInterface;
-use floresta_wire::node_interface::NodeMethods;
 use log::error;
 use log::info;
 use log::trace;
@@ -183,7 +182,7 @@ pub struct ElectrumServer<Blockchain: BlockchainInterface> {
     pub block_filters: Option<Arc<NetworkFilters<FlatFiltersStore>>>,
     /// An interface to a running node, used to broadcast transactions and request
     /// blocks.
-    pub node_interface: Arc<NodeInterface>,
+    pub node_interface: NodeInterface,
     /// A list of addresses that we've just learned about and need to rescan for
     /// transactions.
     ///
@@ -198,7 +197,7 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
         address_cache: Arc<AddressCache<KvDatabase>>,
         chain: Arc<Blockchain>,
         block_filters: Option<Arc<NetworkFilters<FlatFiltersStore>>>,
-        node_interface: Arc<NodeInterface>,
+        node_interface: NodeInterface,
     ) -> Result<ElectrumServer<Blockchain>, Box<dyn std::error::Error>> {
         let (tx, rx) = unbounded_channel();
         let unconfirmed = address_cache.find_unconfirmed().unwrap();
@@ -580,24 +579,17 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
             .collect::<Vec<_>>();
 
         // TODO (Davidson): Let users select what the starting and end height is
-        let blocks = cfilters.match_any(_addresses, Some(0), self.chain.clone());
-        if blocks.is_err() {
-            error!("error while rescanning with block filters: {:?}", blocks);
+        let Ok(blocks) = cfilters.match_any(_addresses, Some(0), self.chain.clone()) else {
             self.addresses_to_scan.extend(addresses); // push them back to get a retry
             return Ok(());
-        }
+        };
 
         info!("filters told us to scan blocks: {:?}", blocks);
 
-        let blocks = blocks
-            .unwrap()
-            .into_iter()
-            .flat_map(|hash| self.node_interface.get_block(hash))
-            .collect::<Vec<_>>();
-
         // Tells users about the transactions we found
         for block in blocks {
-            let Some(block) = block else {
+            let block = self.node_interface.get_block(block).await;
+            let Ok(Some(block)) = block else {
                 self.addresses_to_scan.extend(addresses); // push them back to get a retry
                 return Ok(());
             };
@@ -608,6 +600,7 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                 .ok()
                 .flatten()
                 .unwrap();
+
             self.handle_block(block, height).await;
         }
 

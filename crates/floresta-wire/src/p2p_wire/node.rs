@@ -39,6 +39,7 @@ use tokio::spawn;
 use tokio::sync::mpsc::unbounded_channel;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::oneshot;
 use tokio::sync::Mutex;
 use tokio::time::timeout;
 
@@ -68,6 +69,7 @@ use crate::node_context::PeerId;
 #[derive(Debug)]
 pub enum NodeNotification {
     FromPeer(u32, PeerMessages),
+    FromUser(UserRequest, tokio::sync::oneshot::Sender<NodeResponse>),
 }
 
 #[derive(Debug, Clone, PartialEq, Hash)]
@@ -96,7 +98,6 @@ pub(crate) enum InflightRequests {
     Headers,
     UtreexoState(PeerId),
     Blocks(BlockHash),
-    UserRequest(UserRequest),
     Connect(u32),
     GetFilters,
 }
@@ -180,6 +181,8 @@ pub struct NodeCommon<Chain: BlockchainInterface + UpdatableChainstate> {
 
     // 5. Time and Event Tracking
     pub(crate) inflight: HashMap<InflightRequests, (u32, Instant)>,
+    pub(crate) inflight_user_requests:
+        HashMap<UserRequest, (u32, Instant, oneshot::Sender<NodeResponse>)>,
     pub(crate) last_headers_request: Instant,
     pub(crate) last_tip_update: Instant,
     pub(crate) last_connection: Instant,
@@ -196,9 +199,6 @@ pub struct NodeCommon<Chain: BlockchainInterface + UpdatableChainstate> {
     pub(crate) datadir: String,
     pub(crate) network: Network,
     pub(crate) kill_signal: Arc<tokio::sync::RwLock<bool>>,
-
-    // 7. Stuff used by the node handle
-    pub(crate) user_requests: Arc<NodeInterface>,
 }
 
 pub struct UtreexoNode<Chain: BlockchainInterface + UpdatableChainstate, Context> {
@@ -257,6 +257,7 @@ where
                 last_filter: chain.get_block_hash(0).unwrap(),
                 block_filters,
                 inflight: HashMap::new(),
+                inflight_user_requests: HashMap::new(),
                 peer_id_count: 0,
                 peers: HashMap::new(),
                 last_block_request: chain.get_validation_index().expect("Invalid chain"),
@@ -282,9 +283,6 @@ where
                 socks5,
                 fixed_peer,
                 config,
-                user_requests: Arc::new(NodeInterface {
-                    requests: std::sync::Mutex::new(Vec::new()),
-                }),
                 kill_signal,
             },
             context: T::default(),
@@ -295,104 +293,70 @@ where
     /// node. This struct is thread safe, so we can use it from multiple threads and have
     /// multiple handles. It also doesn't require a mutable reference to the node, or any
     /// synchronization mechanism.
-    pub fn get_handle(&self) -> Arc<NodeInterface> {
-        self.user_requests.clone()
-    }
-
-    /// Checks if we have a request made through the user interface and handles it
-    ///
-    /// This function is called by the main loop of the node, and it checks if we have any
-    /// requests made by the user interface. If we do, it will handle them and send the
-    /// response back to the user.
-    ///
-    /// See the [`NodeInterface`] struct for more information on how to make requests.
-    pub(crate) async fn handle_user_request(&mut self) -> Result<(), WireError> {
-        let requests = self
-            .user_requests
-            .requests
-            .lock()
-            .map_err(|_| WireError::PoisonedLock)?
-            .iter()
-            .filter(|req| {
-                !self
-                    .inflight
-                    .contains_key(&InflightRequests::UserRequest(req.req))
-            })
-            .map(|req| req.req)
-            .collect();
-
-        self.perform_user_request(requests).await;
-
-        Ok(())
+    pub fn get_handle(&self) -> NodeInterface {
+        NodeInterface::new(self.common.node_tx.clone())
     }
 
     /// Handles getpeerinfo requests, returning a list of all connected peers and some useful
     /// information about it.
-    fn handle_get_peer_info(&self) {
+    fn handle_get_peer_info(&self, responder: tokio::sync::oneshot::Sender<NodeResponse>) {
         let mut peers = Vec::new();
         for peer in self.peer_ids.iter() {
             peers.push(self.get_peer_info(peer));
         }
+
         let peers = peers.into_iter().flatten().collect();
-        self.user_requests.send_answer(
-            UserRequest::GetPeerInfo,
-            Some(NodeResponse::GetPeerInfo(peers)),
-        );
+        responder.send(NodeResponse::GetPeerInfo(peers)).unwrap();
     }
 
     /// Actually perform the user request
     ///
     /// These are requests made by some consumer of `floresta-wire` using the [`NodeInterface`], and may
     /// be a mempool transaction, a block, or a connection request.
-    async fn perform_user_request(&mut self, user_req: Vec<UserRequest>) {
-        for user_req in user_req {
-            debug!("Performing user request {user_req:?}");
-            if self.inflight.len() >= RunningNode::MAX_INFLIGHT_REQUESTS {
+    pub(crate) async fn perform_user_request(
+        &mut self,
+        user_req: UserRequest,
+        responder: tokio::sync::oneshot::Sender<NodeResponse>,
+    ) {
+        debug!("Performing user request {user_req:?}");
+        if self.inflight.len() >= RunningNode::MAX_INFLIGHT_REQUESTS {
+            return;
+        }
+
+        let req = match user_req {
+            UserRequest::Block(block) => NodeRequest::GetBlock((vec![block], false)),
+            UserRequest::UtreexoBlock(block) => NodeRequest::GetBlock((vec![block], true)),
+            UserRequest::MempoolTransaction(txid) => NodeRequest::MempoolTransaction(txid),
+            UserRequest::GetPeerInfo => {
+                self.handle_get_peer_info(responder);
                 return;
             }
-
-            let req = match user_req {
-                UserRequest::Block(block) => NodeRequest::GetBlock((vec![block], false)),
-                UserRequest::UtreexoBlock(block) => NodeRequest::GetBlock((vec![block], true)),
-                UserRequest::MempoolTransaction(txid) => NodeRequest::MempoolTransaction(txid),
-                UserRequest::GetPeerInfo => {
-                    self.handle_get_peer_info();
-                    continue;
-                }
-                UserRequest::Connect((addr, port)) => {
-                    let addr_v2 = match addr {
-                        IpAddr::V4(addr) => AddrV2::Ipv4(addr),
-                        IpAddr::V6(addr) => AddrV2::Ipv6(addr),
-                    };
-                    let local_addr = LocalAddress::new(
-                        addr_v2,
-                        0,
-                        AddressState::NeverTried,
-                        0.into(),
-                        port,
-                        self.peer_id_count as usize,
-                    );
-                    self.open_connection(
-                        ConnectionKind::Regular(ServiceFlags::NONE),
-                        0,
-                        local_addr,
-                    )
-                    .await;
-                    self.peer_id_count += 1;
-                    self.user_requests.send_answer(
-                        UserRequest::Connect((addr, port)),
-                        Some(NodeResponse::Connect(true)),
-                    );
-                    continue;
-                }
-            };
-            let peer = self.send_to_random_peer(req, ServiceFlags::NONE).await;
-            if let Ok(peer) = peer {
-                self.inflight.insert(
-                    InflightRequests::UserRequest(user_req),
-                    (peer, Instant::now()),
+            UserRequest::Connect((addr, port)) => {
+                let addr_v2 = match addr {
+                    IpAddr::V4(addr) => AddrV2::Ipv4(addr),
+                    IpAddr::V6(addr) => AddrV2::Ipv6(addr),
+                };
+                let local_addr = LocalAddress::new(
+                    addr_v2,
+                    0,
+                    AddressState::NeverTried,
+                    0.into(),
+                    port,
+                    self.peer_id_count as usize,
                 );
+                self.open_connection(ConnectionKind::Regular(ServiceFlags::NONE), 0, local_addr)
+                    .await;
+                self.peer_id_count += 1;
+
+                let _ = responder.send(NodeResponse::Connect(true));
+                return;
             }
+        };
+
+        let peer = self.send_to_random_peer(req, ServiceFlags::NONE).await;
+        if let Ok(peer) = peer {
+            self.inflight_user_requests
+                .insert(user_req, (peer, Instant::now(), responder));
         }
     }
 
@@ -407,12 +371,9 @@ where
     ) -> Result<Option<UtreexoBlock>, WireError> {
         // If this block is a request made through the user interface, send it back to the
         // user.
-        if self
-            .inflight
-            .remove(&InflightRequests::UserRequest(UserRequest::Block(
-                block.block.block_hash(),
-            )))
-            .is_some()
+        if let Some(request) = self
+            .inflight_user_requests
+            .remove(&UserRequest::Block(block.block.block_hash()))
         {
             debug!(
                 "answering user request for block {}",
@@ -420,19 +381,17 @@ where
             );
 
             if block.udata.is_some() {
-                self.user_requests.send_answer(
-                    UserRequest::UtreexoBlock(block.block.block_hash()),
-                    Some(NodeResponse::UtreexoBlock(block)),
-                );
-
+                request
+                    .2
+                    .send(NodeResponse::UtreexoBlock(Some(block)))
+                    .map_err(|_| WireError::ResponseSendError)?;
                 return Ok(None);
             }
 
-            self.user_requests.send_answer(
-                UserRequest::Block(block.block.block_hash()),
-                Some(NodeResponse::Block(block.block)),
-            );
-
+            request
+                .2
+                .send(NodeResponse::Block(Some(block.block)))
+                .map_err(|_| WireError::ResponseSendError)?;
             return Ok(None);
         }
 
@@ -450,12 +409,15 @@ where
 
     #[cfg(feature = "metrics")]
     /// Register a message on `self.inflights` hooking it to metrics
-    pub(crate) fn register_message_time(&self, notification: &NodeNotification) -> Option<()> {
+    pub(crate) fn register_message_time(
+        &self,
+        notification: &PeerMessages,
+        peer: PeerId,
+    ) -> Option<()> {
         use metrics::get_metrics;
         let now = Instant::now();
-        let NodeNotification::FromPeer(peer, message) = notification;
 
-        let when = match message {
+        let when = match notification {
             PeerMessages::Block(block) => {
                 let inflight = self
                     .inflight
@@ -465,7 +427,7 @@ where
             }
 
             PeerMessages::Ready(_) => {
-                let inflight = self.inflight.get(&InflightRequests::Connect(*peer))?;
+                let inflight = self.inflight.get(&InflightRequests::Connect(peer))?;
                 inflight.1
             }
 
@@ -480,7 +442,7 @@ where
             }
 
             PeerMessages::UtreexoState(_) => {
-                let inflight = self.inflight.get(&InflightRequests::UtreexoState(*peer))?;
+                let inflight = self.inflight.get(&InflightRequests::UtreexoState(peer))?;
                 inflight.1
             }
 
@@ -729,7 +691,7 @@ where
                 self.inflight
                     .insert(InflightRequests::GetFilters, (peer, Instant::now()));
             }
-            InflightRequests::Connect(_) | InflightRequests::UserRequest(_) => {
+            InflightRequests::Connect(_) => {
                 // WE DON'T NEED TO DO ANYTHING HERE
             }
         }

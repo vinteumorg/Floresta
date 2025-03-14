@@ -120,6 +120,7 @@ where
 
             match request {
                 InflightRequests::UtreexoState(_) => {}
+
                 InflightRequests::Blocks(block) => {
                     if !self.has_utreexo_peers() {
                         continue;
@@ -133,6 +134,7 @@ where
                     self.inflight
                         .insert(InflightRequests::Blocks(block), (peer, Instant::now()));
                 }
+
                 InflightRequests::Headers => {
                     let peer = self
                         .send_to_random_peer(NodeRequest::GetAddresses, ServiceFlags::NONE)
@@ -141,12 +143,11 @@ where
                     self.inflight
                         .insert(InflightRequests::Headers, (peer, Instant::now()));
                 }
-                InflightRequests::UserRequest(req) => {
-                    self.user_requests.send_answer(req, None);
-                }
+
                 InflightRequests::Connect(peer) => {
                     self.peers.remove(&peer);
                 }
+
                 InflightRequests::GetFilters => {
                     if let Some(ref block_filters) = self.block_filters {
                         let last_success = block_filters.get_height()? + 1;
@@ -169,19 +170,18 @@ where
     /// will only download the blocks that are after the one that got assumed. So, for PoW fraud
     /// proofs, this means the last 100 blocks, and for assumeutreexo, this means however many
     /// blocks from the hard-coded value in the config file.
-    pub async fn catch_up(&self) -> Result<(), WireError> {
-        let sync = UtreexoNode::<Chain, SyncNode>::new(
-            self.config.clone(),
-            self.chain.clone(),
-            self.mempool.clone(),
-            None,
-            self.kill_signal.clone(),
-            self.address_man.clone(),
-        )?;
+    pub async fn catch_up(self) -> Result<Self, WireError> {
+        let sync = UtreexoNode {
+            common: self.common,
+            context: SyncNode::default(),
+        };
 
-        sync.run(|_| {}).await;
+        let sync = sync.run(|_| {}).await;
 
-        Ok(())
+        Ok(UtreexoNode {
+            common: sync.common,
+            context: self.context,
+        })
     }
 
     /// This function is called periodically to check if we have:
@@ -380,9 +380,18 @@ where
             false => false,
         };
 
-        // Catch up with the network, donloading blocks from our last validation index onwnwards
+        // Catch up with the network, downloading blocks from our last validation index to the tip
         info!("Catching up with the network...");
-        try_and_log!(self.catch_up().await);
+        self = match self.catch_up().await {
+            Ok(node) => node,
+            Err(e) => {
+                error!(
+                    "An error happened while trying to catch-up with the network: {:?}",
+                    e
+                );
+                return;
+            }
+        };
 
         if *self.kill_signal.read().await {
             self.shutdown().await;
@@ -444,9 +453,6 @@ where
                 TRY_NEW_CONNECTION,
                 RunningNode
             );
-
-            // Requests using the node handle
-            try_and_log!(self.handle_user_request().await);
 
             // Check if some of our peers have timed out a request
             try_and_log!(self.check_for_timeout().await);
@@ -837,69 +843,84 @@ where
         &mut self,
         notification: NodeNotification,
     ) -> Result<(), WireError> {
-        #[cfg(feature = "metrics")]
-        self.register_message_time(&notification);
-
         match notification {
-            NodeNotification::FromPeer(peer, message) => match message {
-                PeerMessages::NewBlock(block) => {
-                    debug!("We got an inv with block {block} requesting it");
-                    self.context
-                        .last_invs
-                        .entry(block)
-                        .and_modify(|(when, peers)| {
-                            if peers.contains(&peer) {
-                                return;
+            NodeNotification::FromUser(request, responder) => {
+                self.perform_user_request(request, responder).await;
+            }
+
+            NodeNotification::FromPeer(peer, message) => {
+                #[cfg(feature = "metrics")]
+                self.register_message_time(&message, peer);
+
+                match message {
+                    PeerMessages::NewBlock(block) => {
+                        debug!("We got an inv with block {block} requesting it");
+                        self.context
+                            .last_invs
+                            .entry(block)
+                            .and_modify(|(when, peers)| {
+                                if peers.contains(&peer) {
+                                    return;
+                                }
+                                // if it's been less than 5 seconds since we got the first inv message
+                                // for this block, we should mark as this peer sent us in a timely manner
+                                if when.elapsed() < Duration::from_secs(5) {
+                                    peers.push(peer);
+                                }
+                            })
+                            .or_insert_with(|| (Instant::now(), Vec::new()));
+
+                        self.handle_new_block(block, peer).await?;
+                    }
+
+                    PeerMessages::Block(block) => {
+                        debug!(
+                            "Got data for block {} from peer {peer}",
+                            block.block.block_hash()
+                        );
+
+                        self.handle_block_data(block, peer).await?;
+                    }
+
+                    PeerMessages::Headers(headers) => {
+                        debug!(
+                            "Got headers from peer {peer} with {} headers",
+                            headers.len()
+                        );
+                        self.inflight.remove(&InflightRequests::Headers);
+
+                        let peer_info = self.peers.get(&peer).cloned().expect("Peer not found");
+                        let is_extra = matches!(peer_info.kind, ConnectionKind::Extra);
+
+                        if is_extra {
+                            // if this is an extra peer, and the headers message is empty, disconnect it
+                            if headers.is_empty() {
+                                self.increase_banscore(peer, 5).await?;
+                                return Ok(());
                             }
-                            // if it's been less than 5 seconds since we got the first inv message
-                            // for this block, we should mark as this peer sent us in a timely manner
-                            if when.elapsed() < Duration::from_secs(5) {
-                                peers.push(peer);
+
+                            // this peer got us a new block, we should disconnect one of our regular peers
+                            // and keep this one.
+                            let peer_to_disconnect = self
+                                .peers
+                                .iter()
+                                .filter(|(_, info)| matches!(info.kind, ConnectionKind::Regular(_)))
+                                .min_by_key(|(k, _)| self.get_peer_score(**k))
+                                .map(|(peer, _)| *peer);
+
+                            // disconnect the peer with the lowest score
+                            if let Some(peer) = peer_to_disconnect {
+                                self.send_to_peer(peer, NodeRequest::Shutdown).await?;
                             }
-                        })
-                        .or_insert_with(|| (Instant::now(), Vec::new()));
 
-                    self.handle_new_block(block, peer).await?;
-                }
-
-                PeerMessages::Block(block) => {
-                    debug!(
-                        "Got data for block {} from peer {peer}",
-                        block.block.block_hash()
-                    );
-
-                    self.handle_block_data(block, peer).await?;
-                }
-
-                PeerMessages::Headers(headers) => {
-                    debug!(
-                        "Got headers from peer {peer} with {} headers",
-                        headers.len()
-                    );
-                    self.inflight.remove(&InflightRequests::Headers);
-
-                    let peer_info = self.peers.get(&peer).cloned().expect("Peer not found");
-                    let is_extra = matches!(peer_info.kind, ConnectionKind::Extra);
-
-                    if is_extra {
-                        // if this is an extra peer, and the headers message is empty, disconnect it
-                        if headers.is_empty() {
-                            self.increase_banscore(peer, 5).await?;
-                            return Ok(());
+                            // update the peer info
+                            self.peers.entry(peer).and_modify(|info| {
+                                info.kind = ConnectionKind::Regular(peer_info.services);
+                            });
                         }
 
-                        // this peer got us a new block, we should disconnect one of our regular peers
-                        // and keep this one.
-                        let peer_to_disconnect = self
-                            .peers
-                            .iter()
-                            .filter(|(_, info)| matches!(info.kind, ConnectionKind::Regular(_)))
-                            .min_by_key(|(k, _)| self.get_peer_score(**k))
-                            .map(|(peer, _)| *peer);
-
-                        // disconnect the peer with the lowest score
-                        if let Some(peer) = peer_to_disconnect {
-                            self.send_to_peer(peer, NodeRequest::Shutdown).await?;
+                        for header in headers.iter() {
+                            self.chain.accept_header(*header)?;
                         }
 
                         // update the peer info
@@ -908,103 +929,118 @@ where
                         });
                     }
 
-                    for header in headers.iter() {
-                        self.chain.accept_header(*header)?;
+                    PeerMessages::Ready(version) => {
+                        debug!(
+                            "handshake with peer={peer} succeeded feeler={:?}",
+                            version.kind
+                        );
+                        self.handle_peer_ready(peer, &version).await?;
                     }
 
-                    if self.chain.is_in_ibd() {
-                        let blocks = headers.iter().map(|header| header.block_hash()).collect();
-                        self.request_blocks(blocks).await?;
+                    PeerMessages::Disconnected(idx) => {
+                        self.handle_disconnection(peer, idx).await?;
                     }
-                }
 
-                PeerMessages::Ready(version) => {
-                    debug!(
-                        "handshake with peer={peer} succeeded feeler={:?}",
-                        version.kind
-                    );
-                    self.handle_peer_ready(peer, &version).await?;
-                }
+                    PeerMessages::Addr(addresses) => {
+                        debug!("Got {} addresses from peer {}", addresses.len(), peer);
+                        let addresses: Vec<_> =
+                            addresses.into_iter().map(|addr| addr.into()).collect();
 
-                PeerMessages::Disconnected(idx) => {
-                    self.handle_disconnection(peer, idx).await?;
-                }
+                        self.address_man.push_addresses(&addresses);
+                    }
 
-                PeerMessages::Addr(addresses) => {
-                    debug!("Got {} addresses from peer {}", addresses.len(), peer);
-                    let addresses: Vec<_> = addresses.into_iter().map(|addr| addr.into()).collect();
+                    PeerMessages::BlockFilter((hash, filter)) => {
+                        debug!("Got a block filter for block {hash} from peer {peer}");
 
-                    self.address_man.push_addresses(&addresses);
-                }
+                        if let Some(filters) = self.common.block_filters.as_ref() {
+                            let mut current_height = filters.get_height()?;
+                            let Some(this_height) = self.chain.get_block_height(&hash)? else {
+                                warn!("Filter for block {} received, but we don't have it", hash);
+                                return Ok(());
+                            };
 
-                PeerMessages::BlockFilter((hash, filter)) => {
-                    debug!("Got a block filter for block {hash} from peer {peer}");
+                            if current_height + 1 != this_height {
+                                self.context.inflight_filters.insert(this_height, filter);
+                                return Ok(());
+                            }
 
-                    if let Some(filters) = self.common.block_filters.as_ref() {
-                        let mut current_height = filters.get_height()?;
-                        let Some(this_height) = self.chain.get_block_height(&hash)? else {
-                            warn!("Filter for block {} received, but we don't have it", hash);
-                            return Ok(());
-                        };
-
-                        if current_height + 1 != this_height {
-                            self.context.inflight_filters.insert(this_height, filter);
-                            return Ok(());
-                        }
-
-                        filters.push_filter(filter, current_height + 1)?;
-                        current_height += 1;
-
-                        while let Some(filter) =
-                            self.context.inflight_filters.remove(&(current_height))
-                        {
-                            filters.push_filter(filter, current_height)?;
+                            filters.push_filter(filter, current_height + 1)?;
                             current_height += 1;
+
+                            while let Some(filter) =
+                                self.context.inflight_filters.remove(&(current_height))
+                            {
+                                filters.push_filter(filter, current_height)?;
+                                current_height += 1;
+                            }
+
+                            filters.save_height(current_height)?;
+                            let current_hash = self.chain.get_block_hash(current_height)?;
+                            if self.last_filter == current_hash
+                                && self.context.inflight_filters.is_empty()
+                            {
+                                self.inflight.remove(&InflightRequests::GetFilters);
+                                self.download_filters().await?;
+                            }
+                        }
+                    }
+
+                    PeerMessages::NotFound(inv) => match inv {
+                        Inventory::Error => {}
+                        Inventory::Block(block)
+                        | Inventory::WitnessBlock(block)
+                        | Inventory::CompactBlock(block) => {
+                            if let Some(request) = self
+                                .inflight_user_requests
+                                .remove(&UserRequest::Block(block))
+                            {
+                                request.2.send(NodeResponse::Block(None)).unwrap();
+                            }
+
+                            if let Some(request) = self
+                                .inflight_user_requests
+                                .remove(&UserRequest::UtreexoBlock(block))
+                            {
+                                request.2.send(NodeResponse::UtreexoBlock(None)).unwrap();
+                            }
                         }
 
-                        filters.save_height(current_height)?;
-                        let current_hash = self.chain.get_block_hash(current_height)?;
-                        if self.last_filter == current_hash
-                            && self.context.inflight_filters.is_empty()
+                        Inventory::WitnessTransaction(tx) | Inventory::Transaction(tx) => {
+                            if let Some(request) = self
+                                .inflight_user_requests
+                                .remove(&UserRequest::MempoolTransaction(tx))
+                            {
+                                request
+                                    .2
+                                    .send(NodeResponse::MempoolTransaction(None))
+                                    .unwrap();
+                            }
+                        }
+                        _ => {}
+                    },
+
+                    PeerMessages::Transaction(tx) => {
+                        debug!("saw a mempool transaction with txid={}", tx.compute_txid());
+                        if let Some(request) = self
+                            .inflight_user_requests
+                            .remove(&UserRequest::MempoolTransaction(tx.compute_txid()))
                         {
-                            self.inflight.remove(&InflightRequests::GetFilters);
-                            self.download_filters().await?;
+                            request
+                                .2
+                                .send(NodeResponse::MempoolTransaction(Some(tx)))
+                                .unwrap();
                         }
                     }
-                }
 
-                PeerMessages::NotFound(inv) => match inv {
-                    Inventory::Error => {}
-                    Inventory::Block(block)
-                    | Inventory::WitnessBlock(block)
-                    | Inventory::CompactBlock(block) => {
-                        self.user_requests
-                            .send_answer(UserRequest::Block(block), None);
+                    PeerMessages::UtreexoState(_) => {
+                        warn!(
+                            "Utreexo state received from peer {}, but we didn't ask",
+                            peer
+                        );
+                        self.increase_banscore(peer, 5).await?;
                     }
-
-                    Inventory::WitnessTransaction(tx) | Inventory::Transaction(tx) => {
-                        self.user_requests
-                            .send_answer(UserRequest::MempoolTransaction(tx), None);
-                    }
-                    _ => {}
-                },
-
-                PeerMessages::Transaction(tx) => {
-                    debug!("saw a mempool transaction with txid={}", tx.compute_txid());
-                    self.user_requests.send_answer(
-                        UserRequest::MempoolTransaction(tx.compute_txid()),
-                        Some(NodeResponse::MempoolTransaction(tx)),
-                    );
                 }
-
-                PeerMessages::UtreexoState(_) => {
-                    warn!(
-                        "Utreexo state received from peer {}, but we didn't ask",
-                        peer
-                    );
-                    self.increase_banscore(peer, 5).await?;
-                }
-            },
+            }
         }
         Ok(())
     }
