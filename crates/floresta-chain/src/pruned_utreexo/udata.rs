@@ -541,10 +541,8 @@ pub mod proof_util {
 mod test {
     extern crate std;
     use std::str::FromStr;
-    use std::vec::Vec;
 
-    use bitcoin::consensus::deserialize;
-    use bitcoin::hashes::hex::FromHex;
+    use bitcoin::consensus::encode::deserialize_hex;
     use bitcoin::Amount;
     use bitcoin::BlockHash;
     use bitcoin::ScriptBuf;
@@ -565,8 +563,7 @@ mod test {
             $spk_type:ident,
             $expected_spk:literal
         ) => {
-            let hex = Vec::from_hex($tx_hex).unwrap();
-            let s: Transaction = deserialize(&hex).unwrap();
+            let s: Transaction = deserialize_hex($tx_hex).unwrap();
             let leaf = CompactLeafData {
                 amount: Amount::from_btc($amount).unwrap().to_sat(),
                 header_code: $height,
@@ -635,10 +632,8 @@ mod test {
     }
     #[test]
     fn test_reconstruct_leaf_data() {
-        let leaf = Vec::from_hex("f99e24b9e96a3c6220449b2bf520d6a9562237e2f4fc6f6b2ba57a71de000000e6f50efb6747f836ca3510df3da120fdb2ae4cf62893cc014e08c25dab70248b01000000cc000400b429653b4f0600001600142b91c8f80b071c5f60e1a512d49a6a544e51165b").unwrap();
-        let leaf: LeafData = deserialize(&leaf).unwrap();
-        let spending_tx = Vec::from_hex("02000000000101e6f50efb6747f836ca3510df3da120fdb2ae4cf62893cc014e08c25dab70248b0100000000feffffff02dbe6553b4f0600001600148d57f8da7fc15371dc14d35e97850ab564a17b1240420f0000000000220020ed59bf193c5197a5b1dbbbc723ddeca82cdfbb188218b3ede50150e1890fc55202473044022024979ec4bda473b71288b2c15390418d7d300551aa5e463cc6b64acd5c3070b50220444c94242aff2ba1bd966308d60f537524b0755931d545d98e1fc45239ff6b08012103de7c420624c009d6a5761871e78b39ff864887f885ed313e27f778b3772e74916a000200").unwrap();
-        let spending_tx: Transaction = deserialize(&spending_tx).unwrap();
+        let leaf: LeafData = deserialize_hex("f99e24b9e96a3c6220449b2bf520d6a9562237e2f4fc6f6b2ba57a71de000000e6f50efb6747f836ca3510df3da120fdb2ae4cf62893cc014e08c25dab70248b01000000cc000400b429653b4f0600001600142b91c8f80b071c5f60e1a512d49a6a544e51165b").unwrap();
+        let spending_tx: Transaction = deserialize_hex("02000000000101e6f50efb6747f836ca3510df3da120fdb2ae4cf62893cc014e08c25dab70248b0100000000feffffff02dbe6553b4f0600001600148d57f8da7fc15371dc14d35e97850ab564a17b1240420f0000000000220020ed59bf193c5197a5b1dbbbc723ddeca82cdfbb188218b3ede50150e1890fc55202473044022024979ec4bda473b71288b2c15390418d7d300551aa5e463cc6b64acd5c3070b50220444c94242aff2ba1bd966308d60f537524b0755931d545d98e1fc45239ff6b08012103de7c420624c009d6a5761871e78b39ff864887f885ed313e27f778b3772e74916a000200").unwrap();
 
         let compact = CompactLeafData {
             amount: Amount::from_btc(69373.68668596).unwrap().to_sat(),
