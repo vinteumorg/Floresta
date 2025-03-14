@@ -650,10 +650,6 @@ where
                 }
             }
 
-            if let InflightRequests::UserRequest(req) = request {
-                self.user_requests.send_answer(req, None);
-            }
-
             self.inflight.remove(&request);
         }
 
@@ -696,10 +692,20 @@ where
         loop {
             while let Ok(notification) = timeout(Duration::from_secs(1), self.node_rx.recv()).await
             {
-                try_and_log!(self.handle_notification(notification).await);
-            }
+                match notification {
+                    Some(NodeNotification::FromUser(request, responder)) => {
+                        self.perform_user_request(request, responder).await;
+                    }
 
-            try_and_log!(self.handle_user_request().await);
+                    Some(NodeNotification::FromPeer(peer, notification)) => {
+                        try_and_log!(self.handle_peer_notification(notification, peer).await);
+                    }
+
+                    None => {
+                        break;
+                    }
+                }
+            }
 
             // Checks if we need to open a new connection
             periodic_job!(
@@ -795,6 +801,10 @@ where
                             peer_accs.push((peer, state));
                         }
                     }
+
+                    NodeNotification::FromUser(request, responder) => {
+                        self.perform_user_request(request, responder).await;
+                    }
                 }
             }
 
@@ -825,19 +835,15 @@ where
         Ok(FindAccResult::KeepLooking(peer_accs))
     }
 
-    async fn handle_notification(
+    async fn handle_peer_notification(
         &mut self,
-        notification: Option<NodeNotification>,
+        notification: PeerMessages,
+        peer: PeerId,
     ) -> Result<(), WireError> {
-        let Some(notification) = notification else {
-            return Ok(());
-        };
-
         #[cfg(feature = "metrics")]
-        self.register_message_time(&notification);
+        self.register_message_time(&notification, peer);
 
-        let NodeNotification::FromPeer(peer, message) = notification;
-        match message {
+        match notification {
             PeerMessages::Headers(headers) => {
                 self.inflight.remove(&InflightRequests::Headers);
                 return self.handle_headers(peer, headers).await;
@@ -873,26 +879,48 @@ where
 
             PeerMessages::NotFound(inv) => match inv {
                 Inventory::Error => {}
+
                 Inventory::Block(block)
                 | Inventory::WitnessBlock(block)
                 | Inventory::CompactBlock(block) => {
-                    self.user_requests
-                        .send_answer(UserRequest::Block(block), None);
+                    let request = self
+                        .inflight_user_requests
+                        .remove(&UserRequest::Block(block));
+                    if let Some(request) = request {
+                        request
+                            .2
+                            .send(NodeResponse::Block(None))
+                            .map_err(|_| WireError::ResponseSendError)?;
+                    }
                 }
 
                 Inventory::WitnessTransaction(tx) | Inventory::Transaction(tx) => {
-                    self.user_requests
-                        .send_answer(UserRequest::MempoolTransaction(tx), None);
+                    let request = self
+                        .inflight_user_requests
+                        .remove(&UserRequest::MempoolTransaction(tx));
+                    if let Some(request) = request {
+                        request
+                            .2
+                            .send(NodeResponse::MempoolTransaction(None))
+                            .map_err(|_| WireError::ResponseSendError)?;
+                    }
                 }
+
                 _ => {}
             },
 
             PeerMessages::Transaction(tx) => {
                 debug!("saw a mempool transaction with txid={}", tx.compute_txid());
-                self.user_requests.send_answer(
-                    UserRequest::MempoolTransaction(tx.compute_txid()),
-                    Some(NodeResponse::MempoolTransaction(tx)),
-                );
+
+                let request = self
+                    .inflight_user_requests
+                    .remove(&UserRequest::MempoolTransaction(tx.compute_txid()));
+                if let Some(request) = request {
+                    request
+                        .2
+                        .send(NodeResponse::MempoolTransaction(Some(tx)))
+                        .map_err(|_| WireError::ResponseSendError)?;
+                }
             }
 
             PeerMessages::UtreexoState(_) => {
@@ -900,6 +928,7 @@ where
                     "Utreexo state received from peer {}, but we didn't ask",
                     peer
                 );
+
                 self.increase_banscore(peer, 5).await?;
             }
 
