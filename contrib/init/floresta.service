@@ -6,7 +6,11 @@ Wants=network-online.target
 
 
 [Service]
-ExecStart=/usr/bin/florestad --data-dir=/var/lib/florestad --config-file /etc/florestad/config.toml
+ExecStart=/usr/bin/florestad --daemon --data-dir=/var/lib/florestad --config-file /etc/florestad/config.toml --pid-file=/run/florestad/florestad.pid --log-to-file
+
+# Ensure that the service is ready after the MainPID exists
+Type=forking
+PIDFile=/run/florestad/florestad.pid
 
 # Don't enter a restart loop, as it might corrupt our database
 Restart=no
