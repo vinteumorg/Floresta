@@ -69,6 +69,7 @@ use crate::write_lock;
 use crate::Network;
 use crate::UtreexoBlock;
 
+/// Trait for components that need to receive notifications about new blocks.
 pub trait BlockConsumer: Sync + Send + 'static {
     fn consume_block(&self, block: &Block, height: u32);
 }
@@ -79,6 +80,7 @@ impl BlockConsumer for Channel<(Block, u32)> {
     }
 }
 
+/// Internal state of the blockchain managed by `ChainState`.
 pub struct ChainStateInner<PersistedState: ChainStore> {
     /// The acc we use for validation.
     acc: Stump,
@@ -108,13 +110,29 @@ pub struct ChainStateInner<PersistedState: ChainStore> {
     /// is still validated.
     assume_valid: Option<BlockHash>,
 }
+
+/// The high-level chain backend managing the blockchain state.
+///
+/// `ChainState` is responsible for:
+/// - Keeping track of the chain state with the help of a `ChainStore` for persisted storage.
+/// - Correctly updating the state using consensus functions.
+/// - Interfacing with other components and providing data about the current view of the chain.
 pub struct ChainState<PersistedState: ChainStore> {
     inner: RwLock<ChainStateInner<PersistedState>>,
 }
+
 #[derive(Debug, Copy, Clone)]
+/// Represents the argument for the assume-valid configuration.
+///
+/// This enum indicates the state of the assume-valid configuration,
+/// which defines whether we should validate the scripts for blocks before this one.
+/// You can either disable it, use a value provided by floresta or use your own value.
 pub enum AssumeValidArg {
+    /// Do not assume any script are valid, check every single one from genesis. This should make IBD considerably slower, but in theory has the best security model
     Disabled,
+    /// Use the hard-coded value provided by Floresta. In this case, you trust that the Floresta repository faces enough scrutiny and review, and therefore the value can be trusted.
     Hardcoded,
+    /// Provide your own value, moving the trust assumption to your program.
     UserInput(BlockHash),
 }
 
