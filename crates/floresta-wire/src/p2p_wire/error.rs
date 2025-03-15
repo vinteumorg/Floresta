@@ -44,6 +44,8 @@ pub enum WireError {
     InvalidAddress(AddrParseError),
     #[error("Transport error: {0}")]
     Transport(TransportError),
+    #[error("Can't send back response for user request")]
+    ResponseSendError,
 }
 
 impl_error_from!(WireError, PeerError, PeerError);
@@ -64,6 +66,12 @@ impl From<tokio::sync::mpsc::error::SendError<NodeRequest>> for WireError {
 impl From<io::Error> for WireError {
     fn from(err: io::Error) -> WireError {
         WireError::Io(err)
+    }
+}
+
+impl From<tokio::sync::oneshot::error::RecvError> for WireError {
+    fn from(_: tokio::sync::oneshot::error::RecvError) -> Self {
+        WireError::ResponseSendError
     }
 }
 
