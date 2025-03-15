@@ -730,6 +730,14 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
         )
     }
 
+    pub fn get_descriptors(&self) -> Result<Vec<String>, WatchOnlyError<D::Error>> {
+        let inner = self.inner.read().expect("poisoned lock");
+        inner
+            .database
+            .descs_get()
+            .map_err(WatchOnlyError::DatabaseError)
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn cache_transaction(
         &self,

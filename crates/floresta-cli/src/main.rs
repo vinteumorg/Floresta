@@ -103,6 +103,7 @@ fn do_request(cmd: &Cli, client: Client) -> anyhow::Result<String> {
         }
         Methods::GetRpcInfo => serde_json::to_string_pretty(&client.get_rpc_info()?)?,
         Methods::Uptime => serde_json::to_string_pretty(&client.uptime()?)?,
+        Methods::ListDescriptors => serde_json::to_string_pretty(&client.list_descriptors()?)?,
     })
 }
 
@@ -203,4 +204,7 @@ pub enum Methods {
     /// Returns for how long the node has been running, in seconds
     #[command(name = "uptime")]
     Uptime,
+    /// Returns a list of all descriptors currently loaded in the wallet
+    #[command(name = "listdescriptors")]
+    ListDescriptors,
 }
