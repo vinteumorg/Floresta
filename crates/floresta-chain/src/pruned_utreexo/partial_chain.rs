@@ -494,12 +494,14 @@ impl From<PartialChainStateInner> for PartialChainState {
 
 #[cfg(test)]
 mod tests {
+    use core::str::FromStr;
     use std::collections::HashMap;
 
     use bitcoin::block::Header;
-    use bitcoin::consensus::deserialize;
     use bitcoin::consensus::encode::deserialize_hex;
     use bitcoin::Block;
+    use floresta_common::acchashes;
+    use rustreexo::accumulator::node_hash::BitcoinNodeHash;
     use rustreexo::accumulator::proof::Proof;
     use rustreexo::accumulator::stump::Stump;
 
@@ -556,8 +558,7 @@ mod tests {
             if i > 100 {
                 break;
             }
-            let block: Block = deserialize(&hex::decode(block).unwrap()).unwrap();
-            parsed_blocks.push(block);
+            parsed_blocks.push(parse_block(block));
         }
         let chainstate: PartialChainState = PartialChainStateInner {
             assume_valid: true,
@@ -591,8 +592,7 @@ mod tests {
         let blocks = include_str!("../../testdata/blocks.txt");
         let mut parsed_blocks = vec![];
         for block in blocks.lines() {
-            let block: Block = deserialize(&hex::decode(block).unwrap()).unwrap();
-            parsed_blocks.push(block);
+            parsed_blocks.push(parse_block(block));
         }
         // The file contains 150 blocks, we split them into two chains.
         let (blocks1, blocks2) = parsed_blocks.split_at(101);
@@ -627,12 +627,11 @@ mod tests {
                 .unwrap();
         }
         // The state after 100 blocks, computed ahead of time.
-        let roots = [
+        let roots = acchashes![
             "a2f1e6db842e13c7480c8d80f29ca2db5f9b96e1b428ebfdbd389676d7619081",
             "b21aae30bc74e9aef600a5d507ef27d799b9b6ba08e514656d34d717bdb569d2",
             "bedb648c9a3c5741660f926c1552d83ebb4cb1842cca6855b6d1089bb4951ce1",
         ]
-        .map(|s| s.parse().unwrap())
         .to_vec();
 
         let acc2 = Stump { roots, leaves: 100 };
@@ -666,13 +665,12 @@ mod tests {
                 .unwrap();
         }
 
-        let roots = [
+        let roots = acchashes![
             "e00b4ecc7c30865af0ac3b0c7c1b996015f51d6a6577ee6f52cc04b55933eb91",
             "9bf9659f93e246e0431e228032cd4b3a4d8a13e57f3e08a221e61f3e0bae657f",
             "e329a7ddcc888130bb6e4f82ce9f5cf5a712a7b0ae05a1aaf21b363866a9b05e",
             "1864a4982532447dcb3d9a5d2fea9f8ed4e3b1e759d55b8a427fb599fed0c302",
         ]
-        .map(|s| s.parse().unwrap())
         .to_vec();
 
         let expected_acc: Stump = Stump { leaves: 150, roots };

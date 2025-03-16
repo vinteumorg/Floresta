@@ -12,6 +12,7 @@ use bitcoin::hex::FromHex;
 use bitcoin::p2p::ServiceFlags;
 use bitcoin::BlockHash;
 use floresta_chain::UtreexoBlock;
+use floresta_common::bhash;
 use floresta_common::service_flags;
 use floresta_common::service_flags::UTREEXO;
 use serde::Deserialize;
@@ -270,9 +271,7 @@ pub fn get_essentials() -> Essentials {
     let invalid_block = generate_invalid_block();
 
     // BlockHash of chain_tip: 0000035f0e5513b26bba7cead874fdf06241a934e4bc4cf7a0381c60e4cdd2bb (119)
-    let _tip_hash =
-        BlockHash::from_str("0000035f0e5513b26bba7cead874fdf06241a934e4bc4cf7a0381c60e4cdd2bb")
-            .unwrap();
+    let _tip_hash = bhash!("0000035f0e5513b26bba7cead874fdf06241a934e4bc4cf7a0381c60e4cdd2bb");
 
     Essentials {
         headers,

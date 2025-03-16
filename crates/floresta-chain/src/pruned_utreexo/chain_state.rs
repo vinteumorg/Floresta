@@ -1370,6 +1370,7 @@ mod test {
     use bitcoin::BlockHash;
     use bitcoin::OutPoint;
     use bitcoin::TxOut;
+    use floresta_common::bhash;
     use rand::Rng;
     use rustreexo::accumulator::proof::Proof;
 

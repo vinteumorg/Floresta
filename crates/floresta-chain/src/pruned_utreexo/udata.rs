@@ -547,6 +547,7 @@ mod test {
     use bitcoin::BlockHash;
     use bitcoin::ScriptBuf;
     use bitcoin::Transaction;
+    use floresta_common::bhash;
 
     use super::proof_util::reconstruct_leaf_data;
     use super::CompactLeafData;
