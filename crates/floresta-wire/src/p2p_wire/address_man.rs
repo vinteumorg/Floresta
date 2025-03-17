@@ -158,7 +158,7 @@ impl LocalAddress {
 }
 
 /// A module that keeps track of know addresses and serve them to our node to connect
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct AddressMan {
     addresses: HashMap<usize, LocalAddress>,
     good_addresses: Vec<usize>,
@@ -200,7 +200,6 @@ impl AddressMan {
                 }
 
                 self.push_if_has_service(address, service_flags::UTREEXO.into());
-                self.push_if_has_service(address, service_flags::UTREEXO.into()); // UTREEXO_FILTER
                 self.push_if_has_service(address, ServiceFlags::NONE); // this means any peer
                 self.push_if_has_service(address, ServiceFlags::COMPACT_FILTERS);
             }
@@ -373,7 +372,7 @@ impl AddressMan {
                 .or_else(|| self.get_random_address(required_service))?;
 
             match peer.state {
-                AddressState::NeverTried | AddressState::Tried(_) => {
+                AddressState::NeverTried | AddressState::Tried(_) | AddressState::Connected => {
                     return Some((id, peer));
                 }
 
@@ -393,8 +392,6 @@ impl AddressMan {
 
                     self.good_addresses.retain(|&x| x != id);
                 }
-
-                AddressState::Connected => {}
             }
         }
 
@@ -437,6 +434,7 @@ impl AddressMan {
 
         let idx = rand::random::<usize>() % peers.len();
         let utreexo_peer = peers.get(idx)?;
+
         Some((*utreexo_peer, self.addresses.get(utreexo_peer)?.to_owned()))
     }
 

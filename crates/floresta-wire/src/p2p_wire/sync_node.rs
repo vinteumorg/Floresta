@@ -1,6 +1,5 @@
 //! A node that downloads and validates the blockchain.
 
-use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 
@@ -17,7 +16,6 @@ use log::debug;
 use log::error;
 use log::info;
 use log::warn;
-use tokio::sync::RwLock;
 use tokio::time::timeout;
 
 use super::error::WireError;
@@ -63,7 +61,7 @@ impl NodeContext for SyncNode {
 impl<Chain> UtreexoNode<Chain, SyncNode>
 where
     WireError: From<<Chain as BlockchainInterface>::Error>,
-    Chain: BlockchainInterface + UpdatableChainstate + 'static,
+    Chain: BlockchainInterface + UpdatableChainstate + 'static + Send + Sync,
 {
     /// Checks if we have the next 10 missing blocks until the tip, and request missing ones for a peer.
     async fn get_blocks_to_download(&mut self) {
@@ -112,7 +110,7 @@ where
     ///     - Checks if our tip is obsolete and requests a new one, creating a new connection.
     ///     - Handles timeouts for inflight requests.
     ///     - If were low on inflights, requests new blocks to validate.
-    pub async fn run(&mut self, kill_signal: Arc<RwLock<bool>>, done_cb: impl FnOnce(&Chain)) {
+    pub async fn run(mut self, done_cb: impl FnOnce(&Chain)) {
         info!("Starting sync node");
         self.context.last_block_requested = self.chain.get_validation_index().unwrap();
 
@@ -121,12 +119,23 @@ where
                 try_and_log!(self.handle_message(msg).await);
             }
 
-            if *kill_signal.read().await {
+            if *self.kill_signal.read().await {
                 break;
             }
 
-            if self.chain.get_validation_index().unwrap() == self.chain.get_best_block().unwrap().0
-            {
+            let validation_index = self
+                .chain
+                .get_validation_index()
+                .expect("validation index block should present");
+
+            let best_block = self
+                .chain
+                .get_best_block()
+                .expect("best block should present")
+                .0;
+
+            if validation_index == best_block {
+                info!("ibd finished, switching to normal operation mode");
                 self.chain.toggle_ibd(false);
                 break;
             }
@@ -171,7 +180,6 @@ where
                 self.get_blocks_to_download().await;
             }
         }
-
         done_cb(&self.chain);
     }
 
@@ -340,6 +348,10 @@ where
         }
 
         if self.inflight.len() < 4 {
+            if *self.kill_signal.read().await {
+                return Ok(());
+            }
+
             self.get_blocks_to_download().await;
         }
 

@@ -33,8 +33,10 @@ use floresta_electrum::electrum_protocol::ElectrumServer;
 use floresta_watch_only::kv_database::KvDatabase;
 use floresta_watch_only::AddressCache;
 use floresta_watch_only::AddressCacheDatabase;
+use floresta_wire::address_man::AddressMan;
 use floresta_wire::mempool::Mempool;
 use floresta_wire::node::UtreexoNode;
+use floresta_wire::running_node::RunningNode;
 use floresta_wire::UtreexoNodeConfig;
 use futures::channel::oneshot;
 use futures::executor::block_on;
@@ -166,6 +168,13 @@ pub struct Config {
     pub no_ssl: bool,
     /// Whether to allow fallback to v1 transport if v2 connection fails.
     pub allow_v1_fallback: bool,
+    /// Whehter we should backfill
+    ///
+    /// If we assumeutreexo or use pow fraud proofs, you have the option to download and validate
+    /// the blocks that were skipped. This will take a long time, but will run on the background
+    /// and won't affect the node's operation. You may notice that this will take a lot of CPU
+    /// and bandwidth to run.
+    pub backfill: bool,
 }
 
 pub struct Florestad {
@@ -400,19 +409,23 @@ impl Florestad {
             max_outbound: 10,
             max_inflight: 20,
             assume_utreexo: self.config.assumeutreexo_value.clone().or(assume_utreexo),
-            backfill: false,
+            backfill: self.config.backfill,
             filter_start_height: self.config.filters_start_height,
             user_agent: self.config.user_agent.clone(),
             allow_v1_fallback: self.config.allow_v1_fallback,
         };
 
         let acc = Pollard::new();
+        let kill_signal = self.stop_signal.clone();
+
         // Chain Provider (p2p)
-        let chain_provider = UtreexoNode::new(
+        let chain_provider = UtreexoNode::<_, RunningNode>::new(
             config,
             blockchain_state.clone(),
             Arc::new(tokio::sync::Mutex::new(Mempool::new(acc, 300_000_000))),
             cfilters.clone(),
+            kill_signal.clone(),
+            AddressMan::default(),
         )
         .expect("Could not create a chain provider");
 
@@ -541,13 +554,12 @@ impl Florestad {
         }
 
         // Chain provider
-        let kill_signal = self.stop_signal.clone();
         let (sender, receiver) = oneshot::channel();
 
         let mut recv = self.stop_notify.lock().unwrap();
         *recv = Some(receiver);
 
-        task::spawn(chain_provider.run(kill_signal, sender));
+        task::spawn(chain_provider.run(sender));
 
         // Metrics
         #[cfg(feature = "metrics")]

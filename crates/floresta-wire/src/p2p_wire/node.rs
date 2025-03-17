@@ -193,6 +193,7 @@ pub struct NodeCommon<Chain: BlockchainInterface + UpdatableChainstate> {
     pub(crate) config: UtreexoNodeConfig,
     pub(crate) datadir: String,
     pub(crate) network: Network,
+    pub(crate) kill_signal: Arc<tokio::sync::RwLock<bool>>,
 
     // 7. Stuff used by the node handle
     pub(crate) user_requests: Arc<NodeInterface>,
@@ -234,6 +235,8 @@ where
         chain: Chain,
         mempool: Arc<Mutex<Mempool>>,
         block_filters: Option<Arc<NetworkFilters<FlatFiltersStore>>>,
+        kill_signal: Arc<tokio::sync::RwLock<bool>>,
+        address_man: AddressMan,
     ) -> Result<Self, WireError> {
         let (node_tx, node_rx) = unbounded_channel();
         let socks5 = config.proxy.map(Socks5StreamBuilder::new);
@@ -262,7 +265,7 @@ where
                 network: config.network.into(),
                 node_rx,
                 node_tx,
-                address_man: AddressMan::default(),
+                address_man,
                 last_headers_request: Instant::now(),
                 last_tip_update: Instant::now(),
                 last_connection: Instant::now(),
@@ -273,13 +276,14 @@ where
                 last_get_address_request: Instant::now(),
                 last_send_addresses: Instant::now(),
                 datadir: config.datadir.clone(),
-                socks5,
                 max_banscore: config.max_banscore,
+                socks5,
                 fixed_peer,
                 config,
                 user_requests: Arc::new(NodeInterface {
                     requests: std::sync::Mutex::new(Vec::new()),
                 }),
+                kill_signal,
             },
             context: T::default(),
         })

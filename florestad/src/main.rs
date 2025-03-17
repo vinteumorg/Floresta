@@ -41,7 +41,7 @@ fn main() {
         data_dir: params.data_dir.clone(),
         cfilters: params.cfilters,
         proxy: params.proxy,
-        assume_utreexo: params.assume_utreexo,
+        assume_utreexo: !params.no_assume_utreexo,
         connect: params.connect,
         wallet_xpub: params.wallet_xpub,
         config_file: params.config_file,
@@ -65,6 +65,7 @@ fn main() {
         ssl_key_path: params.ssl_key_path,
         no_ssl: params.no_ssl,
         allow_v1_fallback: !params.no_v1_fallback,
+        backfill: !params.no_backfill,
     };
 
     #[cfg(unix)]
@@ -79,6 +80,8 @@ fn main() {
     let _rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .worker_threads(4)
+        .max_blocking_threads(2)
+        .thread_keep_alive(Duration::from_secs(60))
         .thread_name("florestad")
         .build()
         .unwrap();
