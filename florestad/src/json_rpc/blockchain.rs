@@ -281,10 +281,6 @@ impl RpcImpl {
     }
 
     pub(super) fn list_descriptors(&self) -> Result<Vec<String>, Error> {
-        if self.chain.is_in_idb() {
-            return Err(Error::InInitialBlockDownload);
-        }
-
         let descriptors = self
             .wallet
             .get_descriptors()
