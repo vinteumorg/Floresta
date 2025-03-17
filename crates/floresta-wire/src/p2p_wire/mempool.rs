@@ -619,6 +619,8 @@ mod tests {
     use floresta_chain::proof_util;
     use floresta_chain::CompactLeafData;
     use floresta_chain::LeafData;
+    use floresta_common::acchashes;
+    use floresta_common::bhash;
     use rand::Rng;
     use rand::SeedableRng;
     use rustreexo::accumulator::node_hash::BitcoinNodeHash;
@@ -705,10 +707,7 @@ mod tests {
 
     #[test]
     fn test_block_proof() {
-        let mut mempool = super::Mempool::new(
-            rustreexo::accumulator::pollard::Pollard::default(),
-            10_000_000,
-        );
+        let mut mempool = Mempool::new(Pollard::default(), 10_000_000);
 
         let coinbase_spk: ScriptBuf = Script::from_bytes(&[0x6a]).into();
 
@@ -819,10 +818,7 @@ mod tests {
 
     #[test]
     fn test_mepool_accept_no_acc() {
-        let mut mempool = super::Mempool::new(
-            rustreexo::accumulator::pollard::Pollard::default(),
-            10_000_000,
-        );
+        let mut mempool = Mempool::new(Pollard::default(), 10_000_000);
 
         let transactions = build_transactions(42, false);
         let len = transactions.len();
@@ -838,10 +834,7 @@ mod tests {
 
     #[test]
     fn test_gbt_with_conflict() {
-        let mut mempool = super::Mempool::new(
-            rustreexo::accumulator::pollard::Pollard::default(),
-            10_000_000,
-        );
+        let mut mempool = Mempool::new(Pollard::default(), 10_000_000);
 
         let transactions = build_transactions(21, true);
 
@@ -900,17 +893,16 @@ mod tests {
         // builds a proof for it, and then consumes the block. After that, we'll have a network at
         // block 270, with the transaction confirmed.
 
-        let roots = [
+        let roots = acchashes![
             "69482b799cf46ed514b01ce0573730a89c537018636b8c52a8864d5968b917f3",
             "53c92fa0792c9af1c19793b1149e7fe209c69b320ea054338f53f8fd8535f2e8",
             "6096c8421c1f86a9caa26e972dccdb964e280164fb060a576d51f5844e259569",
             "fd46029ebb0c19e2d468a9b24d20519c64ccc342e6a32b95c86a57489b6d2504",
         ]
-        .map(|s| s.parse().unwrap())
         .to_vec();
 
         let acc = Pollard::from_roots(roots, 169);
-        let proof_hashes = [
+        let proof_hashes = acchashes![
             "8be90393e71aa65710270b51857b538458dabd7769d801d6bbcbabe32c317251",
             "5ae3964e9cc3c9e188de778c5b5fb19eaa60bce98facf1e9e68b3c1257d08c00",
             "2c8dbc0642bd41cd8625344f99ef6513e5e68c03e184fcd401bddce6eba97674",
@@ -919,12 +911,11 @@ mod tests {
             "15aba691713052033954935777d8089f4ca6b0573c7ad89fe1d0d85bbbe21846",
             "8f22055465f568fd2bf9d19b285fcf2539ffea59a3cb096a3a0645366adea1b0",
         ]
-        .map(|s| s.parse().unwrap())
         .to_vec();
 
         let proof = Proof::new(vec![8], proof_hashes);
-        let del_hashes = ["427aceafd82c11cb53a2b78f408ece6fcacf2a5b9feb5fc45cdcf36627d68d76"]
-            .map(|s| s.parse().unwrap());
+        let del_hashes =
+            acchashes!["427aceafd82c11cb53a2b78f408ece6fcacf2a5b9feb5fc45cdcf36627d68d76"];
 
         let prevout: LeafData = deserialize_hex("0508085c47cc849eb80ea905cc7800a3be674ffc57263cf210c59d8d00000000c997a5e56e104102fa209c6a852dd90660a20b2d9c352423edce25857fcd3704000000001300000000f2052a0100000043410411db93e1dcdb8a016b49840f8c53bc1eb68a382e97b1482ecad7b148a6909a5cb2e0eaddfb84ccf9744464f82e160bfa9b8b64f9d4c03f999b8643f656b412a3ac").unwrap();
 
@@ -952,10 +943,7 @@ mod tests {
 
         let block = mempool.get_block_template(
             block::Version::ONE,
-            bitcoin::BlockHash::from_str(
-                "000000002a22cfee1f2c846adbd12b3e183d4f97683f85dad08a79780a84bd55",
-            )
-            .unwrap(),
+            bhash!("000000002a22cfee1f2c846adbd12b3e183d4f97683f85dad08a79780a84bd55"),
             1231731025,
             Target::MAX_ATTAINABLE_MAINNET.to_compact_lossy(),
         );
@@ -970,13 +958,9 @@ mod tests {
                 BlockHashProvider {
                     block_hash: [(
                         9,
-                        bitcoin::BlockHash::from_str(
-                            "000000008d9dc510f23c2657fc4f67bea30078cc05a90eb89e84cc475c080805",
-                        )
-                        .unwrap(),
+                        bhash!("000000008d9dc510f23c2657fc4f67bea30078cc05a90eb89e84cc475c080805"),
                     )]
-                    .iter()
-                    .cloned()
+                    .into_iter()
                     .collect(),
                 },
             )
@@ -1012,10 +996,7 @@ mod tests {
 
     #[test]
     fn test_gbt() {
-        let mut mempool = super::Mempool::new(
-            rustreexo::accumulator::pollard::Pollard::default(),
-            10_000_000,
-        );
+        let mut mempool = Mempool::new(Pollard::default(), 10_000_000);
 
         let transactions = build_transactions(42, false);
         let len = transactions.len();

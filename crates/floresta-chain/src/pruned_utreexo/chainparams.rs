@@ -18,6 +18,8 @@ use bitcoin::p2p::ServiceFlags;
 use bitcoin::params::Params;
 use bitcoin::Block;
 use bitcoin::BlockHash;
+use floresta_common::acchashes;
+use floresta_common::bhash;
 use rustreexo::accumulator::node_hash::BitcoinNodeHash;
 
 use crate::prelude::*;
@@ -99,7 +101,7 @@ impl ChainParams {
                     "00000000000000000000569f4d863c27e667cbee8acc8da195e7e5551658e6e9"
                 ),
                 height: 855571,
-                roots: [
+                roots: acchashes![
                     "4dcc014cc23611dda2dcf0f34a3e62e7d302146df4b0b01ac701d440358c19d6",
                     "988e0a883e4ad0c5559432f4747395115112755ec1138dcdd62e2f5741c31c2c",
                     "49ecba683e12823d44f2ad190120d3028386d8bb7860a3eea62a250a1f293c60",
@@ -118,7 +120,6 @@ impl ChainParams {
                     "67ba89afe6bce9bafbf0b88013e4446c861e6c746e291c3921e0b65c93671ba3",
                     "972ea2c7472c22e4eab49e9c2db5757a048b271b6251883ce89ccfeaa38b47ab",
                 ]
-                .map(|s| s.parse().unwrap())
                 .to_vec(),
                 leaves: 2587882501,
             },
