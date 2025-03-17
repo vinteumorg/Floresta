@@ -14,6 +14,7 @@ use serde_json::Value;
 use tokio::task::spawn_blocking;
 
 use super::res::Error as RpcError;
+use super::res::Error;
 use super::res::GetBlockResVerbose;
 use super::res::GetBlockchainInfoRes;
 use super::server::RpcImpl;
@@ -277,5 +278,13 @@ impl RpcImpl {
     pub(super) fn get_roots(&self) -> Result<Vec<String>, RpcError> {
         let hashes = self.chain.get_root_hashes();
         Ok(hashes.iter().map(|h| h.to_string()).collect())
+    }
+
+    pub(super) fn list_descriptors(&self) -> Result<Vec<String>, Error> {
+        let descriptors = self
+            .wallet
+            .get_descriptors()
+            .map_err(|e| Error::Wallet(e.to_string()))?;
+        Ok(descriptors)
     }
 }
