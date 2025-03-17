@@ -69,6 +69,7 @@ use crate::write_lock;
 use crate::Network;
 use crate::UtreexoBlock;
 
+/// Trait for components that need to receive notifications about new blocks.
 pub trait BlockConsumer: Sync + Send + 'static {
     fn consume_block(&self, block: &Block, height: u32);
 }
@@ -79,6 +80,7 @@ impl BlockConsumer for Channel<(Block, u32)> {
     }
 }
 
+/// Internal state of the blockchain managed by `ChainState`.
 pub struct ChainStateInner<PersistedState: ChainStore> {
     /// The acc we use for validation.
     acc: Stump,
@@ -108,13 +110,29 @@ pub struct ChainStateInner<PersistedState: ChainStore> {
     /// is still validated.
     assume_valid: Option<BlockHash>,
 }
+
+/// The high-level chain backend managing the blockchain state.
+///
+/// `ChainState` is responsible for:
+/// - Keeping track of the chain state with the help of a `ChainStore` for persisted storage.
+/// - Correctly updating the state using consensus functions.
+/// - Interfacing with other components and providing data about the current view of the chain.
 pub struct ChainState<PersistedState: ChainStore> {
     inner: RwLock<ChainStateInner<PersistedState>>,
 }
+
 #[derive(Debug, Copy, Clone)]
+/// Represents the argument for the assume-valid configuration.
+///
+/// This enum indicates the state of the assume-valid configuration,
+/// which defines whether we should validate the scripts for blocks before this one.
+/// You can either disable it, use a value provided by floresta or use your own value.
 pub enum AssumeValidArg {
+    /// Do not assume any script are valid, check every single one from genesis. This should make IBD considerably slower, but in theory has the best security model
     Disabled,
+    /// Use the hard-coded value provided by Floresta. In this case, you trust that the Floresta repository faces enough scrutiny and review, and therefore the value can be trusted.
     Hardcoded,
+    /// Provide your own value, moving the trust assumption to your program.
     UserInput(BlockHash),
 }
 
@@ -1346,8 +1364,8 @@ mod test {
 
     use bitcoin::block::Header as BlockHeader;
     use bitcoin::consensus::deserialize;
+    use bitcoin::consensus::encode::deserialize_hex;
     use bitcoin::consensus::Decodable;
-    use bitcoin::hashes::hex::FromHex;
     use bitcoin::Block;
     use bitcoin::BlockHash;
     use bitcoin::OutPoint;
@@ -1465,11 +1483,8 @@ mod test {
 
     #[test]
     fn test_calc_next_work_required() {
-        let first_block = Vec::from_hex("0100000000000000000000000000000000000000000000000000000000000000000000003ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a008f4d5fae77031e8ad22203").unwrap();
-        let first_block: BlockHeader = deserialize(&first_block).unwrap();
-
-        let last_block = Vec::from_hex("00000020dec6741f7dc5df6661bcb2d3ec2fceb14bd0e6def3db80da904ed1eeb8000000d1f308132e6a72852c04b059e92928ea891ae6d513cd3e67436f908c804ec7be51df535fae77031e4d00f800").unwrap();
-        let last_block: BlockHeader = deserialize(&last_block).unwrap();
+        let first_block: BlockHeader = deserialize_hex("0100000000000000000000000000000000000000000000000000000000000000000000003ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a008f4d5fae77031e8ad22203").unwrap();
+        let last_block: BlockHeader = deserialize_hex("00000020dec6741f7dc5df6661bcb2d3ec2fceb14bd0e6def3db80da904ed1eeb8000000d1f308132e6a72852c04b059e92928ea891ae6d513cd3e67436f908c804ec7be51df535fae77031e4d00f800").unwrap();
 
         let next_target = Consensus::calc_next_work_required(
             &last_block,
@@ -1483,12 +1498,12 @@ mod test {
     #[test]
     fn test_reorg() {
         let chain = setup_test_chain(Network::Regtest, AssumeValidArg::Hardcoded);
-        let blocks = include_str!("../../testdata/test_reorg.json");
-        let blocks: Vec<Vec<&str>> = serde_json::from_str(blocks).unwrap();
+        let json_blocks = include_str!("../../testdata/test_reorg.json");
+        let blocks: Vec<Vec<&str>> = serde_json::from_str(json_blocks).unwrap();
 
+        // Connect first 10 blocks
         for block in blocks[0].iter() {
-            let block = Vec::from_hex(block).unwrap();
-            let block: Block = deserialize(&block).unwrap();
+            let block: Block = deserialize_hex(block).unwrap();
             chain.accept_header(block.header).unwrap();
             chain
                 .connect_block(&block, Proof::default(), HashMap::new(), Vec::new())
@@ -1501,9 +1516,9 @@ mod test {
         );
         assert_eq!(chain.get_best_block().unwrap(), expected);
 
+        // Then accept a fork chain with 16 blocks
         for fork in blocks[1].iter() {
-            let block = Vec::from_hex(fork).unwrap();
-            let block: Block = deserialize(&block).unwrap();
+            let block: Block = deserialize_hex(fork).unwrap();
             chain.accept_header(block.header).unwrap();
         }
 

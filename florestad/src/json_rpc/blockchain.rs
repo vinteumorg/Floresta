@@ -22,9 +22,6 @@ use super::server::RpcImpl;
 impl RpcImpl {
     async fn get_block_inner(&self, hash: BlockHash) -> Result<Block, RpcError> {
         let is_genesis = self.chain.get_block_hash(0).unwrap().eq(&hash);
-        if self.chain.is_in_idb() && !is_genesis {
-            return Err(RpcError::InInitialBlockDownload);
-        }
 
         if is_genesis {
             return Ok(genesis_block(self.network));
@@ -231,6 +228,7 @@ impl RpcImpl {
             return Ok(serde_json::to_value(txout).unwrap());
         }
 
+        // if we are on ibd, we don't have any filters to find this txout.
         if self.chain.is_in_idb() {
             return Err(RpcError::InInitialBlockDownload);
         }
