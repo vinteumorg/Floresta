@@ -1,11 +1,11 @@
 use core::panic;
 use std::fmt::Arguments;
 use std::fs::File;
-use std::io;
 use std::io::BufReader;
 #[cfg(feature = "metrics")]
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
+use std::path::Path;
 use std::path::PathBuf;
 use std::process::exit;
 use std::sync::Arc;
@@ -62,6 +62,7 @@ use tokio_rustls::rustls::ServerConfig;
 use tokio_rustls::TlsAcceptor;
 
 use crate::config_file::ConfigFile;
+use crate::error;
 #[cfg(feature = "json-rpc")]
 use crate::json_rpc;
 use crate::wallet_input::InitialWalletSetup;
@@ -160,9 +161,17 @@ pub struct Config {
     pub user_agent: String,
     /// The value to use for assumeutreexo
     pub assumeutreexo_value: Option<AssumeUtreexoValue>,
-    /// Path to the SSL certificate file
+    /// Path to the SSL certificate file (defaults to <data-dir>/ssl/cert.pem).
+    ///
+    /// The user should create a PKCS#8 based one with openssl. For example:
+    ///
+    /// openssl req -x509 -new -key key.pem -out cert.pem -days 365 -subj "/CN=localhost"
     pub ssl_cert_path: Option<String>,
-    /// Path to the SSL private key file
+    /// Path to the SSL private key file (defaults to <data-dir>/ssl/key.pem).
+    ///
+    /// The user should create a PKCS#8 based one with openssl. For example:
+    ///
+    /// openssl genpkey -algorithm RSA -out key.pem -pkeyopt rsa_keygen_bits:2048
     pub ssl_key_path: Option<String>,
     /// Whether to disable SSL for the Electrum server
     pub no_ssl: bool,
@@ -491,8 +500,8 @@ impl Florestad {
         let tls_config = if !self.config.no_ssl {
             match self.create_tls_config(&data_dir) {
                 Ok(config) => Some(config),
-                Err(_) => {
-                    warn!("Failed to load SSL certificates, ignoring SSL");
+                Err(e) => {
+                    warn!("Failed to load SSL certificates: {}", e);
                     None
                 }
             }
@@ -538,6 +547,8 @@ impl Florestad {
                     std::process::exit(1);
                 }
             };
+
+            info!("TLS server running on: {ssl_e_addr}");
             task::spawn(client_accept_loop(
                 tls_listener,
                 electrum_server.message_transmitter.clone(),
@@ -548,10 +559,6 @@ impl Florestad {
         // Electrum main loop
         task::spawn(electrum_server.main_loop());
         info!("Server running on: {}", e_addr);
-
-        if !self.config.no_ssl {
-            info!("TLS server running on: {ssl_e_addr}");
-        }
 
         // Chain provider
         let (sender, receiver) = oneshot::channel();
@@ -773,24 +780,70 @@ impl Florestad {
         result
     }
 
-    fn create_tls_config(&self, data_dir: &str) -> io::Result<Arc<ServerConfig>> {
-        let cert_path = self
-            .config
-            .ssl_cert_path
-            .clone()
-            .unwrap_or_else(|| data_dir.to_owned() + "ssl/cert.pem");
-        let key_path = self
-            .config
-            .ssl_cert_path
-            .clone()
-            .unwrap_or_else(|| data_dir.to_owned() + "ssl/key.pem");
+    /// Create tls configuration with a PKCS#8 formatted key and certificates and
+    /// defaults to `<data-dir>/ssl/cert.pem` and `<data-dir>/ssl/key.pem`.
+    ///
+    /// It will check if those files are well formated to PKCS#8 structure
+    /// and if it was in wrong structure, will exit with logs.
+    ///
+    /// If pass the check process, it will try to open those files and, if not exist,
+    /// florestad will skip the SSL configuration.
+    fn create_tls_config(&self, data_dir: &str) -> Result<Arc<ServerConfig>, error::Error> {
+        // Use an agnostic way to build paths for platforms and fix the differences
+        // in how Unix and Windows represent strings, maybe a user could use a weird
+        // string on his/her path.
+        //
+        // See more at https://doc.rust-lang.org/std/ffi/struct.OsStr.html#method.to_string_lossy
+        let cert_path = self.config.ssl_cert_path.clone().unwrap_or_else(|| {
+            PathBuf::from(&data_dir)
+                .join("ssl")
+                .join("cert.pem")
+                .to_string_lossy()
+                .into_owned()
+        });
 
-        let cert_file = File::open(cert_path)?;
-        let key_file = File::open(key_path)?;
-        let cert_chain = certs(&mut BufReader::new(cert_file)).unwrap();
-        let mut keys = pkcs8_private_keys(&mut BufReader::new(key_file)).unwrap();
+        let key_path = self.config.ssl_key_path.clone().unwrap_or_else(|| {
+            PathBuf::from(&data_dir)
+                .join("ssl")
+                .join("key.pem")
+                .to_string_lossy()
+                .into_owned()
+        });
+
+        // Convert paths to Path for system-agnostic handling
+        let cert_path = Path::new(&cert_path);
+        let key_path = Path::new(&key_path);
+
+        // Check if certificate really exists and handle error if not exists
+        let cert_file = File::open(cert_path)
+            .map_err(|e| error::Error::CouldNotOpenCertFile(cert_path.display().to_string(), e))?;
+
+        // Check if private key really exists and handle error if not exists
+        let key_file = File::open(key_path).map_err(|e| {
+            error::Error::CouldNotOpenPrivKeyFile(cert_path.display().to_string(), e)
+        })?;
+
+        // Parse certificate chain and handle error if exist any
+        let cert_chain = certs(&mut BufReader::new(cert_file))
+            .map_err(|_e| error::Error::InvalidCert(cert_path.display().to_string()))?;
+
+        // Create private key vector and handle error if exist any
+        let mut keys = pkcs8_private_keys(&mut BufReader::new(key_file))
+            .map_err(|_e| error::Error::InvalidPrivKey(key_path.display().to_string()))?;
+
+        // Check if the key's vector are empty
+        if keys.is_empty() {
+            return Err(error::Error::EmptyPrivKeySet(
+                key_path.display().to_string(),
+            ));
+        }
+
+        // Check if nothing goes wrong
         let mut config = ServerConfig::new(Arc::new(NoClientAuth));
-        config.set_single_cert(cert_chain, keys.remove(0)).unwrap();
+        config
+            .set_single_cert(cert_chain, keys.remove(0))
+            .map_err(error::Error::CouldNotConfigureTLS)?;
+
         Ok(Arc::new(config))
     }
 }

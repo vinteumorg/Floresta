@@ -160,11 +160,19 @@ pub struct Cli {
     pub no_assume_utreexo: bool,
 
     #[arg(long, value_name = "PATH")]
-    /// Path to the SSL certificate file
+    /// Path to the SSL certificate file (defaults to <data-dir>/ssl/cert.pem).
+    ///
+    /// The user should create a PKCS#8 based one with openssl. For example:
+    ///
+    /// openssl req -x509 -new -key key.pem -out cert.pem -days 365 -subj "/CN=localhost"
     pub ssl_cert_path: Option<String>,
 
     #[arg(long, value_name = "PATH")]
-    /// Path to the SSL private key file
+    /// Path to the SSL private key file (defaults to <data-dir>/ssl/key.pem).
+    ///
+    /// The user should create a PKCS#8 based one with openssl. For example:
+    ///
+    /// openssl genpkey -algorithm RSA -out key.pem -pkeyopt rsa_keygen_bits:2048
     pub ssl_key_path: Option<String>,
 
     #[arg(long, default_value_t = false)]

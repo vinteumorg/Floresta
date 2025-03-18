@@ -18,6 +18,12 @@ pub enum Error {
     WalletInput(slip132::Error),
     AddressParsing(bitcoin::address::ParseError),
     Miniscript(miniscript::Error),
+    EmptyPrivKeySet(String),
+    InvalidPrivKey(String),
+    InvalidCert(String),
+    CouldNotOpenPrivKeyFile(String, std::io::Error),
+    CouldNotOpenCertFile(String, std::io::Error),
+    CouldNotConfigureTLS(tokio_rustls::rustls::TLSError),
 }
 
 impl std::fmt::Display for Error {
@@ -36,6 +42,20 @@ impl std::fmt::Display for Error {
             Error::AddressParsing(err) => write!(f, "Invalid address {err}"),
             Error::Miniscript(err) => write!(f, "Miniscript error: {err}"),
             Error::BlockValidation(err) => write!(f, "Error while validating block: {err:?}"),
+            Error::EmptyPrivKeySet(path) => write!(f, "No private keys found in '{path:?}'"),
+            Error::CouldNotConfigureTLS(err) => write!(f, "Error while configuring TLS: {err:?}"),
+            Error::InvalidPrivKey(path) => {
+                write!(f, "Error while reading PKCS#8 private key {path:?}")
+            }
+            Error::InvalidCert(path) => {
+                write!(f, "Error while reading PKCS#8 certificate {path}")
+            }
+            Error::CouldNotOpenPrivKeyFile(path, err) => {
+                write!(f, "Error while opening PKCS#8  private key {path}: {err}")
+            }
+            Error::CouldNotOpenCertFile(path, err) => {
+                write!(f, "Error while opening PKCS#8 certificate {path}: {err}")
+            }
         }
     }
 }
