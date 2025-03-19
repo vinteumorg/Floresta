@@ -161,11 +161,11 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         }
         Ok(())
     }
+
     #[cfg(feature = "bitcoinconsensus")]
     /// Returns the validation flags, given the current block height
     fn get_validation_flags(&self, height: u32, hash: BlockHash) -> c_uint {
         let chain_params = &read_lock!(self).consensus.parameters;
-
         if let Some(flag) = chain_params.exceptions.get(&hash) {
             return *flag;
         }
@@ -179,20 +179,26 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         // mainnet.
         // For simplicity, always leave P2SH+WITNESS+TAPROOT on except for the two
         // violating blocks.
-        let mut flags = bitcoinconsensus::VERIFY_P2SH | bitcoinconsensus::VERIFY_WITNESS;
+        let mut flags = bitcoinconsensus::VERIFY_P2SH
+            | bitcoinconsensus::VERIFY_WITNESS
+            | bitcoinconsensus::VERIFY_TAPROOT;
 
         if height >= chain_params.params.bip65_height {
             flags |= bitcoinconsensus::VERIFY_CHECKLOCKTIMEVERIFY;
         }
+
         if height >= chain_params.params.bip66_height {
             flags |= bitcoinconsensus::VERIFY_DERSIG;
         }
+
         if height >= chain_params.csv_activation_height {
             flags |= bitcoinconsensus::VERIFY_CHECKSEQUENCEVERIFY;
         }
+
         if height >= chain_params.segwit_activation_height {
             flags |= bitcoinconsensus::VERIFY_NULLDUMMY;
         }
+
         flags
     }
 
