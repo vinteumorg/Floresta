@@ -7,6 +7,8 @@ extern crate alloc;
 use core::ffi::c_uint;
 
 use bitcoin::block::Header as BlockHeader;
+#[cfg(feature = "bitcoinconsensus")]
+use bitcoin::consensus::serialize;
 use bitcoin::hashes::sha256;
 use bitcoin::hashes::Hash;
 use bitcoin::Block;
@@ -18,6 +20,8 @@ use bitcoin::Transaction;
 use bitcoin::TxIn;
 use bitcoin::TxOut;
 use bitcoin::Txid;
+#[cfg(feature = "bitcoinconsensus")]
+use bitcoinconsensus::Utxo;
 use floresta_common::prelude::*;
 use rustreexo::accumulator::proof::Proof;
 use rustreexo::accumulator::stump::Stump;
@@ -168,9 +172,35 @@ impl Consensus {
         // Verify the tx script
         #[cfg(feature = "bitcoinconsensus")]
         if _verify_script {
-            transaction
-                .verify_with_flags(|outpoint| utxos.remove(outpoint), _flags)
+            let tx = serialize(&transaction);
+
+            let mut spent_utxos = Vec::new();
+            let mut spent_scripts = Vec::new();
+
+            for input in transaction.input.iter() {
+                let spent_output = utxos
+                    .remove(&input.previous_output)
+                    .ok_or_else(|| tx_err!(txid, UtxoNotFound, input.previous_output))?;
+
+                spent_scripts.push((spent_output.script_pubkey, spent_output.value.to_sat()));
+                spent_utxos.push(Utxo {
+                    script_pubkey_len: spent_scripts.last().unwrap().0.len() as u32,
+                    script_pubkey: spent_scripts.last().unwrap().0.as_bytes().as_ptr(),
+                    value: spent_output.value.to_sat() as i64,
+                });
+            }
+
+            for (input_index, (script, amount)) in spent_scripts.iter().enumerate() {
+                bitcoinconsensus::verify_with_flags(
+                    script.as_bytes(),
+                    *amount,
+                    tx.as_slice(),
+                    Some(&spent_utxos),
+                    input_index,
+                    _flags,
+                )
                 .map_err(|e| tx_err!(txid, ScriptValidationError, e.to_string()))?;
+            }
         };
 
         Ok((in_value, out_value))
@@ -542,5 +572,30 @@ mod tests {
             }
             e => panic!("Expected a TransactionError, but got: {:?}", e),
         }
+    }
+
+    #[cfg(feature = "bitcoinconsensus")]
+    #[test]
+    fn test_taproot_transaction() {
+        let tx: Transaction = deserialize_hex("0200000000010133adf094f0f0038a11d9246fd1dfc7587740c49b8eabc1a67d33b82072553d330000000000ffffffff085802000000000000225120d43ef57ea573e2f44d62b4b3a50b9ce7100e82da6a45c032037b03187a6666bb5802000000000000225120d43ef57ea573e2f44d62b4b3a50b9ce7100e82da6a45c032037b03187a6666bb5802000000000000225120d43ef57ea573e2f44d62b4b3a50b9ce7100e82da6a45c032037b03187a6666bb5802000000000000225120d43ef57ea573e2f44d62b4b3a50b9ce7100e82da6a45c032037b03187a6666bb5802000000000000225120d43ef57ea573e2f44d62b4b3a50b9ce7100e82da6a45c032037b03187a6666bb5802000000000000225120d43ef57ea573e2f44d62b4b3a50b9ce7100e82da6a45c032037b03187a6666bb5802000000000000225120d43ef57ea573e2f44d62b4b3a50b9ce7100e82da6a45c032037b03187a6666bb08b3fa0200000000225120d43ef57ea573e2f44d62b4b3a50b9ce7100e82da6a45c032037b03187a6666bb0140f117ed319bcb2c554b494bf59a331389e9b2da8db7524e5984cfdd19b375be3e5321f6be671d371a6b54e23c88e208fb80a5f8cd79719a3b1d62dbb79758b7b100000000").unwrap();
+
+        let prevout = TxOut {
+            value: Amount::from_sat(50000000),
+            script_pubkey: deserialize_hex(
+                "225120d43ef57ea573e2f44d62b4b3a50b9ce7100e82da6a45c032037b03187a6666bb",
+            )
+            .unwrap(),
+        };
+
+        let mut utxos = HashMap::new();
+        utxos.insert(tx.input[0].previous_output, prevout);
+
+        Consensus::verify_transaction(
+            &tx,
+            &mut utxos,
+            true,
+            bitcoinconsensus::VERIFY_TAPROOT | bitcoinconsensus::VERIFY_ALL_PRE_TAPROOT,
+        )
+        .unwrap();
     }
 }
