@@ -53,6 +53,7 @@ use bitcoin::consensus::deserialize;
 use bitcoin::p2p::message_blockdata::Inventory;
 use bitcoin::p2p::ServiceFlags;
 use bitcoin::BlockHash;
+use floresta_chain::pruned_utreexo::udata;
 use floresta_chain::pruned_utreexo::BlockchainInterface;
 use floresta_chain::pruned_utreexo::UpdatableChainstate;
 use floresta_chain::UtreexoBlock;
@@ -127,8 +128,9 @@ impl NodeContext for ChainSelector {
 
 impl<Chain> UtreexoNode<Chain, ChainSelector>
 where
-    WireError: From<<Chain as BlockchainInterface>::Error>,
     Chain: BlockchainInterface + UpdatableChainstate + 'static,
+    WireError: From<Chain::Error>,
+    Chain::Error: From<udata::proof_util::Error>,
 {
     /// This function is called every time we get a `Headers` message from a peer.
     /// It will validate the headers and add them to our chain, if they are valid.
@@ -387,7 +389,7 @@ where
         let (proof, del_hashes, _) = floresta_chain::proof_util::process_proof(
             block.udata.as_ref().unwrap(),
             &block.block.txdata,
-            &self.chain,
+            |h| self.chain.get_block_hash(h),
         )?;
 
         Ok(self
@@ -529,7 +531,7 @@ where
         let (proof, del_hashes, inputs) = floresta_chain::proof_util::process_proof(
             block.udata.as_ref().unwrap(),
             &block.block.txdata,
-            &self.chain,
+            |h| self.chain.get_block_hash(h),
         )?;
 
         let fork_height = self.chain.get_block_height(&fork)?.unwrap_or(0);
