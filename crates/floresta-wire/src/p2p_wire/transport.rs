@@ -18,6 +18,8 @@ use bitcoin::p2p::message::RawNetworkMessage;
 use bitcoin::p2p::Magic;
 use bitcoin::Network;
 use floresta_chain::UtreexoBlock;
+use log::debug;
+use log::info;
 use thiserror::Error;
 use tokio::io::AsyncRead;
 use tokio::io::AsyncReadExt;
@@ -134,13 +136,20 @@ async fn try_connection<A: ToSocketAddrs>(
 ) -> TransportResult {
     let tcp_stream = TcpStream::connect(address).await?;
     tcp_stream.set_nodelay(true)?;
+    let peer_addr = match tcp_stream.peer_addr() {
+        Ok(addr) => addr.to_string(),
+        Err(_) => String::from("unknown peer"),
+    };
     let (mut reader, mut writer) = tokio::io::split(tcp_stream);
 
     match force_v1 {
-        true => Ok((
-            ReadTransport::V1(reader),
-            WriteTransport::V1(writer, network),
-        )),
+        true => {
+            info!("Using V1 protocol for connection to {}", peer_addr);
+            Ok((
+                ReadTransport::V1(reader),
+                WriteTransport::V1(writer, network),
+            ))
+        }
         false => match AsyncProtocol::new(
             network,
             Role::Initiator,
@@ -152,13 +161,23 @@ async fn try_connection<A: ToSocketAddrs>(
         .await
         {
             Ok(protocol) => {
+                info!(
+                    "Successfully established V2 protocol connection to {}",
+                    peer_addr
+                );
                 let (reader_protocol, writer_protocol) = protocol.into_split();
                 Ok((
                     ReadTransport::V2(reader, reader_protocol),
                     WriteTransport::V2(writer, writer_protocol),
                 ))
             }
-            Err(e) => Err(TransportError::Protocol(e)),
+            Err(e) => {
+                debug!(
+                    "Failed to establish V2 protocol connection to {}: {:?}",
+                    peer_addr, e
+                );
+                Err(TransportError::Protocol(e))
+            }
         },
     }
 }
@@ -226,29 +245,47 @@ async fn try_proxy_connection<A: ToSocketAddrs>(
     let (mut reader, mut writer) = tokio::io::split(stream);
 
     match force_v1 {
-        true => Ok((
-            ReadTransport::V1(reader),
-            WriteTransport::V1(writer, network),
-        )),
-        false => match AsyncProtocol::new(
-            network,
-            Role::Initiator,
-            None,
-            None,
-            &mut reader,
-            &mut writer,
-        )
-        .await
-        {
-            Ok(protocol) => {
-                let (reader_protocol, writer_protocol) = protocol.into_split();
-                Ok((
-                    ReadTransport::V2(reader, reader_protocol),
-                    WriteTransport::V2(writer, writer_protocol),
-                ))
+        true => {
+            info!(
+                "Using V1 protocol for proxy connection to {:?}",
+                target_addr
+            );
+            Ok((
+                ReadTransport::V1(reader),
+                WriteTransport::V1(writer, network),
+            ))
+        }
+        false => {
+            match AsyncProtocol::new(
+                network,
+                Role::Initiator,
+                None,
+                None,
+                &mut reader,
+                &mut writer,
+            )
+            .await
+            {
+                Ok(protocol) => {
+                    info!(
+                        "Successfully established V2 protocol proxy connection to {:?}",
+                        target_addr
+                    );
+                    let (reader_protocol, writer_protocol) = protocol.into_split();
+                    Ok((
+                        ReadTransport::V2(reader, reader_protocol),
+                        WriteTransport::V2(writer, writer_protocol),
+                    ))
+                }
+                Err(e) => {
+                    debug!(
+                        "Failed to establish V2 protocol proxy connection to {:?}: {:?}",
+                        target_addr, e
+                    );
+                    Err(TransportError::Protocol(e))
+                }
             }
-            Err(e) => Err(TransportError::Protocol(e)),
-        },
+        }
     }
 }
 
