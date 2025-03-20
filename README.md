@@ -39,6 +39,9 @@ For developers, detailed documentation for `libfloresta` is available [here](htt
 - [Running the Tests](#running-the-tests)
   - [Requirements](#requirements)
   - [Testing Options](#testing-options)
+    - [Setting Functional Tests Binaries](#Setting_Functional_Tests_Binaries)
+    - [Running Functional Tests](#Running_Functional_Tests)
+    - [Running/Developing Functional Tests with Nix](#Running/Developing_Functional_Tests_with_Nix)
 - [Running Benchmarks](#running-benchmarks)
 - [Fuzzing](#fuzzing)
 - [Contributing](#contributing)
@@ -250,6 +253,12 @@ The tests in `floresta-cli` depend on the compiled `florestad` binary. Make sure
 $ cargo build
 ```
 
+[Functional Tests](#Functional_Tests) also need some dependencies, we use python for writing them and `uv` to manage its dependencies.
+
+Our tests also needs the `Utreexod` and `florestad` binaries to match some funcionalities and we have some helper scripts to avoid conflicts, which happens a lot while developing but can help one that have one of them installed in the system.
+
+See [Setting Functional Tests Binaries](#Setting_Functional_Tests_Binaries) for more instructions.
+
 ### Testing Options
 
 There's a set of tests that you can run with:
@@ -264,7 +273,23 @@ For the full test suite, including long-running tests, use:
 cargo test --release
 ```
 
-#### Functional tests
+#### Setting Functional Tests Binaries
+
+We provide two helper scripts to support our functional tests and ensure the correct binaries are used.
+
+* [prepare.sh](https://github.com/vinteumorg/Floresta/blob/master/tests/prepare.sh) checks for build dependencies for both `utreexod` and `florestad`, builds them, and sets the `$FLORESTA_TEMP_DIR` environment variable. This variable points to where our functional tests will look for the binaries — specifically at `$FLORESTA_TEMP_DIR/binaries`.
+
+* [run.sh](https://github.com/vinteumorg/Floresta/blob/master/tests/run.sh) adds the binaries found at `$FLORESTA_TEMP_DIR/binaries` to your `$PATH` and runs the tests in that environment.
+
+Using these scripts, you have a few options for running the tests and verifying the functionality of `florestad`:
+
+1) Manually: Build the binaries yourself and place them at `$FLORESTA_TEMP_DIR/binaries`.
+
+2) (Recommended): Use the helper scripts — [prepare.sh](https://github.com/vinteumorg/Floresta/blob/master/tests/prepare.sh) and [run.sh](https://github.com/vinteumorg/Floresta/blob/master/tests/run.sh) — to automatically build and run the tests.
+
+3) With installed binaries: If you’ve already installed the binaries system-wide, you can simply run the tests directly.
+
+#### Running Functional Tests
 
 Additional functional tests are available (minimum python version: 3.12).
 
@@ -345,6 +370,21 @@ You can even add more:
 ```bash
 uv run tests/run_tests.py --test-suite <suite_A> --test-suite <suite_B>
 ```
+
+#### Running/Developing Functional Tests with Nix
+
+If you have nix, we provide a devshell that you can access with
+
+```bash
+nix develop .#func-tests-env
+```
+The `func-tests-env` devshell provides:
+  - `uv`.
+  - Python dependencies
+  - `utreexod` included in `$PATH` and linked in `$FLORESTA_TEMP_DIR`
+  - `florestad` included in `$PATH` and linked in `$FLORESTA_TEMP_DIR`
+  - `run_test` alias. `run_test="uv run tests/run_tests.py"`
+
 
 ## Running Benchmarks
 

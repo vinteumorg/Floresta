@@ -1,128 +1,130 @@
 {
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-23.11";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.05";
+
     rust-overlay = {
       url = "github:oxalica/rust-overlay";
-      inputs = {
-        nixpkgs.follows = "nixpkgs";
-      };
+      inputs.nixpkgs.follows = "nixpkgs";
+
     };
-    flake-utils.url = "github:numtide/flake-utils";
-    pre-commit-hooks.url = "github:cachix/pre-commit-hooks.nix";
+
+    flake-utils = {
+      url = "github:numtide/flake-utils";
+    };
   };
 
-  outputs = { self, nixpkgs, rust-overlay, flake-utils, pre-commit-hooks, ... }:
-    flake-utils.lib.eachDefaultSystem (system:
+  outputs =
+    {
+      self,
+      nixpkgs,
+      rust-overlay,
+      flake-utils,
+    }:
+    flake-utils.lib.eachDefaultSystem (
+      system:
       let
         overlays = [ (import rust-overlay) ];
 
-        pkgs = import nixpkgs {
-          inherit system overlays;
-        };
-
-        lib = pkgs.lib;
-
-        libsDarwin = with pkgs.darwin.apple_sdk.frameworks; lib.optionals (system == "x86_64-darwin" || system == "aarch64-darwin") [ Security ];
-
-        # This is the dev tools used while developing in Floresta.
-        devTools = with pkgs; [
-          rustup
-          just
-        ];
-
-        buildInputs =
-          if system == "x86_64-darwin" || system == "aarch64-darwin" then [
-            pkgs.openssl
-            pkgs.pkg-config
-          ] ++ libsDarwin else [
-            pkgs.openssl
-            pkgs.pkg-config
-          ];
-
-        florestaRust = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
+        pkgs = (import nixpkgs { inherit system overlays; });
       in
       with pkgs;
       {
         checks = {
-          pre-commit-check = pre-commit-hooks.lib.${system}.run {
-            src = ./.;
-            hooks = {
-              typos.enable = true;
+          # Usefull Checks here
+          python-sanity =
+            let
+              source = ./tests;
 
-              rustfmt = {
-                enable = true;
-                entry = "cargo +nightly fmt --all --check";
-              };
-
-              clippy = {
-                enable = true;
-                entry = "cargo +nightly clippy --all-targets";
-              };
-
-              nixpkgs-fmt.enable = true;
-            };
-          };
+            in
+            pkgs.runCommandLocal "Python Fmt Check"
+              {
+                nativeBuildInputs = [
+                  python312Packages.black
+                ];
+              }
+              ''
+                black --check --diff ${source} >> $out
+              '';
         };
 
-        packages = {
-          default = import ./build.nix {
-            inherit lib rustPlatform florestaRust buildInputs;
-          };
-        };
-
-        flake.overlays.default = (final: prev: {
-          floresta-node = self.packages.${final.system}.default;
-        });
-
-        devShells = {
-          pythonTests =
-            let
-              _scriptSetup = ''
-                mkdir -p ./bin
-
-                cd bin
-
-                # Download and build utreexod
-                ls -la utreexod &>/dev/null
-
-                if [ $? -ne 0 ]
-                then
-                  	git clone https://github.com/utreexo/utreexod
-                fi
-                cd utreexod
-
-                go build . &>/dev/null
-                echo "All done!"
-              '';
-              _scriptRun = "poetry run poe tests";
-            in
-            pkgs.mkShell {
-              buildInputs = with pkgs; [
-                cargo
-                python312
-                poetry
-                go
-              ] ++ [ self.packages.${system}.default ];
-              shellHook = ''
-                ${_scriptSetup}
-                ${_scriptRun}
-
-                exit
-              '';
+        packages =
+          let
+            utreexodSrc = fetchFromGitHub {
+              owner = "utreexo";
+              repo = "utreexod";
+              rev = "v0.4.1";
+              sha256 = "sha256-oC+OqRuOp14qW2wrgmf4gss4g1DoaU4rXorlUDsAdRA=";
             };
-          default =
-            let
-              _shellHook = (self.checks.${system}.pre-commit-check.shellHook or "");
-            in
-            mkShell {
-              inherit buildInputs;
+            florestaSrc = ./.;
+          in
+          rec {
+            florestad = import ./contrib/nix/build_floresta.nix { inherit pkgs florestaSrc; };
+
+            utreexod = import ./contrib/nix/build_utreexod.nix { inherit pkgs utreexodSrc; };
+
+            default = florestad;
+          };
+
+        flake.overlays.default = (
+          final: prev: {
+            floresta-overlay = self.packages.${final.system}.default;
+          }
+        );
+
+        devShells =
+          let
+            # This is the dev tools used while developing in Floresta. see _florestaRust above.
+            devTools = with pkgs; [
+              just
+              rustup
+            ];
+          in
+          {
+            default = mkShell {
+              #TO-DO: Use the standar way to include things inside the shell.
               nativeBuildInputs = devTools;
 
-              shellHook = ''
-                		${ _shellHook}
-                		echo "Floresta Nix-shell"
-                	'';
+              shellHook = "\n";
             };
-        };
-      });
+            func-tests-env =
+              let
+                prepareHook = ''
+                  # Modified version of the prepare.sh script from the floresta project.
+                  # This script is used to prepare the environment for the functional tests using nix to provide packages
+                  # without messing with the existing logic of how tests work in the floresta project.
+
+                  HEAD_COMMIT_HASH=$(git rev-parse HEAD)
+
+                  export FLORESTA_TEMP_DIR="/tmp/floresta-temp-dir.$HEAD_COMMIT_HASH"
+
+                  mkdir -p $FLORESTA_TEMP_DIR/binaries
+
+                  ln -s ${self.packages.${system}.florestad}/bin/florestad $FLORESTA_TEMP_DIR/binaries/florestad
+
+                  ln -s ${self.packages.${system}.utreexod}/bin/utreexod $FLORESTA_TEMP_DIR/binaries/utreexod
+
+                  alias run_test="uv run tests/run_tests.py"
+                  echo "run_test alias is set"
+
+                  echo "Floresta func-test-env Nix-Shell"
+                '';
+                testBinaries = [
+                  self.packages.${system}.florestad
+                  self.packages.${system}.utreexod
+                ];
+                pythonDevTools = with pkgs; [
+                  uv
+                  # If needed, one can add more tools to be used with python. Uv deal with dependencies declared in pyproject.toml
+                ];
+              in
+              mkShell {
+                packages = devTools ++ pythonDevTools;
+
+                inputsFrom = testBinaries;
+
+                shellHook = prepareHook;
+              };
+          };
+      }
+    );
 }
