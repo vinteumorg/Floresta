@@ -29,6 +29,7 @@ use crate::node::PeerStatus;
 use crate::p2p_wire::node::ConnectionKind;
 use crate::p2p_wire::peer::PeerMessages;
 use crate::p2p_wire::peer::Version;
+use crate::p2p_wire::transport::TransportProtocol;
 use crate::UtreexoNodeConfig;
 
 /// A list of headers, used to represent the collection of headers.
@@ -101,6 +102,7 @@ impl TestPeer {
                 | ServiceFlags::COMPACT_FILTERS
                 | ServiceFlags::from(1 << 25),
             kind: ConnectionKind::Regular(UTREEXO.into()),
+            transport_protocol: TransportProtocol::V2,
         };
 
         self.node_tx
@@ -167,6 +169,7 @@ pub fn create_peer(
         banscore: 0,
         address_id: 0,
         _last_message: Instant::now(),
+        transport_protocol: TransportProtocol::V2,
     }
 }
 
