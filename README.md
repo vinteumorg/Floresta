@@ -39,6 +39,7 @@ For developers, detailed documentation for `libfloresta` is available [here](htt
 - [Running the Tests](#running-the-tests)
   - [Requirements](#requirements)
   - [Testing Options](#testing-options)
+  - [Integration Tests](#integration-tests)
 - [Running Benchmarks](#running-benchmarks)
 - [Fuzzing](#fuzzing)
 - [Contributing](#contributing)
@@ -264,63 +265,9 @@ For the full test suite, including long-running tests, use:
 cargo test --release
 ```
 
-#### Functional tests
+### Integration Tests
 
-Additional functional tests are available (minimum python version: 3.12).
-
-* Recommended: install [uv: a rust-based python package and project manager](https://docs.astral.sh/uv/).
-
-* Configure an isolated environment:
-
-```bash
-# create a virtual environment
-# (it's good to not mess up with your os)
-uv venv
-
-# Alternatively, you can specify a python version (e.g, 3.12),
-uv venv --python 3.12
-
-# activate the python virtual environment
-source .venv/bin/activate
-
-# check if the python path was modified
-which python
-```
-
-* Install module dependencies:
-
-```bash
-# installs dependencies listed in pyproject.toml.
-# in local development environment
-# it do not remove existing packages.
-uv pip install -r pyproject.toml
-
-# if you're a old-school pythonist,
-# install from requirements.txt
-# without remove existing packages.
-uv pip install -r tests/requirements.txt
-
-# Alternatively, you can synchronize it
-# uses the uv.lock file to enforce
-# reproducible installations.
-uv sync
-```
-
-* Format code
-```bash
-uv run black ./tests
-
-# if you want to just check
-uv run black --check --verbose ./tests
-```
-
-
-* Lint code
-```bash
-uv run pylint ./tests
-```
-
-* Run tests:
+Additional integration tests are available which are written in python, minimum version: 3.12. It is recommended to install [uv: a rust-based python package and project manager](https://docs.astral.sh/uv/) which manages virtual environments and dependencies for you, but tests can always be run directly with python.
 
 Our tests are separated by "test suites". Suites are folders located in `./tests/<suite>` and the tests are the `./tests/<suite>/*-test.py` files. To run all suites, type:
 
@@ -344,6 +291,19 @@ You can even add more:
 
 ```bash
 uv run tests/run_tests.py --test-suite <suite_A> --test-suite <suite_B>
+```
+
+* Format test code
+```bash
+uv run black tests
+
+# if you want to just check
+uv run black --check --verbose tests
+```
+
+* Lint test code
+```bash
+uv run pylint tests
 ```
 
 ## Running Benchmarks

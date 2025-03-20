@@ -2,28 +2,16 @@
 run_tests.py
 
 Command Line Interface to run a test by its name. The name should be placed at ./tests folder.
-It's suposed that you run it through `poetry` package management and `poe` task manager, but you
-can run it with `python` if you installed the packages properly, in a isolated or not isolated
-environment (althought we recommend the isolated environment).
 
 All tests will run as a spwaned subprocess and what happens will be logged to a temporary directory
 (we defined, in linux, /tmp/floresta-func-tests/<test_name>):
 
 ```bash
-# The default way to run all tests
-poetry run poe tests
-
-# The default way to run a separated test (see the ones -- or define one -- in pyproject.toml)
-poetry run poe example-test
-
-# This will do the same thing in the isolated environment
-poetry run python tests/run_tests.py --test-name example_test
-
-# You can even define the `data_dir` to logs
-poetry run python tests/run_tests.py --test-name example_test --data-dir $HOME/my/path
+# Run all tests with uv
+uv run tests/run_tests.py
 
 # If you have a proper environment wit all necessary packages installed
-# it can be possible to run without poetry
+# it can be possible to run without uv
 python tests/run_tests.py --test-name example_test --data-dir $HOME/my/path
 ```
 """

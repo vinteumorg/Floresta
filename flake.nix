@@ -1,6 +1,6 @@
 {
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-23.11";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.11";
     rust-overlay = {
       url = "github:oxalica/rust-overlay";
       inputs = {
@@ -28,6 +28,12 @@
         devTools = with pkgs; [
           rustup
           just
+          # Python and uv for integration tests.
+          (pkgs.python312.withPackages (python-pkgs: with python-pkgs; [
+            uv
+          ]))
+          # Golang for integration tests with utreexod.
+          go
         ];
 
         buildInputs =
@@ -75,41 +81,6 @@
         });
 
         devShells = {
-          pythonTests =
-            let
-              _scriptSetup = ''
-                mkdir -p ./bin
-
-                cd bin
-
-                # Download and build utreexod
-                ls -la utreexod &>/dev/null
-
-                if [ $? -ne 0 ]
-                then
-                  	git clone https://github.com/utreexo/utreexod
-                fi
-                cd utreexod
-
-                go build . &>/dev/null
-                echo "All done!"
-              '';
-              _scriptRun = "poetry run poe tests";
-            in
-            pkgs.mkShell {
-              buildInputs = with pkgs; [
-                cargo
-                python312
-                poetry
-                go
-              ] ++ [ self.packages.${system}.default ];
-              shellHook = ''
-                ${_scriptSetup}
-                ${_scriptRun}
-
-                exit
-              '';
-            };
           default =
             let
               _shellHook = (self.checks.${system}.pre-commit-check.shellHook or "");

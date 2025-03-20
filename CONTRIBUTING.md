@@ -1,5 +1,5 @@
 Contributing to Floresta
-==============================
+========================
 
 The development of Floresta is a community effort and welcomes contributions from anyone. We are excited you are interested in helping us bringing sovereign and private self-custody to everyone.
 
@@ -59,6 +59,7 @@ A review can be a conceptual review, where the reviewer leaves a comment:
 A NACK needs to include a rationale why the change is not worthwhile. NACKs without accompanying reasoning may be disregarded.
 
 ### Code Review
+
 After conceptual agreement on the change, code review can be provided. A review begins with ACK BRANCH_COMMIT, where BRANCH_COMMIT is the top of the PR branch, followed by a description of how the reviewer did the review. The following language is used within pull request comments:
 
 "I have tested the code", involving change-specific manual testing in addition to running the unit, functional, or fuzz tests, and in case it is not obvious how the manual testing was done, it should be described;
@@ -201,8 +202,27 @@ We expect to have 100% test coverage for critical parts, and a decent level of c
   - Functional: Tests the behavior of the running program, intended to check whether the codebase as a whole works as expected. They are either written in Rust or Python
   - Integration: Checks if `Floresta` works well with other projects, like `Bitcoin Core`, `utreexod` and `Electrum` (for the electrum server). Mainly written in Python.
 
+### Python Test Suites
+
+The python test code has it own lint and syntax standards.
+
+* Format test code
+
+```bash
+uv run black tests
+
+# if you want to just check
+uv run black --check --verbose tests
+```
+
+* Lint test code
+
+```bash
+uv run pylint tests
+```
+
 Release
------------
+-------
 
 Once a maintainer and the contributors decide we have a stable enough `master` with sufficient features, we will create a new branch at that point. From this point, all new changes will go in the next release. The release branch (named after the version, i.e. 0.8.0) will only accept bugfixes and backports. After sufficient testing and making sure we don't have bugs left, this branch will be released by one of the maintainers.
 
