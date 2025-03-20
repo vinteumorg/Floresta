@@ -47,6 +47,11 @@ test-int-setup:
 # Execute integration tests.
 test-int: test-int-setup
     bash tests/run.sh
+ 
+# Test all feature combinations for each crate using cargo-hack (arg: optional, e.g., --quiet or --verbose)
+test-features arg="":
+    cargo install cargo-hack --locked
+    ./contrib/test_features.sh {{arg}}
 
 # Generate documentation for all crates
 doc:
@@ -64,11 +69,6 @@ fmt:
 # Checks the formatting
 format:
     cargo +nightly fmt --all --check
-
-# Test all feature combinations for each crate using cargo-hack (arg: optional, e.g., --quiet or --verbose)
-test-features arg="":
-    cargo install cargo-hack --locked
-    ./contrib/test_features.sh {{arg}}
 
 # Remove test-generated data
 clean-data:
