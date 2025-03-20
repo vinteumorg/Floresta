@@ -40,23 +40,13 @@ test-unit name="":
 test-wkspc:
     cargo test --workspace -- --nocapture
 
-# Execute our python integration tests inside /tests using nix for all setup needed.
-test-int-nix:
-    nix develop .#pythonTests
-
-# Execute tests/prepare.sh.
+# Prepare environment for integration tests.
 test-int-setup:
     bash tests/prepare.sh
 
-# Execute tests/run.sh
-test-int-run:
+# Execute integration tests.
+test-int: test-int-setup
     bash tests/run.sh
-
-# Execute our python integration tests inside /tests.
-#
-# Make sure you have done the necessary setup explained in our README.md in the root of the folder.
-test-int:
-    poetry run poe tests
 
 # Generate documentation for all crates
 doc:
