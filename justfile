@@ -58,6 +58,10 @@ test-int-run:
 test-int:
     poetry run poe tests
 
+# Run functional tests.
+test-functional:
+    PYTHONPATH="$(pwd)/tests" python tests/run_tests.py
+
 # Generate documentation for all crates
 doc:
     @just test-doc
