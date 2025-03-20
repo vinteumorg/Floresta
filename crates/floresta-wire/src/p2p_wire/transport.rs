@@ -20,6 +20,8 @@ use bitcoin::Network;
 use floresta_chain::UtreexoBlock;
 use log::debug;
 use log::info;
+use serde::Deserialize;
+use serde::Serialize;
 use thiserror::Error;
 use tokio::io::AsyncRead;
 use tokio::io::AsyncReadExt;
@@ -37,7 +39,8 @@ use crate::address_man::LocalAddress;
 
 type TcpReadTransport = ReadTransport<ReadHalf<TcpStream>>;
 type TcpWriteTransport = WriteTransport<WriteHalf<TcpStream>>;
-type TransportResult = Result<(TcpReadTransport, TcpWriteTransport), TransportError>;
+type TransportResult =
+    Result<(TcpReadTransport, TcpWriteTransport, TransportProtocol), TransportError>;
 
 #[derive(Error, Debug)]
 pub enum TransportError {
@@ -67,6 +70,15 @@ pub enum ReadTransport<R: AsyncRead + Unpin + Send> {
 pub enum WriteTransport<W: AsyncWrite + Unpin + Send + Sync> {
     V2(W, AsyncProtocolWriter),
     V1(W, Network),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// Bitcoin nodes can communicate using different transport layer protocols.
+pub enum TransportProtocol {
+    /// Encrypted V2 protocol defined in BIP-324.
+    V2,
+    /// Original unencrypted V1 protocol.
+    V1,
 }
 
 struct V1MessageHeader {
@@ -148,6 +160,7 @@ async fn try_connection<A: ToSocketAddrs>(
             Ok((
                 ReadTransport::V1(reader),
                 WriteTransport::V1(writer, network),
+                TransportProtocol::V1,
             ))
         }
         false => match AsyncProtocol::new(
@@ -169,6 +182,7 @@ async fn try_connection<A: ToSocketAddrs>(
                 Ok((
                     ReadTransport::V2(reader, reader_protocol),
                     WriteTransport::V2(writer, writer_protocol),
+                    TransportProtocol::V2,
                 ))
             }
             Err(e) => {
@@ -253,6 +267,7 @@ async fn try_proxy_connection<A: ToSocketAddrs>(
             Ok((
                 ReadTransport::V1(reader),
                 WriteTransport::V1(writer, network),
+                TransportProtocol::V1,
             ))
         }
         false => {
@@ -275,6 +290,7 @@ async fn try_proxy_connection<A: ToSocketAddrs>(
                     Ok((
                         ReadTransport::V2(reader, reader_protocol),
                         WriteTransport::V2(writer, writer_protocol),
+                        TransportProtocol::V2,
                     ))
                 }
                 Err(e) => {

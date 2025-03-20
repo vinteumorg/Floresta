@@ -11,6 +11,7 @@ use serde::Serialize;
 
 use super::node::ConnectionKind;
 use super::node::PeerStatus;
+use super::transport::TransportProtocol;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum UserRequest {
@@ -29,6 +30,7 @@ pub struct PeerInfo {
     pub initial_height: u32,
     pub state: PeerStatus,
     pub kind: ConnectionKind,
+    pub transport_protocol: TransportProtocol,
 }
 
 #[derive(Debug, Clone)]

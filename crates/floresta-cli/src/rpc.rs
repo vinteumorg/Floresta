@@ -82,8 +82,8 @@ pub trait FlorestaRPC {
     /// Gets information about the peers we're connected with
     ///
     /// This method returns information about the peers we're connected with. This includes
-    /// the peer's IP address, the peer's version, the peer's user agent, and the peer's
-    /// current height.
+    /// the peer's IP address, the peer's version, the peer's user agent, the transport protocol
+    /// and the peer's current height.
     fn get_peer_info(&self) -> Result<Vec<PeerInfo>>;
     /// Returns a block, given a block hash
     ///
