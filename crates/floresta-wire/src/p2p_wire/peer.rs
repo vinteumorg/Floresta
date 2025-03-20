@@ -32,6 +32,7 @@ use super::mempool::Mempool;
 use super::node::NodeNotification;
 use super::node::NodeRequest;
 use super::transport::TransportError;
+use super::transport::TransportProtocol;
 use super::transport::WriteTransport;
 use crate::node::ConnectionKind;
 use crate::p2p_wire::transport::ReadTransport;
@@ -114,6 +115,7 @@ pub struct Peer<T: AsyncWrite + Unpin + Send + Sync> {
     writer: WriteTransport<T>,
     our_user_agent: String,
     cancellation_sender: tokio::sync::oneshot::Sender<()>,
+    transport_protocol: TransportProtocol,
 }
 
 #[derive(Debug, Error)]
@@ -492,6 +494,7 @@ impl<T: AsyncWrite + Unpin + Send + Sync> Peer<T> {
                         address_id: self.address_id,
                         services: self.services,
                         kind: self.kind,
+                        transport_protocol: self.transport_protocol,
                     }))
                     .await;
                 }
@@ -550,6 +553,7 @@ impl<T: AsyncWrite + Unpin + Send + Sync> Peer<T> {
         writer: WriteTransport<W>,
         our_user_agent: String,
         cancellation_sender: tokio::sync::oneshot::Sender<()>,
+        transport_protocol: TransportProtocol,
     ) {
         let peer = Peer {
             address_id,
@@ -574,6 +578,7 @@ impl<T: AsyncWrite + Unpin + Send + Sync> Peer<T> {
             writer,
             our_user_agent,
             cancellation_sender,
+            transport_protocol,
         };
 
         spawn(peer.read_loop());
@@ -670,6 +675,7 @@ pub struct Version {
     pub address_id: usize,
     pub services: ServiceFlags,
     pub kind: ConnectionKind,
+    pub transport_protocol: TransportProtocol,
 }
 /// Messages passed from different modules to the main node to process. They should minimal
 /// and only if it requires global states, everything else should be handled by the module
