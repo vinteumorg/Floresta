@@ -12,17 +12,14 @@ let
     rustc = florestaRust;
     cargo = florestaRust;
   };
-in
-buildRustPackage {
+in buildRustPackage {
   inherit pname version;
 
   doCheck = false;
 
   src = ./.;
 
-  cargoLock = {
-    lockFile = ./Cargo.lock;
-  };
+  cargoLock = { lockFile = ./Cargo.lock; };
 
   inherit buildInputs;
 
@@ -30,7 +27,8 @@ buildRustPackage {
     description = "A lightweight bitcoin full node";
     homepage = "https://github.com/vinteumorg/Floresta";
     license = licenses.mit;
-    maintainers = [ maintainers.Davidson maintainers.jaoleal ];
-    platforms = [ "aarch64-linux" "x86_64-linux" "aarch64-darwin" "x86_64-darwin" ];
+    maintainers = [ maintainers.jaoleal ];
+    platforms =
+      [ "aarch64-linux" "x86_64-linux" "aarch64-darwin" "x86_64-darwin" ];
   };
 }
