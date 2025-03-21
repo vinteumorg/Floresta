@@ -1,7 +1,7 @@
 [project]
 name = "floresta-functional-tests"
-version = "0.0.2"
-description = "Collection of tools to help with functional testing of Floresta"
+version = "0.0.3"
+description = "Collection of tools to help with the functional tests of Floresta"
 authors = [{name = "The Floresta Project Developers"}]
 license = {text = "MIT"}
 requires-python = ">=3.12"
@@ -10,6 +10,7 @@ dependencies = [
     "requests>=2.32.3",
     "black>=24.10.0",
     "pylint>=3.3.2",
+    "cryptography>=44.0.2"
 ]
 
 [tool.hatch.build.targets.wheel]
