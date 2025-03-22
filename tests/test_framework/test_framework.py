@@ -115,33 +115,11 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
     @staticmethod
     def get_integration_test_dir():
         """
-        Get path for florestad used in integration tests, generally on
+        Get path for florestad used in integration tests, generally set on $FLORESTA_TEMP_DIR/binaries
         /tmp/floresta-integration-tests.<some git commit>
         """
-        with subprocess.Popen(
-            ["git", "rev-parse", "HEAD"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        ) as cmd:
-
-            # get the git rev-parse
-            stdout, stderr = cmd.communicate()
-
-            # check for any error
-            if isinstance(stderr, str) and stderr != "":
-                raise RuntimeError(stderr)
-
-            gitrev = stdout.rstrip()
-            return os.path.normpath(
-                os.path.join(
-                    tempfile.gettempdir(),
-                    f"floresta-integration-tests.{gitrev}",
-                    "florestad",
-                    "debug",
-                )
-            )
-
+        return os.path.normpath(os.path.join(os.environ.get("FLORESTA_TEMP_DIR"), "binaries"))
+ 
     @staticmethod
     def get_target_release_dir():
         """ "

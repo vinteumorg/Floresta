@@ -1,4 +1,5 @@
 #!/bin/bash
+
 # Prepares a temporary environment to run our tests
 #
 # This script should be executed once, before running our functinal test
@@ -9,13 +10,13 @@
 # Make sure to have python(for the tests), golang(for building utreexod) and rust(for building florestad) installed.
 #
 
-
-# We expect the current dir is the root dir of the project.
+# We expect for the current dir to be the root dir of the project.
 FLORESTA_PROJ_DIR=$(pwd)
+
 # This helps us to keep track of the actual version being tested without conflicting with any already installed binaries.
 HEAD_COMMIT_HASH=$(git rev-parse HEAD)
 
-TEMP_DIR="/tmp/floresta-integration-tests.${HEAD_COMMIT_HASH}"
+FLORESTA_TEMP_DIR="/tmp/floresta-integration-tests.${HEAD_COMMIT_HASH}"
 
 
 go version &>/dev/null
@@ -43,43 +44,31 @@ then
 	exit 1
 fi
 
-
-
-ls $TEMP_DIR &>/dev/null
-if [ $? -ne 0 ]
-then
-	echo "The tests dir for the tests does not exist. Creating it..."
+if [[ -v FLORESTA_TEMP_DIR ]]; then
+	echo "The temp dir for the tests does not exist. Creating it..."
 	# Dont use mktemp so we can have deterministic results for each version of floresta.
-	mkdir -p "$TEMP_DIR"
+	mkdir -p $FLORESTA_TEMP_DIR/binaries
 fi
 
-echo "$TEMP_DIR exists. Delete it with"
-echo "$ rm -rf $TEMP_DIR"
-echo "if you want to start fresh."
-
-cd $TEMP_DIR/
+cd $FLORESTA_TEMP_DIR/
 
 # Download and build utreexod
 ls -la utreexod &>/dev/null
 if [ $? -ne 0 ]
 then
-    echo "Utreexo not found on $TEMP_DIR/utreexod."
-    echo "Downloading utreexod..."
+    echo "Utreexo not found on PATH"
 	git clone https://github.com/utreexo/utreexod &>/dev/null
 	echo "Building utreexod..."
 	cd utreexod
-    go build . &>/dev/null
+    go build -o  $FLORESTA_TEMP_DIR/binaries/. ./... &>/dev/null
 fi
 
-# Checks if needed and build floresta setting the specific version of this build to the one we are testing
-ls -la florestad &>/dev/null
-if [ $? -ne 0 ]
-then
-    echo "Floresta not found on $TEMP_DIR/florestad."
-    echo "Building florestad..."
-    cd $FLORESTA_PROJ_DIR
-    cargo build --bin florestad --features json-rpc --target-dir $TEMP_DIR/florestad &>/dev/null
-fi
+# We dont check if floresta already exist because a floresta binary could be already be installed on PATH
+# causing collisions with the tests.
+echo "Building florestad..."
+cd $FLORESTA_PROJ_DIR
+cargo build --bin florestad --features json-rpc --target-dir $FLORESTA_TEMP_DIR/binaries/. &>/dev/null
+
 
 echo "All done!"
 exit 0
