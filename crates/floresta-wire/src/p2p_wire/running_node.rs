@@ -12,6 +12,7 @@ use bitcoin::p2p::message_blockdata::Inventory;
 use bitcoin::p2p::ServiceFlags;
 use bitcoin::BlockHash;
 use floresta_chain::pruned_utreexo::partial_chain::PartialChainState;
+use floresta_chain::pruned_utreexo::udata;
 use floresta_chain::pruned_utreexo::BlockchainInterface;
 use floresta_chain::pruned_utreexo::UpdatableChainstate;
 use floresta_chain::BlockValidationErrors;
@@ -70,8 +71,9 @@ impl NodeContext for RunningNode {
 
 impl<Chain> UtreexoNode<Chain, RunningNode>
 where
-    WireError: From<<Chain as BlockchainInterface>::Error>,
     Chain: BlockchainInterface + UpdatableChainstate + Sync + Send + Clone + 'static,
+    WireError: From<Chain::Error>,
+    Chain::Error: From<udata::proof_util::Error>,
 {
     async fn send_addresses(&mut self) -> Result<(), WireError> {
         let addresses = self
@@ -715,7 +717,9 @@ where
             };
 
             let (proof, del_hashes, inputs) =
-                floresta_chain::proof_util::process_proof(udata, &block.block.txdata, &self.chain)?;
+                floresta_chain::proof_util::process_proof(udata, &block.block.txdata, |h| {
+                    self.chain.get_block_hash(h)
+                })?;
 
             if let Err(e) =
                 self.chain
