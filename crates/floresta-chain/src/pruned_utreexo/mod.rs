@@ -67,8 +67,8 @@ pub trait BlockchainInterface {
     /// vector or a channel where data can be  transferred to the atual worker, otherwise
     /// chainstate will be stuck for as long as you have work to do.
     fn subscribe(&self, tx: Arc<dyn BlockConsumer>);
-    /// Tells whether or not we are on ibd
-    fn is_in_idb(&self) -> bool;
+    /// Tells whether or not we are on IBD
+    fn is_in_ibd(&self) -> bool;
     /// Returns the list of unbroadcasted transactions.
     fn get_unbroadcasted(&self) -> Vec<Transaction>;
     /// Checks if a coinbase is mature
@@ -134,7 +134,7 @@ pub trait UpdatableChainstate {
     fn handle_transaction(&self) -> Result<(), BlockchainError>;
     /// Persists our data. Should be invoked periodically.
     fn flush(&self) -> Result<(), BlockchainError>;
-    /// Toggle ibd on/off
+    /// Toggle IBD on/off
     fn toggle_ibd(&self, is_ibd: bool);
     /// Tells this blockchain to consider this block invalid, and not build on top of it
     fn invalidate_block(&self, block: BlockHash) -> Result<(), BlockchainError>;
@@ -295,8 +295,8 @@ impl<T: BlockchainInterface> BlockchainInterface for Arc<T> {
         T::subscribe(self, tx)
     }
 
-    fn is_in_idb(&self) -> bool {
-        T::is_in_idb(self)
+    fn is_in_ibd(&self) -> bool {
+        T::is_in_ibd(self)
     }
 
     fn get_height(&self) -> Result<u32, Self::Error> {

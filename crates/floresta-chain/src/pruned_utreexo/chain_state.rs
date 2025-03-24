@@ -914,7 +914,7 @@ impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedSta
         Ok(hashes)
     }
 
-    fn is_in_idb(&self) -> bool {
+    fn is_in_ibd(&self) -> bool {
         self.inner.read().ibd
     }
 
@@ -1140,7 +1140,7 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
         #[cfg(feature = "metrics")]
         metrics::get_metrics().block_height.set(height.into());
 
-        if !self.is_in_idb() || height % 10_000 == 0 {
+        if !self.is_in_ibd() || height % 10_000 == 0 {
             self.flush()?;
         }
 

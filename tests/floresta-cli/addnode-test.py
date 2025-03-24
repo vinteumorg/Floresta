@@ -47,7 +47,7 @@ class GetAddnodeIDBErrorTest(FlorestaTestFramework):
     ]
     electrum_addrs = ["0.0.0.0:50001", "0.0.0.0:50002"]
     rpc_addrs = ["0.0.0.0:18442", "0.0.0.0:18443"]
-    node_idb_error = "Node is in initial block download, wait until it's finished"
+    node_ibd_error = "Node is in initial block download, wait until it's finished"
 
     def set_test_params(self):
         """
@@ -93,7 +93,7 @@ class GetAddnodeIDBErrorTest(FlorestaTestFramework):
             assert success
         except JSONRPCError as exc:
             assert exc.code == -32603
-            assert exc.message == GetAddnodeIDBErrorTest.node_idb_error
+            assert exc.message == GetAddnodeIDBErrorTest.node_ibd_error
             assert exc.data is None
         finally:
             # stop nodes

@@ -114,7 +114,7 @@ impl RpcImpl {
     pub(super) fn get_blockchain_info(&self) -> Result<GetBlockchainInfoRes, RpcError> {
         let (height, hash) = self.chain.get_best_block().unwrap();
         let validated = self.chain.get_validation_index().unwrap();
-        let ibd = self.chain.is_in_idb();
+        let ibd = self.chain.is_in_ibd();
         let latest_header = self.chain.get_block_header(&hash).unwrap();
         let latest_work = latest_header.work();
         let latest_block_time = latest_header.time;
@@ -228,8 +228,8 @@ impl RpcImpl {
             return Ok(serde_json::to_value(txout).unwrap());
         }
 
-        // if we are on ibd, we don't have any filters to find this txout.
-        if self.chain.is_in_idb() {
+        // if we are on IBD, we don't have any filters to find this txout.
+        if self.chain.is_in_ibd() {
             return Err(RpcError::InInitialBlockDownload);
         }
 
