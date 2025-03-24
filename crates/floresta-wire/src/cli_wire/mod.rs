@@ -156,7 +156,7 @@ impl UtreexodBackend {
         // We don't download genesis, because utreexod will error out if we try to fetch
         // proof for it.
         let current = if current == 0 { 1 } else { current };
-        if self.chainstate.is_in_idb() {
+        if self.chainstate.is_in_ibd() {
             info!("Start Initial Block Download at height {current} of {height}");
         }
         for block_height in current..=height {
@@ -172,7 +172,7 @@ impl UtreexodBackend {
             }
             self.process_block(block_height)?;
         }
-        if self.chainstate.is_in_idb() {
+        if self.chainstate.is_in_ibd() {
             info!("Leaving Initial Block Download at height {height}");
         } else {
             info!("New tip: {height}");
@@ -221,7 +221,7 @@ impl UtreexodBackend {
             self.chainstate
                 .connect_block(&block_data.block, proof, inputs, del_hashes)?;
         }
-        info!("Leaving ibd");
+        info!("Leaving IBD");
         self.chainstate.toggle_ibd(false);
         self.chainstate.flush()?;
 

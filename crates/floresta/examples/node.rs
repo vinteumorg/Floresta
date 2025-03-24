@@ -90,7 +90,7 @@ async fn main() {
     // synced by calling the is_in_ibd method.
     loop {
         // Wait till the node is synced
-        if !chain.is_in_idb() {
+        if !chain.is_in_ibd() {
             break;
         }
         // Sleep for 10 seconds, and check again

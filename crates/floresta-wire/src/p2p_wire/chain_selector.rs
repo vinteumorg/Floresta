@@ -690,7 +690,7 @@ where
     }
 
     pub async fn run(&mut self) -> Result<(), WireError> {
-        info!("Starting ibd, selecting the best chain");
+        info!("Starting IBD, selecting the best chain");
 
         loop {
             while let Ok(notification) = timeout(Duration::from_secs(1), self.node_rx.recv()).await

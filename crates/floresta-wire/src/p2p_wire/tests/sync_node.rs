@@ -107,7 +107,7 @@ mod tests {
             chain.get_best_block().unwrap().1,
             essentials.headers[9].block_hash()
         );
-        assert!(!chain.is_in_idb());
+        assert!(!chain.is_in_ibd());
     }
 
     #[tokio::test]
@@ -131,7 +131,7 @@ mod tests {
             chain.get_best_block().unwrap().1,
             essentials.headers[6].block_hash()
         );
-        assert!(!chain.is_in_idb());
+        assert!(!chain.is_in_ibd());
     }
 
     #[tokio::test]
@@ -177,6 +177,6 @@ mod tests {
             chain.get_best_block().unwrap().1,
             essentials.headers[9].block_hash()
         );
-        assert!(!chain.is_in_idb());
+        assert!(!chain.is_in_ibd());
     }
 }

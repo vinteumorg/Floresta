@@ -316,7 +316,7 @@ where
                 done_flag.send(()).unwrap();
 
                 // we haven't finished the backfill yet, save the current state for the next run
-                if chain.is_in_idb() {
+                if chain.is_in_ibd() {
                     let acc = chain.get_acc();
                     let tip = chain.get_height().unwrap();
                     let mut ser_acc = Vec::new();
@@ -766,7 +766,7 @@ where
                 return Err(WireError::PeerMisbehaving);
             }
 
-            if !self.chain.is_in_idb() {
+            if !self.chain.is_in_ibd() {
                 // Convert to BitcoinNodeHashes, from rustreexo
                 let del_hashes: Vec<_> = del_hashes.into_iter().map(Into::into).collect();
 
@@ -912,7 +912,7 @@ where
                         self.chain.accept_header(*header)?;
                     }
 
-                    if self.chain.is_in_idb() {
+                    if self.chain.is_in_ibd() {
                         let blocks = headers.iter().map(|header| header.block_hash()).collect();
                         self.request_blocks(blocks).await?;
                     }

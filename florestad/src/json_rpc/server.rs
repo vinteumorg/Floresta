@@ -153,7 +153,7 @@ impl RpcImpl {
 
     fn rescan(&self, _rescan: u32) -> Result<bool> {
         // if we are on ibd, we don't have any filters to rescan
-        if self.chain.is_in_idb() {
+        if self.chain.is_in_ibd() {
             return Err(Error::InInitialBlockDownload);
         }
 

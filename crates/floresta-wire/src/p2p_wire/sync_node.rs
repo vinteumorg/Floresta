@@ -137,7 +137,7 @@ where
                 .0;
 
             if validation_index == best_block {
-                info!("ibd finished, switching to normal operation mode");
+                info!("IBD is finished, switching to normal operation mode");
                 self.chain.toggle_ibd(false);
                 break;
             }

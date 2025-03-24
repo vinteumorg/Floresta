@@ -530,7 +530,7 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
 
             // rescan for new addresses, if any
             if !self.addresses_to_scan.is_empty() {
-                if self.chain.is_in_idb() {
+                if self.chain.is_in_ibd() {
                     continue;
                 }
 
@@ -647,7 +647,7 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
 
         let current_height = self.address_cache.get_cache_height();
 
-        if (!self.chain.is_in_idb() || height % 1000 == 0) && (height > current_height) {
+        if (!self.chain.is_in_ibd() || height % 1000 == 0) && (height > current_height) {
             self.address_cache.bump_height(height);
         }
 

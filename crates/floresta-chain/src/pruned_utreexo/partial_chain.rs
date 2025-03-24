@@ -403,7 +403,7 @@ impl BlockchainInterface for PartialChainState {
         Ok(self.inner().current_height)
     }
 
-    fn is_in_idb(&self) -> bool {
+    fn is_in_ibd(&self) -> bool {
         !self.inner().is_sync()
     }
 
