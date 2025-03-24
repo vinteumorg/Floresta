@@ -60,7 +60,7 @@ test-int:
 
 # Run functional tests.
 test-functional:
-    PYTHONPATH="$(pwd)/tests" python tests/run_tests.py
+    uv run tests/run_tests.py
 
 # Generate documentation for all crates
 doc:
