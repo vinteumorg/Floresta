@@ -61,6 +61,7 @@ use super::peer::Version;
 use super::running_node::RunningNode;
 use super::socks::Socks5StreamBuilder;
 use super::transport;
+use super::transport::TransportProtocol;
 use super::UtreexoNodeConfig;
 use crate::node_context::PeerId;
 
@@ -133,6 +134,7 @@ pub struct LocalPeerView {
     pub(crate) kind: ConnectionKind,
     pub(crate) height: u32,
     pub(crate) banscore: u32,
+    pub(crate) transport_protocol: TransportProtocol,
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -615,6 +617,7 @@ where
             services: peer.services.to_string(),
             user_agent: peer.user_agent.clone(),
             initial_height: peer.height,
+            transport_protocol: peer.transport_protocol,
         })
     }
 
@@ -787,6 +790,7 @@ where
             peer_data.services = version.services;
             peer_data.user_agent.clone_from(&version.user_agent);
             peer_data.height = version.blocks;
+            peer_data.transport_protocol = version.transport_protocol;
 
             // If this peer doesn't have basic services, we disconnect it
             if let ConnectionKind::Regular(needs) = version.kind {
@@ -1185,7 +1189,7 @@ where
     ) -> Result<(), WireError> {
         let address = (address.get_net_address(), address.get_port());
 
-        let (transport_reader, transport_writer) =
+        let (transport_reader, transport_writer, transport_protocol) =
             transport::connect(address, network, allow_v1_fallback).await?;
 
         let (cancellation_sender, cancellation_receiver) = tokio::sync::oneshot::channel();
@@ -1209,6 +1213,7 @@ where
             transport_writer,
             user_agent,
             cancellation_sender,
+            transport_protocol,
         )
         .await;
 
@@ -1229,7 +1234,7 @@ where
         user_agent: String,
         allow_v1_fallback: bool,
     ) -> Result<(), WireError> {
-        let (transport_reader, transport_writer) =
+        let (transport_reader, transport_writer, transport_protocol) =
             transport::connect_proxy(proxy, address, network, allow_v1_fallback).await?;
 
         let (cancellation_sender, cancellation_receiver) = tokio::sync::oneshot::channel();
@@ -1252,6 +1257,7 @@ where
             transport_writer,
             user_agent,
             cancellation_sender,
+            transport_protocol,
         )
         .await;
         Ok(())
@@ -1323,6 +1329,7 @@ where
                 address_id: peer_id as u32,
                 height: 0,
                 banscore: 0,
+                transport_protocol: TransportProtocol::V1, // Default to V1, will be updated when peer is ready.
             },
         );
 
