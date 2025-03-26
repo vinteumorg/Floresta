@@ -8,8 +8,9 @@ import os
 import re
 import sys
 import tempfile
-from test_framework.test_framework import FlorestaTestFramework
+
 from test_framework.floresta_rpc import REGTEST_RPC_SERVER
+from test_framework.test_framework import FlorestaTestFramework
 
 
 class GetMemoryInfoTest(FlorestaTestFramework):
@@ -50,21 +51,21 @@ class GetMemoryInfoTest(FlorestaTestFramework):
         """
         if sys.platform == "linux":
             result = node.get_memoryinfo("stats")
-            assert "locked" in result
-            assert "chunks_free" in result["locked"]
-            assert "chunks_used" in result["locked"]
-            assert "free" in result["locked"]
-            assert "locked" in result["locked"]
-            assert "total" in result["locked"]
-            assert "used" in result["locked"]
-            assert result["locked"]["chunks_free"] >= 0
-            assert result["locked"]["chunks_used"] >= 0
-            assert result["locked"]["free"] >= 0
-            assert result["locked"]["locked"] >= 0
-            assert result["locked"]["total"] >= 0
-            assert result["locked"]["used"] >= 0
+            self.assertIn("locked", result)
+            self.assertIn("chunks_free", result["locked"])
+            self.assertIn("chunks_used", result["locked"])
+            self.assertIn("free", result["locked"])
+            self.assertIn("locked", result["locked"])
+            self.assertIn("total", result["locked"])
+            self.assertIn("used", result["locked"])
+            self.assertTrue(result["locked"]["chunks_free"] >= 0)
+            self.assertTrue(result["locked"]["chunks_used"] >= 0)
+            self.assertTrue(result["locked"]["free"] >= 0)
+            self.assertTrue(result["locked"]["locked"] >= 0)
+            self.assertTrue(result["locked"]["total"] >= 0)
+            self.assertTrue(result["locked"]["used"] >= 0)
         else:
-            print(
+            self.log(
                 f"Skiping test: 'getmemoryinfo stats' not implemented for '{sys.platform}'"
             )
 
@@ -89,9 +90,9 @@ class GetMemoryInfoTest(FlorestaTestFramework):
                 r"</malloc>"
             )
             result = node.get_memoryinfo("mallocinfo")
-            assert re.fullmatch(pattern, result)
+            self.assertMatch(result, pattern)
         else:
-            print(
+            self.log(
                 f"Skiping test: 'getmemoryinfo malloc' not implemented for '{sys.platform}'"
             )
 

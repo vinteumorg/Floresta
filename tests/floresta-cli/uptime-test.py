@@ -5,10 +5,11 @@ This functional test cli utility to interact with a Floresta node with `uptime`
 """
 
 import os
-import time
 import tempfile
-from test_framework.test_framework import FlorestaTestFramework
+import time
+
 from test_framework.floresta_rpc import REGTEST_RPC_SERVER
+from test_framework.test_framework import FlorestaTestFramework
 
 
 class UptimeTest(FlorestaTestFramework):
@@ -64,7 +65,7 @@ class UptimeTest(FlorestaTestFramework):
         after = time.time()
         elapsed = int(after - before)
 
-        assert uptime == elapsed
+        self.assertEqual(uptime, elapsed)
 
         # Stop node
         self.stop_node(UptimeTest.nodes[0])
