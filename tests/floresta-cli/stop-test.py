@@ -4,8 +4,8 @@ floresta_cli_stop.py
 This functional test cli utility to interact with a Floresta node with `stop`
 """
 
-from test_framework.test_framework import FlorestaTestFramework
 from test_framework.floresta_rpc import REGTEST_RPC_SERVER
+from test_framework.test_framework import FlorestaTestFramework
 
 
 class StopTest(FlorestaTestFramework):
@@ -36,7 +36,7 @@ class StopTest(FlorestaTestFramework):
         result = node.stop()
 
         # node should be finished, do not call stop_node
-        assert result
+        self.assertEqual(result, "florestad stopping")
 
 
 if __name__ == "__main__":
