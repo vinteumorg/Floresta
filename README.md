@@ -36,6 +36,7 @@ For developers, detailed documentation for `libfloresta` is available [here](htt
   - [Compact Filters](#compact-filters)
   - [Getting Help](#getting-help)
   - [Wallet](#wallet)
+  - [Proxy Configuration](#proxy-configuration)
 - [Running the Tests](#running-the-tests)
   - [Requirements](#requirements)
   - [Testing Options](#testing-options)
@@ -242,6 +243,18 @@ $ floresta-cli rescan 800000
 ```
 
 Once you have a transaction cached in your watch-only, you can use either the rpc or integrated electrum server to retrieve information about your wallet. You can use wallets like Electrum or Sparrow to connect to your node and retrieve information about your wallet. Just connect with the server running at `127.0.0.1:50001:t`. On electrum you may want to use the `--oneserver` flag to connect to a single server, for better privacy.
+
+### Proxy Configuration
+
+Floresta will make some connections with random nodes in the P2P network. You may want to use a proxy to hide your IP address. You can do this by
+providing a SOCKS5 socket, with the `--proxy` flag. An example of how to use the Tor proxy is given below:
+
+```bash
+# start the daemon with the Tor proxy
+florestad --proxy 127.0.0.1:9050
+```
+
+This will force all your connections to be opened throught the TOR network.
 
 ## Running the Tests
 
