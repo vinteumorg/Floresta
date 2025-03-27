@@ -17,7 +17,6 @@ use floresta::wire::mempool::Mempool;
 use floresta::wire::node::UtreexoNode;
 use floresta_chain::AssumeValidArg;
 use floresta_wire::address_man::AddressMan;
-use floresta_wire::node_interface::NodeMethods;
 use floresta_wire::running_node::RunningNode;
 use floresta_wire::UtreexoNodeConfig;
 use rustreexo::accumulator::pollard::Pollard;
@@ -103,6 +102,8 @@ async fn main() {
             BlockHash::from_str("000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f")
                 .unwrap(),
         )
+        .await
         .unwrap();
+
     println!("Block: {:?}", block);
 }

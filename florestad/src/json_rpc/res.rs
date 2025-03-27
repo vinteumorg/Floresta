@@ -196,6 +196,7 @@ pub enum Error {
     Encode,
     InvalidMemInfoMode,
     Wallet(String),
+    Filters(String),
 }
 
 impl Display for Error {
@@ -225,6 +226,7 @@ impl Display for Error {
             Error::InvalidVerbosityLevel => write!(f, "Invalid verbosity level"),
             Error::InvalidMemInfoMode => write!(f, "Invalid meminfo mode, should be stats or mallocinfo"),
             Error::Wallet(e) => write!(f, "Wallet error: {}", e),
+            Error::Filters(e) => write!(f, "Error with filters: {}", e),
         }
     }
 }

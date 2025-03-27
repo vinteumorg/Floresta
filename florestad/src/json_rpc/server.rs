@@ -31,7 +31,6 @@ use floresta_watch_only::kv_database::KvDatabase;
 use floresta_watch_only::AddressCache;
 use floresta_watch_only::CachedTransaction;
 use floresta_wire::node_interface::NodeInterface;
-use floresta_wire::node_interface::NodeMethods;
 use floresta_wire::node_interface::PeerInfo;
 use log::debug;
 use log::error;
@@ -39,7 +38,6 @@ use log::info;
 use serde_json::json;
 use serde_json::Value;
 use tokio::sync::RwLock;
-use tokio::task::spawn_blocking;
 use tower_http::cors::CorsLayer;
 
 use super::res::Error;
@@ -61,7 +59,7 @@ pub struct RpcImpl {
     pub(super) network: Network,
     pub(super) chain: Arc<ChainState<KvChainStore<'static>>>,
     pub(super) wallet: Arc<AddressCache<KvDatabase>>,
-    pub(super) node: Arc<NodeInterface>,
+    pub(super) node: NodeInterface,
     pub(super) kill_signal: Arc<RwLock<bool>>,
     pub(super) inflight: Arc<RwLock<HashMap<Value, InflightRpc>>>,
     pub(super) log_dir: String,
@@ -71,7 +69,7 @@ pub struct RpcImpl {
 type Result<T> = std::result::Result<T, Error>;
 
 impl RpcImpl {
-    fn add_node(&self, node: String) -> Result<bool> {
+    async fn add_node(&self, node: String) -> Result<bool> {
         let node = node.split(':').collect::<Vec<&str>>();
         let (ip, port) = if node.len() == 2 {
             (node[0], node[1].parse().map_err(|_| Error::InvalidPort)?)
@@ -86,14 +84,10 @@ impl RpcImpl {
         };
 
         let peer = ip.parse().map_err(|_| Error::InvalidAddress)?;
-        let node = self.node.clone();
-
-        spawn_blocking(move || {
-            node.connect(peer, port)
-                .map_err(|e| Error::Node(e.to_string()))
-        });
-
-        Ok(true)
+        self.node
+            .connect(peer, port)
+            .await
+            .map_err(|_| Error::Node("Failed to connect".to_string()))
     }
 
     fn get_transaction(&self, tx_id: Txid, verbosity: Option<bool>) -> Result<Value> {
@@ -141,12 +135,9 @@ impl RpcImpl {
         let node = self.node.clone();
         let chain = self.chain.clone();
 
-        spawn_blocking(move || {
-            match Self::rescan_with_block_filters(&addresses, chain, wallet, cfilters, node) {
-                Ok(_) => info!("rescan completed"),
-                Err(e) => error!("error while rescaning {e:?}"),
-            }
-        });
+        tokio::task::spawn(Self::rescan_with_block_filters(
+            addresses, chain, wallet, cfilters, node,
+        ));
 
         Ok(true)
     }
@@ -167,12 +158,9 @@ impl RpcImpl {
         let node = self.node.clone();
         let chain = self.chain.clone();
 
-        spawn_blocking(move || {
-            match Self::rescan_with_block_filters(&addresses, chain, wallet, cfilters, node) {
-                Ok(_) => info!("rescan completed"),
-                Err(e) => error!("error while rescaning {e:?}"),
-            }
-        });
+        tokio::task::spawn(Self::rescan_with_block_filters(
+            addresses, chain, wallet, cfilters, node,
+        ));
 
         Ok(true)
     }
@@ -186,13 +174,10 @@ impl RpcImpl {
     }
 
     async fn get_peer_info(&self) -> Result<Vec<PeerInfo>> {
-        let node = self.node.clone();
-        tokio::task::spawn_blocking(move || {
-            node.get_peer_info()
-                .map_err(|_| Error::Node("Failed to get peer info".to_string()))
-        })
-        .await
-        .map_err(|e| Error::Node(e.to_string()))?
+        self.node
+            .get_peer_info()
+            .await
+            .map_err(|_| Error::Node("Failed to get peer info".to_string()))
     }
 }
 
@@ -314,10 +299,7 @@ async fn handle_json_rpc_request(req: Value, state: Arc<RpcImpl>) -> Result<serd
             let height = params[3].as_u64().ok_or(Error::InvalidHeight)? as u32;
 
             let state = state.clone();
-            spawn_blocking(move || state.find_tx_out(txid, vout, script, height))
-                .await
-                .map_err(|e| Error::Node(e.to_string()))?
-                .map(|v| ::serde_json::to_value(v).unwrap())
+            state.find_tx_out(txid, vout, script, height).await
         }
 
         // control
@@ -356,6 +338,7 @@ async fn handle_json_rpc_request(req: Value, state: Arc<RpcImpl>) -> Result<serd
             let node = params[0].as_str().ok_or(Error::InvalidAddress)?;
             state
                 .add_node(node.to_string())
+                .await
                 .map(|v| ::serde_json::to_value(v).unwrap())
         }
 
@@ -417,7 +400,11 @@ fn get_http_error_code(err: &Error) -> u16 {
         Error::MethodNotFound | Error::BlockNotFound | Error::TxNotFound => 404,
 
         // we messed up, sowwy
-        Error::InInitialBlockDownload | Error::Node(_) | Error::Chain | Error::Encode => 503,
+        Error::InInitialBlockDownload
+        | Error::Node(_)
+        | Error::Chain
+        | Error::Encode
+        | Error::Filters(_) => 503,
     }
 }
 
@@ -449,7 +436,8 @@ fn get_json_rpc_error_code(err: &Error) -> i32 {
         | Error::Node(_)
         | Error::Chain
         | Error::Encode
-        | Error::NoBlockFilters => -32603,
+        | Error::NoBlockFilters
+        | Error::Filters(_) => -32603,
     }
 }
 
@@ -523,12 +511,12 @@ async fn cannot_get(_state: State<Arc<RpcImpl>>) -> Json<serde_json::Value> {
 }
 
 impl RpcImpl {
-    fn rescan_with_block_filters(
-        addresses: &[ScriptBuf],
+    async fn rescan_with_block_filters(
+        addresses: Vec<ScriptBuf>,
         chain: Arc<ChainState<KvChainStore<'static>>>,
         wallet: Arc<AddressCache<KvDatabase>>,
         cfilters: Arc<NetworkFilters<FlatFiltersStore>>,
-        node: Arc<NodeInterface>,
+        node: NodeInterface,
     ) -> Result<()> {
         let blocks = cfilters
             .match_any(
@@ -541,11 +529,12 @@ impl RpcImpl {
         info!("rescan filter hits: {:?}", blocks);
 
         for block in blocks {
-            if let Ok(Some(block)) = node.get_block(block) {
+            if let Ok(Some(block)) = node.get_block(block).await {
                 let height = chain
                     .get_block_height(&block.block_hash())
                     .unwrap()
                     .unwrap();
+
                 wallet.block_process(&block, height);
             }
         }
@@ -674,7 +663,7 @@ impl RpcImpl {
     pub async fn create(
         chain: Arc<ChainState<KvChainStore<'static>>>,
         wallet: Arc<AddressCache<KvDatabase>>,
-        node: Arc<NodeInterface>,
+        node: NodeInterface,
         kill_signal: Arc<RwLock<bool>>,
         network: Network,
         block_filter_storage: Option<Arc<NetworkFilters<FlatFiltersStore>>>,
