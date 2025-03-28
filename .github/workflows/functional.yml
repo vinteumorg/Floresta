@@ -34,8 +34,7 @@ jobs:
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
 
-      - name: Tests Setup
-        run: bash tests/prepare.sh
-
       - name: Run functional tests tasks
-        run: bash tests/run.sh
+        run: |
+          tests/prepare.sh
+          tests/run.sh
