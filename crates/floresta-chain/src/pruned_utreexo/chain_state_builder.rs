@@ -19,18 +19,29 @@ use super::chainparams::ChainParams;
 use super::ChainStore;
 
 #[derive(Clone, Debug)]
+/// This enum is used to represent errors that can occur during the construction of a ChainState instance.
 pub enum BlockchainBuilderError {
+    /// Indicates that the chainstore is missing.
     MissingChainstore,
+    /// Indicates that the chain parameters are missing.
     MissingChainParams,
 }
 #[derive(Clone, Debug, Default)]
+/// Represents a builder for constructing a ChainState instance.
 pub struct ChainStateBuilder<PersistedState: ChainStore> {
+    /// The accumulator stump.
     acc: Option<Stump>,
+    /// The chain store.
     chainstore: Option<PersistedState>,
+    /// Indicates whether the builder is in initial block download mode.
     ibd: bool,
+    /// The chain parameters.
     chain_params: Option<ChainParams>,
+    /// The block hash that is assumed to be valid.
     assume_valid: Option<BlockHash>,
+    /// The current chain tip.
     tip: Option<(BlockHash, u32)>,
+    /// The first block header.
     first: Option<BlockHeader>,
 }
 
