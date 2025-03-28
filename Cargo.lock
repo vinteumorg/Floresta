@@ -1037,6 +1037,7 @@ dependencies = [
  "metrics",
  "miniscript 12.3.0",
  "pretty_assertions",
+ "rcgen",
  "rustreexo",
  "serde",
  "serde_json",

@@ -17,7 +17,6 @@
 #![deny(non_upper_case_globals)]
 
 mod cli;
-
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -56,6 +55,7 @@ fn main() {
         #[cfg(feature = "json-rpc")]
         json_rpc_address: params.rpc_address,
         electrum_address: params.electrum_address,
+        gen_selfsigned_cert: params.gen_selfsigned_cert,
         ssl_electrum_address: params.ssl_electrum_address,
         wallet_descriptor: params.wallet_descriptor,
         filters_start_height: params.filters_start_height,
