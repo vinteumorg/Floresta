@@ -84,6 +84,12 @@ jobs:
         if: steps.cache-rust.outputs.cache-hit != 'true'
         run: cargo install cargo-fuzz --locked --force
 
+      # Pull corpus data from the floresta-qa-assets repository
+      - name: Pull corpus data
+        run: git clone https://github.com/Davidson-Souza/floresta-qa-assets
+      - name: Copy corpus data
+        run: cp -r floresta-qa-assets/corpus/ fuzz/corpus
+
       # Run fuzzing tests
       - name: Run fuzzing tests
         run: |
