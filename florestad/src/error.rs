@@ -24,6 +24,10 @@ pub enum Error {
     CouldNotOpenPrivKeyFile(String, std::io::Error),
     CouldNotOpenCertFile(String, std::io::Error),
     CouldNotConfigureTLS(tokio_rustls::rustls::TLSError),
+    CouldNotGenerateKeypair(rcgen::Error),
+    CouldNotGenerateCertParam(rcgen::Error),
+    CouldNotGenerateSelfSignedCert(rcgen::Error),
+    CouldNotWriteFile(String, std::io::Error),
 }
 
 impl std::fmt::Display for Error {
@@ -55,6 +59,18 @@ impl std::fmt::Display for Error {
             }
             Error::CouldNotOpenCertFile(path, err) => {
                 write!(f, "Error while opening PKCS#8 certificate {path}: {err}")
+            }
+            Error::CouldNotGenerateKeypair(err) => {
+                write!(f, "Error while generating PKCS#8 keypair: {err}")
+            }
+            Error::CouldNotGenerateCertParam(err) => {
+                write!(f, "Error while generating certificate param: {}", err)
+            }
+            Error::CouldNotGenerateSelfSignedCert(err) => {
+                write!(f, "Error while generating self-signed certificate: {}", err)
+            }
+            Error::CouldNotWriteFile(path, err) => {
+                write!(f, "Error while creating file {path}: {err}")
             }
         }
     }

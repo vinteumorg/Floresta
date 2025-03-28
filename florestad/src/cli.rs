@@ -162,15 +162,19 @@ pub struct Cli {
     #[arg(long, value_name = "PATH")]
     /// Path to the SSL certificate file (defaults to <data-dir>/ssl/cert.pem).
     ///
-    /// The user should create a PKCS#8 based one with openssl. For example:
+    /// The user should create a PKCS#8 based one with openssl. For example, you
+    /// could create yourself a self-signed certificate with:
     ///
     /// openssl req -x509 -new -key key.pem -out cert.pem -days 365 -subj "/CN=localhost"
+    ///
+    /// alternatively, you can run florestad with --gen-selfsigned-cert
     pub ssl_cert_path: Option<String>,
 
     #[arg(long, value_name = "PATH")]
     /// Path to the SSL private key file (defaults to <data-dir>/ssl/key.pem).
     ///
-    /// The user should create a PKCS#8 based one with openssl. For example:
+    /// The user should create a PKCS#8 based one with openssl. For example, you
+    /// could create yourself a key for a self-signed certificate:
     ///
     /// openssl genpkey -algorithm RSA -out key.pem -pkeyopt rsa_keygen_bits:2048
     pub ssl_key_path: Option<String>,
@@ -178,6 +182,12 @@ pub struct Cli {
     #[arg(long, default_value_t = false)]
     /// Whether to disable SSL
     pub no_ssl: bool,
+
+    #[arg(long, default_value_t = false)]
+    /// If run without --no-ssl or provided --ssl-cert-path and --ssl-key-path
+    /// files not exist, --gen-selfsigned-cert will create them with
+    /// the provided path.
+    pub gen_selfsigned_cert: bool,
 
     #[arg(long, default_value_t = false)]
     /// Whether to disable fallback to v1 transport if v2 connection fails
