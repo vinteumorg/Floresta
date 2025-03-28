@@ -4,7 +4,7 @@
 The tests in `floresta-cli` depend on the compiled `florestad` binary. Make sure to build the entire project first by running:
 
 ```bash
-$ cargo build
+cargo build
 ```
 
 [Functional Tests](#Functional_Tests) also need some dependencies, we use python for writing them and `uv` to manage its dependencies.
@@ -18,13 +18,13 @@ See [Setting Functional Tests Binaries](#Setting_Functional_Tests_Binaries) for 
 There's a set of tests that you can run with:
 
 ```bash
-$ cargo test
+cargo test
 ```
 
 For the full test suite, including long-running tests, use:
 
 ```bash
-$ cargo test --release
+cargo test --release
 ```
 
 ### Setting Functional Tests Binaries
@@ -54,16 +54,16 @@ Additional functional tests are available (minimum python version: 3.12).
 ```bash
 # create a virtual environment
 # (it's good to not mess up with your os)
-$ uv venv
+uv venv
 
 # Alternatively, you can specify a python version (e.g, 3.12),
-$ uv venv --python 3.12
+uv venv --python 3.12
 
 # activate the python virtual environment
-$ source .venv/bin/activate
+source .venv/bin/activate
 
 # check if the python path was modified
-$ which python
+which python
 ```
 
 * Install module dependencies:
@@ -72,31 +72,31 @@ $ which python
 # installs dependencies listed in pyproject.toml.
 # in local development environment
 # it do not remove existing packages.
-$ uv pip install -r pyproject.toml
+uv pip install -r pyproject.toml
 
 # if you're a old-school pythonist,
 # install from requirements.txt
 # without remove existing packages.
-$ uv pip install -r tests/requirements.txt
+uv pip install -r tests/requirements.txt
 
 # Alternatively, you can synchronize it
 # uses the uv.lock file to enforce
 # reproducible installations.
-$ uv sync
+uv sync
 ```
 
 * Format code
 ```bash
-$ uv run black ./tests
+uv run black ./tests
 
 # if you want to just check
-$ uv run black --check --verbose ./tests
+uv run black --check --verbose ./tests
 ```
 
 
 * Lint code
 ```bash
-$ uv run pylint ./tests
+uv run pylint ./tests
 ```
 
 * Run tests:
@@ -104,25 +104,25 @@ $ uv run pylint ./tests
 Our tests are separated by "test suites". Suites are folders located in `./tests/<suite>` and the tests are the `./tests/<suite>/*-test.py` files. To run all suites, type:
 
 ```bash
-$ uv run tests/run_tests.py
+uv run tests/run_tests.py
 ```
 
 You can list all suites with:
 
 ```bash
-$ uv run tests/run_tests.py --list-suites
+uv run tests/run_tests.py --list-suites
 ```
 
 To run a specific suite:
 
 ```bash
-$ uv run tests/run_tests.py --test-suite <suite>
+uv run tests/run_tests.py --test-suite <suite>
 ```
 
 You can even add more:
 
 ```bash
-$ uv run tests/run_tests.py --test-suite <suite_A> --test-suite <suite_B>
+uv run tests/run_tests.py --test-suite <suite_A> --test-suite <suite_B>
 ```
 
 ### Running/Developing Functional Tests with Nix

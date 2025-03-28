@@ -1,4 +1,5 @@
-# Building with Nix
+# Using Nix
+## Building with Nix
 
 If you're using Nix, you can add Florestad to your system with its overlay.
 
@@ -31,12 +32,12 @@ then `florestad` and `floresta-cli` will be available just like any other packag
 pkgs.floresta-node
 ```
 
-# Developing with Nix
+## Developing with Nix
 
 If you already have [Nix](https://nixos.org/) you just need to do:
 
-```Bash
-$ nix develop
+```bash
+nix develop
 ```
 
 and use our flake for development which include
@@ -49,11 +50,11 @@ and use our flake for development which include
 
 If you do not have Nix you can [Check their guide](https://nixos.org/download/).
 
-# Testing with Nix
+## Testing with Nix
 If you have nix, we provide a devshell that you can access with
 
 ```bash
-$ nix develop .#func-tests-env
+nix develop .#func-tests-env
 ```
 The `func-tests-env` devshell provides:
   - `uv`.

@@ -19,8 +19,7 @@
 
 Welcome to Floresta: a lightweight Bitcoin full node implementation written in Rust and powered by [Utreexo](https://eprint.iacr.org/2019/611), a novel dynamic accumulator designed for the Bitcoin UTXO set.
 
-This project is composed of two parts, `libfloresta` and `florestad`. `libfloresta` is
-a set of reusable components that can be used to build Bitcoin applications. `florestad` is built on top of `libfloresta` to provide a full node implementation, including a watch-only wallet and an Electrum server. If you just want to run a full node, you can use `florestad` directly, either by building it from source using the given instructions on the [doc folder](/doc) or by downloading a pre-built binary from the [releases](https://github.com/vinteumorg/Floresta/releases/latest).
+This project is composed of two parts, `libfloresta` and `florestad`. `libfloresta` is a set of reusable components that can be used to build Bitcoin applications. `florestad` is built on top of `libfloresta` to provide a full node implementation, including a watch-only wallet and an Electrum server. If you just want to run a full node, you can use `florestad` directly, either by building it from source using the given instructions on the [doc folder](/doc) or by downloading a pre-built binary from the [releases](https://github.com/vinteumorg/Floresta/releases/latest).
 
 ## For developers
 
@@ -30,11 +29,10 @@ Further information can be found in the [doc folder](/doc).
 
 ## Community
 
-If you want to discuss this project, you can join our Discord server [here](https://discord.gg/5Wj8fjjS93). If you want to disclose
-a security vulnerability, please email `Davidson Souza at me AT dlsouza DOT lol`, using the PGP key [`2C8E0F 836FD7D BBBB9E 9B2EF899 64EC3AB 22B2E3`](https://blog.dlsouza.lol/assets/gpg.asc).
+If you want to discuss this project, you can join our Discord server [here](https://discord.gg/5Wj8fjjS93). If you want to disclose a security vulnerability, please email `Davidson Souza at me AT dlsouza DOT lol`, using the PGP key [`2C8E0F 836FD7D BBBB9E 9B2EF899 64EC3AB 22B2E3`](https://blog.dlsouza.lol/assets/gpg.asc).
 
 ## Contributing
-Contributions are welcome, feel free to open an issue or a pull request.  Check out our [CONTRIBUTING.md](CONTRIBUTING.md) for more
+Contributions are welcome, feel free to open an issue or a pull request. Check out our [CONTRIBUTING.md](CONTRIBUTING.md) for more
 information on best practices and guidelines.
 
 If you want to contribute but don't know where to start, take a look at the issues, there's a few of them marked as `good first issue`.
