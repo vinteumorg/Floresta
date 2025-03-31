@@ -1,6 +1,7 @@
 use bitcoin::block::Header;
 use bitcoin::consensus::encode::serialize_hex;
 use bitcoin::constants::genesis_block;
+use bitcoin::hashes::sha256d;
 use bitcoin::Block;
 use bitcoin::BlockHash;
 use bitcoin::OutPoint;
@@ -8,9 +9,11 @@ use bitcoin::ScriptBuf;
 use bitcoin::Txid;
 use floresta_chain::pruned_utreexo::BlockchainInterface;
 use floresta_chain::pruned_utreexo::UpdatableChainstate;
+use floresta_watch_only::merkle::MerkleProof;
 use floresta_wire::node_interface::NodeMethods;
 use serde_json::json;
 use serde_json::Value;
+use std::str::FromStr;
 use tokio::task::spawn_blocking;
 
 use super::res::Error as RpcError;
@@ -204,12 +207,23 @@ impl RpcImpl {
     ) -> Result<Vec<String>, RpcError> {
         if let Some(hash) = block_hash {
             let block = self.get_block(hash).await?;
-            return Ok(vec![block
+
+            let target = block
                 .tx
                 .iter()
-                .find(|&tx| *tx == tx_id.to_string())
-                .ok_or(RpcError::TxNotFound)?
-                .to_string()]);
+                .position(|tx| tx == &tx_id.to_string())
+                .ok_or(RpcError::TxNotFound)
+                .unwrap();
+
+            let block_tx_hashes = block
+                .tx
+                .iter()
+                .map(|x| sha256d::Hash::from_str(x).unwrap())
+                .collect::<Vec<sha256d::Hash>>();
+
+            let proof = MerkleProof::from_block_hashes(block_tx_hashes, target.try_into().unwrap());
+
+            return Ok(proof.hashes().iter().map(|h| h.to_string()).collect());
         }
 
         Ok(self
