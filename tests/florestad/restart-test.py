@@ -6,12 +6,13 @@ A simple test that restart a Floresta node and a related data directory.
 The directories used between each power-on/power-off must not be corrupted.
 """
 
-import time
-import os
 import filecmp
+import os
 import tempfile
-from test_framework.test_framework import FlorestaTestFramework
+import time
+
 from test_framework.floresta_rpc import REGTEST_RPC_SERVER
+from test_framework.test_framework import FlorestaTestFramework
 
 
 class TestRestart(FlorestaTestFramework):
@@ -65,7 +66,9 @@ class TestRestart(FlorestaTestFramework):
         self.stop_node(TestRestart.indexes[1])
 
         # check for any corruption
-        assert filecmp.dircmp(TestRestart.data_dirs[0], TestRestart.data_dirs[1])
+        # if any files are different, we will get a list of them
+        result = filecmp.dircmp(TestRestart.data_dirs[0], TestRestart.data_dirs[1])
+        self.assertEqual(len(result.diff_files), 0)
 
 
 if __name__ == "__main__":
