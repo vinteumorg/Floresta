@@ -30,11 +30,26 @@
       with pkgs;
       {
         checks = {
-          # Usefull Checks here
+          rust-test =
+            let
+              # since the rust code of this project is spread across multiple files, its better to track them using file sets to avoid
+              # useless operations.
+              source = ""; # TO-DO: rust file set
+            in
+            pkgs.runCommandLocal "cargo test"
+              {
+                nativeBuildInputs = [
+                  rustup
+                  self.packages.florestad
+                ];
+              }
+              ''
+                cargo test
+              '';
+          #  Checks formatting with black, pylint is intrusive.
           python-sanity =
             let
               source = ./tests;
-
             in
             pkgs.runCommandLocal "Python Fmt Check"
               {
