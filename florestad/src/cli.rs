@@ -48,9 +48,9 @@ impl std::fmt::Display for Network {
 
 #[derive(Parser)]
 #[command(
-    author = "Davidson Souza", 
+    author = "Davidson Souza",
     version = env!("GIT_DESCRIBE"),
-    about = "florestad - a lightweight Bitcoin client", 
+    about = "florestad - a lightweight Bitcoin client",
     long_about = env!("LONG_VERSION"),
 )]
 pub struct Cli {
@@ -151,12 +151,14 @@ pub struct Cli {
     pub filters_start_height: Option<i32>,
 
     #[arg(long, default_value_t = false)]
-    /// Whether we should assume a utreexo state for a given height
+    /// Whether assume utreexo should be disabled.
     ///
-    /// This option will significantly speed up the initial block download, by skipping the
-    /// validation of the first hundreds of thousands of blocks. However, there's an inherent
-    /// trust in the developer that the utreexo state is correct. Everything after the assumed
-    /// height will be fully validated.
+    /// This option will disable assume utreexo. This feature allows the node to skip validation
+    /// of historical blocks, making it ready-to-use in a shorter time than validating all blocks.
+    /// Disabling it will cause the node to validate all blocks from genesis.
+    ///
+    /// By default, floresta will still validate those blocks and transactions on background until
+    /// we reach the assumed tip. If you want to stop this behavior, use the --no-backfill flag.
     pub no_assume_utreexo: bool,
 
     #[arg(long, value_name = "PATH")]
@@ -198,7 +200,7 @@ pub struct Cli {
     pub pid_file: Option<String>,
 
     #[arg(long, default_value_t = false)]
-    /// Whehter we should backfill
+    /// Whether backfill should be disabled
     ///
     /// If we assumeutreexo or use pow fraud proofs, you have the option to download and validate
     /// the blocks that were skipped. This will take a long time, but will run on the background
