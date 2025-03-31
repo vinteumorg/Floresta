@@ -150,26 +150,38 @@ pub struct Cli {
     /// Download block filters starting at this height. Negative numbers are relative to the current tip.
     pub filters_start_height: Option<i32>,
 
-    #[arg(long)]
+    #[arg(long, default_value_t = false)]
     /// Whether we should assume a utreexo state for a given height
     ///
     /// This option will significantly speed up the initial block download, by skipping the
     /// validation of the first hundreds of thousands of blocks. However, there's an inherent
     /// trust in the developer that the utreexo state is correct. Everything after the assumed
     /// height will be fully validated.
-    pub assume_utreexo: bool,
+    pub no_assume_utreexo: bool,
 
     #[arg(long, value_name = "PATH")]
-    /// Path to the SSL certificate file
+    /// Path to the SSL certificate file (defaults to <data-dir>/ssl/cert.pem).
+    ///
+    /// The user should create a PKCS#8 based one with openssl. For example:
+    ///
+    /// openssl req -x509 -new -key key.pem -out cert.pem -days 365 -subj "/CN=localhost"
     pub ssl_cert_path: Option<String>,
 
     #[arg(long, value_name = "PATH")]
-    /// Path to the SSL private key file
+    /// Path to the SSL private key file (defaults to <data-dir>/ssl/key.pem).
+    ///
+    /// The user should create a PKCS#8 based one with openssl. For example:
+    ///
+    /// openssl genpkey -algorithm RSA -out key.pem -pkeyopt rsa_keygen_bits:2048
     pub ssl_key_path: Option<String>,
 
     #[arg(long, default_value_t = false)]
     /// Whether to disable SSL
     pub no_ssl: bool,
+
+    #[arg(long, default_value_t = false)]
+    /// Whether to disable fallback to v1 transport if v2 connection fails
+    pub no_v1_fallback: bool,
 
     #[cfg(unix)]
     #[arg(long, default_value = "false")]
@@ -184,4 +196,17 @@ pub struct Cli {
     /// write it to a file. This option should be an absolute path to a file. Usually, you'd
     /// write it to $DATA_DIR/florestad.pid
     pub pid_file: Option<String>,
+
+    #[arg(long, default_value_t = false)]
+    /// Whehter we should backfill
+    ///
+    /// If we assumeutreexo or use pow fraud proofs, you have the option to download and validate
+    /// the blocks that were skipped. This will take a long time, but will run on the background
+    /// and won't affect the node's operation. You may notice that this will take a lot of CPU
+    /// and bandwidth to run.
+    ///
+    /// The default behavior is verifying the blocks that were skipped during node startup.
+    /// This will run in the background and wont't affect node's operation. However,
+    /// to disable backfilling, run floresta using this flag.
+    pub no_backfill: bool,
 }

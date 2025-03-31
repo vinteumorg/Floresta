@@ -171,6 +171,8 @@ pub struct PeerInfo {
     ///
     /// Can be either Ready, Connecting or Banned
     pub state: String,
+    /// The transport protocol used with peer.
+    pub transport_protocol: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

@@ -17,6 +17,7 @@ use std::str::FromStr;
 use tokio::task::spawn_blocking;
 
 use super::res::Error as RpcError;
+use super::res::Error;
 use super::res::GetBlockResVerbose;
 use super::res::GetBlockchainInfoRes;
 use super::server::RpcImpl;
@@ -24,9 +25,6 @@ use super::server::RpcImpl;
 impl RpcImpl {
     async fn get_block_inner(&self, hash: BlockHash) -> Result<Block, RpcError> {
         let is_genesis = self.chain.get_block_hash(0).unwrap().eq(&hash);
-        if self.chain.is_in_idb() && !is_genesis {
-            return Err(RpcError::InInitialBlockDownload);
-        }
 
         if is_genesis {
             return Ok(genesis_block(self.network));
@@ -119,7 +117,7 @@ impl RpcImpl {
     pub(super) fn get_blockchain_info(&self) -> Result<GetBlockchainInfoRes, RpcError> {
         let (height, hash) = self.chain.get_best_block().unwrap();
         let validated = self.chain.get_validation_index().unwrap();
-        let ibd = self.chain.is_in_idb();
+        let ibd = self.chain.is_in_ibd();
         let latest_header = self.chain.get_block_header(&hash).unwrap();
         let latest_work = latest_header.work();
         let latest_block_time = latest_header.time;
@@ -258,7 +256,8 @@ impl RpcImpl {
             return Ok(serde_json::to_value(txout).unwrap());
         }
 
-        if self.chain.is_in_idb() {
+        // if we are on IBD, we don't have any filters to find this txout.
+        if self.chain.is_in_ibd() {
             return Err(RpcError::InInitialBlockDownload);
         }
 
@@ -307,5 +306,13 @@ impl RpcImpl {
     pub(super) fn get_roots(&self) -> Result<Vec<String>, RpcError> {
         let hashes = self.chain.get_root_hashes();
         Ok(hashes.iter().map(|h| h.to_string()).collect())
+    }
+
+    pub(super) fn list_descriptors(&self) -> Result<Vec<String>, Error> {
+        let descriptors = self
+            .wallet
+            .get_descriptors()
+            .map_err(|e| Error::Wallet(e.to_string()))?;
+        Ok(descriptors)
     }
 }

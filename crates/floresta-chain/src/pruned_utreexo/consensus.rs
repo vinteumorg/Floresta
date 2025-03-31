@@ -97,13 +97,12 @@ impl Consensus {
                 if !transaction.is_coinbase() {
                     return Err(BlockValidationErrors::FirstTxIsNotCoinbase)?;
                 }
-                // Check coinbase input and output script limits
                 Self::verify_coinbase(transaction)?;
                 // Skip next checks: coinbase input is exempt, coinbase reward checked later
                 continue;
             }
 
-            // actually verify the transaction
+            // Actually verify the transaction
             let (in_value, out_value) =
                 Self::verify_transaction(transaction, &mut utxos, verify_script, flags)?;
 
@@ -145,15 +144,15 @@ impl Consensus {
             .map(|out| out.value.to_sat())
             .sum();
 
-        // Sum tx input amounts, check their unlocking script sizes (scriptsig and TODO witness)
         let mut in_value = 0;
         for input in transaction.input.iter() {
             let txo = Self::get_utxo(input, utxos, txid)?;
 
             in_value += txo.value.to_sat();
 
+            // Check script sizes (spent txo pubkey, and current tx scriptsig and TODO witness)
+            Self::validate_script_size(&txo.script_pubkey, txid)?;
             Self::validate_script_size(&input.script_sig, txid)?;
-            Self::validate_script_size(&txo.script_pubkey, || input.previous_output.txid)?;
             // TODO check also witness script size
         }
 
@@ -161,7 +160,6 @@ impl Consensus {
         if out_value > in_value {
             return Err(tx_err!(txid, NotEnoughMoney))?;
         }
-
         // Sanity check
         if out_value > 21_000_000 * COIN_VALUE {
             return Err(BlockValidationErrors::TooManyCoins)?;
@@ -220,8 +218,7 @@ impl Consensus {
         Ok(())
     }
 
-    /// Validates the coinbase transaction's input and enforces the limits on each
-    /// output's script. The check for output values is not performed here.
+    /// Validates the coinbase transaction's input.
     fn verify_coinbase(tx: &Transaction) -> Result<(), TransactionError> {
         let txid = || tx.compute_txid();
         let input = match tx.input.as_slice() {
@@ -239,11 +236,6 @@ impl Consensus {
         let size = input.script_sig.len();
         if !(2..=100).contains(&size) {
             return Err(tx_err!(txid, InvalidCoinbase, "Invalid ScriptSig size"));
-        }
-
-        // Finally check all the output scripts
-        for output in tx.output.iter() {
-            Self::validate_script_size(&output.script_pubkey, txid)?;
         }
 
         Ok(())
@@ -307,8 +299,38 @@ mod tests {
 
     use super::*;
 
+    /// Macro for creating a TxOut
+    macro_rules! txout {
+        ($sats:expr, $script:expr) => {
+            TxOut {
+                value: Amount::from_sat($sats),
+                script_pubkey: $script,
+            }
+        };
+    }
+
+    /// Macro for generating a legacy TxIn with an optional sequence number
+    macro_rules! txin {
+        ($outpoint:expr, $script:expr) => {
+            TxIn {
+                previous_output: $outpoint,
+                script_sig: $script,
+                sequence: Sequence::MAX,
+                witness: Witness::new(),
+            }
+        };
+        ($outpoint:expr, $script:expr, $sequence:expr) => {
+            TxIn {
+                previous_output: $outpoint,
+                script_sig: $script,
+                sequence: $sequence,
+                witness: Witness::new(),
+            }
+        };
+    }
+
     #[cfg(feature = "bitcoinconsensus")]
-    /// Some made up transactions that tests our script limits checks.
+    /// Some made up transactions that test our script limits checks.
     /// Here's what is wrong with each transaction:
     ///     - tx1: Too many ops (512, should be <= 201)
     ///     - tx2: It's ok, just huge
@@ -341,21 +363,11 @@ mod tests {
             ScriptBuf::from_hex(&format!("{:0>420}", "")).unwrap()
         };
 
-        let input_sequence = Sequence::MAX;
-        let input = TxIn {
-            previous_output: input_outpoint,
-            script_sig: input_script_sig,
-            sequence: input_sequence,
-            witness: Witness::new(),
-        };
+        let input = txin!(input_outpoint, input_script_sig);
 
         // Create outputs
-        let output_value = Amount::from_sat(5_000_350_000);
-        let output_script_pubkey = ScriptBuf::from_hex("41047eda6bd04fb27cab6e7c28c99b94977f073e912f25d1ff7165d9c95cd9bbe6da7e7ad7f2acb09e0ced91705f7616af53bee51a238b7dc527f2be0aa60469d140ac").unwrap();
-        let output = TxOut {
-            value: output_value,
-            script_pubkey: output_script_pubkey,
-        };
+        let output_script = ScriptBuf::from_hex("41047eda6bd04fb27cab6e7c28c99b94977f073e912f25d1ff7165d9c95cd9bbe6da7e7ad7f2acb09e0ced91705f7616af53bee51a238b7dc527f2be0aa60469d140ac").unwrap();
+        let output = txout!(5_000_350_000, output_script);
 
         // Create transaction
         let version = Version(1);
@@ -408,25 +420,14 @@ mod tests {
         // Mock data for testing
 
         let mut utxos = HashMap::new();
-        let tx: Transaction = bitcoin::consensus::deserialize(
-            &hex::decode("0100000001bd597773d03dcf6e22ba832f2387152c9ab69d250a8d86792bdfeb690764af5b010000006c493046022100841d4f503f44dd6cef8781270e7260db73d0e3c26c4f1eea61d008760000b01e022100bc2675b8598773984bcf0bb1a7cad054c649e8a34cb522a118b072a453de1bf6012102de023224486b81d3761edcd32cedda7cbb30a4263e666c87607883197c914022ffffffff021ee16700000000001976a9144883bb595608dcfe882aea5f7c579ef107a4fb5b88ac52a0aa00000000001976a914782231de72adb5c9df7367ab0c21c7b44bbd743188ac00000000").unwrap()
-        ).unwrap();
+        let tx: Transaction = deserialize_hex("0100000001bd597773d03dcf6e22ba832f2387152c9ab69d250a8d86792bdfeb690764af5b010000006c493046022100841d4f503f44dd6cef8781270e7260db73d0e3c26c4f1eea61d008760000b01e022100bc2675b8598773984bcf0bb1a7cad054c649e8a34cb522a118b072a453de1bf6012102de023224486b81d3761edcd32cedda7cbb30a4263e666c87607883197c914022ffffffff021ee16700000000001976a9144883bb595608dcfe882aea5f7c579ef107a4fb5b88ac52a0aa00000000001976a914782231de72adb5c9df7367ab0c21c7b44bbd743188ac00000000").unwrap();
 
-        assert_eq!(
-            tx.input.len(),
-            1,
-            "We only spend one utxo in this transaction"
-        );
+        assert_eq!(tx.input.len(), 1, "We only spend one utxo in this tx");
         let outpoint = tx.input[0].previous_output;
 
-        let txout = TxOut {
-            value: Amount::from_sat(18000000),
-            script_pubkey: ScriptBuf::from_hex(
-                "76a9149206a30c09cc853bb03bd917a4f9f29b089c1bc788ac",
-            )
-            .unwrap(),
-        };
-        utxos.insert(outpoint, txout);
+        let output_script =
+            ScriptBuf::from_hex("76a9149206a30c09cc853bb03bd917a4f9f29b089c1bc788ac").unwrap();
+        utxos.insert(outpoint, txout!(18000000, output_script));
 
         // Test consuming UTXOs
         let flags = bitcoinconsensus::VERIFY_P2SH;
@@ -481,78 +482,65 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_spending_script_too_big() {
-        // Bitcoin Consensus rules dictates that a scriptPubkey that's more than 10_000 bytes long
-        // won't be spendable. However, such an output **can** be created. We only check those
-        // sizes when it gets spent.
-        //
-        // This test creates an over-sized script, make sure that transaction containing it is valid. Then we try
-        // to spend this output, and verify if this causes an error.
+    pub fn true_script() -> ScriptBuf {
+        let mut script = ScriptBuf::default();
+        script.push_opcode(OP_TRUE);
+        script
+    }
+
+    pub fn oversized_script() -> ScriptBuf {
         let mut script = ScriptBuf::default();
         for _ in 0..10_000 {
             script.push_opcode(OP_NOP);
         }
-
         script.push_opcode(OP_TRUE);
+        script
+    }
 
-        let tx = Transaction {
-            version: Version(1),
-            lock_time: LockTime::from_height(0).unwrap(),
-            input: vec![TxIn {
-                previous_output: OutPoint::null(),
-                script_sig: ScriptBuf::from_hex("51").unwrap(),
-                sequence: Sequence::MAX,
-                witness: Witness::new(),
-            }],
-            output: vec![TxOut {
-                value: Amount::from_sat(0),
-                script_pubkey: script.clone(),
-            }],
-        };
-
-        let mut utxos = HashMap::new();
-        utxos.insert(
-            OutPoint::null(),
-            TxOut {
-                value: Amount::from_sat(0),
-                script_pubkey: ScriptBuf::from_hex("51").unwrap(),
-            },
-        );
+    #[test]
+    // Bitcoin Consensus rules dictate that a scriptPubkey that's more than 10_000 bytes long
+    // won't be spendable. However, such an output **can** be created. We only check those
+    // sizes when it gets spent.
+    //
+    // This test creates an over-sized script, make sure that transaction containing it is valid.
+    // Then we try to spend this output, and verify if this causes an error.
+    fn test_spending_script_too_big() {
+        fn build_tx(input: TxIn, output: TxOut) -> Transaction {
+            Transaction {
+                version: Version(1),
+                lock_time: LockTime::from_height(0).unwrap(),
+                input: vec![input],
+                output: vec![output],
+            }
+        }
 
         let flags = 0;
-        Consensus::verify_transaction(&tx, &mut utxos, false, flags).unwrap();
-
-        let spending = Transaction {
-            version: Version(1),
-            lock_time: LockTime::from_height(0).unwrap(),
-            input: vec![TxIn {
-                previous_output: OutPoint {
-                    txid: tx.compute_txid(),
-                    vout: 0,
-                },
-                script_sig: ScriptBuf::new(),
-                sequence: Sequence::MAX,
-                witness: Witness::new(),
-            }],
-            output: vec![TxOut {
-                value: Amount::from_sat(0),
-                script_pubkey: ScriptBuf::from_hex("51").unwrap(),
-            }],
-        };
-
         let mut utxos = HashMap::new();
-        utxos.insert(
-            OutPoint {
-                txid: tx.compute_txid(),
-                vout: 0,
-            },
-            TxOut {
-                value: Amount::from_sat(0),
-                script_pubkey: script,
-            },
-        );
+        utxos.insert(OutPoint::null(), txout!(0, true_script()));
 
-        Consensus::verify_transaction(&spending, &mut utxos, false, flags).unwrap_err();
+        // 1. Build a valid transaction that produces an oversized, unspendable output.
+        let dummy_in = txin!(OutPoint::null(), ScriptBuf::new());
+        let oversized_out = txout!(0, oversized_script());
+        let tx_with_oversized = build_tx(dummy_in, oversized_out.clone());
+
+        Consensus::verify_transaction(&tx_with_oversized, &mut utxos, false, flags).unwrap();
+
+        // 2. Register the oversized output as an available UTXO.
+        let prevout = OutPoint::new(tx_with_oversized.compute_txid(), 0);
+        utxos.insert(prevout, oversized_out);
+
+        // 3. Attempt to spend the oversized output.
+        let spending_in = txin!(prevout, ScriptBuf::new());
+        let spending_tx = build_tx(spending_in, txout!(0, true_script()));
+        let err =
+            Consensus::verify_transaction(&spending_tx, &mut utxos, false, flags).unwrap_err();
+
+        // Check that the error is exactly what we expect.
+        match err {
+            BlockchainError::TransactionError(inner) => {
+                assert_eq!(inner, tx_err!(|| spending_tx.compute_txid(), ScriptError));
+            }
+            e => panic!("Expected a TransactionError, but got: {:?}", e),
+        }
     }
 }

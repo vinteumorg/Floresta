@@ -45,27 +45,29 @@
 //! downloading the actual blocks and validating them.
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 
 use bitcoin::block::Header;
 use bitcoin::consensus::deserialize;
+use bitcoin::p2p::message_blockdata::Inventory;
 use bitcoin::p2p::ServiceFlags;
 use bitcoin::BlockHash;
+use floresta_chain::pruned_utreexo::udata;
 use floresta_chain::pruned_utreexo::BlockchainInterface;
 use floresta_chain::pruned_utreexo::UpdatableChainstate;
 use floresta_chain::UtreexoBlock;
 use floresta_common::service_flags;
+use log::debug;
 use log::info;
 use log::warn;
 use rustreexo::accumulator::node_hash::BitcoinNodeHash;
 use rustreexo::accumulator::stump::Stump;
-use tokio::sync::RwLock;
 use tokio::time::timeout;
 
 use super::error::WireError;
 use super::node::PeerStatus;
+use super::node_interface::UserRequest;
 use super::peer::PeerMessages;
 use crate::address_man::AddressState;
 use crate::node::periodic_job;
@@ -76,6 +78,7 @@ use crate::node::NodeRequest;
 use crate::node::UtreexoNode;
 use crate::node_context::NodeContext;
 use crate::node_context::PeerId;
+use crate::node_interface::NodeResponse;
 
 #[derive(Debug, Default, Clone)]
 /// A p2p driver that attempts to connect with multiple peers, ask which chain are them following
@@ -125,8 +128,9 @@ impl NodeContext for ChainSelector {
 
 impl<Chain> UtreexoNode<Chain, ChainSelector>
 where
-    WireError: From<<Chain as BlockchainInterface>::Error>,
     Chain: BlockchainInterface + UpdatableChainstate + 'static,
+    WireError: From<Chain::Error>,
+    Chain::Error: From<udata::proof_util::Error>,
 {
     /// This function is called every time we get a `Headers` message from a peer.
     /// It will validate the headers and add them to our chain, if they are valid.
@@ -170,8 +174,7 @@ where
             .and_modify(|e| *e = last)
             .or_insert(last);
 
-        self.request_headers(headers.last().unwrap().block_hash(), peer)
-            .await
+        self.request_headers(last, peer).await
     }
 
     /// Takes a serialized accumulator and parses it into a Stump
@@ -386,7 +389,7 @@ where
         let (proof, del_hashes, _) = floresta_chain::proof_util::process_proof(
             block.udata.as_ref().unwrap(),
             &block.block.txdata,
-            &self.chain,
+            |h| self.chain.get_block_hash(h),
         )?;
 
         Ok(self
@@ -528,7 +531,7 @@ where
         let (proof, del_hashes, inputs) = floresta_chain::proof_util::process_proof(
             block.udata.as_ref().unwrap(),
             &block.block.txdata,
-            &self.chain,
+            |h| self.chain.get_block_hash(h),
         )?;
 
         let fork_height = self.chain.get_block_height(&fork)?.unwrap_or(0);
@@ -645,6 +648,11 @@ where
                         .insert(InflightRequests::Headers, (new_sync_peer, Instant::now()));
                 }
             }
+
+            if let InflightRequests::UserRequest(req) = request {
+                self.user_requests.send_answer(req, None);
+            }
+
             self.inflight.remove(&request);
         }
 
@@ -681,8 +689,8 @@ where
         Ok(())
     }
 
-    pub async fn run(&mut self, stop_signal: Arc<RwLock<bool>>) -> Result<(), WireError> {
-        info!("Starting ibd, selecting the best chain");
+    pub async fn run(&mut self) -> Result<(), WireError> {
+        info!("Starting IBD, selecting the best chain");
 
         loop {
             while let Ok(notification) = timeout(Duration::from_secs(1), self.node_rx.recv()).await
@@ -690,10 +698,21 @@ where
                 try_and_log!(self.handle_notification(notification).await);
             }
 
+            try_and_log!(self.handle_user_request().await);
+
+            // Checks if we need to open a new connection
             periodic_job!(
-                self.maybe_open_connection().await,
+                self.maybe_open_connection(ServiceFlags::NONE).await,
                 self.last_connection,
                 TRY_NEW_CONNECTION,
+                ChainSelector
+            );
+
+            // Open new feeler connection periodically
+            periodic_job!(
+                self.open_feeler_connection().await,
+                self.last_feeler,
+                FEELER_INTERVAL,
                 ChainSelector
             );
 
@@ -730,7 +749,7 @@ where
 
             try_and_log!(self.check_for_timeout().await);
 
-            if *stop_signal.read().await {
+            if *self.kill_signal.read().await {
                 break;
             }
         }
@@ -842,6 +861,45 @@ where
             PeerMessages::Addr(addresses) => {
                 let addresses: Vec<_> = addresses.iter().cloned().map(|addr| addr.into()).collect();
                 self.address_man.push_addresses(&addresses);
+            }
+
+            PeerMessages::Block(block) => {
+                if self.check_is_user_block_and_reply(block).await?.is_some() {
+                    log::error!("peer {peer} sent us a block we didn't request");
+                    self.increase_banscore(peer, 5).await?;
+                }
+            }
+
+            PeerMessages::NotFound(inv) => match inv {
+                Inventory::Error => {}
+                Inventory::Block(block)
+                | Inventory::WitnessBlock(block)
+                | Inventory::CompactBlock(block) => {
+                    self.user_requests
+                        .send_answer(UserRequest::Block(block), None);
+                }
+
+                Inventory::WitnessTransaction(tx) | Inventory::Transaction(tx) => {
+                    self.user_requests
+                        .send_answer(UserRequest::MempoolTransaction(tx), None);
+                }
+                _ => {}
+            },
+
+            PeerMessages::Transaction(tx) => {
+                debug!("saw a mempool transaction with txid={}", tx.compute_txid());
+                self.user_requests.send_answer(
+                    UserRequest::MempoolTransaction(tx.compute_txid()),
+                    Some(NodeResponse::MempoolTransaction(tx)),
+                );
+            }
+
+            PeerMessages::UtreexoState(_) => {
+                warn!(
+                    "Utreexo state received from peer {}, but we didn't ask",
+                    peer
+                );
+                self.increase_banscore(peer, 5).await?;
             }
 
             _ => {}

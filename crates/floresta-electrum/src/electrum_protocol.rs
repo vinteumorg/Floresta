@@ -530,7 +530,7 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
 
             // rescan for new addresses, if any
             if !self.addresses_to_scan.is_empty() {
-                if self.chain.is_in_idb() {
+                if self.chain.is_in_ibd() {
                     continue;
                 }
 
@@ -647,7 +647,7 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
 
         let current_height = self.address_cache.get_cache_height();
 
-        if (!self.chain.is_in_idb() || height % 1000 == 0) && (height > current_height) {
+        if (!self.chain.is_in_ibd() || height % 1000 == 0) && (height > current_height) {
             self.address_cache.bump_height(height);
         }
 
@@ -912,6 +912,7 @@ mod test {
     use floresta_watch_only::kv_database::KvDatabase;
     use floresta_watch_only::merkle::MerkleProof;
     use floresta_watch_only::AddressCache;
+    use floresta_wire::address_man::AddressMan;
     use floresta_wire::mempool::Mempool;
     use floresta_wire::node::UtreexoNode;
     use floresta_wire::running_node::RunningNode;
@@ -928,6 +929,7 @@ mod test {
     use tokio::net::TcpListener;
     use tokio::net::TcpStream;
     use tokio::sync::Mutex;
+    use tokio::sync::RwLock;
     use tokio::task;
     use tokio::time::timeout;
     use tokio_rustls::rustls::Certificate;
@@ -1057,6 +1059,7 @@ mod test {
             backfill: false,
             filter_start_height: None,
             user_agent: "floresta".to_string(),
+            allow_v1_fallback: true,
         };
 
         let chain_provider: UtreexoNode<Arc<ChainState<KvChainStore>>, RunningNode> =
@@ -1065,6 +1068,8 @@ mod test {
                 chain.clone(),
                 Arc::new(Mutex::new(Mempool::new(Pollard::default(), 0))),
                 None,
+                Arc::new(RwLock::new(false)),
+                AddressMan::default(),
             )
             .unwrap();
 

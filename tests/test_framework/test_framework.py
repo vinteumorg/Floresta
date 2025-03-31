@@ -14,9 +14,12 @@ The difference is that our node will run withing a `cargo run` subprocess, defin
 """
 
 import os
-import tempfile
 import subprocess
 from test_framework.floresta_rpc import FlorestaRPC
+from test_framework.crypto.pkcs8 import (
+    create_pkcs8_private_key,
+    create_pkcs8_self_signed_certificate,
+)
 
 VALID_FLORESTAD_EXTRA_ARGS = [
     "-c",
@@ -39,6 +42,9 @@ VALID_FLORESTAD_EXTRA_ARGS = [
     "--filters-start-height",
     "--assume-utreexo",
     "--pid-file",
+    "--ssl-electrum-address",
+    "--ssl-cert-path",
+    "--ssl-key-path",
 ]
 
 
@@ -89,6 +95,10 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
         self._tests = []
         self._nodes = []
 
+    def log(self, msg: str) -> str:
+        """Log a message with the class caller"""
+        print(f"[{self.__class__.__name__} INFO] {msg}")
+
     def main(self):
         """
         Main function.
@@ -115,32 +125,12 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
     @staticmethod
     def get_integration_test_dir():
         """
-        Get path for florestad used in integration tests, generally on
-        /tmp/floresta-integration-tests.<some git commit>
+        Get path for florestad used in integration tests, generally set on
+        $FLORESTA_TEMP_DIR/binaries
         """
-        with subprocess.Popen(
-            ["git", "rev-parse", "HEAD"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        ) as cmd:
-
-            # get the git rev-parse
-            stdout, stderr = cmd.communicate()
-
-            # check for any error
-            if isinstance(stderr, str) and stderr != "":
-                raise RuntimeError(stderr)
-
-            gitrev = stdout.rstrip()
-            return os.path.normpath(
-                os.path.join(
-                    tempfile.gettempdir(),
-                    f"floresta-integration-tests.{gitrev}",
-                    "florestad",
-                    "debug",
-                )
-            )
+        return os.path.normpath(
+            os.path.join(os.environ.get("FLORESTA_TEMP_DIR"), "binaries")
+        )
 
     @staticmethod
     def get_target_release_dir():
@@ -151,9 +141,42 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
         dirname = os.path.dirname(__file__)
         return os.path.normpath(os.path.join(dirname, "..", "..", "target", "release"))
 
+    def create_ssl_keys(self) -> tuple[str, str]:
+        """
+        Create a PKCS#8 formatted private key and a self-signed certificate.
+        These keys are intended to be used with florestad's --ssl-key-path and --ssl-cert-path
+        options.
+        """
+        # Check if we're in CI or not
+        if "/tmp/floresta-integration-tests" in os.getenv("PATH"):
+            ssl_path = os.path.normpath(
+                os.path.abspath(
+                    os.path.join(self.get_integration_test_dir(), "..", "..", "ssl")
+                )
+            )
+        else:
+            home = os.path.expanduser("~")  # Fixed: '~user' -> '~' for current user
+            ssl_path = os.path.normpath(
+                os.path.abspath(os.path.join(home, ".floresta", "ssl"))
+            )
+
+        # Create the folder if not exists
+        os.makedirs(ssl_path, exist_ok=True)
+
+        # Create certificates
+        pk_path, private_key = create_pkcs8_private_key(ssl_path)
+        self.log(f"Created PKCS#8 key at {pk_path}")
+
+        cert_path = create_pkcs8_self_signed_certificate(
+            ssl_path, private_key, common_name="florestad", validity_days=365
+        )
+        self.log(f"Created self-signed certificate at {cert_path}")
+
+        return (pk_path, cert_path)
+
     # Framework
     def add_node_settings(
-        self, chain: str, extra_args: list[str], rpcserver: dict
+        self, chain: str, extra_args: list[str], rpcserver: dict, ssl: bool = False
     ) -> int:
         """
         Add a node settings to be run. Use this on set_test_params method many times you want.
@@ -184,12 +207,7 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
         print(f"Using {florestad}")
         setting = {
             "chain": chain,
-            "config": [
-                florestad,
-                "--network",
-                chain,
-                "--no-ssl",
-            ],
+            "config": [florestad, "--network", chain],
             "rpcserver": rpcserver,
         }
 
@@ -205,6 +223,20 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
                     setting["config"].append(extra)
                 else:
                     raise ValueError(f"Invalid extra_arg '{extra}'")
+
+        # If ssl isnt enabled, add --no-ssl
+        # if ssl is enabled, user can add:
+        #   --ssl-cert-path
+        #   --ssl-key-path
+        # Either way, we need to create PKCS#8 key and certificate
+        if not ssl:
+            setting["config"].append("--no-ssl")
+        else:
+            (key, cert) = self.create_ssl_keys()
+            setting["config"].append("--ssl-key-path")
+            setting["config"].append(key)
+            setting["config"].append("--ssl-cert-path")
+            setting["config"].append(cert)
 
         self._tests.append(setting)
         return len(self._tests) - 1
@@ -227,6 +259,8 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
         if node["chain"] == "regtest":
             # pylint: disable=consider-using-with
             # add text=True to treat all outputs as texts (jsons or python stack traces)
+            cmd = " ".join(node["config"])
+            self.log(f"Running '{cmd}'")
             process_node = subprocess.Popen(node["config"], text=True)
             json_rpc = FlorestaRPC(process=process_node, rpcserver=node["rpcserver"])
             self._nodes.append(json_rpc)

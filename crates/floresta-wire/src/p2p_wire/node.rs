@@ -25,6 +25,7 @@ use floresta_chain::pruned_utreexo::UpdatableChainstate;
 use floresta_chain::Network;
 use floresta_chain::UtreexoBlock;
 use floresta_common::service_flags;
+use floresta_common::service_flags::UTREEXO;
 use floresta_common::FractionAvg;
 use floresta_compact_filters::flat_filters_store::FlatFiltersStore;
 use floresta_compact_filters::network_filters::NetworkFilters;
@@ -34,7 +35,6 @@ use log::warn;
 use serde::Deserialize;
 use serde::Serialize;
 use tokio::net::tcp::WriteHalf;
-use tokio::net::TcpStream;
 use tokio::spawn;
 use tokio::sync::mpsc::unbounded_channel;
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -51,16 +51,17 @@ use super::mempool::Mempool;
 use super::mempool::MempoolProof;
 use super::node_context::NodeContext;
 use super::node_interface::NodeInterface;
+use super::node_interface::NodeResponse;
 use super::node_interface::PeerInfo;
 use super::node_interface::UserRequest;
-use super::peer::create_tcp_stream_actor;
+use super::peer::create_actors;
 use super::peer::Peer;
 use super::peer::PeerMessages;
 use super::peer::Version;
 use super::running_node::RunningNode;
-use super::socks::Socks5Addr;
-use super::socks::Socks5Error;
 use super::socks::Socks5StreamBuilder;
+use super::transport;
+use super::transport::TransportProtocol;
 use super::UtreexoNodeConfig;
 use crate::node_context::PeerId;
 
@@ -100,11 +101,24 @@ pub(crate) enum InflightRequests {
     GetFilters,
 }
 
-#[derive(Debug, PartialEq, Clone, Copy, Deserialize, Serialize)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum ConnectionKind {
     Feeler,
-    Regular,
+    Regular(ServiceFlags),
     Extra,
+}
+
+impl Serialize for ConnectionKind {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            ConnectionKind::Feeler => serializer.serialize_str("feeler"),
+            ConnectionKind::Regular(_) => serializer.serialize_str("regular"),
+            ConnectionKind::Extra => serializer.serialize_str("extra"),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -120,6 +134,7 @@ pub struct LocalPeerView {
     pub(crate) kind: ConnectionKind,
     pub(crate) height: u32,
     pub(crate) banscore: u32,
+    pub(crate) transport_protocol: TransportProtocol,
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -132,11 +147,7 @@ pub enum RescanStatus {
 impl Default for RunningNode {
     fn default() -> Self {
         RunningNode {
-            last_feeler: Instant::now(),
             last_address_rearrange: Instant::now(),
-            user_requests: Arc::new(NodeInterface {
-                requests: std::sync::Mutex::new(Vec::new()),
-            }),
             last_invs: HashMap::default(),
             inflight_filters: BTreeMap::new(),
         }
@@ -178,11 +189,16 @@ pub struct NodeCommon<Chain: BlockchainInterface + UpdatableChainstate> {
     pub(crate) last_broadcast: Instant,
     pub(crate) last_send_addresses: Instant,
     pub(crate) block_sync_avg: FractionAvg,
+    pub(crate) last_feeler: Instant,
 
     // 6. Configuration and Metadata
     pub(crate) config: UtreexoNodeConfig,
     pub(crate) datadir: String,
     pub(crate) network: Network,
+    pub(crate) kill_signal: Arc<tokio::sync::RwLock<bool>>,
+
+    // 7. Stuff used by the node handle
+    pub(crate) user_requests: Arc<NodeInterface>,
 }
 
 pub struct UtreexoNode<Chain: BlockchainInterface + UpdatableChainstate, Context> {
@@ -221,6 +237,8 @@ where
         chain: Chain,
         mempool: Arc<Mutex<Mempool>>,
         block_filters: Option<Arc<NetworkFilters<FlatFiltersStore>>>,
+        kill_signal: Arc<tokio::sync::RwLock<bool>>,
+        address_man: AddressMan,
     ) -> Result<Self, WireError> {
         let (node_tx, node_rx) = unbounded_channel();
         let socks5 = config.proxy.map(Socks5StreamBuilder::new);
@@ -249,23 +267,176 @@ where
                 network: config.network.into(),
                 node_rx,
                 node_tx,
-                address_man: AddressMan::default(),
+                address_man,
                 last_headers_request: Instant::now(),
                 last_tip_update: Instant::now(),
                 last_connection: Instant::now(),
                 last_peer_db_dump: Instant::now(),
                 last_broadcast: Instant::now(),
+                last_feeler: Instant::now(),
                 blocks: HashMap::new(),
                 last_get_address_request: Instant::now(),
                 last_send_addresses: Instant::now(),
                 datadir: config.datadir.clone(),
-                socks5,
                 max_banscore: config.max_banscore,
+                socks5,
                 fixed_peer,
                 config,
+                user_requests: Arc::new(NodeInterface {
+                    requests: std::sync::Mutex::new(Vec::new()),
+                }),
+                kill_signal,
             },
             context: T::default(),
         })
+    }
+
+    /// Returns a handle to the node interface that we can use to request data from our
+    /// node. This struct is thread safe, so we can use it from multiple threads and have
+    /// multiple handles. It also doesn't require a mutable reference to the node, or any
+    /// synchronization mechanism.
+    pub fn get_handle(&self) -> Arc<NodeInterface> {
+        self.user_requests.clone()
+    }
+
+    /// Checks if we have a request made through the user interface and handles it
+    ///
+    /// This function is called by the main loop of the node, and it checks if we have any
+    /// requests made by the user interface. If we do, it will handle them and send the
+    /// response back to the user.
+    ///
+    /// See the [`NodeInterface`] struct for more information on how to make requests.
+    pub(crate) async fn handle_user_request(&mut self) -> Result<(), WireError> {
+        let requests = self
+            .user_requests
+            .requests
+            .lock()
+            .map_err(|_| WireError::PoisonedLock)?
+            .iter()
+            .filter(|req| {
+                !self
+                    .inflight
+                    .contains_key(&InflightRequests::UserRequest(req.req))
+            })
+            .map(|req| req.req)
+            .collect();
+
+        self.perform_user_request(requests).await;
+
+        Ok(())
+    }
+
+    /// Handles getpeerinfo requests, returning a list of all connected peers and some useful
+    /// information about it.
+    fn handle_get_peer_info(&self) {
+        let mut peers = Vec::new();
+        for peer in self.peer_ids.iter() {
+            peers.push(self.get_peer_info(peer));
+        }
+        let peers = peers.into_iter().flatten().collect();
+        self.user_requests.send_answer(
+            UserRequest::GetPeerInfo,
+            Some(NodeResponse::GetPeerInfo(peers)),
+        );
+    }
+
+    /// Actually perform the user request
+    ///
+    /// These are requests made by some consumer of `floresta-wire` using the [`NodeInterface`], and may
+    /// be a mempool transaction, a block, or a connection request.
+    async fn perform_user_request(&mut self, user_req: Vec<UserRequest>) {
+        for user_req in user_req {
+            debug!("Performing user request {user_req:?}");
+            if self.inflight.len() >= RunningNode::MAX_INFLIGHT_REQUESTS {
+                return;
+            }
+
+            let req = match user_req {
+                UserRequest::Block(block) => NodeRequest::GetBlock((vec![block], false)),
+                UserRequest::UtreexoBlock(block) => NodeRequest::GetBlock((vec![block], true)),
+                UserRequest::MempoolTransaction(txid) => NodeRequest::MempoolTransaction(txid),
+                UserRequest::GetPeerInfo => {
+                    self.handle_get_peer_info();
+                    continue;
+                }
+                UserRequest::Connect((addr, port)) => {
+                    let addr_v2 = match addr {
+                        IpAddr::V4(addr) => AddrV2::Ipv4(addr),
+                        IpAddr::V6(addr) => AddrV2::Ipv6(addr),
+                    };
+                    let local_addr = LocalAddress::new(
+                        addr_v2,
+                        0,
+                        AddressState::NeverTried,
+                        0.into(),
+                        port,
+                        self.peer_id_count as usize,
+                    );
+                    self.open_connection(
+                        ConnectionKind::Regular(ServiceFlags::NONE),
+                        0,
+                        local_addr,
+                    )
+                    .await;
+                    self.peer_id_count += 1;
+                    self.user_requests.send_answer(
+                        UserRequest::Connect((addr, port)),
+                        Some(NodeResponse::Connect(true)),
+                    );
+                    continue;
+                }
+            };
+            let peer = self.send_to_random_peer(req, ServiceFlags::NONE).await;
+            if let Ok(peer) = peer {
+                self.inflight.insert(
+                    InflightRequests::UserRequest(user_req),
+                    (peer, Instant::now()),
+                );
+            }
+        }
+    }
+
+    /// Check if this block request is made by a user through the user interface and answer it
+    /// back to the user if so.
+    ///
+    /// This function will return the given block if isn't a user request. This is to avoid cloning
+    /// the block.
+    pub(crate) async fn check_is_user_block_and_reply(
+        &mut self,
+        block: UtreexoBlock,
+    ) -> Result<Option<UtreexoBlock>, WireError> {
+        // If this block is a request made through the user interface, send it back to the
+        // user.
+        if self
+            .inflight
+            .remove(&InflightRequests::UserRequest(UserRequest::Block(
+                block.block.block_hash(),
+            )))
+            .is_some()
+        {
+            debug!(
+                "answering user request for block {}",
+                block.block.block_hash()
+            );
+
+            if block.udata.is_some() {
+                self.user_requests.send_answer(
+                    UserRequest::UtreexoBlock(block.block.block_hash()),
+                    Some(NodeResponse::UtreexoBlock(block)),
+                );
+
+                return Ok(None);
+            }
+
+            self.user_requests.send_answer(
+                UserRequest::Block(block.block.block_hash()),
+                Some(NodeResponse::Block(block.block)),
+            );
+
+            return Ok(None);
+        }
+
+        Ok(Some(block))
     }
 
     fn get_port(network: Network) -> u16 {
@@ -440,12 +611,13 @@ where
     pub(crate) fn get_peer_info(&self, peer: &u32) -> Option<PeerInfo> {
         let peer = self.peers.get(peer)?;
         Some(PeerInfo {
-            state: peer.state,
             kind: peer.kind,
+            state: peer.state,
             address: format!("{}:{}", peer.address, peer.port),
             services: peer.services.to_string(),
             user_agent: peer.user_agent.clone(),
             initial_height: peer.height,
+            transport_protocol: peer.transport_protocol,
         })
     }
 
@@ -464,7 +636,7 @@ where
     ) -> Result<(), WireError> {
         if let Some(p) = self.peers.remove(&peer) {
             std::mem::drop(p.channel);
-            if p.kind == ConnectionKind::Regular && p.state == PeerStatus::Ready {
+            if matches!(p.kind, ConnectionKind::Regular(_)) && p.state == PeerStatus::Ready {
                 info!("Peer disconnected: {}", peer);
             }
 
@@ -565,6 +737,14 @@ where
         Ok(())
     }
 
+    fn is_peer_good(peer: &LocalPeerView, needs: ServiceFlags) -> bool {
+        if peer.state == PeerStatus::Banned {
+            return false;
+        }
+
+        peer.services.has(needs)
+    }
+
     pub(crate) async fn handle_peer_ready(
         &mut self,
         peer: u32,
@@ -576,9 +756,16 @@ where
                 p.state = PeerStatus::Ready;
             });
 
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+
             self.send_to_peer(peer, NodeRequest::Shutdown).await?;
             self.address_man
-                .update_set_service_flag(version.address_id, version.services);
+                .update_set_service_flag(version.address_id, version.services)
+                .update_set_state(version.address_id, AddressState::Tried(now));
+
             return Ok(());
         }
 
@@ -586,6 +773,7 @@ where
             let locator = self.chain.get_block_locator()?;
             self.send_to_peer(peer, NodeRequest::GetHeaders(locator))
                 .await?;
+
             self.inflight
                 .insert(InflightRequests::Headers, (peer, Instant::now()));
 
@@ -598,29 +786,36 @@ where
         );
 
         if let Some(peer_data) = self.common.peers.get_mut(&peer) {
-            // This peer doesn't have basic services, so we disconnect it
-            if !version
-                .services
-                .has(ServiceFlags::NETWORK | ServiceFlags::WITNESS)
-            {
-                self.send_to_peer(peer, NodeRequest::Shutdown).await?;
-                self.address_man.update_set_state(
-                    version.address_id,
-                    AddressState::Tried(
-                        SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .unwrap()
-                            .as_secs(),
-                    ),
-                );
-                self.address_man
-                    .update_set_service_flag(version.address_id, version.services);
-                return Ok(());
-            }
             peer_data.state = PeerStatus::Ready;
             peer_data.services = version.services;
             peer_data.user_agent.clone_from(&version.user_agent);
             peer_data.height = version.blocks;
+            peer_data.transport_protocol = version.transport_protocol;
+
+            // If this peer doesn't have basic services, we disconnect it
+            if let ConnectionKind::Regular(needs) = version.kind {
+                if !Self::is_peer_good(peer_data, needs) {
+                    info!(
+                        "Disconnecting peer {} for not having the required services. has={} needs={}",
+                        peer, peer_data.services.to_string(), needs.to_string()
+                    );
+                    peer_data.channel.send(NodeRequest::Shutdown)?;
+                    self.address_man.update_set_state(
+                        version.address_id,
+                        AddressState::Tried(
+                            SystemTime::now()
+                                .duration_since(UNIX_EPOCH)
+                                .unwrap()
+                                .as_secs(),
+                        ),
+                    );
+
+                    self.address_man
+                        .update_set_service_flag(version.address_id, version.services);
+
+                    return Ok(());
+                }
+            };
 
             if peer_data.services.has(service_flags::UTREEXO.into()) {
                 self.common
@@ -771,10 +966,12 @@ where
             self.network,
             &get_chain_dns_seeds(self.network),
         )?;
+
         for address in anchors {
-            self.open_connection(ConnectionKind::Regular, address.id, address)
+            self.open_connection(ConnectionKind::Regular(UTREEXO.into()), address.id, address)
                 .await;
         }
+
         Ok(())
     }
 
@@ -881,22 +1078,19 @@ where
             .map_err(WireError::Io)
     }
 
-    pub(crate) async fn maybe_open_connection(&mut self) -> Result<(), WireError> {
+    pub(crate) async fn maybe_open_connection(
+        &mut self,
+        required_service: ServiceFlags,
+    ) -> Result<(), WireError> {
         // If the user passes in a `--connect` cli argument, we only connect with
         // that particular peer.
         if self.fixed_peer.is_some() && !self.peers.is_empty() {
             return Ok(());
         }
-        // if we need utreexo peers, we can bypass our max outgoing peers limit in case
-        // we don't have any utreexo peers
-        let bypass = self
-            .context
-            .get_required_services()
-            .has(service_flags::UTREEXO.into())
-            && !self.has_utreexo_peers();
 
-        if self.peers.len() < T::MAX_OUTGOING_PEERS || bypass {
-            self.create_connection(ConnectionKind::Regular).await;
+        let connection_kind = ConnectionKind::Regular(required_service);
+        if self.peers.len() < T::MAX_OUTGOING_PEERS {
+            self.create_connection(connection_kind).await;
         }
 
         Ok(())
@@ -936,34 +1130,13 @@ where
         Ok(())
     }
 
-    fn get_required_services(&self) -> ServiceFlags {
-        let required_services = self.context.get_required_services();
-
-        // chain selector should prefer peers that support UTREEXO filters, as
-        // more peers with this service will improve our security for PoW
-        // fraud proofs. This is only true if pow fraud proofs are enabled
-        // in the configuration.
-        if self.config.pow_fraud_proofs && required_services.has(ServiceFlags::from(1 << 25)) {
-            return ServiceFlags::from(1 << 25);
-        }
-
-        // we need at least one utreexo peer
-        if !self.has_utreexo_peers() {
-            return service_flags::UTREEXO.into();
-        }
-
-        // we need at least one peer with compact filters
-        if !self.has_compact_filters_peer() {
-            return ServiceFlags::COMPACT_FILTERS;
-        }
-
-        // we have at least one peer with the required services, so we can connect
-        // with any random peer
-        ServiceFlags::NONE
-    }
-
     pub(crate) async fn create_connection(&mut self, kind: ConnectionKind) -> Option<()> {
-        let required_services = self.get_required_services();
+        let required_services = match kind {
+            ConnectionKind::Feeler => ServiceFlags::NONE,
+            ConnectionKind::Regular(services) => services,
+            ConnectionKind::Extra => ServiceFlags::NONE,
+        };
+
         let address = match &self.fixed_peer {
             Some(address) => Some((0, address.clone())),
             None => self
@@ -975,6 +1148,7 @@ where
             "attempting connection with address={:?} kind={:?}",
             address, kind
         );
+
         let (peer_id, address) = address?;
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -1011,15 +1185,15 @@ where
         network: bitcoin::Network,
         node_tx: UnboundedSender<NodeNotification>,
         user_agent: String,
+        allow_v1_fallback: bool,
     ) -> Result<(), WireError> {
         let address = (address.get_net_address(), address.get_port());
-        let stream = TcpStream::connect(address).await?;
 
-        stream.set_nodelay(true)?;
-        let (reader, writer) = tokio::io::split(stream);
+        let (transport_reader, transport_writer, transport_protocol) =
+            transport::connect(address, network, allow_v1_fallback).await?;
 
         let (cancellation_sender, cancellation_receiver) = tokio::sync::oneshot::channel();
-        let (actor_receiver, actor) = create_tcp_stream_actor(reader);
+        let (actor_receiver, actor) = create_actors(transport_reader);
         tokio::spawn(async move {
             tokio::select! {
                 _ = cancellation_receiver => {}
@@ -1031,15 +1205,15 @@ where
         Peer::<WriteHalf>::create_peer(
             peer_id_count,
             mempool,
-            network,
             node_tx.clone(),
             requests_rx,
             peer_id,
             kind,
             actor_receiver,
-            writer,
+            transport_writer,
             user_agent,
             cancellation_sender,
+            transport_protocol,
         )
         .await;
 
@@ -1058,25 +1232,13 @@ where
         requests_rx: UnboundedReceiver<NodeRequest>,
         peer_id_count: u32,
         user_agent: String,
-    ) -> Result<(), Socks5Error> {
-        let addr = match address.get_address() {
-            AddrV2::Cjdns(addr) => Socks5Addr::Ipv6(addr),
-            AddrV2::I2p(addr) => Socks5Addr::Domain(addr.into()),
-            AddrV2::Ipv4(addr) => Socks5Addr::Ipv4(addr),
-            AddrV2::Ipv6(addr) => Socks5Addr::Ipv6(addr),
-            AddrV2::TorV2(addr) => Socks5Addr::Domain(addr.into()),
-            AddrV2::TorV3(addr) => Socks5Addr::Domain(addr.into()),
-            AddrV2::Unknown(_, _) => {
-                return Err(Socks5Error::InvalidAddress);
-            }
-        };
-
-        let proxy = TcpStream::connect(proxy).await?;
-        let stream = Socks5StreamBuilder::connect(proxy, addr, address.get_port()).await?;
-        let (reader, writer) = tokio::io::split(stream);
+        allow_v1_fallback: bool,
+    ) -> Result<(), WireError> {
+        let (transport_reader, transport_writer, transport_protocol) =
+            transport::connect_proxy(proxy, address, network, allow_v1_fallback).await?;
 
         let (cancellation_sender, cancellation_receiver) = tokio::sync::oneshot::channel();
-        let (actor_receiver, actor) = create_tcp_stream_actor(reader);
+        let (actor_receiver, actor) = create_actors(transport_reader);
         tokio::spawn(async move {
             tokio::select! {
                 _ = cancellation_receiver => {}
@@ -1087,15 +1249,15 @@ where
         Peer::<WriteHalf>::create_peer(
             peer_id_count,
             mempool,
-            network,
             node_tx,
             requests_rx,
             peer_id,
             kind,
             actor_receiver,
-            writer,
+            transport_writer,
             user_agent,
             cancellation_sender,
+            transport_protocol,
         )
         .await;
         Ok(())
@@ -1125,6 +1287,7 @@ where
                     requests_rx,
                     self.peer_id_count,
                     self.config.user_agent.clone(),
+                    self.config.allow_v1_fallback,
                 ),
             ));
         } else {
@@ -1140,6 +1303,7 @@ where
                     self.network.into(),
                     self.node_tx.clone(),
                     self.config.user_agent.clone(),
+                    self.config.allow_v1_fallback,
                 ),
             ));
         }
@@ -1165,6 +1329,7 @@ where
                 address_id: peer_id as u32,
                 height: 0,
                 banscore: 0,
+                transport_protocol: TransportProtocol::V1, // Default to V1, will be updated when peer is ready.
             },
         );
 

@@ -32,12 +32,16 @@ For developers, detailed documentation for `libfloresta` is available [here](htt
   - [Building with Nix](#building-with-nix)
 - [Running](#running)
   - [Assume Utreexo](#assume-utreexo)
+  - [Backfill](#backfill)
   - [Compact Filters](#compact-filters)
   - [Getting Help](#getting-help)
   - [Wallet](#wallet)
 - [Running the Tests](#running-the-tests)
   - [Requirements](#requirements)
   - [Testing Options](#testing-options)
+    - [Setting Functional Tests Binaries](#Setting_Functional_Tests_Binaries)
+    - [Running Functional Tests](#Running_Functional_Tests)
+    - [Running/Developing Functional Tests with Nix](#Running/Developing_Functional_Tests_with_Nix)
 - [Running Benchmarks](#running-benchmarks)
 - [Fuzzing](#fuzzing)
 - [Contributing](#contributing)
@@ -70,7 +74,7 @@ git clone https://github.com/vinteumorg/Floresta.git
 go to the Floresta directory
 
 ```bash
-cd Floresta/
+$ cd Floresta/
 ```
 
 and build with cargo build
@@ -151,9 +155,9 @@ pkgs.floresta-node
 
 After building, florestad and floresta-cli will be available in the target directory. You can run the full node with
 ```bash
-./target/release/florestad
+$ ./target/release/florestad
 # or, if you installed it with cargo install
-florestad
+$ florestad
 ```
 
 You may run it as a background process with the `--daemon` flag.
@@ -165,20 +169,29 @@ florestad --daemon
 This will start the full node, and you can connect to it with an Electrum wallet or with the `floresta-cli` tool.
 
 ```bash
-floresta-cli getblockchaininfo
+$ floresta-cli getblockchaininfo
 ```
 
 For more information on how to use the `floresta-cli` tool, you can check the [api documentation](https://github.com/vinteumorg/Floresta/blob/master/crates/floresta-cli/README.md).
 
 Before running you can create the SSL certificates. If you don't do it, it will display a logging `Failed to load SSL certificates, ignoring SSL`. However, it is not mandatory to have the certificates to run the full node.
 
-### Assume Utreexo
-If you want to skip the IBD process, you can use the `--assume-utreexo` flag. This flag will start the node at a given height, with the state
-provided by this implementation. Therefore, you're trusting that we are giving you the correct state. Everything after that height will be
-verified by the node just like any other node.
+#### Assume Utreexo
+
+If you want to start your node and get up and running quickly, you can use the Assume Utreexo feature. This is enabled by defalt, but you can disable it with the `--no-assume-utreexo` flag.
 
 ```bash
-florestad --assume-utreexo
+$ florestad --no-assume-utreexo
+```
+
+#### Backfill
+
+After the node starts it will validate everything in the background, downloading blocks from genesis to the assumed height, validating them and compare with the provided value. This way, you can start using the node right away, but still validate everything. This option, however, will take some time to complete, using a lot of CPU and bandwidth.
+
+This is the default behavior of the `florestad` if no flags are provided. You can disable it using:
+
+```bash
+$ florestad --no-backfill
 ```
 
 ### Compact Filters
@@ -186,7 +199,7 @@ florestad --assume-utreexo
 Floresta supports compact block filters, which can be used to scan for transactions in a block without downloading the entire block. You can start the node with the `--cfilters` flag to download the filters for the blocks that you're interested in. You can also use the `--filters-start-height` flag to specify the block height that you want to start downloading the filters from. This is useful if you want to download only the filters for a specific range of blocks.
 
 ```bash
-florestad --cfilters --filters-start-height 800000
+$ florestad --cfilters --filters-start-height 800000
 ```
 
 ### Getting Help
@@ -194,12 +207,12 @@ florestad --cfilters --filters-start-height 800000
 You can get a list of all the available commands by running
 
 ```bash
-floresta-cli help
+$ floresta-cli help
 ```
 
 and you can get the cli parameters by running
 ```bash
-floresta-cli help <command>
+$ floresta-cli help <command>
 ```
 
 ### Wallet
@@ -211,7 +224,7 @@ call the `rescan` rpc after adding the wallet.
 You can add new descriptors to the wallet with the `importdescriptor` rpc.
 
 ```bash
-floresta-cli importdescriptor "wpkh(xpub6CFy3kRXorC3NMTt8qrsY9ucUfxVLXyFQ49JSLm3iEG5gfAmWewYFzjNYFgRiCjoB9WWEuJQiyYGCdZvUTwPEUPL9pPabT8bkbiD9Po47XG/<0;1>/*)"
+$ floresta-cli importdescriptor "wpkh(xpub6CFy3kRXorC3NMTt8qrsY9ucUfxVLXyFQ49JSLm3iEG5gfAmWewYFzjNYFgRiCjoB9WWEuJQiyYGCdZvUTwPEUPL9pPabT8bkbiD9Po47XG/<0;1>/*)"
 ```
 
 The rescan assumes that you have compact block filters for the blocks that you're scanning. You can either download all the filters
@@ -219,13 +232,13 @@ The rescan assumes that you have compact block filters for the blocks that you'r
 using the `--filters-start-height` option. Let's you know that none of your wallets are older than block 800,000. Just start the node with.
 
 ```bash
-./target/release/florestad --cfilters --filters-start-height 800000
+$ ./target/release/florestad --cfilters --filters-start-height 800000
 ```
 
 if you add a wallet and want to rescan the blocks from 800,000 to the current height, you can use the `rescan` rpc.
 
 ```bash
-floresta-cli rescan 800000
+$ floresta-cli rescan 800000
 ```
 
 Once you have a transaction cached in your watch-only, you can use either the rpc or integrated electrum server to retrieve information about your wallet. You can use wallets like Electrum or Sparrow to connect to your node and retrieve information about your wallet. Just connect with the server running at `127.0.0.1:50001:t`. On electrum you may want to use the `--oneserver` flag to connect to a single server, for better privacy.
@@ -237,15 +250,21 @@ Once you have a transaction cached in your watch-only, you can use either the rp
 The tests in `floresta-cli` depend on the compiled `florestad` binary. Make sure to build the entire project first by running:
 
 ```bash
-cargo build
+$ cargo build
 ```
+
+[Functional Tests](#Functional_Tests) also need some dependencies, we use python for writing them and `uv` to manage its dependencies.
+
+Our tests also needs the `Utreexod` and `florestad` binaries to match some funcionalities and we have some helper scripts to avoid conflicts, which happens a lot while developing but can help one that have one of them installed in the system.
+
+See [Setting Functional Tests Binaries](#Setting_Functional_Tests_Binaries) for more instructions.
 
 ### Testing Options
 
 There's a set of tests that you can run with:
 
 ```bash
-cargo test
+$ cargo test
 ```
 
 For the full test suite, including long-running tests, use:
@@ -254,58 +273,118 @@ For the full test suite, including long-running tests, use:
 cargo test --release
 ```
 
-#### Functional tests
+#### Setting Functional Tests Binaries
+
+We provide two helper scripts to support our functional tests and ensure the correct binaries are used.
+
+* [prepare.sh](https://github.com/vinteumorg/Floresta/blob/master/tests/prepare.sh) checks for build dependencies for both `utreexod` and `florestad`, builds them, and sets the `$FLORESTA_TEMP_DIR` environment variable. This variable points to where our functional tests will look for the binaries — specifically at `$FLORESTA_TEMP_DIR/binaries`.
+
+* [run.sh](https://github.com/vinteumorg/Floresta/blob/master/tests/run.sh) adds the binaries found at `$FLORESTA_TEMP_DIR/binaries` to your `$PATH` and runs the tests in that environment.
+
+Using these scripts, you have a few options for running the tests and verifying the functionality of `florestad`:
+
+1) Manually: Build the binaries yourself and place them at `$FLORESTA_TEMP_DIR/binaries`.
+
+2) (Recommended): Use the helper scripts — [prepare.sh](https://github.com/vinteumorg/Floresta/blob/master/tests/prepare.sh) and [run.sh](https://github.com/vinteumorg/Floresta/blob/master/tests/run.sh) — to automatically build and run the tests.
+
+3) With installed binaries: If you’ve already installed the binaries system-wide, you can simply run the tests directly.
+
+#### Running Functional Tests
 
 Additional functional tests are available (minimum python version: 3.12).
 
-* Install [poetry dependencies manager](https://python-poetry.org/docs/#installation). There are many ways to do this:
+* Recommended: install [uv: a rust-based python package and project manager](https://docs.astral.sh/uv/).
+
+* Configure an isolated environment:
 
 ```bash
-# recomended way
-pipx install poetry
+# create a virtual environment
+# (it's good to not mess up with your os)
+uv venv
+
+# Alternatively, you can specify a python version (e.g, 3.12),
+uv venv --python 3.12
+
+# activate the python virtual environment
+source .venv/bin/activate
+
+# check if the python path was modified
+which python
 ```
+
+* Install module dependencies:
 
 ```bash
-# official installer (linux / mac)
-curl -sSL https://install.python-poetry.org | python3 -
+# installs dependencies listed in pyproject.toml.
+# in local development environment
+# it do not remove existing packages.
+uv pip install -r pyproject.toml
+
+# if you're a old-school pythonist,
+# install from requirements.txt
+# without remove existing packages.
+uv pip install -r tests/requirements.txt
+
+# Alternatively, you can synchronize it
+# uses the uv.lock file to enforce
+# reproducible installations.
+uv sync
 ```
 
-```pwsh
-# official isntaller (windows - powershell)
-(Invoke-WebRequest -Uri https://install.python-poetry.org -UseBasicParsing).Content | py -
-```
-
+* Format code
 ```bash
-# mannually
-python3 -m venv $VENV_PATH
-$VENV_PATH/bin/pip install -U pip setuptools
-$VENV_PATH/bin/pip install poetry
+uv run black ./tests
+
+# if you want to just check
+uv run black --check --verbose ./tests
 ```
 
-* Configure an isolated environment and install module dependencies:
 
+* Lint code
 ```bash
-poetry install --no-root
+uv run pylint ./tests
 ```
 
 * Run tests:
 
-```bash
-poetry run poe tests
-```
-
-* Before run tests, check the pre-commit:
+Our tests are separated by "test suites". Suites are folders located in `./tests/<suite>` and the tests are the `./tests/<suite>/*-test.py` files. To run all suites, type:
 
 ```bash
-poetry run poe pre-commit
+uv run tests/run_tests.py
 ```
 
-* Manual way without poetry: install dependencies and run the test script. This is discouraged since that can lead to inconsistences between different python versions:
+You can list all suites with:
 
 ```bash
-pip3 install -r tests/requirements.txt
-python tests/run_tests.py
+uv run tests/run_tests.py --list-suites
 ```
+
+To run a specific suite:
+
+```bash
+uv run tests/run_tests.py --test-suite <suite>
+```
+
+You can even add more:
+
+```bash
+uv run tests/run_tests.py --test-suite <suite_A> --test-suite <suite_B>
+```
+
+#### Running/Developing Functional Tests with Nix
+
+If you have nix, we provide a devshell that you can access with
+
+```bash
+nix develop .#func-tests-env
+```
+The `func-tests-env` devshell provides:
+  - `uv`.
+  - Python dependencies
+  - `utreexod` included in `$PATH` and linked in `$FLORESTA_TEMP_DIR`
+  - `florestad` included in `$PATH` and linked in `$FLORESTA_TEMP_DIR`
+  - `run_test` alias. `run_test="uv run tests/run_tests.py"`
+
 
 ## Running Benchmarks
 

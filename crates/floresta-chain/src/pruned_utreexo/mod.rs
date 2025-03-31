@@ -1,3 +1,12 @@
+//! The pruned utreexo module handles the full blockchain logic: validation, state tracking and
+//! interfacing. This blockchain backend does not store the historical blocks, it's pruned.
+//!
+//! This module file defines the main traits for an utreexo-enabled chain backend:
+//!
+//! - [BlockchainInterface]: The main interface for interacting with the backend
+//! - [UpdatableChainstate]: Trait defining methods for updating the chain state
+//! - [ChainStore]: Trait for persisting and retrieving blockchain data (headers, block hashes,
+//!   the best chain data, and the accumulator)
 extern crate alloc;
 
 pub mod chain_state;
@@ -58,8 +67,8 @@ pub trait BlockchainInterface {
     /// vector or a channel where data can be  transferred to the atual worker, otherwise
     /// chainstate will be stuck for as long as you have work to do.
     fn subscribe(&self, tx: Arc<dyn BlockConsumer>);
-    /// Tells whether or not we are on ibd
-    fn is_in_idb(&self) -> bool;
+    /// Tells whether or not we are on IBD
+    fn is_in_ibd(&self) -> bool;
     /// Returns the list of unbroadcasted transactions.
     fn get_unbroadcasted(&self) -> Vec<Transaction>;
     /// Checks if a coinbase is mature
@@ -125,7 +134,7 @@ pub trait UpdatableChainstate {
     fn handle_transaction(&self) -> Result<(), BlockchainError>;
     /// Persists our data. Should be invoked periodically.
     fn flush(&self) -> Result<(), BlockchainError>;
-    /// Toggle ibd on/off
+    /// Toggle IBD on/off
     fn toggle_ibd(&self, is_ibd: bool);
     /// Tells this blockchain to consider this block invalid, and not build on top of it
     fn invalidate_block(&self, block: BlockHash) -> Result<(), BlockchainError>;
@@ -142,7 +151,6 @@ pub trait UpdatableChainstate {
     /// [PartialChainState] to completion by downloading blocks inside that chainstate's range.
     /// If all goes right, it'll end without error, and you should mark blocks in this range as
     /// valid.
-    ///
     /// Since this chainstate may start from a height with an existing UTXO set, you need to
     /// provide a [Stump] for that block.
     fn get_partial_chain(
@@ -156,12 +164,14 @@ pub trait UpdatableChainstate {
     /// This mimics the behaviour of checking every block before this block, and continues
     /// from this point
     fn mark_chain_as_assumed(&self, acc: Stump, tip: BlockHash) -> Result<bool, BlockchainError>;
+    /// Returns the current accumulator
+    fn get_acc(&self) -> Stump;
 }
 
-/// [ChainStore] is a trait defining how we interact with our chain database. This definitions
-/// will be used by the [ChainState] to save and retrieve data about the blockchain, likely
+/// This trait is defining how we interact with our chain database. This definitions
+/// will be used by the [ChainState](chain_state::ChainState) to save and retrieve data about the blockchain, likely
 /// on disk.
-/// Right now, you can use the [KvChainStore] in your code, it implements this trait and
+/// Right now, you can use the [KvChainStore](chainstore::KvChainStore) in your code, it implements this trait and
 /// uses a key-value store to save data.
 /// The [DatabaseError] is a simple trait that can be implemented by any error type that
 /// implements [std::error::Error] and [std::fmt::Display]. This is useful to abstract
@@ -204,6 +214,10 @@ pub enum Notification {
 impl<T: UpdatableChainstate> UpdatableChainstate for Arc<T> {
     fn flush(&self) -> Result<(), BlockchainError> {
         T::flush(self)
+    }
+
+    fn get_acc(&self) -> Stump {
+        T::get_acc(self)
     }
 
     fn toggle_ibd(&self, is_ibd: bool) {
@@ -281,8 +295,8 @@ impl<T: BlockchainInterface> BlockchainInterface for Arc<T> {
         T::subscribe(self, tx)
     }
 
-    fn is_in_idb(&self) -> bool {
-        T::is_in_idb(self)
+    fn is_in_ibd(&self) -> bool {
+        T::is_in_ibd(self)
     }
 
     fn get_height(&self) -> Result<u32, Self::Error> {

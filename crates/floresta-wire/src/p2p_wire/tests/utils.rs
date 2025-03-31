@@ -12,7 +12,9 @@ use bitcoin::hex::FromHex;
 use bitcoin::p2p::ServiceFlags;
 use bitcoin::BlockHash;
 use floresta_chain::UtreexoBlock;
+use floresta_common::bhash;
 use floresta_common::service_flags;
+use floresta_common::service_flags::UTREEXO;
 use serde::Deserialize;
 use serde::Serialize;
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -27,6 +29,7 @@ use crate::node::PeerStatus;
 use crate::p2p_wire::node::ConnectionKind;
 use crate::p2p_wire::peer::PeerMessages;
 use crate::p2p_wire::peer::Version;
+use crate::p2p_wire::transport::TransportProtocol;
 use crate::UtreexoNodeConfig;
 
 /// A list of headers, used to represent the collection of headers.
@@ -98,7 +101,8 @@ impl TestPeer {
                 | ServiceFlags::WITNESS
                 | ServiceFlags::COMPACT_FILTERS
                 | ServiceFlags::from(1 << 25),
-            kind: ConnectionKind::Regular,
+            kind: ConnectionKind::Regular(UTREEXO.into()),
+            transport_protocol: TransportProtocol::V2,
         };
 
         self.node_tx
@@ -161,10 +165,11 @@ pub fn create_peer(
         state: PeerStatus::Ready,
         channel: sender,
         port: 8333,
-        kind: ConnectionKind::Regular,
+        kind: ConnectionKind::Regular(UTREEXO.into()),
         banscore: 0,
         address_id: 0,
         _last_message: Instant::now(),
+        transport_protocol: TransportProtocol::V2,
     }
 }
 
@@ -187,6 +192,7 @@ pub fn get_node_config(
         backfill: false,
         filter_start_height: None,
         user_agent: "node_test".to_string(),
+        allow_v1_fallback: true,
     }
 }
 
@@ -268,9 +274,7 @@ pub fn get_essentials() -> Essentials {
     let invalid_block = generate_invalid_block();
 
     // BlockHash of chain_tip: 0000035f0e5513b26bba7cead874fdf06241a934e4bc4cf7a0381c60e4cdd2bb (119)
-    let _tip_hash =
-        BlockHash::from_str("0000035f0e5513b26bba7cead874fdf06241a934e4bc4cf7a0381c60e4cdd2bb")
-            .unwrap();
+    let _tip_hash = bhash!("0000035f0e5513b26bba7cead874fdf06241a934e4bc4cf7a0381c60e4cdd2bb");
 
     Essentials {
         headers,

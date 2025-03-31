@@ -32,7 +32,7 @@ const SOCKS_ADDR_TYPE_DOMAIN: u8 = 3;
 /// Magic value to indicate an IPv6 address.
 const SOCKS_ADDR_TYPE_IPV6: u8 = 4;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 #[allow(dead_code)]
 pub enum Socks5Addr {
     Ipv4(Ipv4Addr),
@@ -54,7 +54,7 @@ impl Socks5StreamBuilder {
     }
     pub async fn connect<Stream: AsyncRead + AsyncWrite + Unpin>(
         mut socket: Stream,
-        address: Socks5Addr,
+        address: &Socks5Addr,
         port: u16,
     ) -> Result<Stream, Socks5Error> {
         socket
@@ -66,7 +66,7 @@ impl Socks5StreamBuilder {
             Socks5Addr::Ipv6(addr) => addr.octets().to_vec(),
             Socks5Addr::Domain(domain) => {
                 let mut buf = vec![domain.len() as u8];
-                buf.extend_from_slice(&domain);
+                buf.extend_from_slice(domain);
                 buf
             }
         };
@@ -131,3 +131,17 @@ impl From<futures::io::Error> for Socks5Error {
         Socks5Error::ReadError
     }
 }
+
+impl std::fmt::Display for Socks5Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Socks5Error::InvalidVersion => write!(f, "Invalid SOCKS version"),
+            Socks5Error::InvalidAuthMethod => write!(f, "Invalid authentication method"),
+            Socks5Error::ConnectionFailed => write!(f, "Connection failed"),
+            Socks5Error::InvalidAddress => write!(f, "Invalid address"),
+            Socks5Error::ReadError => write!(f, "Error reading from socket"),
+        }
+    }
+}
+
+impl std::error::Error for Socks5Error {}

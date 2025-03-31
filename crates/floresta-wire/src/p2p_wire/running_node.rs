@@ -3,38 +3,36 @@
 /// CPU to run, being bound by the number of blocks found in a given period.
 use std::collections::BTreeMap;
 use std::collections::HashMap;
-use std::net::IpAddr;
-use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 
 use bitcoin::bip158::BlockFilter;
-use bitcoin::p2p::address::AddrV2;
 use bitcoin::p2p::address::AddrV2Message;
 use bitcoin::p2p::message_blockdata::Inventory;
 use bitcoin::p2p::ServiceFlags;
 use bitcoin::BlockHash;
 use floresta_chain::pruned_utreexo::partial_chain::PartialChainState;
+use floresta_chain::pruned_utreexo::udata;
 use floresta_chain::pruned_utreexo::BlockchainInterface;
 use floresta_chain::pruned_utreexo::UpdatableChainstate;
 use floresta_chain::BlockValidationErrors;
 use floresta_chain::BlockchainError;
 use floresta_chain::UtreexoBlock;
 use floresta_common::service_flags;
+use floresta_common::service_flags::UTREEXO;
 use log::debug;
 use log::error;
 use log::info;
 use log::warn;
+use rand::random;
 use rustreexo::accumulator::node_hash::BitcoinNodeHash;
 use rustreexo::accumulator::pollard::PollardAddition;
 use rustreexo::accumulator::stump::Stump;
-use tokio::sync::RwLock;
 use tokio::time::timeout;
 
 use super::error::WireError;
 use super::peer::PeerMessages;
 use crate::address_man::AddressState;
-use crate::address_man::LocalAddress;
 use crate::node::periodic_job;
 use crate::node::try_and_log;
 use crate::node::ConnectionKind;
@@ -44,7 +42,6 @@ use crate::node::NodeRequest;
 use crate::node::UtreexoNode;
 use crate::node_context::NodeContext;
 use crate::node_context::PeerId;
-use crate::node_interface::NodeInterface;
 use crate::node_interface::NodeResponse;
 use crate::node_interface::UserRequest;
 use crate::p2p_wire::chain_selector::ChainSelector;
@@ -52,9 +49,7 @@ use crate::p2p_wire::sync_node::SyncNode;
 
 #[derive(Debug, Clone)]
 pub struct RunningNode {
-    pub(crate) last_feeler: Instant,
     pub(crate) last_address_rearrange: Instant,
-    pub(crate) user_requests: Arc<NodeInterface>,
     /// To find peers with a good connectivity, keep track of what peers sent us an inv message
     /// for a block, in the first 5 seconds after we get the first inv message. If we ever decide
     /// to disconnect a peer, we should disconnect the ones that didn't send us an inv message
@@ -76,96 +71,10 @@ impl NodeContext for RunningNode {
 
 impl<Chain> UtreexoNode<Chain, RunningNode>
 where
-    WireError: From<<Chain as BlockchainInterface>::Error>,
-    Chain: BlockchainInterface + UpdatableChainstate + 'static,
+    Chain: BlockchainInterface + UpdatableChainstate + Sync + Send + Clone + 'static,
+    WireError: From<Chain::Error>,
+    Chain::Error: From<udata::proof_util::Error>,
 {
-    /// Returns a handle to the node interface that we can use to request data from our
-    /// node. This struct is thread safe, so we can use it from multiple threads and have
-    /// multiple handles. It also doesn't require a mutable reference to the node, or any
-    /// synchronization mechanism.
-    pub fn get_handle(&self) -> Arc<NodeInterface> {
-        self.context.user_requests.clone()
-    }
-
-    async fn handle_user_request(&mut self) -> Result<(), WireError> {
-        let requests = self
-            .context
-            .user_requests
-            .requests
-            .lock()
-            .map_err(|_| WireError::PoisonedLock)?
-            .iter()
-            .filter(|req| {
-                !self
-                    .inflight
-                    .contains_key(&InflightRequests::UserRequest(req.req))
-            })
-            .map(|req| req.req)
-            .collect();
-        self.perform_user_request(requests).await;
-        Ok(())
-    }
-
-    fn handle_get_peer_info(&self) {
-        let mut peers = Vec::new();
-        for peer in self.peer_ids.iter() {
-            peers.push(self.get_peer_info(peer));
-        }
-        let peers = peers.into_iter().flatten().collect();
-        self.context.user_requests.send_answer(
-            UserRequest::GetPeerInfo,
-            Some(NodeResponse::GetPeerInfo(peers)),
-        );
-    }
-
-    async fn perform_user_request(&mut self, user_req: Vec<UserRequest>) {
-        for user_req in user_req {
-            debug!("Performing user request {user_req:?}");
-            if self.inflight.len() >= RunningNode::MAX_INFLIGHT_REQUESTS {
-                return;
-            }
-
-            let req = match user_req {
-                UserRequest::Block(block) => NodeRequest::GetBlock((vec![block], false)),
-                UserRequest::UtreexoBlock(block) => NodeRequest::GetBlock((vec![block], true)),
-                UserRequest::MempoolTransaction(txid) => NodeRequest::MempoolTransaction(txid),
-                UserRequest::GetPeerInfo => {
-                    self.handle_get_peer_info();
-                    continue;
-                }
-                UserRequest::Connect((addr, port)) => {
-                    let addr_v2 = match addr {
-                        IpAddr::V4(addr) => AddrV2::Ipv4(addr),
-                        IpAddr::V6(addr) => AddrV2::Ipv6(addr),
-                    };
-                    let local_addr = LocalAddress::new(
-                        addr_v2,
-                        0,
-                        AddressState::NeverTried,
-                        0.into(),
-                        port,
-                        self.peer_id_count as usize,
-                    );
-                    self.open_connection(ConnectionKind::Regular, 0, local_addr)
-                        .await;
-                    self.peer_id_count += 1;
-                    self.context.user_requests.send_answer(
-                        UserRequest::Connect((addr, port)),
-                        Some(NodeResponse::Connect(true)),
-                    );
-                    continue;
-                }
-            };
-            let peer = self.send_to_random_peer(req, ServiceFlags::NONE).await;
-            if let Ok(peer) = peer {
-                self.inflight.insert(
-                    InflightRequests::UserRequest(user_req),
-                    (peer, Instant::now()),
-                );
-            }
-        }
-    }
-
     async fn send_addresses(&mut self) -> Result<(), WireError> {
         let addresses = self
             .address_man
@@ -233,7 +142,7 @@ where
                         .insert(InflightRequests::Headers, (peer, Instant::now()));
                 }
                 InflightRequests::UserRequest(req) => {
-                    self.context.user_requests.send_answer(req, None);
+                    self.user_requests.send_answer(req, None);
                 }
                 InflightRequests::Connect(peer) => {
                     self.peers.remove(&peer);
@@ -251,90 +160,245 @@ where
         Ok(())
     }
 
-    pub async fn catch_up(self, kill_signal: Arc<RwLock<bool>>) -> Self {
-        let mut sync = UtreexoNode::<Chain, SyncNode> {
-            context: SyncNode::default(),
-            common: self.common,
-        };
-        sync.run(kill_signal, |_| {}).await;
+    /// Every time we restart the node, we'll be a few blocks behind the tip. This function
+    /// will start a sync node that will request, download and validate all blocks from the
+    /// last validation index to the tip. This function will block until the sync node is
+    /// finished.
+    ///
+    /// On the first startup, if we use either assumeutreexo or pow fraud proofs, this function
+    /// will only download the blocks that are after the one that got assumed. So, for PoW fraud
+    /// proofs, this means the last 100 blocks, and for assumeutreexo, this means however many
+    /// blocks from the hard-coded value in the config file.
+    pub async fn catch_up(&self) -> Result<(), WireError> {
+        let sync = UtreexoNode::<Chain, SyncNode>::new(
+            self.config.clone(),
+            self.chain.clone(),
+            self.mempool.clone(),
+            None,
+            self.kill_signal.clone(),
+            self.address_man.clone(),
+        )?;
 
-        UtreexoNode {
-            common: sync.common,
-            context: self.context,
-        }
+        sync.run(|_| {}).await;
+
+        Ok(())
     }
 
-    pub async fn run(
-        mut self,
-        kill_signal: Arc<RwLock<bool>>,
-        stop_signal: futures::channel::oneshot::Sender<()>,
-    ) {
+    /// This function is called periodically to check if we have:
+    /// - 10 connections
+    /// - At least one utreexo peer
+    /// - At least one compact filters peer
+    ///
+    /// If we are missing the speciall peers but have 10 connections, we should disconnect one
+    /// random peer and try to connect to a utreexo and a compact filters peer.
+    async fn check_connections(&mut self) -> Result<(), WireError> {
+        // We're always looking for a peer with the following services
+        let base_services: ServiceFlags = ServiceFlags::NETWORK | ServiceFlags::WITNESS;
+
+        // if we have 10 connections, but not a single utreexo or CBF one, disconnect one random
+        // peer and create a utreexo and CBS connection
+        if !self.has_utreexo_peers() {
+            if self.peer_ids.len() == 10 {
+                let peer = random::<usize>() % self.peer_ids.len();
+                let peer = self
+                    .peer_ids
+                    .get(peer)
+                    .expect("we've modulo before, we should have it");
+                self.send_to_peer(*peer, NodeRequest::Shutdown).await?;
+            }
+
+            self.create_connection(ConnectionKind::Regular(base_services | UTREEXO.into()))
+                .await;
+        }
+
+        if self.block_filters.is_none() {
+            return Ok(());
+        }
+
+        if !self.has_compact_filters_peer() {
+            if self.peer_ids.len() == 10 {
+                let peer = random::<usize>() % self.peer_ids.len();
+                let peer = self
+                    .peer_ids
+                    .get(peer)
+                    .expect("we've modulo before, we should have it");
+                self.send_to_peer(*peer, NodeRequest::Shutdown).await?;
+            }
+
+            self.create_connection(ConnectionKind::Regular(
+                base_services | ServiceFlags::COMPACT_FILTERS,
+            ))
+            .await;
+        }
+
+        if self.peers.len() < 10 {
+            self.create_connection(ConnectionKind::Regular(base_services))
+                .await;
+        }
+
+        Ok(())
+    }
+
+    /// If either PoW fraud proofs or assumeutreexo are enabled, we will "skip" IBD for all
+    /// historical blocks. This allow us to start the node faster, making it usable in a few
+    /// minutes. If you still want to validate all blocks, you can enable the backfill option.
+    ///
+    /// This function will spawn a background task that will download and validate all blocks
+    /// that got assumed. After completion, the task will shutdown and the node will continue
+    /// running normally. If we ever assume an invalid chain, the node will [halt and catch fire].
+    ///
+    /// [halt and catch fire]: https://en.wikipedia.org/wiki/Halt_and_Catch_Fire_(computing)
+    pub fn backfill(&self, done_flag: std::sync::mpsc::Sender<()>) -> Result<bool, WireError> {
+        // try finding the last state of the sync node
+        let state = std::fs::read(self.config.datadir.clone() + "/.sync_node_state");
+        // try to recover from the disk state, if it exists. Otherwise, start from genesis
+        let (chain, end) = match state {
+            Ok(state) => {
+                // if this file is empty, this means we've finished backfilling
+                if state.is_empty() {
+                    return Ok(false);
+                }
+
+                let acc = Stump::deserialize(&state[..(state.len() - 8)]).unwrap();
+                let tip = u32::from_le_bytes(
+                    state[(state.len() - 8)..(state.len() - 4)]
+                        .try_into()
+                        .unwrap(),
+                );
+
+                let end = u32::from_le_bytes(state[(state.len() - 4)..].try_into().unwrap());
+                info!(
+                    "Recovering backfill node from state tip={}, end={}",
+                    tip, end
+                );
+                (
+                    self.chain
+                        .get_partial_chain(tip, end, acc)
+                        .expect("Failed to get partial chain"),
+                    end,
+                )
+            }
+            Err(_) => {
+                // if the file doesn't exist or got corrupted, start from genesis
+                let end = self
+                    .chain
+                    .get_validation_index()
+                    .expect("can get the validation index");
+                (
+                    self.chain
+                        .get_partial_chain(0, end, Stump::default())
+                        .unwrap(),
+                    end,
+                )
+            }
+        };
+
+        let backfill = UtreexoNode::<PartialChainState, SyncNode>::new(
+            self.config.clone(),
+            chain,
+            self.mempool.clone(),
+            None,
+            self.kill_signal.clone(),
+            self.address_man.clone(),
+        )
+        .unwrap();
+
+        let datadir = self.config.datadir.clone();
+        let outer_chain = self.chain.clone();
+
+        let fut = UtreexoNode::<PartialChainState, SyncNode>::run(
+            backfill,
+            move |chain: &PartialChainState| {
+                if chain.has_invalid_blocks() {
+                    panic!("We assumed a chain with invalid blocks, something went really wrong");
+                }
+
+                done_flag.send(()).unwrap();
+
+                // we haven't finished the backfill yet, save the current state for the next run
+                if chain.is_in_ibd() {
+                    let acc = chain.get_acc();
+                    let tip = chain.get_height().unwrap();
+                    let mut ser_acc = Vec::new();
+                    acc.serialize(&mut ser_acc).unwrap();
+                    ser_acc.extend_from_slice(&tip.to_le_bytes());
+                    ser_acc.extend_from_slice(&end.to_le_bytes());
+                    std::fs::write(datadir + "/.sync_node_state", ser_acc)
+                        .expect("Failed to write sync node state");
+                    return;
+                }
+
+                // empty the file if we're done
+                std::fs::write(datadir + "/.sync_node_state", Vec::new())
+                    .expect("Failed to write sync node state");
+
+                for block in chain.list_valid_blocks() {
+                    outer_chain
+                        .mark_block_as_valid(block.block_hash())
+                        .expect("Failed to mark block as valid");
+                }
+
+                info!("Backfilling task shutting down...");
+            },
+        );
+
+        tokio::task::spawn(fut);
+        Ok(true)
+    }
+
+    pub async fn run(mut self, stop_signal: futures::channel::oneshot::Sender<()>) {
         try_and_log!(self.init_peers().await);
-        let startup_tip = self.chain.get_height().unwrap();
 
         // Use this node state to Initial Block download
         let mut ibd = UtreexoNode {
             common: self.common,
             context: ChainSelector::default(),
         };
-        try_and_log!(UtreexoNode::<Chain, ChainSelector>::run(&mut ibd, kill_signal.clone()).await);
 
-        if *kill_signal.read().await {
-            self = UtreexoNode {
-                common: ibd.common,
-                context: self.context,
-            };
-            self.shutdown().await;
-            try_and_log!(stop_signal.send(()));
-            return;
-        }
+        try_and_log!(UtreexoNode::<Chain, ChainSelector>::run(&mut ibd).await);
 
         self = UtreexoNode {
             common: ibd.common,
             context: self.context,
         };
 
-        // download all blocks from the network
-        if self.config.backfill && startup_tip == 0 {
-            let end = self.common.chain.get_validation_index().unwrap();
-            let chain = self
-                .chain
-                .get_partial_chain(startup_tip, end, Stump::default())
-                .unwrap();
-
-            let mut backfill = UtreexoNode::<PartialChainState, SyncNode>::new(
-                self.config.clone(),
-                chain,
-                self.mempool.clone(),
-                None,
-            )
-            .expect("Failed to create backfill node"); // expect is fine here, because we already
-                                                       // validated this config before creating the RunningNode
-
-            UtreexoNode::<PartialChainState, SyncNode>::run(
-                &mut backfill,
-                kill_signal.clone(),
-                |chain: &PartialChainState| {
-                    if chain.has_invalid_blocks() {
-                        panic!(
-                            "We assumed a chain with invalid blocks, something went really wrong"
-                        );
-                    }
-
-                    for block in chain.list_valid_blocks() {
-                        self.chain
-                            .mark_block_as_valid(block.block_hash())
-                            .expect("Failed to mark block as valid");
-                    }
-                },
-            )
-            .await;
+        if *self.kill_signal.read().await {
+            self.shutdown().await;
+            try_and_log!(stop_signal.send(()));
+            return;
         }
 
-        self = self.catch_up(kill_signal.clone()).await;
+        // download blocks from the network before our validation index, probably because we've
+        // assumed it somehow.
+        let (sender, recv) = std::sync::mpsc::channel();
+        let is_backfilling = match self.config.backfill {
+            true => {
+                info!("Starting backfill task...");
+                self.backfill(sender)
+                    .expect("Failed to spawn backfill thread")
+            }
+            false => false,
+        };
+
+        // Catch up with the network, donloading blocks from our last validation index onwnwards
+        info!("Catching up with the network...");
+        try_and_log!(self.catch_up().await);
+
+        if *self.kill_signal.read().await {
+            self.shutdown().await;
+            stop_signal.send(()).unwrap();
+            return;
+        }
 
         self.last_block_request = self.chain.get_validation_index().unwrap_or(0);
+        if let Some(ref cfilters) = self.block_filters {
+            self.last_filter = self
+                .chain
+                .get_block_hash(cfilters.get_height().unwrap_or(1))
+                .unwrap();
+        }
 
+        self.last_block_request = self.chain.get_validation_index().unwrap_or(0);
         if let Some(ref cfilters) = self.block_filters {
             self.last_filter = self
                 .chain
@@ -344,16 +408,16 @@ where
 
         info!("starting running node...");
         loop {
+            if *self.kill_signal.read().await {
+                break;
+            }
+
             while let Ok(Some(notification)) =
                 timeout(Duration::from_millis(100), self.node_rx.recv()).await
             {
                 try_and_log!(self.handle_notification(notification).await);
             }
 
-            if *kill_signal.read().await {
-                self.shutdown().await;
-                break;
-            }
             // Jobs that don't need a connected peer
 
             // Save our peers db
@@ -375,7 +439,7 @@ where
 
             // Perhaps we need more connections
             periodic_job!(
-                self.maybe_open_connection().await,
+                self.check_connections().await,
                 self.last_connection,
                 TRY_NEW_CONNECTION,
                 RunningNode
@@ -390,7 +454,7 @@ where
             // Open new feeler connection periodically
             periodic_job!(
                 self.open_feeler_connection().await,
-                self.context.last_feeler,
+                self.last_feeler,
                 FEELER_INTERVAL,
                 RunningNode
             );
@@ -442,6 +506,13 @@ where
             }
         }
 
+        // ignore the error here because if the backfill task already
+        // finished, this channel will be closed
+        if is_backfilling {
+            let _ = recv.recv();
+        }
+
+        self.shutdown().await;
         stop_signal.send(()).unwrap();
     }
 
@@ -597,32 +668,9 @@ where
     /// This block may be a rescan block, a user request or a new block that we
     /// need to process.
     async fn handle_block_data(&mut self, block: UtreexoBlock, peer: u32) -> Result<(), WireError> {
-        // If this block is a request made through the user interface, send it back to the
-        // user.
-        if self
-            .inflight
-            .remove(&InflightRequests::UserRequest(UserRequest::Block(
-                block.block.block_hash(),
-            )))
-            .is_some()
-        {
-            debug!(
-                "answering user request for block {}",
-                block.block.block_hash()
-            );
-            if block.udata.is_some() {
-                self.context.user_requests.send_answer(
-                    UserRequest::UtreexoBlock(block.block.block_hash()),
-                    Some(NodeResponse::UtreexoBlock(block)),
-                );
-                return Ok(());
-            }
-            self.context.user_requests.send_answer(
-                UserRequest::Block(block.block.block_hash()),
-                Some(NodeResponse::Block(block.block)),
-            );
+        let Some(block) = self.check_is_user_block_and_reply(block).await? else {
             return Ok(());
-        }
+        };
 
         // If none of the above, it means that this block is a new block that we need to
         // process.
@@ -669,7 +717,9 @@ where
             };
 
             let (proof, del_hashes, inputs) =
-                floresta_chain::proof_util::process_proof(udata, &block.block.txdata, &self.chain)?;
+                floresta_chain::proof_util::process_proof(udata, &block.block.txdata, |h| {
+                    self.chain.get_block_hash(h)
+                })?;
 
             if let Err(e) =
                 self.chain
@@ -716,7 +766,7 @@ where
                 return Err(WireError::PeerMisbehaving);
             }
 
-            if !self.chain.is_in_idb() {
+            if !self.chain.is_in_ibd() {
                 // Convert to BitcoinNodeHashes, from rustreexo
                 let del_hashes: Vec<_> = del_hashes.into_iter().map(Into::into).collect();
 
@@ -811,6 +861,7 @@ where
 
                     self.handle_new_block(block, peer).await?;
                 }
+
                 PeerMessages::Block(block) => {
                     debug!(
                         "Got data for block {} from peer {peer}",
@@ -819,6 +870,7 @@ where
 
                     self.handle_block_data(block, peer).await?;
                 }
+
                 PeerMessages::Headers(headers) => {
                     debug!(
                         "Got headers from peer {peer} with {} headers",
@@ -841,7 +893,7 @@ where
                         let peer_to_disconnect = self
                             .peers
                             .iter()
-                            .filter(|(_, info)| matches!(info.kind, ConnectionKind::Regular))
+                            .filter(|(_, info)| matches!(info.kind, ConnectionKind::Regular(_)))
                             .min_by_key(|(k, _)| self.get_peer_score(**k))
                             .map(|(peer, _)| *peer);
 
@@ -852,7 +904,7 @@ where
 
                         // update the peer info
                         self.peers.entry(peer).and_modify(|info| {
-                            info.kind = ConnectionKind::Regular;
+                            info.kind = ConnectionKind::Regular(peer_info.services);
                         });
                     }
 
@@ -860,11 +912,12 @@ where
                         self.chain.accept_header(*header)?;
                     }
 
-                    if self.chain.is_in_idb() {
+                    if self.chain.is_in_ibd() {
                         let blocks = headers.iter().map(|header| header.block_hash()).collect();
                         self.request_blocks(blocks).await?;
                     }
                 }
+
                 PeerMessages::Ready(version) => {
                     debug!(
                         "handshake with peer={peer} succeeded feeler={:?}",
@@ -872,15 +925,18 @@ where
                     );
                     self.handle_peer_ready(peer, &version).await?;
                 }
+
                 PeerMessages::Disconnected(idx) => {
                     self.handle_disconnection(peer, idx).await?;
                 }
+
                 PeerMessages::Addr(addresses) => {
                     debug!("Got {} addresses from peer {}", addresses.len(), peer);
-                    let addresses: Vec<_> =
-                        addresses.iter().cloned().map(|addr| addr.into()).collect();
+                    let addresses: Vec<_> = addresses.into_iter().map(|addr| addr.into()).collect();
+
                     self.address_man.push_addresses(&addresses);
                 }
+
                 PeerMessages::BlockFilter((hash, filter)) => {
                     debug!("Got a block filter for block {hash} from peer {peer}");
 
@@ -916,30 +972,31 @@ where
                         }
                     }
                 }
+
                 PeerMessages::NotFound(inv) => match inv {
                     Inventory::Error => {}
                     Inventory::Block(block)
                     | Inventory::WitnessBlock(block)
                     | Inventory::CompactBlock(block) => {
-                        self.context
-                            .user_requests
+                        self.user_requests
                             .send_answer(UserRequest::Block(block), None);
                     }
 
                     Inventory::WitnessTransaction(tx) | Inventory::Transaction(tx) => {
-                        self.context
-                            .user_requests
+                        self.user_requests
                             .send_answer(UserRequest::MempoolTransaction(tx), None);
                     }
                     _ => {}
                 },
+
                 PeerMessages::Transaction(tx) => {
                     debug!("saw a mempool transaction with txid={}", tx.compute_txid());
-                    self.context.user_requests.send_answer(
+                    self.user_requests.send_answer(
                         UserRequest::MempoolTransaction(tx.compute_txid()),
                         Some(NodeResponse::MempoolTransaction(tx)),
                     );
                 }
+
                 PeerMessages::UtreexoState(_) => {
                     warn!(
                         "Utreexo state received from peer {}, but we didn't ask",

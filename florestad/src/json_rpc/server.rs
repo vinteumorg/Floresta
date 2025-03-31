@@ -72,10 +72,6 @@ type Result<T> = std::result::Result<T, Error>;
 
 impl RpcImpl {
     fn add_node(&self, node: String) -> Result<bool> {
-        if self.chain.is_in_idb() {
-            return Err(Error::InInitialBlockDownload);
-        }
-
         let node = node.split(':').collect::<Vec<&str>>();
         let (ip, port) = if node.len() == 2 {
             (node[0], node[1].parse().map_err(|_| Error::InvalidPort)?)
@@ -113,10 +109,6 @@ impl RpcImpl {
     }
 
     fn load_descriptor(&self, descriptor: String) -> Result<bool> {
-        if self.chain.is_in_idb() {
-            return Err(Error::InInitialBlockDownload);
-        }
-
         let Ok(mut parsed) = parse_descriptors(&[descriptor.clone()]) else {
             return Err(Error::InvalidDescriptor);
         };
@@ -160,7 +152,8 @@ impl RpcImpl {
     }
 
     fn rescan(&self, _rescan: u32) -> Result<bool> {
-        if self.chain.is_in_idb() {
+        // if we are on ibd, we don't have any filters to rescan
+        if self.chain.is_in_ibd() {
             return Err(Error::InInitialBlockDownload);
         }
 
@@ -169,6 +162,7 @@ impl RpcImpl {
         if self.block_filter_storage.is_none() {
             return Err(Error::InInitialBlockDownload);
         };
+
         let cfilters = self.block_filter_storage.as_ref().unwrap().clone();
         let node = self.node.clone();
         let chain = self.chain.clone();
@@ -192,10 +186,6 @@ impl RpcImpl {
     }
 
     async fn get_peer_info(&self) -> Result<Vec<PeerInfo>> {
-        if self.chain.is_in_idb() {
-            return Err(Error::InInitialBlockDownload);
-        }
-
         let node = self.node.clone();
         tokio::task::spawn_blocking(move || {
             node.get_peer_info()
@@ -398,6 +388,10 @@ async fn handle_json_rpc_request(req: Value, state: Arc<RpcImpl>) -> Result<serd
                 .map(|v| ::serde_json::to_value(v).unwrap())
         }
 
+        "listdescriptors" => state
+            .list_descriptors()
+            .map(|v| ::serde_json::to_value(v).unwrap()),
+
         _ => {
             let error = Error::MethodNotFound;
             Err(error)
@@ -423,7 +417,8 @@ fn get_http_error_code(err: &Error) -> u16 {
         | Error::MissingParams
         | Error::MissingReq
         | Error::NoBlockFilters
-        | Error::InvalidMemInfoMode => 400,
+        | Error::InvalidMemInfoMode
+        | Error::Wallet(_) => 400,
 
         // idunnolol
         Error::MethodNotFound | Error::BlockNotFound | Error::TxNotFound => 404,
@@ -453,7 +448,8 @@ fn get_json_rpc_error_code(err: &Error) -> i32 {
         | Error::InvalidVerbosityLevel
         | Error::TxNotFound
         | Error::BlockNotFound
-        | Error::InvalidMemInfoMode => -32600,
+        | Error::InvalidMemInfoMode
+        | Error::Wallet(_) => -32600,
 
         // server error
         Error::InInitialBlockDownload

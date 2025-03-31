@@ -22,6 +22,9 @@ pub use pruned_utreexo::udata::*;
 pub use pruned_utreexo::Notification;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Simple enum representing the network type.
+///
+/// Possible values are Bitcoin, Testnet, Regtest, and Signet.
 pub enum Network {
     Bitcoin,
     Testnet,
@@ -54,7 +57,8 @@ impl From<Network> for bitcoin::network::Network {
 mod test {
     use bitcoin::network::Network as BNetwork;
 
-    use super::*;
+    use super::Network;
+
     #[test]
     fn test_network() {
         assert_eq!(Network::Bitcoin, BNetwork::Bitcoin.into());

@@ -51,11 +51,6 @@ pub(crate) struct PartialChainStateInner {
     /// and to build the accumulator. We assume this is sorted by height, and
     /// should contains all blocks in this interval.
     pub(crate) blocks: Vec<BlockHeader>,
-    /// The height this interval starts at. This [initial_height, final_height), so
-    /// if we break the interval at height 100, the first interval will be [0, 100)
-    /// and the second interval will be [100, 200). And the initial height of the
-    /// second interval will be 99.
-    pub(crate) initial_height: u32,
     /// The height we are on right now, this is used to keep track of the progress
     /// of the sync.
     pub(crate) current_height: u32,
@@ -97,19 +92,17 @@ unsafe impl Send for PartialChainState {}
 unsafe impl Sync for PartialChainState {}
 
 impl PartialChainStateInner {
-    /// Returns the height we have synced up to so far
-    pub fn current_height(&self) -> u32 {
-        self.current_height
-    }
-
     /// Whether or not we have synced up to the final height
     pub fn is_sync(&self) -> bool {
         self.current_height == self.final_height
     }
 
     pub fn get_block(&self, height: u32) -> Option<&BlockHeader> {
-        let index = height - self.initial_height;
-        self.blocks.get(index as usize)
+        if height >= self.blocks.len() as u32 {
+            return None;
+        }
+
+        self.blocks.get(height as usize)
     }
 
     #[cfg(feature = "bitcoinconsensus")]
@@ -199,6 +192,7 @@ impl PartialChainStateInner {
                 block.block_hash()
             );
         }
+
         self.update_state(height, acc);
 
         Ok(height)
@@ -214,6 +208,7 @@ impl PartialChainStateInner {
         if !block.check_merkle_root() {
             return Err(BlockValidationErrors::BadMerkleRoot)?;
         }
+
         if height >= self.chain_params().params.bip34_height
             && block.bip34_block_height() != Ok(height as u64)
         {
@@ -316,6 +311,10 @@ impl UpdatableChainstate for PartialChainState {
         self.inner().current_acc.roots.clone()
     }
 
+    fn get_acc(&self) -> Stump {
+        self.inner().current_acc.clone()
+    }
+
     //these are no-ops, you can call them, but they won't do anything
 
     fn flush(&self) -> Result<(), BlockchainError> {
@@ -375,7 +374,6 @@ impl BlockchainInterface for PartialChainState {
     }
 
     fn get_block_hash(&self, height: u32) -> Result<bitcoin::BlockHash, BlockchainError> {
-        let height = height - self.inner().initial_height;
         self.inner()
             .blocks
             .get(height as usize)
@@ -385,8 +383,8 @@ impl BlockchainInterface for PartialChainState {
 
     fn get_best_block(&self) -> Result<(u32, bitcoin::BlockHash), Self::Error> {
         Ok((
-            self.inner().current_height(),
-            self.get_block_hash(self.inner().current_height())?,
+            self.inner().final_height,
+            self.get_block_hash(self.inner().final_height)?,
         ))
     }
 
@@ -405,8 +403,24 @@ impl BlockchainInterface for PartialChainState {
         Ok(self.inner().current_height)
     }
 
-    fn is_in_idb(&self) -> bool {
+    fn is_in_ibd(&self) -> bool {
         !self.inner().is_sync()
+    }
+
+    fn get_block_locator(&self) -> Result<Vec<bitcoin::BlockHash>, Self::Error> {
+        let mut hashes = vec![];
+        let mut step = 1;
+        let mut height = self.inner().current_height;
+
+        while height > 0 {
+            hashes.push(self.get_block_hash(height)?);
+            if hashes.len() > 10 {
+                step *= 2;
+            }
+            height = height.saturating_sub(step);
+        }
+
+        Ok(hashes)
     }
 
     // partial chain states are only used for IBD, so we don't need to implement these
@@ -479,10 +493,6 @@ impl BlockchainInterface for PartialChainState {
     fn get_unbroadcasted(&self) -> Vec<bitcoin::Transaction> {
         unimplemented!("partialChainState::get_unbroadcasted")
     }
-
-    fn get_block_locator(&self) -> Result<Vec<bitcoin::BlockHash>, Self::Error> {
-        unimplemented!("partialChainState::get_block_locator")
-    }
 }
 
 // mainly for tests
@@ -494,11 +504,14 @@ impl From<PartialChainStateInner> for PartialChainState {
 
 #[cfg(test)]
 mod tests {
+    use core::str::FromStr;
     use std::collections::HashMap;
 
     use bitcoin::block::Header;
-    use bitcoin::consensus::deserialize;
+    use bitcoin::consensus::encode::deserialize_hex;
     use bitcoin::Block;
+    use floresta_common::acchashes;
+    use rustreexo::accumulator::node_hash::BitcoinNodeHash;
     use rustreexo::accumulator::proof::Proof;
     use rustreexo::accumulator::stump::Stump;
 
@@ -529,8 +542,7 @@ mod tests {
         run("0000002000226e46111a0b59caaf126043eb5bbf28c34f3a5e332a1fc7b2b73cf188910f40adbcd7823048d34357bdca86cd47172afe2a4af8366b5b34db36df89386d49b23ec964ffff7f20000000000101000000010000000000000000000000000000000000000000000000000000000000000000ffffffff165108feddb99c6b8435060b2f503253482f627463642fffffffff0100f2052a01000000160014806cef41295922d32ddfca09c26cc4acd36c3ed000000000", BlockValidationErrors::BadMerkleRoot);
     }
     fn parse_block(hex: &str) -> Block {
-        let block = hex::decode(hex).unwrap();
-        deserialize(&block).unwrap()
+        deserialize_hex(hex).unwrap()
     }
     fn get_empty_pchain(blocks: Vec<Header>) -> PartialChainState {
         PartialChainStateInner {
@@ -543,7 +555,6 @@ mod tests {
             final_height: 1,
             blocks,
             error: None,
-            initial_height: 0,
         }
         .into()
     }
@@ -556,8 +567,7 @@ mod tests {
             if i > 100 {
                 break;
             }
-            let block: Block = deserialize(&hex::decode(block).unwrap()).unwrap();
-            parsed_blocks.push(block);
+            parsed_blocks.push(parse_block(block));
         }
         let chainstate: PartialChainState = PartialChainStateInner {
             assume_valid: true,
@@ -569,7 +579,6 @@ mod tests {
             final_height: 100,
             blocks: parsed_blocks.iter().map(|block| block.header).collect(),
             error: None,
-            initial_height: 0,
         }
         .into();
         parsed_blocks.remove(0);
@@ -591,11 +600,11 @@ mod tests {
         let blocks = include_str!("../../testdata/blocks.txt");
         let mut parsed_blocks = vec![];
         for block in blocks.lines() {
-            let block: Block = deserialize(&hex::decode(block).unwrap()).unwrap();
-            parsed_blocks.push(block);
+            parsed_blocks.push(parse_block(block));
         }
         // The file contains 150 blocks, we split them into two chains.
-        let (blocks1, blocks2) = parsed_blocks.split_at(101);
+        let split = parsed_blocks.clone();
+        let (blocks1, blocks2) = split.split_at(101);
         let mut chainstate1 = PartialChainStateInner {
             assume_valid: true,
             consensus: Consensus {
@@ -604,21 +613,18 @@ mod tests {
             current_height: 0,
             current_acc: Stump::default(),
             final_height: 100,
-            blocks: blocks1.iter().map(|block| block.header).collect(),
+            blocks: parsed_blocks.iter().map(|block| block.header).collect(),
             error: None,
-            initial_height: 0,
         };
+
         // We need to add the last block of the first chain to the second chain, so that
         // the second chain can validate all its blocks.
-        let mut blocks2_headers = vec![blocks1.last().unwrap()];
-        blocks2_headers.extend(blocks2);
+        for (height, block) in blocks1.iter().enumerate() {
+            // skip the genesis block
+            if height == 0 {
+                continue;
+            }
 
-        let blocks2_headers = blocks2_headers.iter().map(|block| block.header).collect();
-
-        let mut blocks1 = blocks1.iter();
-        blocks1.next();
-
-        for block in blocks1 {
             let proof = Proof::default();
             let inputs = HashMap::new();
             let del_hashes = vec![];
@@ -626,13 +632,13 @@ mod tests {
                 .process_block(block, proof, inputs, del_hashes)
                 .unwrap();
         }
+
         // The state after 100 blocks, computed ahead of time.
-        let roots = [
+        let roots = acchashes![
             "a2f1e6db842e13c7480c8d80f29ca2db5f9b96e1b428ebfdbd389676d7619081",
             "b21aae30bc74e9aef600a5d507ef27d799b9b6ba08e514656d34d717bdb569d2",
             "bedb648c9a3c5741660f926c1552d83ebb4cb1842cca6855b6d1089bb4951ce1",
         ]
-        .map(|s| s.parse().unwrap())
         .to_vec();
 
         let acc2 = Stump { roots, leaves: 100 };
@@ -651,9 +657,8 @@ mod tests {
             current_height: 100,
             current_acc: acc2,
             final_height: 150,
-            blocks: blocks2_headers,
+            blocks: parsed_blocks.iter().map(|block| block.header).collect(),
             error: None,
-            initial_height: 100,
         }
         .into();
 
@@ -666,13 +671,12 @@ mod tests {
                 .unwrap();
         }
 
-        let roots = [
+        let roots = acchashes![
             "e00b4ecc7c30865af0ac3b0c7c1b996015f51d6a6577ee6f52cc04b55933eb91",
             "9bf9659f93e246e0431e228032cd4b3a4d8a13e57f3e08a221e61f3e0bae657f",
             "e329a7ddcc888130bb6e4f82ce9f5cf5a712a7b0ae05a1aaf21b363866a9b05e",
             "1864a4982532447dcb3d9a5d2fea9f8ed4e3b1e759d55b8a427fb599fed0c302",
         ]
-        .map(|s| s.parse().unwrap())
         .to_vec();
 
         let expected_acc: Stump = Stump { leaves: 150, roots };

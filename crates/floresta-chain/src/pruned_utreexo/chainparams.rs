@@ -1,3 +1,14 @@
+//! This module provides configuration and parameters for different Bitcoin networks (mainnet,
+//! testnet, signet, and regtest).
+//!
+//! It includes:
+//! - Network-specific parameters like block reward halving intervals and maturity periods
+//! - DNS seeds for peer discovery
+//! - Assumable validation states for Utreexo
+//! - Block verification flag exceptions
+//!
+//! The main struct [`ChainParams`] encapsulates all chain-specific parameters while
+//! [`DnsSeed`] handles peer discovery through DNS.
 extern crate alloc;
 use alloc::vec::Vec;
 use core::ffi::c_uint;
@@ -7,6 +18,8 @@ use bitcoin::p2p::ServiceFlags;
 use bitcoin::params::Params;
 use bitcoin::Block;
 use bitcoin::BlockHash;
+use floresta_common::acchashes;
+use floresta_common::bhash;
 use rustreexo::accumulator::node_hash::BitcoinNodeHash;
 
 use crate::prelude::*;
@@ -84,11 +97,11 @@ impl ChainParams {
         let genesis = genesis_block(Params::new(network.into()));
         match network {
             Network::Bitcoin => AssumeUtreexoValue {
-                block_hash: "00000000000000000000569f4d863c27e667cbee8acc8da195e7e5551658e6e9"
-                    .parse()
-                    .unwrap(),
+                block_hash: bhash!(
+                    "00000000000000000000569f4d863c27e667cbee8acc8da195e7e5551658e6e9"
+                ),
                 height: 855571,
-                roots: [
+                roots: acchashes![
                     "4dcc014cc23611dda2dcf0f34a3e62e7d302146df4b0b01ac701d440358c19d6",
                     "988e0a883e4ad0c5559432f4747395115112755ec1138dcdd62e2f5741c31c2c",
                     "49ecba683e12823d44f2ad190120d3028386d8bb7860a3eea62a250a1f293c60",
@@ -107,7 +120,6 @@ impl ChainParams {
                     "67ba89afe6bce9bafbf0b88013e4446c861e6c746e291c3921e0b65c93671ba3",
                     "972ea2c7472c22e4eab49e9c2db5757a048b271b6251883ce89ccfeaa38b47ab",
                 ]
-                .map(|s| s.parse().unwrap())
                 .to_vec(),
                 leaves: 2587882501,
             },
@@ -133,29 +145,22 @@ impl ChainParams {
     }
 
     pub fn get_assume_valid(network: Network, arg: AssumeValidArg) -> Option<BlockHash> {
-        fn get_hash(hash: &str) -> BlockHash {
-            BlockHash::from_str(hash).expect("hardcoded hash should not fail")
-        }
         match arg {
             AssumeValidArg::Disabled => None,
             AssumeValidArg::UserInput(hash) => Some(hash),
             AssumeValidArg::Hardcoded => match network {
-                Network::Bitcoin => {
-                    get_hash("00000000000000000000569f4d863c27e667cbee8acc8da195e7e5551658e6e9")
-                        .into()
-                }
-                Network::Testnet => {
-                    get_hash("000000000000001142ad197bff16a1393290fca09e4ca904dd89e7ae98a90fcd")
-                        .into()
-                }
-                Network::Signet => {
-                    get_hash("0000003ed17b9c93954daab00d73ccbd0092074c4ebfc751c7458d58b827dfea")
-                        .into()
-                }
-                Network::Regtest => {
-                    get_hash("0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206")
-                        .into()
-                }
+                Network::Bitcoin => Some(bhash!(
+                    "00000000000000000000569f4d863c27e667cbee8acc8da195e7e5551658e6e9"
+                )),
+                Network::Testnet => Some(bhash!(
+                    "000000000000001142ad197bff16a1393290fca09e4ca904dd89e7ae98a90fcd"
+                )),
+                Network::Signet => Some(bhash!(
+                    "0000003ed17b9c93954daab00d73ccbd0092074c4ebfc751c7458d58b827dfea"
+                )),
+                Network::Regtest => Some(bhash!(
+                    "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206"
+                )),
             },
         }
     }
@@ -171,18 +176,15 @@ fn get_exceptions() -> HashMap<BlockHash, c_uint> {
     use bitcoinconsensus::VERIFY_WITNESS;
     let mut exceptions = HashMap::new();
     exceptions.insert(
-        BlockHash::from_str("00000000000002dc756eebf4f49723ed8d30cc28a5f108eb94b1ba88ac4f9c22")
-            .unwrap(),
+        bhash!("00000000000002dc756eebf4f49723ed8d30cc28a5f108eb94b1ba88ac4f9c22"),
         VERIFY_NONE,
     ); // BIP16 exception on main net
     exceptions.insert(
-        BlockHash::from_str("0000000000000000000f14c35b2d841e986ab5441de8c585d5ffe55ea1e395ad")
-            .unwrap(),
+        bhash!("0000000000000000000f14c35b2d841e986ab5441de8c585d5ffe55ea1e395ad"),
         VERIFY_P2SH | VERIFY_WITNESS,
     ); // Taproot exception on main net
     exceptions.insert(
-        BlockHash::from_str("00000000dd30457c001f4095d208cc1296b0eed002427aa599874af7a432b105")
-            .unwrap(),
+        bhash!("00000000dd30457c001f4095d208cc1296b0eed002427aa599874af7a432b105"),
         VERIFY_NONE,
     ); // BIP16 exception on test net
     exceptions
