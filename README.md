@@ -283,7 +283,7 @@ We provide two helper scripts to support our functional tests and ensure the cor
 
 Using these scripts, you have a few options for running the tests and verifying the functionality of `florestad`:
 
-1) Manually: Build the binaries yourself and place them at `$FLORESTA_TEMP_DIR/binaries`.
+1) Manually: Build the binaries yourself and place them at `$FLORESTA_TEMP_DIR/binaries`, where `$FLORESTA_TEMP_DIR` is set to be an arbitrary directory.
 
 2) (Recommended): Use the helper scripts — [prepare.sh](https://github.com/vinteumorg/Floresta/blob/master/tests/prepare.sh) and [run.sh](https://github.com/vinteumorg/Floresta/blob/master/tests/run.sh) — to automatically build and run the tests.
 
