@@ -14,12 +14,16 @@ The difference is that our node will run withing a `cargo run` subprocess, defin
 """
 
 import os
+import re
 import subprocess
-from test_framework.floresta_rpc import FlorestaRPC
+import tempfile
+from typing import Any, List, Pattern
+
 from test_framework.crypto.pkcs8 import (
     create_pkcs8_private_key,
     create_pkcs8_self_signed_certificate,
 )
+from test_framework.floresta_rpc import FlorestaRPC
 
 VALID_FLORESTAD_EXTRA_ARGS = [
     "-c",
@@ -124,7 +128,7 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
         self._tests = []
         self._nodes = []
 
-    def log(self, msg: str) -> str:
+    def log(self, msg: str):
         """Log a message with the class caller"""
         print(f"[{self.__class__.__name__} INFO] {msg}")
 
