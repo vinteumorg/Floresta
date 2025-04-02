@@ -112,7 +112,7 @@ where
     ///     - Checks if our tip is obsolete and requests a new one, creating a new connection.
     ///     - Handles timeouts for inflight requests.
     ///     - If were low on inflights, requests new blocks to validate.
-    pub async fn run(mut self, done_cb: impl FnOnce(&Chain)) {
+    pub async fn run(mut self, done_cb: impl FnOnce(&Chain)) -> Self {
         info!("Starting sync node");
         self.context.last_block_requested = self.chain.get_validation_index().unwrap();
 
@@ -182,7 +182,9 @@ where
                 self.get_blocks_to_download().await;
             }
         }
+
         done_cb(&self.chain);
+        self
     }
 
     /// Isolate inflights that have timed out and increase the banscore of the peer that sent them and re-request it.
@@ -215,11 +217,6 @@ where
             }
             self.inflight.remove(&request);
             try_and_log!(self.increase_banscore(peer, 1).await);
-
-            if let InflightRequests::UserRequest(req) = request {
-                self.user_requests.send_answer(req, None);
-                continue;
-            }
 
             let InflightRequests::Blocks(block) = request else {
                 continue;
@@ -361,66 +358,102 @@ where
     }
     /// Process a message from a peer and handle it accordingly between the variants of [`PeerMessages`].
     async fn handle_message(&mut self, msg: NodeNotification) -> Result<(), WireError> {
-        #[cfg(feature = "metrics")]
-        self.register_message_time(&msg);
-
         match msg {
-            NodeNotification::FromPeer(peer, notification) => match notification {
-                PeerMessages::Block(block) => {
-                    if let Err(e) = self.handle_block_data(peer, block).await {
-                        error!("Error processing block: {:?}", e);
-                    }
-                }
+            NodeNotification::FromUser(request, responder) => {
+                self.perform_user_request(request, responder).await;
+            }
 
-                PeerMessages::Ready(version) => {
-                    try_and_log!(self.handle_peer_ready(peer, &version).await);
-                }
+            NodeNotification::FromPeer(peer, notification) => {
+                #[cfg(feature = "metrics")]
+                self.register_message_time(&notification, peer);
 
-                PeerMessages::Disconnected(idx) => {
-                    try_and_log!(self.handle_disconnection(peer, idx).await);
-                }
-
-                PeerMessages::Addr(addresses) => {
-                    debug!("Got {} addresses from peer {}", addresses.len(), peer);
-                    let addresses: Vec<_> = addresses.into_iter().map(|addr| addr.into()).collect();
-
-                    self.address_man.push_addresses(&addresses);
-                }
-
-                PeerMessages::NotFound(inv) => match inv {
-                    Inventory::Error => {}
-                    Inventory::Block(block)
-                    | Inventory::WitnessBlock(block)
-                    | Inventory::CompactBlock(block) => {
-                        self.user_requests
-                            .send_answer(UserRequest::Block(block), None);
+                match notification {
+                    PeerMessages::Block(block) => {
+                        if let Err(e) = self.handle_block_data(peer, block).await {
+                            error!("Error processing block: {:?}", e);
+                        }
                     }
 
-                    Inventory::WitnessTransaction(tx) | Inventory::Transaction(tx) => {
-                        self.user_requests
-                            .send_answer(UserRequest::MempoolTransaction(tx), None);
+                    PeerMessages::Ready(version) => {
+                        try_and_log!(self.handle_peer_ready(peer, &version).await);
                     }
+
+                    PeerMessages::Disconnected(idx) => {
+                        try_and_log!(self.handle_disconnection(peer, idx).await);
+                    }
+
+                    PeerMessages::Addr(addresses) => {
+                        debug!("Got {} addresses from peer {}", addresses.len(), peer);
+                        let addresses: Vec<_> =
+                            addresses.into_iter().map(|addr| addr.into()).collect();
+
+                        self.address_man.push_addresses(&addresses);
+                    }
+
+                    PeerMessages::NotFound(inv) => match inv {
+                        Inventory::Error => {}
+                        Inventory::Block(block)
+                        | Inventory::WitnessBlock(block)
+                        | Inventory::CompactBlock(block) => {
+                            if let Some(request) = self
+                                .inflight_user_requests
+                                .remove(&UserRequest::Block(block))
+                            {
+                                request
+                                    .2
+                                    .send(NodeResponse::Block(None))
+                                    .map_err(|_| WireError::ResponseSendError)?;
+                            }
+
+                            if let Some(request) = self
+                                .inflight_user_requests
+                                .remove(&UserRequest::UtreexoBlock(block))
+                            {
+                                request
+                                    .2
+                                    .send(NodeResponse::UtreexoBlock(None))
+                                    .map_err(|_| WireError::ResponseSendError)?;
+                            }
+                        }
+
+                        Inventory::WitnessTransaction(tx) | Inventory::Transaction(tx) => {
+                            if let Some(request) = self
+                                .inflight_user_requests
+                                .remove(&UserRequest::MempoolTransaction(tx))
+                            {
+                                request
+                                    .2
+                                    .send(NodeResponse::MempoolTransaction(None))
+                                    .map_err(|_| WireError::ResponseSendError)?;
+                            }
+                        }
+                        _ => {}
+                    },
+
+                    PeerMessages::Transaction(tx) => {
+                        debug!("saw a mempool transaction with txid={}", tx.compute_txid());
+                        if let Some(request) = self
+                            .inflight_user_requests
+                            .remove(&UserRequest::MempoolTransaction(tx.compute_txid()))
+                        {
+                            request
+                                .2
+                                .send(NodeResponse::MempoolTransaction(Some(tx)))
+                                .map_err(|_| WireError::ResponseSendError)?;
+                        }
+                    }
+
+                    PeerMessages::UtreexoState(_) => {
+                        warn!(
+                            "Utreexo state received from peer {}, but we didn't ask",
+                            peer
+                        );
+                        self.increase_banscore(peer, 5).await?;
+                    }
+
                     _ => {}
-                },
-
-                PeerMessages::Transaction(tx) => {
-                    debug!("saw a mempool transaction with txid={}", tx.compute_txid());
-                    self.user_requests.send_answer(
-                        UserRequest::MempoolTransaction(tx.compute_txid()),
-                        Some(NodeResponse::MempoolTransaction(tx)),
-                    );
                 }
-
-                PeerMessages::UtreexoState(_) => {
-                    warn!(
-                        "Utreexo state received from peer {}, but we didn't ask",
-                        peer
-                    );
-                    self.increase_banscore(peer, 5).await?;
-                }
-
-                _ => {}
-            },
+            }
         }
 
         Ok(())

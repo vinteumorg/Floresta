@@ -8,10 +8,8 @@ use bitcoin::ScriptBuf;
 use bitcoin::Txid;
 use floresta_chain::pruned_utreexo::BlockchainInterface;
 use floresta_chain::pruned_utreexo::UpdatableChainstate;
-use floresta_wire::node_interface::NodeMethods;
 use serde_json::json;
 use serde_json::Value;
-use tokio::task::spawn_blocking;
 
 use super::res::Error as RpcError;
 use super::res::Error;
@@ -27,14 +25,11 @@ impl RpcImpl {
             return Ok(genesis_block(self.network));
         }
 
-        let node = self.node.clone();
-        spawn_blocking(move || {
-            node.get_block(hash)
-                .map_err(|_| RpcError::Chain)?
-                .ok_or(RpcError::BlockNotFound)
-        })
-        .await
-        .map_err(|e| RpcError::Node(e.to_string()))?
+        self.node
+            .get_block(hash)
+            .await
+            .map_err(|e| RpcError::Node(e.to_string()))
+            .and_then(|block| block.ok_or(RpcError::BlockNotFound))
     }
 }
 
@@ -217,7 +212,7 @@ impl RpcImpl {
 
     // floresta flavored rpcs. These are not part of the bitcoin rpc spec
     // findtxout
-    pub(super) fn find_tx_out(
+    pub(super) async fn find_tx_out(
         &self,
         txid: Txid,
         vout: u32,
@@ -240,18 +235,16 @@ impl RpcImpl {
 
         self.wallet.cache_address(script.clone());
         let filter_key = script.to_bytes();
-        let candidates = cfilters.match_any(
-            vec![filter_key.as_slice()],
-            Some(height as usize),
-            self.chain.clone(),
-        );
-
-        let candidates = candidates
-            .unwrap_or_default()
-            .into_iter()
-            .map(|hash| self.node.get_block(hash));
+        let candidates = cfilters
+            .match_any(
+                vec![filter_key.as_slice()],
+                Some(height as usize),
+                self.chain.clone(),
+            )
+            .map_err(|e| RpcError::Filters(e.to_string()))?;
 
         for candidate in candidates {
+            let candidate = self.node.get_block(candidate).await;
             let candidate = match candidate {
                 Err(e) => {
                     return Err(RpcError::Node(e.to_string()));
