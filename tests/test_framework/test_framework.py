@@ -76,15 +76,44 @@ class FlorestaTestMetaClass(type):
         return super().__new__(mcs, clsname, bases, dct)
 
 
+# pylint: disable=too-many-public-methods
 class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
     """
     Base class for a floresta test script.
 
     Individual floresta test scripts should subclass this class and override the:
+    class _AssertRaisesContext:
+        """
+        Context manager for testing that an exception is raised.
 
-    - set_test_params(); and
-    - run_test() methods.
-    """
+        This keeps the assertRaises functionality neatly contained within our test framework
+        """
+
+        def __init__(self, test_framework, expected_exception):
+            """Initialize the context manager with the expected exception type."""
+            self.test_framework = test_framework
+            self.expected_exception = expected_exception
+            self.exception = None
+
+        def __enter__(self):
+            """Enter the context manager."""
+            return self
+
+        def __exit__(self, exc_type, exc_value, traceback):
+            """Exit the context manager and check if the expected exception was raised."""
+            if exc_type is None:
+                self.test_framework.stop_all_nodes()
+                trace = traceback.format_exc()
+                message = f"{self.expected_exception} was not raised"
+                raise AssertionError(f"{message}: {trace}")
+
+            if not issubclass(exc_type, self.expected_exception):
+                trace = traceback.format_exc()
+                message = f"Expected {self.expected_exception} but got {exc_type}"
+                raise AssertionError(f"{message}: {trace}")
+
+            self.exception = exc_value
+            return True
 
     def __init__(self):
         """
@@ -183,6 +212,7 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
 
         extra_args should be a list of string in the --key=value strings
         (see florestad --help for a list of available commands)
+        commands)
         """
         # PR #331 introduced a preparatory environment at
         # /tmp/floresta-integration-tests.$(git rev-parse HEAD).
@@ -296,3 +326,80 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
         """
         for i in range(len(self._nodes)):
             self.stop_node(i)
+
+    # pylint: disable=invalid-name
+    def assertTrue(self, condition: bool):
+        """
+        Assert if the condition is True, otherwise
+        all nodes will be stopped and an AssertionError will
+        be raised
+        """
+        if not condition:
+            self.stop()
+            raise AssertionError(f"Actual: {condition}\nExpected: True")
+
+    # pylint: disable=invalid-name
+    def assertIsNone(self, thing: Any):
+        """
+        Assert if the condition is None, otherwise
+        all nodes will be stopped and an AssertionError will
+        be raised
+        """
+        if thing is not None:
+            self.stop()
+            raise AssertionError(f"Actual: {thing}\nExpected: None")
+
+    # pylint: disable=invalid-name
+    def assertIsSome(self, thing: Any):
+        """
+        Assert if the condition is not None, otherwise
+        all nodes will be stopped and an AssertionError will
+        be raised
+        """
+        if thing is None:
+            self.stop()
+            raise AssertionError(f"Actual: {thing}\nExpected: not None")
+
+    # pylint: disable=invalid-name
+    def assertEqual(self, condition: Any, expected: Any):
+        """
+        Assert if the condition is True, otherwise
+        all nodes will be stopped and an AssertionError will
+        be raised
+        """
+
+        if not condition == expected:
+            self.stop()
+            raise AssertionError(f"Actual: {condition}\nExpected: {expected}")
+
+    # pylint: disable=invalid-name
+    def assertIn(self, element: Any, listany: List[Any]):
+        """
+        Assert if the element is in listany , otherwise
+        all nodes will be stopped and an AssertionError will
+        be raised
+        """
+
+        if element not in listany:
+            self.stop()
+            raise AssertionError(
+                f"Actual: {element} not in {listany}\nExpected: {element} in {listany}"
+            )
+
+    # pylint: disable=invalid-name
+    def assertMatch(self, actual: Any, pattern: Pattern):
+        """
+        Assert if the element fully matches a pattern, otherwise
+        all nodes will be stopped and an AssertionError will
+        be raised
+        """
+
+        if not re.fullmatch(pattern, actual):
+            self.stop()
+            raise AssertionError(
+                f"Actual: {actual} !~ {pattern} \nExpected: {actual} ~ {set}"
+            )
+
+    def assertRaises(self, expected_exception):
+        """Assert that the expected exception is raised."""
+        return self._AssertRaisesContext(self, expected_exception)
