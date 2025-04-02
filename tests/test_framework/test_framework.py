@@ -4,13 +4,10 @@ test_framework.py
 Adapted from
 https://github.com/bitcoin/bitcoin/blob/master/test/functional/test_framework/test_framework.py
 
-BitcoinCore functional tests define a metaclass that checks if some important methods are defined
-or not defined.
-
-Floresta functional tests will follow this since it is a good practice for a framework.
-
-The difference is that our node will run withing a `cargo run` subprocess, defined at
-`add_node_settings`.
+BitcoinCore functional tests define a metaclass that checks if some important
+methods are defined or not defined. Floresta functional tests will follow this
+since it is a good practice for a framework. The difference is that our node
+will run withing a `cargo run` subprocess, defined at `add_node_settings`.
 """
 
 import os
@@ -83,9 +80,97 @@ class FlorestaTestMetaClass(type):
 # pylint: disable=too-many-public-methods
 class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
     """
-    Base class for a floresta test script.
+    Base class for a floresta test script. Individual floresta
+    test scripts should subclass this class and:
 
-    Individual floresta test scripts should subclass this class and override the:
+    - should subclass FlorestaTestFramework;
+    - should not override the __init__() method;
+    - should not override the main() method;
+    - should implement set_test_params();
+    - should implement run_test();
+
+    Additionally, the test script could add some methods in
+    `set_test_params` or `run_test`. Some of them are suitable for
+    for both methods and anothers for only one of them. At the end
+    of the script, the test script should call the main() method to
+    run the test. For detailed information, see `tests/example/example_test.py`
+    and `tests/test_framwwork/floresta_rpc.py`.
+
+    For example:
+
+    ```python
+    class MyTest(FlorestaTestFramework):
+
+        # Nodes are organized by index, -1 means
+        # that any node is running.
+        my_nodes = [-1, -1]
+
+        def set_test_params(self):
+
+            # With `add_node_settings` you can create florestad
+            # subprocesses with different options like:
+            # --data-dir, --electrum-addresses, etc.
+            # It will retur
+            MyTest.my_nodes[0] = self.add_node_settings(
+                chain="regtest",
+                extra_args=["--my-extra-arg"],
+                ssl=False,
+            )
+
+            # You can add as many nodes as you want
+            # even with different extra_args or ssl options
+            MyTest.my_nodes[1] = self.add_node_settings(
+                chain="regtest",
+                extra_args=["--my-extra-arg"],
+                ssl=True,
+            )
+
+            # With `log` you can log any different
+            # type of messages. If the test pass, you won't
+            # be able to see them directly, but the test_framework
+            # will give to you a path to read it.
+            self.log("My nodes aren't running, but at least are configured!")
+
+        def run_test(self):
+            # Now you can run the nodes with `run_node`
+            self.run_node(MyTest.my_nodes[0])
+
+            # You can log again
+            self.log("My node 0 is running")
+
+            # Wait for the node to be ready to do other things
+            self.wait_for_rpc_connection(MyTest.my_nodes[0])
+
+            # Run another node, log and wait again
+            self.run_node(MyTest.my_nodes[1])
+            self.log("My node 1 is running")
+            self.wait_for_rpc_connection(MyTest.my_nodes[1])
+
+            # Now you can get the node and do some RPC calls,
+            # you can start getting a node instance
+            node_0 = self.get_node(MyTest.my_nodes[0])
+            node_1 = self.get_node(MyTest.my_nodes[1])
+
+            # Do some rpc calls (see tests/test_framework/floresta_rpc.py)
+            result_0 = node_0.get_blockchain_info()
+            result_1 = node_1.get_blockchain_info()
+
+            #0 Do some assertions
+            self.assertEqual(result_0.chain, "regtest")
+            self.assertEqual(result_1.chain, "regtest")
+            self.assertEqual(result_0.blocks, 0)
+            self.assertEqual(result_1.blocks, 0)
+
+            # At the end, stop the nodes
+            node_0.stop()
+            node_1.stop()
+            self.log("My nodes are stopped")
+
+    if __name__ == "__main__":
+        MyTest().main()
+    ```
+    """
+
     class _AssertRaisesContext:
         """
         Context manager for testing that an exception is raised.
@@ -212,10 +297,9 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
         self, chain: str, extra_args: list[str], rpcserver: dict, ssl: bool = False
     ) -> int:
         """
-        Add a node settings to be run. Use this on set_test_params method many times you want.
-
-        extra_args should be a list of string in the --key=value strings
-        (see florestad --help for a list of available commands)
+        Add a node settings to be run. Use this on set_test_params method
+        many times you want. Extra_args should be a list of string in the
+        --key=value strings (see florestad --help for a list of available
         commands)
         """
         # PR #331 introduced a preparatory environment at
