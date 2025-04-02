@@ -265,17 +265,22 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
         These keys are intended to be used with florestad's --ssl-key-path and --ssl-cert-path
         options.
         """
-        # Check if we're in CI or not
-        if "/tmp/floresta-integration-tests" in os.getenv("PATH"):
-            ssl_path = os.path.normpath(
-                os.path.abspath(
-                    os.path.join(self.get_integration_test_dir(), "..", "..", "ssl")
-                )
+        # If we're in CI, we need to use the
+        # path to the integration test dir
+        # tempfile will be used to get the proper
+        # temp dir for the OS
+        env_path = os.getenv("PATH")
+        tmp_path = tempfile.gettempdir()
+        tmp_floresta = os.path.join(tmp_path, "floresta-integration-tests")
+
+        if env_path is not None and tmp_floresta in env_path:
+            ssl_rel_path = os.path.join(
+                self.get_integration_test_dir(), "..", "..", "ssl"
             )
+            ssl_path = os.path.normpath(os.path.abspath(ssl_rel_path))
         else:
-            home = os.path.expanduser("~")  # Fixed: '~user' -> '~' for current user
             ssl_path = os.path.normpath(
-                os.path.abspath(os.path.join(home, ".floresta", "ssl"))
+                os.path.abspath(os.path.join(tmp_floresta, "ssl"))
             )
 
         # Create the folder if not exists
@@ -304,25 +309,20 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
         """
         # PR #331 introduced a preparatory environment at
         # /tmp/floresta-integration-tests.$(git rev-parse HEAD).
-        tmpdir = FlorestaTestFramework.get_integration_test_dir()
-        targetdir = FlorestaTestFramework.get_target_release_dir()
-
         # So, check for it first before define the florestad path.
-        if os.path.exists(tmpdir):
-            florestad = os.path.normpath(os.path.join(tmpdir, "florestad"))
+        if os.getenv("FLORESTA_TEMP_DIR") is not None:
+            targetdir = FlorestaTestFramework.get_integration_test_dir()
 
         # If not exists, define the one at ./target/release.
-        elif os.path.exists(targetdir):
-            florestad = os.path.normpath(os.path.join(targetdir, "florestad"))
-
-        # In case any test florestad is found, raise an exception
         else:
-            raise RuntimeError(
-                f"Not found 'florestad' in '{tmpdir}' or '{targetdir}'. "
-                "Run 'tests/prepare.sh' or 'cargo build --release'."
-            )
+            targetdir = FlorestaTestFramework.get_target_release_dir()
 
-        print(f"Using {florestad}")
+        florestad = os.path.join(targetdir, "florestad")
+
+        # In case any florestad is found, raise an exception
+        if not os.path.exists(florestad):
+            raise RuntimeError(f"Not found any 'florestad' in '{targetdir}'")
+
         setting = {
             "chain": chain,
             "config": [florestad, "--network", chain],
@@ -376,7 +376,8 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
 
         if node["chain"] == "regtest":
             # pylint: disable=consider-using-with
-            # add text=True to treat all outputs as texts (jsons or python stack traces)
+            # add text=True to treat all outputs as texts
+            # (jsons or python stack traces)
             cmd = " ".join(node["config"])
             self.log(f"Running '{cmd}'")
             process_node = subprocess.Popen(node["config"], text=True)
