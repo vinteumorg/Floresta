@@ -1,4 +1,3 @@
-use core::panic;
 use std::fmt::Arguments;
 use std::fs::File;
 use std::io::BufReader;
@@ -45,8 +44,6 @@ use log::error;
 use log::info;
 use log::warn;
 use log::Record;
-#[cfg(feature = "metrics")]
-use metrics;
 use rustreexo::accumulator::pollard::Pollard;
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
@@ -443,8 +440,7 @@ impl Florestad {
         {
             info!("Starting ZMQ server");
             if let Ok(zserver) = ZMQServer::new(
-                &self
-                    .config
+                self.config
                     .zmq_address
                     .as_ref()
                     .unwrap_or(&"tcp://127.0.0.1:5150".to_string()),
@@ -477,7 +473,7 @@ impl Florestad {
             ));
 
             if self.json_rpc.set(server).is_err() {
-                panic!("We should be the first one setting this");
+                core::panic!("We should be the first one setting this");
             }
         }
 

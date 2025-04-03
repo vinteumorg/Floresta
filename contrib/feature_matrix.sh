@@ -1,10 +1,16 @@
 #!/bin/sh
-
 # Exit immediately if any command fails
 set -e
 
-# Pass the first argument to the script as a cargo argument, defaults to empty string
-cargo_arg="${1:-}"
+# The first argument specifies the action: "clippy" or "test".
+action="${1:-}"
+if [ "$action" != "clippy" ] && [ "$action" != "test" ]; then
+    echo "Usage: $0 {clippy|test} [cargo_arg]" >&2
+    exit 1
+fi
+
+# The second argument is passed to cargo (e.g., "-- -D warnings"); defaults to empty.
+cargo_arg="${2:-}"
 
 crates="\
     floresta-chain \
@@ -36,10 +42,15 @@ for crate in $crates; do
 
     # Navigate to the crate's directory
     cd "$path" || exit 1
-    printf "\033[1;35mTesting all feature combinations for %s...\033[0m\n" "$crate"
+    printf "\033[1;35mRunning cargo %s for all feature combinations in %s...\033[0m\n" "$action" "$crate"
 
-    # Test all feature combinations (to run with verbose output the `cargo_arg` must also be -v/--verbose)
-    # shellcheck disable=SC2086
-    cargo hack test --release --feature-powerset $skip_default -v $cargo_arg
+    if [ "$action" = "clippy" ]; then
+        # shellcheck disable=SC2086
+        cargo +nightly hack clippy --all-targets --feature-powerset $skip_default $cargo_arg
+    elif [ "$action" = "test" ]; then
+        # shellcheck disable=SC2086
+        cargo hack test --release --feature-powerset $skip_default -v $cargo_arg
+    fi
+
     cd - > /dev/null || exit 1
 done
