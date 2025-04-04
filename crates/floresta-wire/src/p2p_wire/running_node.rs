@@ -347,7 +347,12 @@ where
     }
 
     pub async fn run(mut self, stop_signal: futures::channel::oneshot::Sender<()>) {
-        try_and_log!(self.init_peers().await);
+        match self.init_peers().await {
+            Ok(_) => {}
+            Err(e) => {
+                warn!("Failed to initialize peers: {e}");
+            }
+        }
 
         // Use this node state to Initial Block download
         let mut ibd = UtreexoNode {
