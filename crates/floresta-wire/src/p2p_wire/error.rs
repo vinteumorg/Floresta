@@ -28,8 +28,12 @@ pub enum WireError {
     NoPeersAvailable,
     #[error("Our peer is misbehaving")]
     PeerMisbehaving,
-    #[error("Generic io error")]
+    #[error("Failed to init peers, anchors.json does not exist yet.")]
+    AnchorFileNotFound,
+    #[error("Generic io error: {0}")]
     Io(std::io::Error),
+    #[error("{0}")]
+    Serde(serde_json::Error),
     #[error("We don't have any utreexo peers")]
     NoUtreexoPeersAvailable,
     #[error("We couldn't find a peer to send the request")]
@@ -58,6 +62,12 @@ impl_error_from!(WireError, AddrParseError, InvalidAddress);
 impl From<tokio::sync::mpsc::error::SendError<NodeRequest>> for WireError {
     fn from(error: tokio::sync::mpsc::error::SendError<NodeRequest>) -> Self {
         WireError::ChannelSend(error)
+    }
+}
+
+impl From<serde_json::Error> for WireError {
+    fn from(err: serde_json::Error) -> WireError {
+        WireError::Serde(err)
     }
 }
 

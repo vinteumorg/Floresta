@@ -1343,7 +1343,20 @@ macro_rules! try_and_log {
         let result = $what;
 
         if let Err(error) = result {
-            log::error!("{}:{} - {:?}", line!(), file!(), error);
+            log::error!("{}: {} - {:?}", line!(), file!(), error);
+        }
+    };
+}
+
+/// Run a task and warn any errors that might occur.
+///
+/// try_and_log variant for tasks that can safely fail.
+macro_rules! try_and_warn {
+    ($what:expr) => {
+        let result = $what;
+
+        if let Err(warning) = result {
+            log::warn!("{}: {} - {}", line!(), file!(), warning);
         }
     };
 }
@@ -1365,6 +1378,7 @@ macro_rules! periodic_job {
 
 pub(crate) use periodic_job;
 pub(crate) use try_and_log;
+pub(crate) use try_and_warn;
 
 #[cfg(test)]
 mod tests {
