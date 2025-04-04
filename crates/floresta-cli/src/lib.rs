@@ -59,22 +59,32 @@ mod tests {
     /// for both RPC and Electrum. The datadir will be in the current dir, under a `tmp` subdir.
     /// If you're at $HOME/floresta it will run on $HOME/floresta/tmp/<random_name>/
     fn start_florestad() -> (Florestad, Client) {
-        // CARGO_MANIFEST_DIR is always floresta-cli's directory; PWD changes based on where the
-        // command is executed.
-        let root = format!("{}/../..", env!("CARGO_MANIFEST_DIR"));
-        let release_path = format!("{root}/target/release/florestad");
-        let debug_path = format!("{root}/target/debug/florestad");
+        // in some controlled environments (such a nix one) we can expect to find a florestad inside $FLORESTA_TEMP_DIR/binaries
+        let path_to_floresta = match std::env::var("FLORESTA_TEMP_DIR") {
+            Ok(path) => format!("{path}/binaries/florestad"),
+            Err(_) => {
+                // CARGO_MANIFEST_DIR is always floresta-cli's directory; PWD changes based on where the
+                // command is executed.
 
-        let release_found = Path::new(&release_path).try_exists().unwrap();
-        // If release target not found, default to the debug path
-        let florestad_path = match release_found {
-            true => release_path,
-            false => debug_path,
+                let project_root = format!("{}/../..", env!("CARGO_MANIFEST_DIR"));
+
+                let release_path = format!("{project_root}/target/release/florestad");
+
+                let debug_path = format!("{project_root}/target/debug/florestad");
+
+                // If release target not found, default to the debug path
+
+                if let Ok(true) = Path::new(&release_path).try_exists() {
+                    release_path
+                } else {
+                    debug_path
+                }
+            }
         };
 
         // Makes a temporary directory to store the chain db, SSL certificates, logs, etc.
         let test_code = rand::random::<u64>();
-        let dirname = format!("{root}/tmp/floresta.{test_code}");
+        let dirname = format!("{path_to_floresta}/tmp/floresta.{test_code}");
         fs::DirBuilder::new()
             .recursive(true)
             .create(&dirname)
@@ -90,7 +100,7 @@ mod tests {
         fs::write(format!("{dirname}/regtest/ssl/key.pem"), key_pem).unwrap();
 
         let port = get_available_port();
-        let fld = Command::new(&florestad_path)
+        let fld = Command::new(&path_to_floresta)
             .args(["-n", "regtest"])
             .args(["--data-dir", &dirname])
             .args(["--rpc-address", &format!("127.0.0.1:{}", port)])
@@ -99,7 +109,7 @@ mod tests {
             .stdout(Stdio::null())
             .stderr(Stdio::inherit())
             .spawn()
-            .unwrap_or_else(|e| panic!("Couldn't launch florestad at {}: {}", florestad_path, e));
+            .unwrap_or_else(|e| panic!("Couldn't launch florestad at {}: {}", path_to_floresta, e));
 
         let client = Client::new(format!("http://127.0.0.1:{port}"));
 
