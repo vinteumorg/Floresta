@@ -14,6 +14,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@cargo-hack
 
       - name: Install latest nightly
         uses: dtolnay/rust-toolchain@nightly
@@ -24,7 +25,8 @@ jobs:
         run: cargo +nightly fmt --all --check
 
       - name: Run cargo clippy
-        run: cargo +nightly clippy --all-targets -- -D warnings
+        run: ./contrib/feature_matrix.sh clippy '-- -D warnings'
+        shell: bash   # Ensure the script runs using bash on all platforms
 
   cross-testing:
     strategy:
@@ -71,7 +73,7 @@ jobs:
 
       # Run the feature testing script
       - name: Run feature tests
-        run: ./contrib/test_features.sh --verbose
+        run: ./contrib/feature_matrix.sh test --verbose
         shell: bash   # Ensure the script runs using bash on all platforms
 
       # Save cache only if the previous steps succeeded and there was not an exact cache key match

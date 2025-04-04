@@ -14,6 +14,7 @@ use sha2::Digest;
 pub mod macros;
 pub mod spsc;
 
+#[cfg(any(feature = "descriptors-std", feature = "descriptors-no-std"))]
 use prelude::*;
 pub use spsc::Channel;
 

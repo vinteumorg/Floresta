@@ -61,7 +61,9 @@ doc:
 
 # Format code and run configured linters
 lint:
-    cargo +nightly fmt --all && cargo +nightly clippy --all-targets
+    @just fmt
+    cargo +nightly clippy --all-targets --no-default-features
+    cargo +nightly clippy --all-targets --all-features
 
 # Format code
 fmt:
@@ -71,14 +73,22 @@ fmt:
 format:
     cargo +nightly fmt --all --check
 
-# Test all feature combinations for each crate using cargo-hack (arg: optional, e.g., --quiet or --verbose)
+# Test all feature combinations in each crate (arg: optional, e.g., --quiet or --verbose)
 test-features arg="":
     cargo install cargo-hack --locked
-    ./contrib/test_features.sh {{arg}}
+    ./contrib/feature_matrix.sh test {{arg}}
+
+# Run clippy for all feature combinations in each crate (arg: optional, e.g., '-- -D warnings')
+lint-features arg="":
+    cargo install cargo-hack --locked
+    ./contrib/feature_matrix.sh clippy '{{arg}}'
 
 # Remove test-generated data
 clean-data:
     ./contrib/clean_data.sh
 
 # Run all needed checks before contributing code (pre-commit check)
-pcc: lint test-features
+pcc:
+    @just fmt
+    @just lint-features '-- -D warnings'
+    @just test-features
