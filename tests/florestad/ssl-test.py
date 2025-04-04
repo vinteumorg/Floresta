@@ -39,9 +39,9 @@ class TestSslInitialization(FlorestaTestFramework):
 
         # request something to TLS port
         result = TestSslInitialization.electrum.ping()
-        self.log(result)
 
-        assert result is not None
+        # if pinged, we should get a response `""`
+        self.assertEqual(result, "")
 
         # Shutdown node
         self.stop_node(TestSslInitialization.nodes[0])

@@ -44,9 +44,9 @@ After the definition of test within a class, you should call `MyTest().main()` a
 """
 
 import json
-from test_framework.test_framework import FlorestaTestFramework
 from test_framework.electrum_client import ElectrumClient
 from test_framework.floresta_rpc import REGTEST_RPC_SERVER
+from test_framework.test_framework import FlorestaTestFramework
 
 
 class ExampleTest(FlorestaTestFramework):
@@ -99,13 +99,20 @@ class ExampleTest(FlorestaTestFramework):
         electrum = ElectrumClient("localhost", 50001)
         rpc_response = json.loads(electrum.get_version())
 
-        # Make assertions
-        assert rpc_response["result"][0] == ExampleTest.expected_version[0]
-        assert rpc_response["result"][1] == ExampleTest.expected_version[1]
-        assert inf_response["height"] == ExampleTest.expected_height
-        assert inf_response["best_block"] == ExampleTest.expected_block
-        assert inf_response["difficulty"] == ExampleTest.expected_difficulty
-        assert inf_response["leaf_count"] == ExampleTest.expected_leaf_count
+        # Make assertions with our framework. Avoid usage of
+        # native `assert` clauses. For more information, see
+        # https://github.com/vinteumorg/Floresta/issues/426
+        self.assertEqual(rpc_response["result"][0], ExampleTest.expected_version[0])
+        self.assertEqual(rpc_response["result"][1], ExampleTest.expected_version[1])
+        self.assertEqual(inf_response["height"], ExampleTest.expected_height)
+        self.assertEqual(inf_response["best_block"], ExampleTest.expected_block)
+        self.assertEqual(inf_response["difficulty"], ExampleTest.expected_difficulty)
+        self.assertEqual(inf_response["leaf_count"], ExampleTest.expected_leaf_count)
+
+        # At the end, you should stop all nodes with the `stop`
+        # method. Alternatively, you can use `stop_node(int) where int`
+        # is the node index
+        self.stop()
 
 
 if __name__ == "__main__":

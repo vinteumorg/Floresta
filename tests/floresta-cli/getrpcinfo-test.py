@@ -6,8 +6,9 @@ This functional test cli utility to interact with a Floresta node with `getrpcin
 
 import os
 import tempfile
-from test_framework.test_framework import FlorestaTestFramework
+
 from test_framework.floresta_rpc import REGTEST_RPC_SERVER
+from test_framework.test_framework import FlorestaTestFramework
 
 
 class GetRpcInfoTest(FlorestaTestFramework):
@@ -43,15 +44,18 @@ class GetRpcInfoTest(FlorestaTestFramework):
         Test if the 'getrpcinfo' result was built correctly
         """
         result = node.get_rpcinfo()
-        assert "active_commands" in result
-        assert "logpath" in result
-        assert len(result["active_commands"]) == 1
-        assert "duration" in result["active_commands"][0]
-        assert "method" in result["active_commands"][0]
-        assert result["active_commands"][0]["duration"] == 0
-        assert result["active_commands"][0]["method"] == "getrpcinfo"
-        assert result["logpath"] == os.path.normpath(
-            os.path.join(GetRpcInfoTest.data_dir, "regtest", "output.log")
+        self.assertIn("active_commands", result)
+        self.assertIn("logpath", result)
+        self.assertEqual(len(result["active_commands"]), 1)
+        self.assertIn("duration", result["active_commands"][0])
+        self.assertIn("method", result["active_commands"][0])
+        self.assertEqual(result["active_commands"][0]["duration"], 0)
+        self.assertEqual(result["active_commands"][0]["method"], "getrpcinfo")
+        self.assertEqual(
+            result["logpath"],
+            os.path.normpath(
+                os.path.join(GetRpcInfoTest.data_dir, "regtest", "output.log")
+            ),
         )
 
     def run_test(self):

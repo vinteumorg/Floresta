@@ -4,8 +4,8 @@ floresta_cli_getblockheader.py
 This functional test cli utility to interact with a Floresta node with `getblockheader`
 """
 
-from test_framework.test_framework import FlorestaTestFramework
 from test_framework.floresta_rpc import REGTEST_RPC_SERVER
+from test_framework.test_framework import FlorestaTestFramework
 
 
 class GetBlockheaderHeightZeroTest(FlorestaTestFramework):
@@ -54,12 +54,16 @@ class GetBlockheaderHeightZeroTest(FlorestaTestFramework):
         # Test assertions
         node = self.get_node(GetBlockheaderHeightZeroTest.nodes[0])
         response = node.get_blockheader(GetBlockheaderHeightZeroTest.blockhash)
-        assert response["version"] == GetBlockheaderHeightZeroTest.version
-        assert response["prev_blockhash"] == GetBlockheaderHeightZeroTest.prev_blockhash
-        assert response["merkle_root"] == GetBlockheaderHeightZeroTest.merkle_root
-        assert response["time"] == GetBlockheaderHeightZeroTest.time
-        assert response["bits"] == GetBlockheaderHeightZeroTest.bits
-        assert response["nonce"] == GetBlockheaderHeightZeroTest.nonce
+        self.assertEqual(response["version"], GetBlockheaderHeightZeroTest.version)
+        self.assertEqual(
+            response["prev_blockhash"], GetBlockheaderHeightZeroTest.prev_blockhash
+        )
+        self.assertEqual(
+            response["merkle_root"], GetBlockheaderHeightZeroTest.merkle_root
+        )
+        self.assertEqual(response["time"], GetBlockheaderHeightZeroTest.time)
+        self.assertEqual(response["bits"], GetBlockheaderHeightZeroTest.bits)
+        self.assertEqual(response["nonce"], GetBlockheaderHeightZeroTest.nonce)
 
         # Shutdown node
         self.stop_node(GetBlockheaderHeightZeroTest.nodes[0])
