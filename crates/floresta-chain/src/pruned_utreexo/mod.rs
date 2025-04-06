@@ -34,6 +34,7 @@ use rustreexo::accumulator::stump::Stump;
 
 use self::partial_chain::PartialChainState;
 use crate::prelude::*;
+use crate::pruned_utreexo::utxo_data::UtxoData;
 use crate::BestChain;
 use crate::BlockConsumer;
 use crate::BlockchainError;
@@ -98,7 +99,7 @@ pub trait BlockchainInterface {
         &self,
         block: &Block,
         proof: Proof,
-        inputs: HashMap<OutPoint, TxOut>,
+        inputs: HashMap<OutPoint, UtxoData>,
         del_hashes: Vec<sha256::Hash>,
         acc: Stump,
     ) -> Result<(), Self::Error>;
@@ -118,7 +119,7 @@ pub trait UpdatableChainstate {
         &self,
         block: &Block,
         proof: Proof,
-        inputs: HashMap<OutPoint, TxOut>,
+        inputs: HashMap<OutPoint, UtxoData>,
         del_hashes: Vec<sha256::Hash>,
     ) -> Result<u32, BlockchainError>;
 
@@ -228,7 +229,7 @@ impl<T: UpdatableChainstate> UpdatableChainstate for Arc<T> {
         &self,
         block: &Block,
         proof: Proof,
-        inputs: HashMap<OutPoint, TxOut>,
+        inputs: HashMap<OutPoint, UtxoData>,
         del_hashes: Vec<sha256::Hash>,
     ) -> Result<u32, BlockchainError> {
         T::connect_block(self, block, proof, inputs, del_hashes)
@@ -362,7 +363,7 @@ impl<T: BlockchainInterface> BlockchainInterface for Arc<T> {
         &self,
         block: &Block,
         proof: Proof,
-        inputs: HashMap<OutPoint, TxOut>,
+        inputs: HashMap<OutPoint, UtxoData>,
         del_hashes: Vec<sha256::Hash>,
         acc: Stump,
     ) -> Result<(), Self::Error> {
@@ -371,5 +372,24 @@ impl<T: BlockchainInterface> BlockchainInterface for Arc<T> {
 
     fn get_fork_point(&self, block: BlockHash) -> Result<BlockHash, Self::Error> {
         T::get_fork_point(self, block)
+    }
+}
+
+/// This module defines an [UtxoData] struct, helpful for transaction validation
+pub mod utxo_data {
+    use super::*;
+
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    /// Represents an unspent transaction output (UTXO) with additional metadata for validation.
+    pub struct UtxoData {
+        /// The unspent transaction output.
+        pub txout: TxOut,
+        /// Whether this output was created by a coinbase transaction.
+        pub is_coinbase: bool,
+        /// The block height at which the UTXO was confirmed.
+        pub creation_height: u32,
+        /// The creation time of the UTXO, defined by BIP 68 as the median time past (MTP) of the
+        /// block preceding the confirming block.
+        pub creation_time: u32,
     }
 }

@@ -722,10 +722,12 @@ where
                 return Ok(());
             };
 
-            let (proof, del_hashes, inputs) =
-                floresta_chain::proof_util::process_proof(udata, &block.block.txdata, |h| {
-                    self.chain.get_block_hash(h)
-                })?;
+            let (proof, del_hashes, inputs) = floresta_chain::proof_util::process_proof(
+                udata,
+                &block.block.txdata,
+                validation_index + 1,
+                |h| self.chain.get_block_hash(h),
+            )?;
 
             if let Err(e) =
                 self.chain

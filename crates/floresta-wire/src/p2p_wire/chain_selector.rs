@@ -389,6 +389,7 @@ where
         let (proof, del_hashes, _) = floresta_chain::proof_util::process_proof(
             block.udata.as_ref().unwrap(),
             &block.block.txdata,
+            height,
             |h| self.chain.get_block_hash(h),
         )?;
 
@@ -527,14 +528,15 @@ where
             };
             break block;
         };
+        let fork_height = self.chain.get_block_height(&fork)?.unwrap_or(0);
 
         let (proof, del_hashes, inputs) = floresta_chain::proof_util::process_proof(
             block.udata.as_ref().unwrap(),
             &block.block.txdata,
+            fork_height,
             |h| self.chain.get_block_hash(h),
         )?;
 
-        let fork_height = self.chain.get_block_height(&fork)?.unwrap_or(0);
         let acc = self.find_accumulator_for_block(fork_height, fork).await?;
         let is_valid = self
             .chain
