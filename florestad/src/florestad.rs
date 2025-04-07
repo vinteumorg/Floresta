@@ -1,4 +1,5 @@
 use std::fmt::Arguments;
+use std::fs;
 use std::fs::File;
 use std::io::BufReader;
 #[cfg(feature = "metrics")]
@@ -44,6 +45,10 @@ use log::error;
 use log::info;
 use log::warn;
 use log::Record;
+use rcgen::BasicConstraints;
+use rcgen::CertificateParams;
+use rcgen::IsCa;
+use rcgen::KeyPair;
 use rustreexo::accumulator::pollard::Pollard;
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
@@ -65,7 +70,6 @@ use crate::json_rpc;
 use crate::wallet_input::InitialWalletSetup;
 #[cfg(feature = "zmq-server")]
 use crate::zmq::ZMQServer;
-
 #[derive(Default, Clone)]
 /// General configuration for the floresta daemon.
 ///
@@ -172,6 +176,8 @@ pub struct Config {
     pub ssl_key_path: Option<String>,
     /// Whether to disable SSL for the Electrum server
     pub no_ssl: bool,
+    /// Whether to create self signed certificate for ssl_key_path and ssl_cert_path
+    pub gen_selfsigned_cert: bool,
     /// Whether to allow fallback to v1 transport if v2 connection fails.
     pub allow_v1_fallback: bool,
     /// Whehter we should backfill
@@ -485,6 +491,37 @@ impl Florestad {
             .map(|addr| Self::get_ip_address(&addr, 50001))
             .unwrap_or("0.0.0.0:50001".parse().expect("Hardcoded address"));
 
+        // generate self-signed certificate if provided
+        if self.config.gen_selfsigned_cert {
+            // create ssl dir if not exists
+            let ssl_dir = format!("{}ssl", &data_dir);
+            if !Path::new(&ssl_dir).exists() {
+                warn!("creating {}", &ssl_dir);
+                fs::create_dir_all(&ssl_dir).expect("Could not create data directory");
+            }
+
+            //  create information for self-signed certificate about the current node
+            let subject_alt_names = vec!["localhost".to_string()];
+
+            // define file paths
+            let key_path = format!("{}ssl/key.pem", &data_dir);
+            let cert_path = format!("{}ssl/cert.pem", &data_dir);
+
+            match Florestad::generate_selfsigned_certificate(
+                key_path.clone(),
+                cert_path.clone(),
+                subject_alt_names,
+            ) {
+                Ok(()) => {
+                    warn!("PKCS#8 private-key'{}' created", &key_path);
+                    warn!("PKCS#8 self-signed certificate '{}' created", &cert_path);
+                }
+                Err(err) => {
+                    warn!("Failed to generate SSL certificate: '{}'", err);
+                }
+            }
+        }
+
         let ssl_e_addr = self
             .config
             .ssl_electrum_address
@@ -774,6 +811,35 @@ impl Florestad {
             result.extend(b);
         }
         result
+    }
+
+    /// Create a self_signed certificate signed by
+    /// a private key created on the fly
+    pub fn generate_selfsigned_certificate(
+        key_path: String,
+        cert_path: String,
+        subject_alt_names: Vec<String>,
+    ) -> Result<(), error::Error> {
+        // Generate a key pair
+        let key_pair = KeyPair::generate().map_err(error::Error::CouldNotGenerateKeypair)?;
+
+        // Generate self-signed certificate
+        let mut params = CertificateParams::new(subject_alt_names)
+            .map_err(error::Error::CouldNotGenerateCertParam)?;
+
+        params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+        let selfcert = params
+            .self_signed(&key_pair)
+            .map_err(error::Error::CouldNotGenerateSelfSignedCert)?;
+
+        // Create files
+        fs::write(&key_path, key_pair.serialize_pem())
+            .map_err(|err| error::Error::CouldNotWriteFile(key_path, err))?;
+
+        fs::write(&cert_path, selfcert.pem())
+            .map_err(|err| error::Error::CouldNotWriteFile(cert_path, err))?;
+
+        Ok(())
     }
 
     /// Create tls configuration with a PKCS#8 formatted key and certificates and
