@@ -93,6 +93,7 @@ pub struct AssumeUtreexoValue {
 }
 
 impl ChainParams {
+    /// This method is called when Assume Utreexo is set to true. It means that the user will accept these hardcoded values as true and check the state of the chain only from here.
     pub fn get_assume_utreexo(network: Network) -> AssumeUtreexoValue {
         let genesis = genesis_block(Params::new(network.into()));
         match network {
@@ -144,6 +145,7 @@ impl ChainParams {
         }
     }
 
+    /// This method is used to assume a valid block hash. It can be None (disabled), user input or hardcoded.
     pub fn get_assume_valid(network: Network, arg: AssumeValidArg) -> Option<BlockHash> {
         match arg {
             AssumeValidArg::Disabled => None,
@@ -167,10 +169,9 @@ impl ChainParams {
 }
 
 #[cfg(feature = "bitcoinconsensus")]
+/// For some reason, some blocks in the mainnet and testnet have different rules than it should
+/// be, so we need to keep a list of exceptions and treat them differently. This function returns a HashMap of block hashes and their corresponding verification flags.
 fn get_exceptions() -> HashMap<BlockHash, c_uint> {
-    // For some reason, some blocks in the mainnet and testnet have different rules than it should
-    // be, so we need to keep a list of exceptions and treat them differently
-
     use bitcoinconsensus::VERIFY_NONE;
     use bitcoinconsensus::VERIFY_P2SH;
     use bitcoinconsensus::VERIFY_WITNESS;
@@ -256,13 +257,15 @@ impl From<Network> for ChainParams {
     }
 }
 
+/// This function returns the DNS seeds for the given network.
+///
+/// DNS seeds taken from Bitcoin Core at commit 382b692a503355df7347efd9c128aff465b5583e
+///
+/// Some dns seeds lets us filter the returned peers by advertised services. We are interested
+/// in peers with: UTREEXO, COMPACT_FILTERS, WITNESS and NETWORK. Not all seeds supports all
+/// bits, so from this list, we pick the ones they support, and ask for this.
 pub fn get_chain_dns_seeds(network: Network) -> Vec<DnsSeed> {
-    // DNS seeds taken from Bitcoin Core at commit 382b692a503355df7347efd9c128aff465b5583e
     let mut seeds = Vec::new();
-
-    // Some dns seeds lets us filter the returned peers by advertised services. We are interested
-    // in peers with: UTREEXO, COMPACT_FILTERS, WITNESS and NETWORK. Not all seeds supports all
-    // bits, so from this list, we pick the ones they support, and ask for this
 
     // x9 or 0x09 means NETWORK + WITNESS
     let x9: ServiceFlags = ServiceFlags::from(0x9);
