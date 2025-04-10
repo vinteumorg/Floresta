@@ -38,7 +38,6 @@ use bitcoin::BlockHash;
 use bitcoin::OutPoint;
 use bitcoin::Target;
 use bitcoin::Transaction;
-use bitcoin::TxOut;
 use bitcoin::Work;
 use floresta_common::Channel;
 use log::info;
@@ -64,6 +63,7 @@ use super::BlockchainInterface;
 use super::ChainStore;
 use super::UpdatableChainstate;
 use crate::prelude::*;
+use crate::pruned_utreexo::utxo_data::UtxoData;
 use crate::read_lock;
 use crate::write_lock;
 use crate::Network;
@@ -784,7 +784,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         &self,
         block: &Block,
         height: u32,
-        inputs: HashMap<OutPoint, TxOut>,
+        inputs: HashMap<OutPoint, UtxoData>,
     ) -> Result<(), BlockchainError> {
         if !block.check_merkle_root() {
             return Err(BlockValidationErrors::BadMerkleRoot)?;
@@ -860,7 +860,7 @@ impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedSta
         &self,
         block: &Block,
         proof: Proof,
-        inputs: HashMap<OutPoint, TxOut>,
+        inputs: HashMap<OutPoint, UtxoData>,
         del_hashes: Vec<sha256::Hash>,
         acc: Stump,
     ) -> Result<(), Self::Error> {
@@ -1104,7 +1104,7 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
         &self,
         block: &Block,
         proof: Proof,
-        inputs: HashMap<OutPoint, TxOut>,
+        inputs: HashMap<OutPoint, UtxoData>,
         del_hashes: Vec<sha256::Hash>,
     ) -> Result<u32, BlockchainError> {
         let header = self.get_disk_block_header(&block.block_hash())?;
@@ -1382,6 +1382,7 @@ mod test {
     use super::UpdatableChainstate;
     use crate::prelude::HashMap;
     use crate::pruned_utreexo::consensus::Consensus;
+    use crate::pruned_utreexo::utxo_data::UtxoData;
     use crate::AssumeValidArg;
     use crate::KvChainStore;
     use crate::Network;
@@ -1398,7 +1399,7 @@ mod test {
     fn decode_block_and_inputs(
         block_file: File,
         stxos_file: File,
-    ) -> (Block, HashMap<OutPoint, TxOut>) {
+    ) -> (Block, HashMap<OutPoint, UtxoData>) {
         let block_bytes = zstd::decode_all(block_file).unwrap();
         let block: Block = deserialize(&block_bytes).unwrap();
 
@@ -1412,7 +1413,18 @@ mod test {
             .iter()
             .skip(1) // Skip the coinbase transaction
             .flat_map(|tx| &tx.input)
-            .map(|txin| (txin.previous_output, stxos.remove(0)))
+            .map(|txin| {
+                (
+                    txin.previous_output,
+                    UtxoData {
+                        txout: stxos.remove(0),
+                        is_coinbase: false,
+                        // Using 0 for simplicity, we won't test the transaction time locks
+                        creation_height: 0,
+                        creation_time: 0,
+                    },
+                )
+            })
             .collect();
 
         assert!(stxos.is_empty(), "Moved all stxos to the inputs map");

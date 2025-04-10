@@ -39,6 +39,7 @@ use super::error::BlockValidationErrors;
 use super::error::BlockchainError;
 use super::BlockchainInterface;
 use super::UpdatableChainstate;
+use crate::pruned_utreexo::utxo_data::UtxoData;
 use crate::UtreexoBlock;
 
 #[doc(hidden)]
@@ -165,7 +166,7 @@ impl PartialChainStateInner {
         &mut self,
         block: &bitcoin::Block,
         proof: rustreexo::accumulator::proof::Proof,
-        inputs: HashMap<bitcoin::OutPoint, bitcoin::TxOut>,
+        inputs: HashMap<bitcoin::OutPoint, UtxoData>,
         del_hashes: Vec<bitcoin::hashes::sha256::Hash>,
     ) -> Result<u32, BlockchainError> {
         let height = self.current_height + 1;
@@ -203,7 +204,7 @@ impl PartialChainStateInner {
         &self,
         block: &bitcoin::Block,
         height: u32,
-        inputs: HashMap<bitcoin::OutPoint, bitcoin::TxOut>,
+        inputs: HashMap<bitcoin::OutPoint, UtxoData>,
     ) -> Result<(), BlockchainError> {
         if !block.check_merkle_root() {
             return Err(BlockValidationErrors::BadMerkleRoot)?;
@@ -300,7 +301,7 @@ impl UpdatableChainstate for PartialChainState {
         &self,
         block: &bitcoin::Block,
         proof: rustreexo::accumulator::proof::Proof,
-        inputs: HashMap<bitcoin::OutPoint, bitcoin::TxOut>,
+        inputs: HashMap<bitcoin::OutPoint, UtxoData>,
         del_hashes: Vec<bitcoin::hashes::sha256::Hash>,
     ) -> Result<u32, BlockchainError> {
         self.inner_mut()
@@ -437,7 +438,7 @@ impl BlockchainInterface for PartialChainState {
         &self,
         _block: &bitcoin::Block,
         _proof: rustreexo::accumulator::proof::Proof,
-        _inputs: HashMap<bitcoin::OutPoint, bitcoin::TxOut>,
+        _inputs: HashMap<bitcoin::OutPoint, UtxoData>,
         _del_hashes: Vec<bitcoin::hashes::sha256::Hash>,
         _acc: Stump,
     ) -> Result<(), Self::Error> {

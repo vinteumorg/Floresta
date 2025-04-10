@@ -16,7 +16,6 @@ use bitcoin::ScriptBuf;
 use bitcoin::Target;
 use bitcoin::Transaction;
 use bitcoin::TxIn;
-use bitcoin::TxOut;
 use bitcoin::Txid;
 use floresta_common::prelude::*;
 use rustreexo::accumulator::proof::Proof;
@@ -26,6 +25,7 @@ use super::chainparams::ChainParams;
 use super::error::BlockValidationErrors;
 use super::error::BlockchainError;
 use super::udata;
+use crate::pruned_utreexo::utxo_data::UtxoData;
 use crate::TransactionError;
 
 /// The value of a single coin in satoshis.
@@ -78,7 +78,7 @@ impl Consensus {
     #[allow(unused)]
     pub fn verify_block_transactions(
         height: u32,
-        mut utxos: HashMap<OutPoint, TxOut>,
+        mut utxos: HashMap<OutPoint, UtxoData>,
         transactions: &[Transaction],
         subsidy: u64,
         verify_script: bool,
@@ -104,7 +104,7 @@ impl Consensus {
 
             // Actually verify the transaction
             let (in_value, out_value) =
-                Self::verify_transaction(transaction, &mut utxos, verify_script, flags)?;
+                Self::verify_transaction(transaction, &mut utxos, height, verify_script, flags)?;
 
             // Fee is the difference between inputs and outputs
             fee += in_value - out_value;
@@ -132,7 +132,8 @@ impl Consensus {
     ///     - The transaction doesn't have duplicate inputs (implicitly checked by the hashmap)
     fn verify_transaction(
         transaction: &Transaction,
-        utxos: &mut HashMap<OutPoint, TxOut>,
+        utxos: &mut HashMap<OutPoint, UtxoData>,
+        height: u32,
         _verify_script: bool,
         _flags: c_uint,
     ) -> Result<(u64, u64), BlockchainError> {
@@ -146,14 +147,20 @@ impl Consensus {
 
         let mut in_value = 0;
         for input in transaction.input.iter() {
-            let txo = Self::get_utxo(input, utxos, txid)?;
+            let utxo = Self::get_utxo(input, utxos, txid)?;
+            let txout = &utxo.txout;
 
-            in_value += txo.value.to_sat();
+            // A coinbase output created at height n can only be spent at height >= n + 100
+            if utxo.is_coinbase && (height < utxo.creation_height + 100) {
+                return Err(tx_err!(txid, CoinbaseNotMatured))?;
+            }
 
             // Check script sizes (spent txo pubkey, and current tx scriptsig and TODO witness)
-            Self::validate_script_size(&txo.script_pubkey, txid)?;
+            Self::validate_script_size(&txout.script_pubkey, txid)?;
             Self::validate_script_size(&input.script_sig, txid)?;
             // TODO check also witness script size
+
+            in_value += txout.value.to_sat();
         }
 
         // Value in should be greater or equal to value out. Otherwise, inflation.
@@ -169,7 +176,10 @@ impl Consensus {
         #[cfg(feature = "bitcoinconsensus")]
         if _verify_script {
             transaction
-                .verify_with_flags(|outpoint| utxos.remove(outpoint), _flags)
+                .verify_with_flags(
+                    |outpoint| utxos.remove(outpoint).map(|utxo| utxo.txout),
+                    _flags,
+                )
                 .map_err(|e| tx_err!(txid, ScriptValidationError, e.to_string()))?;
         };
 
@@ -181,11 +191,11 @@ impl Consensus {
     /// Fails if the UTXO is not present in the given hashmap.
     fn get_utxo<'a, F: Fn() -> Txid>(
         input: &TxIn,
-        utxos: &'a HashMap<OutPoint, TxOut>,
+        utxos: &'a HashMap<OutPoint, UtxoData>,
         txid: F,
-    ) -> Result<&'a TxOut, TransactionError> {
+    ) -> Result<&'a UtxoData, TransactionError> {
         match utxos.get(&input.previous_output) {
-            Some(txout) => Ok(txout),
+            Some(utxo) => Ok(utxo),
             // This is the case when the spender:
             // - Spends an UTXO that doesn't exist
             // - Spends an UTXO that was already spent
@@ -445,7 +455,7 @@ mod tests {
     }
 
     #[cfg(feature = "bitcoinconsensus")]
-    fn create_case(case: &str) -> (Transaction, HashMap<OutPoint, TxOut>) {
+    fn create_case(case: &str) -> (Transaction, HashMap<OutPoint, UtxoData>) {
         // Transactions to test limits for bitcoin scripts. Every transaction is in the
         // order <spending_tx>:<prevout>.
 
@@ -453,13 +463,22 @@ mod tests {
             panic!("Invalid case: {}", case);
         };
 
-        let spending: Transaction = deserialize_hex(spending).unwrap();
-        let prevout: TxOut = deserialize_hex(prevout).unwrap();
+        let spending_tx: Transaction = deserialize_hex(spending).unwrap();
+        let txout: TxOut = deserialize_hex(prevout).unwrap();
 
         let mut utxos = HashMap::new();
-        utxos.insert(spending.input[0].previous_output, prevout);
 
-        (spending, utxos)
+        utxos.insert(
+            spending_tx.input[0].previous_output,
+            UtxoData {
+                txout,
+                is_coinbase: false,
+                creation_height: 0,
+                creation_time: 0,
+            },
+        );
+
+        (spending_tx, utxos)
     }
 
     #[cfg(feature = "bitcoinconsensus")]
@@ -470,9 +489,12 @@ mod tests {
 
         for case in TX_VALIDATION_CASES_LEGACY.iter() {
             let (transaction, mut utxos) = create_case(case);
+            let dummy_height = 0;
+
             let result = Consensus::verify_transaction(
                 &transaction,
                 &mut utxos,
+                dummy_height,
                 true,
                 bitcoinconsensus::VERIFY_ALL_PRE_TAPROOT,
             );
@@ -515,25 +537,45 @@ mod tests {
         }
 
         let flags = 0;
+        let dummy_height = 0;
+
         let mut utxos = HashMap::new();
-        utxos.insert(OutPoint::null(), txout!(0, true_script()));
+        utxos.insert(
+            OutPoint::null(),
+            UtxoData {
+                txout: txout!(0, true_script()),
+                is_coinbase: false,
+                creation_height: 0,
+                creation_time: 0,
+            },
+        );
 
         // 1. Build a valid transaction that produces an oversized, unspendable output.
         let dummy_in = txin!(OutPoint::null(), ScriptBuf::new());
         let oversized_out = txout!(0, oversized_script());
         let tx_with_oversized = build_tx(dummy_in, oversized_out.clone());
 
-        Consensus::verify_transaction(&tx_with_oversized, &mut utxos, false, flags).unwrap();
+        Consensus::verify_transaction(&tx_with_oversized, &mut utxos, dummy_height, false, flags)
+            .unwrap();
 
         // 2. Register the oversized output as an available UTXO.
         let prevout = OutPoint::new(tx_with_oversized.compute_txid(), 0);
-        utxos.insert(prevout, oversized_out);
+        utxos.insert(
+            prevout,
+            UtxoData {
+                txout: oversized_out,
+                is_coinbase: false,
+                creation_height: 0,
+                creation_time: 0,
+            },
+        );
 
         // 3. Attempt to spend the oversized output.
         let spending_in = txin!(prevout, ScriptBuf::new());
         let spending_tx = build_tx(spending_in, txout!(0, true_script()));
         let err =
-            Consensus::verify_transaction(&spending_tx, &mut utxos, false, flags).unwrap_err();
+            Consensus::verify_transaction(&spending_tx, &mut utxos, dummy_height, false, flags)
+                .unwrap_err();
 
         // Check that the error is exactly what we expect.
         match err {

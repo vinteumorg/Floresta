@@ -48,7 +48,8 @@ pub struct LeafData {
 impl LeafData {
     pub fn _get_leaf_hashes(&self) -> sha256::Hash {
         let mut ser_utxo = Vec::new();
-        let _ = self.utxo.consensus_encode(&mut ser_utxo);
+        self.utxo.consensus_encode(&mut ser_utxo).unwrap();
+
         let leaf_hash = Sha512_256::new()
             .chain_update(UTREEXO_TAG_V1)
             .chain_update(UTREEXO_TAG_V1)
@@ -58,6 +59,7 @@ impl LeafData {
             .chain_update(self.header_code.to_le_bytes())
             .chain_update(ser_utxo)
             .finalize();
+
         sha256::Hash::from_slice(leaf_hash.as_slice())
             .expect("parent_hash: Engines shouldn't be Err")
     }
@@ -321,6 +323,7 @@ pub mod proof_util {
     use super::LeafData;
     use crate::prelude::*;
     use crate::pruned_utreexo::consensus::UTREEXO_TAG_V1;
+    use crate::pruned_utreexo::utxo_data::UtxoData;
     use crate::BlockchainError;
     use crate::CompactLeafData;
     use crate::ScriptPubkeyType;
@@ -390,7 +393,7 @@ pub mod proof_util {
         false
     }
 
-    /// Returns the hash of a leaf node in the utreexo accumulator.
+    /// Computes the hash of a leaf node in the utreexo accumulator.
     #[inline]
     fn get_leaf_hashes(
         transaction: &Transaction,
@@ -398,15 +401,17 @@ pub mod proof_util {
         height: u32,
         block_hash: BlockHash,
     ) -> sha256::Hash {
-        let header_code = height << 1;
-
-        let mut ser_utxo = Vec::new();
         let utxo = transaction.output.get(vout as usize).unwrap();
+
+        // An utreexo leaf hash is computed by hashing the UTXO bytes with some metadata
+        let mut ser_utxo = Vec::new();
         utxo.consensus_encode(&mut ser_utxo).unwrap();
+
+        // Header code encodes the block height (at the 31 MSB) and coinbase flag (LSB = 1 for coinbase)
         let header_code = if transaction.is_coinbase() {
-            header_code | 1
+            height << 1 | 1
         } else {
-            header_code
+            height << 1
         };
 
         let leaf_hash = Sha512_256::new()
@@ -418,6 +423,7 @@ pub mod proof_util {
             .chain_update(header_code.to_le_bytes())
             .chain_update(ser_utxo)
             .finalize();
+
         sha256::Hash::from_slice(leaf_hash.as_slice())
             .expect("parent_hash: Engines shouldn't be Err")
     }
@@ -454,12 +460,13 @@ pub mod proof_util {
         leaf_hashes
     }
 
-    #[allow(clippy::type_complexity)]
+    type UtxoMap = HashMap<OutPoint, UtxoData>;
     pub fn process_proof<F, E>(
         udata: &UData,
-        transactions: &[Transaction],
+        txdata: &[Transaction],
+        height: u32,
         get_block_hash: F,
-    ) -> Result<(Proof, Vec<sha256::Hash>, HashMap<OutPoint, TxOut>), E>
+    ) -> Result<(Proof, Vec<sha256::Hash>, UtxoMap), E>
     where
         F: Fn(u32) -> Result<BlockHash, E>,
         E: From<Error>,
@@ -472,17 +479,19 @@ pub mod proof_util {
         let mut leaves_iter = udata.leaves.iter().cloned();
 
         // Skip coinbase transaction
-        for tx in transactions.iter().skip(1) {
+        for tx in txdata.iter().skip(1) {
             let txid = tx.compute_txid();
 
             // Collect new UTXOs, which may be spent by later transactions in the block
             for (vout, out) in tx.output.iter().enumerate() {
                 utxos.insert(
-                    OutPoint {
-                        txid,
-                        vout: vout as u32,
+                    OutPoint::new(txid, vout as u32),
+                    UtxoData {
+                        txout: out.clone(),
+                        is_coinbase: tx.is_coinbase(),
+                        creation_height: height,
+                        creation_time: 0, // TODO add MTP(`height` - 1)
                     },
-                    out.clone(),
                 );
             }
 
@@ -497,12 +506,24 @@ pub mod proof_util {
                     None => continue,
                 };
 
-                let height = leaf.header_code >> 1;
-                let hash = get_block_hash(height)?;
+                let creation_height = leaf.header_code >> 1;
+                // The coinbase flag is the LSB
+                let is_coinbase = (leaf.header_code & 1) != 0;
+
+                let hash = get_block_hash(creation_height)?;
                 let leaf = reconstruct_leaf_data(&leaf, input, hash)?;
+
                 // Push the UTXO to remove from the set and its leaf hash (deletion hash)
                 del_hashes.push(leaf._get_leaf_hashes());
-                utxos.insert(leaf.prevout, leaf.utxo);
+                utxos.insert(
+                    leaf.prevout,
+                    UtxoData {
+                        txout: leaf.utxo,
+                        is_coinbase,
+                        creation_height,
+                        creation_time: 0, // TODO add MTP(`creation_height` - 1)
+                    },
+                );
             }
         }
 
@@ -650,7 +671,8 @@ mod test {
         };
 
         // STEP 1: Verify the accumulator and the block
-        let (proof, del_hashes, inputs) = process_proof(udata, txdata, get_block_hash).unwrap();
+        let (proof, del_hashes, inputs) =
+            process_proof(udata, txdata, height, get_block_hash).unwrap();
 
         if !acc.verify(&proof, &to_acc_hashes(del_hashes)).unwrap() {
             panic!("Proof must be valid")
@@ -669,7 +691,8 @@ mod test {
         let mut invalid_txdata = txdata.clone();
         invalid_txdata.insert(1, spending_tx);
 
-        let (proof, del_hashes, _) = process_proof(udata, &invalid_txdata, get_block_hash).unwrap();
+        let (proof, del_hashes, _) =
+            process_proof(udata, &invalid_txdata, height, get_block_hash).unwrap();
 
         if acc.verify(&proof, &to_acc_hashes(del_hashes)).unwrap() {
             panic!("Proof must be invalid")

@@ -13,6 +13,7 @@ use criterion::criterion_main;
 use criterion::BatchSize;
 use criterion::Criterion;
 use criterion::SamplingMode;
+use floresta_chain::pruned_utreexo::utxo_data::UtxoData;
 use floresta_chain::pruned_utreexo::UpdatableChainstate;
 use floresta_chain::AssumeValidArg;
 use floresta_chain::ChainState;
@@ -44,7 +45,7 @@ fn setup_test_chain<'a>(
 fn decode_block_and_inputs(
     block_file: File,
     stxos_file: File,
-) -> (Block, HashMap<OutPoint, TxOut>) {
+) -> (Block, HashMap<OutPoint, UtxoData>) {
     let block_bytes = zstd::decode_all(block_file).unwrap();
     let block: Block = deserialize(&block_bytes).unwrap();
 
@@ -58,7 +59,18 @@ fn decode_block_and_inputs(
         .iter()
         .skip(1) // Skip the coinbase transaction
         .flat_map(|tx| &tx.input)
-        .map(|txin| (txin.previous_output, stxos.remove(0)))
+        .map(|txin| {
+            (
+                txin.previous_output,
+                UtxoData {
+                    txout: stxos.remove(0),
+                    is_coinbase: false,
+                    // Using 0 for simplicity, we won't test the transaction time locks
+                    creation_height: 0,
+                    creation_time: 0,
+                },
+            )
+        })
         .collect();
 
     assert!(stxos.is_empty(), "Moved all stxos to the inputs map");
