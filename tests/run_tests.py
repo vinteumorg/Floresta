@@ -27,13 +27,12 @@ python tests/run_tests.py --test-name example_test --data-dir $HOME/my/path
 ```
 """
 
+import argparse
 import os
 import subprocess
 import time
-import argparse
 
-
-from test_framework.test_framework import FlorestaTestFramework
+from test_framework import FlorestaTestFramework
 
 BASE_DIR = os.path.normpath(
     os.path.join(FlorestaTestFramework.get_integration_test_dir(), "logs")
