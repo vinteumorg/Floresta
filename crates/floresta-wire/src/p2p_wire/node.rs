@@ -942,7 +942,7 @@ where
         for peer in self.peer_ids.iter() {
             try_and_log!(self.send_to_peer(*peer, NodeRequest::Shutdown).await);
         }
-        try_and_log!(self.save_utreexo_peers());
+        try_and_warn!(self.save_utreexo_peers());
         try_and_log!(self.save_peers());
         try_and_log!(self.chain.flush());
     }
@@ -1318,7 +1318,7 @@ macro_rules! try_and_warn {
         let result = $what;
 
         if let Err(warning) = result {
-            log::warn!("{}: {} - {}", line!(), file!(), warning);
+            log::warn!("{}", warning);
         }
     };
 }

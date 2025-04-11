@@ -24,11 +24,11 @@ pub enum WireError {
     CoinbaseNotMatured,
     #[error("Peer not found in our current connections")]
     PeerNotFound,
-    #[error("We don't have any peers")]
+    #[error("Failed to save utreexo peers: no peers to save to anchors.json")]
     NoPeersAvailable,
     #[error("Our peer is misbehaving")]
     PeerMisbehaving,
-    #[error("Failed to init peers, anchors.json does not exist yet.")]
+    #[error("Failed to init utreexo peers: anchors.json does not exist yet")]
     AnchorFileNotFound,
     #[error("Generic io error: {0}")]
     Io(std::io::Error),
