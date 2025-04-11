@@ -1,4 +1,4 @@
-# Build
+# Building on Unix
 
 ## Prerequisites
 ```bash
@@ -32,4 +32,4 @@ cargo install --path ./florestad
 cargo install --path ./crates/floresta-cli
 ```
 
-If you are using Nix, you can add Florestad to your system following the instructions [here](use_nix.md).
+If you are using Nix, you can add Florestad to your system following the instructions [here](nix.md).

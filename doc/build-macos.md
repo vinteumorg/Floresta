@@ -1,4 +1,4 @@
-# Instructions for macOS Users
+# Building on macOS
 The following steps should be executed in a Terminal application. Tip: press `Command (⌘) + Space` and search for `terminal`.
 
 ## Prerequisites
@@ -54,4 +54,4 @@ cargo install --path ./florestad
 cargo install --path ./crates/floresta-cli
 ```
 
-If you are using Nix, you can add Florestad to your system following the instructions [here](use_nix.md).
+If you are using Nix, you can add Florestad to your system following the instructions [here](nix.md).
