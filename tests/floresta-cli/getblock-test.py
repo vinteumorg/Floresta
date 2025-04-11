@@ -4,8 +4,8 @@ floresta_cli_getblock.py
 This functional test cli utility to interact with a Floresta node with `getblock`
 """
 
-from test_framework.test_framework import FlorestaTestFramework
 from test_framework.floresta_rpc import REGTEST_RPC_SERVER
+from test_framework.test_framework import FlorestaTestFramework
 
 
 class GetBlockTest(FlorestaTestFramework):
@@ -62,24 +62,24 @@ class GetBlockTest(FlorestaTestFramework):
 
         # Test verbose level 1
         response = node.get_block(GetBlockTest.block, 1)
-        assert response["bits"] == GetBlockTest.bits
-        assert response["chainwork"] == GetBlockTest.chainwork
-        assert response["confirmations"] == GetBlockTest.confirmations
-        assert response["difficulty"] == GetBlockTest.difficulty
-        assert response["hash"] == GetBlockTest.hash
-        assert response["height"] == GetBlockTest.height
-        assert response["mediantime"] == GetBlockTest.mediantime
-        assert response["merkleroot"] == GetBlockTest.merkleroot
-        assert response["n_tx"] == GetBlockTest.n_tx
-        assert response["nonce"] == GetBlockTest.nonce
-        assert response["previousblockhash"] == GetBlockTest.prev_blockhash
-        assert response["size"] == GetBlockTest.size
-        assert response["strippedsize"] == GetBlockTest.strippedsize
-        assert response["time"] == GetBlockTest.time
-        assert len(response["tx"]) == len(GetBlockTest.tx)
-        assert response["version"] == GetBlockTest.version
-        assert response["versionHex"] == GetBlockTest.version_hex
-        assert response["weight"] == GetBlockTest.weight
+        self.assertEqual(response["bits"], GetBlockTest.bits)
+        self.assertEqual(response["chainwork"], GetBlockTest.chainwork)
+        self.assertEqual(response["confirmations"], GetBlockTest.confirmations)
+        self.assertEqual(response["difficulty"], GetBlockTest.difficulty)
+        self.assertEqual(response["hash"], GetBlockTest.hash)
+        self.assertEqual(response["height"], GetBlockTest.height)
+        self.assertEqual(response["mediantime"], GetBlockTest.mediantime)
+        self.assertEqual(response["merkleroot"], GetBlockTest.merkleroot)
+        self.assertEqual(response["n_tx"], GetBlockTest.n_tx)
+        self.assertEqual(response["nonce"], GetBlockTest.nonce)
+        self.assertEqual(response["previousblockhash"], GetBlockTest.prev_blockhash)
+        self.assertEqual(response["size"], GetBlockTest.size)
+        self.assertEqual(response["strippedsize"], GetBlockTest.strippedsize)
+        self.assertEqual(response["time"], GetBlockTest.time)
+        self.assertEqual(len(response["tx"]), len(GetBlockTest.tx))
+        self.assertEqual(response["version"], GetBlockTest.version)
+        self.assertEqual(response["versionHex"], GetBlockTest.version_hex)
+        self.assertEqual(response["weight"], GetBlockTest.weight)
 
         # Shutdown node
         self.stop_node(GetBlockTest.nodes[0])

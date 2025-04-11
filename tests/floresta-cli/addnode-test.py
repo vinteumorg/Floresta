@@ -6,8 +6,9 @@ This functional test cli utility to interact with a Floresta node with `addnode`
 
 import os
 import tempfile
-from test_framework.test_framework import FlorestaTestFramework
+
 from test_framework.floresta_rpc import REGTEST_RPC_SERVER, JSONRPCError
+from test_framework.test_framework import FlorestaTestFramework
 
 # Setup a little node with another port
 ANOTHER_REGTEST_RPC_SERVER = {
@@ -87,18 +88,13 @@ class GetAddnodeIDBErrorTest(FlorestaTestFramework):
         self.wait_for_rpc_connection(GetAddnodeIDBErrorTest.nodes[1])
 
         # Test assertions
-        try:
-            node = self.get_node(GetAddnodeIDBErrorTest.nodes[0])
-            success = node.get_addnode(node="0.0.0.0:18443")
-            assert success
-        except JSONRPCError as exc:
-            assert exc.code == -32603
-            assert exc.message == GetAddnodeIDBErrorTest.node_ibd_error
-            assert exc.data is None
-        finally:
-            # stop nodes
-            self.stop_node(GetAddnodeIDBErrorTest.nodes[1])
-            self.stop_node(GetAddnodeIDBErrorTest.nodes[0])
+        node = self.get_node(GetAddnodeIDBErrorTest.nodes[0])
+        result = node.get_addnode(node="0.0.0.0:18443")
+        self.assertTrue(result)
+
+        # stop nodes
+        self.stop_node(GetAddnodeIDBErrorTest.nodes[1])
+        self.stop_node(GetAddnodeIDBErrorTest.nodes[0])
 
 
 if __name__ == "__main__":

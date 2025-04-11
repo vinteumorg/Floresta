@@ -38,11 +38,10 @@ class TestSslFailInitialization(FlorestaTestFramework):
 
         # now try create a connection with an electrum client at default port
         # it must fail, since the TLS port isnt opened
-        try:
+        with self.assertRaises(ConnectionRefusedError) as exc:
             TestSslFailInitialization.electrum = ElectrumClient("0.0.0.0", 50002)
 
-        except ConnectionRefusedError as exc:
-            assert exc.errno == errno.ECONNREFUSED
+        self.assertEqual(exc.exception.errno, errno.ECONNREFUSED)
 
         # Shutdown node
         self.stop_node(TestSslFailInitialization.nodes[0])

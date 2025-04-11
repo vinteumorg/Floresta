@@ -14,6 +14,8 @@ The list below describe the python method and the related JSONRPC call:
 - get_roots: `getroots`;
 """
 
+import json
+
 # commented unused modules since maybe they can be useful
 # import os
 # import shutil
@@ -22,9 +24,10 @@ The list below describe the python method and the related JSONRPC call:
 # import traceback
 import re
 import time
-import json
 from subprocess import Popen
-from requests import post, exceptions
+from typing import Any
+
+from requests import exceptions, post
 
 REGTEST_RPC_SERVER = {
     "host": "127.0.0.1",
@@ -165,7 +168,7 @@ class FlorestaRPC:
         else:
             raise RuntimeError("Cannot wait for null process")
 
-    def perform_request(self, method, params=None) -> dict:
+    def perform_request(self, method, params=None) -> Any:
         """
         Perform an JsonRPC request to the floresta node.
         """

@@ -4,8 +4,8 @@ floresta_cli_getblockchainfo.py
 This functional test cli utility to interact with a Floresta node with `getblockchaininfo`
 """
 
-from test_framework.test_framework import FlorestaTestFramework
 from test_framework.floresta_rpc import REGTEST_RPC_SERVER
+from test_framework.test_framework import FlorestaTestFramework
 
 
 class GetBlockchaininfoTest(FlorestaTestFramework):
@@ -45,17 +45,19 @@ class GetBlockchaininfoTest(FlorestaTestFramework):
         # Test assertions
         node = self.get_node(GetBlockchaininfoTest.nodes[0])
         response = node.get_blockchain_info()
-        assert response["best_block"] == GetBlockchaininfoTest.best_block
-        assert response["difficulty"] == GetBlockchaininfoTest.difficulty
-        assert response["height"] == GetBlockchaininfoTest.height
-        assert response["ibd"] == GetBlockchaininfoTest.ibd
-        assert response["latest_block_time"] == GetBlockchaininfoTest.latest_block_time
-        assert response["latest_work"] == GetBlockchaininfoTest.latest_work
-        assert response["leaf_count"] == GetBlockchaininfoTest.leaf_count
-        assert response["progress"] == GetBlockchaininfoTest.progress
-        assert response["root_count"] == GetBlockchaininfoTest.root_count
-        assert response["root_hashes"] == GetBlockchaininfoTest.root_hashes
-        assert response["validated"] == GetBlockchaininfoTest.validated
+        self.assertEqual(response["best_block"], GetBlockchaininfoTest.best_block)
+        self.assertEqual(response["difficulty"], GetBlockchaininfoTest.difficulty)
+        self.assertEqual(response["height"], GetBlockchaininfoTest.height)
+        self.assertEqual(response["ibd"], GetBlockchaininfoTest.ibd)
+        self.assertEqual(
+            response["latest_block_time"], GetBlockchaininfoTest.latest_block_time
+        )
+        self.assertEqual(response["latest_work"], GetBlockchaininfoTest.latest_work)
+        self.assertEqual(response["leaf_count"], GetBlockchaininfoTest.leaf_count)
+        self.assertEqual(response["progress"], GetBlockchaininfoTest.progress)
+        self.assertEqual(response["root_count"], GetBlockchaininfoTest.root_count)
+        self.assertEqual(response["root_hashes"], GetBlockchaininfoTest.root_hashes)
+        self.assertEqual(response["validated"], GetBlockchaininfoTest.validated)
 
         # Shutdown node
         self.stop_node(GetBlockchaininfoTest.nodes[0])

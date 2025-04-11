@@ -4,8 +4,8 @@ floresta_cli_getroots.py
 This functional test cli utility to interact with a Floresta node with `getroots`
 """
 
-from test_framework.test_framework import FlorestaTestFramework
 from test_framework.floresta_rpc import REGTEST_RPC_SERVER
+from test_framework.test_framework import FlorestaTestFramework
 
 
 class GetRootsIDBLenZeroTest(FlorestaTestFramework):
@@ -37,7 +37,7 @@ class GetRootsIDBLenZeroTest(FlorestaTestFramework):
         # Test assertions
         node = self.get_node(GetRootsIDBLenZeroTest.nodes[0])
         vec_hashes = node.get_roots()
-        assert len(vec_hashes) == 0
+        self.assertTrue(len(vec_hashes) == 0)
 
 
 if __name__ == "__main__":

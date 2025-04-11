@@ -4,8 +4,8 @@ floresta_cli_getblockhash.py
 This functional test cli utility to interact with a Floresta node with `getblockhash`
 """
 
-from test_framework.test_framework import FlorestaTestFramework
 from test_framework.floresta_rpc import REGTEST_RPC_SERVER
+from test_framework.test_framework import FlorestaTestFramework
 
 
 class GetBlockhashTest(FlorestaTestFramework):
@@ -35,7 +35,7 @@ class GetBlockhashTest(FlorestaTestFramework):
         # Test assertions
         node = self.get_node(GetBlockhashTest.nodes[0])
         response = node.get_blockhash(0)
-        assert response == GetBlockhashTest.best_block
+        self.assertEqual(response, GetBlockhashTest.best_block)
 
         # Shutdown node
         self.stop_node(GetBlockhashTest.nodes[0])
