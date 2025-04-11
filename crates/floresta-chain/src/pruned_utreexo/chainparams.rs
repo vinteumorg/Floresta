@@ -27,24 +27,34 @@ use crate::AssumeValidArg;
 use crate::Network;
 
 #[derive(Clone, Debug)]
+/// This struct encapsulates all chain-specific parameters.
 pub struct ChainParams {
+    /// Field to store parameters related to the chain consensus.
     pub params: Params,
+
     /// The network's first block, also called genesis block.
     pub genesis: Block,
+
     /// Interval of blocks until the block reward halves
     pub subsidy_halving_interval: u64,
+
     /// When we retarget we expect this many seconds to be elapsed since last time. If
     /// it's more, we decrease difficulty, if it's less we increase difficulty
     pub pow_target_timespan: u64,
+
     /// We wait this many blocks before a coinbase output can be spent
     pub coinbase_maturity: u32,
+
     /// The height at which segwit is activated
     pub segwit_activation_height: u32,
+
     /// The height at which csv(CHECK_SEQUENCE_VERIFY) is activated
     pub csv_activation_height: u32,
+
     /// A list of exceptions to the rules, where the key is the block hash and the value is the
     /// verification flags
     pub exceptions: HashMap<BlockHash, c_uint>,
+
     /// The network this chain params is for
     pub network: bitcoin::Network,
 }
@@ -60,13 +70,17 @@ pub struct ChainParams {
 pub struct DnsSeed {
     /// The network this peer supports (e.g, mainnet, testnet, etc)
     pub network: Network,
+
     /// The domain name of the seed
     pub seed: &'static str,
+
     /// Useful filters we can use to find relevant peers
     pub filters: ServiceFlags,
 }
 
+/// This functionality is used to create a new DNS seed with possible filters.
 impl DnsSeed {
+    /// Create a new DNS seed
     pub fn new(network: Network, seed: &'static str, filters: ServiceFlags) -> Self {
         DnsSeed {
             network,
@@ -84,10 +98,13 @@ impl DnsSeed {
 pub struct AssumeUtreexoValue {
     /// The latest block assumed to be valid. This acc is the roots at this block
     pub block_hash: BlockHash,
+
     /// Same as block_hash, but in height
     pub height: u32,
+
     /// The roots of the Utreexo accumulator at this block
     pub roots: Vec<BitcoinNodeHash>,
+
     /// The number of leaves in the Utreexo accumulator at this block
     pub leaves: u64,
 }
