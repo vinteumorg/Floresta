@@ -1,3 +1,5 @@
+//! node_interface holds [`NodeInterface`], a struct with a inner array of requests, used for dealing with user requests.
+
 use std::net::IpAddr;
 use std::time::Instant;
 
