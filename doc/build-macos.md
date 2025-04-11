@@ -1,4 +1,4 @@
-# Instructions for macOS Users
+# Building on macOS
 The following steps should be executed in a Terminal application. Tip: press `Command (⌘) + Space` and search for `terminal`.
 
 ## Prerequisites

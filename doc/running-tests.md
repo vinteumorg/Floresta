@@ -1,4 +1,6 @@
 # Tests
+
+This section will guide general tests and functional tests running procedures. For the testing suite, please check [this section](/tests/).
 ## Requirements
 
 The tests in `floresta-cli` depend on the compiled `florestad` binary. Make sure to build the entire project first by running:
@@ -7,15 +9,12 @@ The tests in `floresta-cli` depend on the compiled `florestad` binary. Make sure
 cargo build
 ```
 
-[Functional Tests](#Functional_Tests) also need some dependencies, we use python for writing them and `uv` to manage its dependencies.
+The functional tests also need some dependencies, we use python for writing them and `uv` to manage its dependencies.
 
-Our tests also needs the `Utreexod` and `florestad` binaries to match some funcionalities and we have some helper scripts to avoid conflicts, which happens a lot while developing but can help one that have one of them installed in the system.
-
-See [Setting Functional Tests Binaries](#Setting_Functional_Tests_Binaries) for more instructions.
+Our tests also needs the `Utreexod` and `florestad` binaries to match some functionalities and we have some helper scripts to avoid conflicts, which happens a lot while developing but can help one that have one of them installed in the system.
 
 ## Testing Options
-
-There's a set of tests that you can run with:
+There's a set of unit and integration Rust tests that you can run with:
 
 ```bash
 cargo test
@@ -26,6 +25,8 @@ For the full test suite, including long-running tests, use:
 ```bash
 cargo test --release
 ```
+
+Next sections will cover the Python functional tests.
 
 ### Setting Functional Tests Binaries
 
@@ -127,4 +128,4 @@ uv run tests/run_tests.py --test-suite <suite_A> --test-suite <suite_B>
 
 ### Running/Developing Functional Tests with Nix
 
-If you have nix, you can run the tests following the instructions [here](use_nix.md).
+If you have nix, you can run the tests following the instructions [here](nix.md).
