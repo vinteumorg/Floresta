@@ -33,16 +33,22 @@ pub enum BlockchainBuilderError {
 pub struct ChainStateBuilder<PersistedState: ChainStore> {
     /// The accumulator stump.
     acc: Option<Stump>,
+
     /// The chain store.
     chainstore: Option<PersistedState>,
+
     /// Indicates whether the builder is in initial block download mode.
     ibd: bool,
+
     /// The chain parameters.
     chain_params: Option<ChainParams>,
+
     /// The block hash that is assumed to be valid.
     assume_valid: Option<BlockHash>,
+
     /// The current chain tip.
     tip: Option<(BlockHash, u32)>,
+
     /// The first block header.
     tip_header: Option<BlockHeader>,
 }
