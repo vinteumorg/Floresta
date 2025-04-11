@@ -21,6 +21,8 @@ use serde::Deserialize;
 use serde::Serialize;
 use thiserror::Error;
 
+use super::error::WireError;
+
 /// How long we'll wait before trying to connect to a peer that failed
 const RETRY_TIME: u64 = 10 * 60; // 10 minutes
 
@@ -453,7 +455,7 @@ impl AddressMan {
         default_port: u16,
         network: Network,
         dns_seeds: &[DnsSeed],
-    ) -> Result<Vec<LocalAddress>, std::io::Error> {
+    ) -> Result<Vec<LocalAddress>, WireError> {
         let persisted_peers = std::fs::read_to_string(format!("{datadir}/peers.json"))
             .map(|seeds| serde_json::from_str::<Vec<DiskLocalAddress>>(&seeds));
 
@@ -491,7 +493,8 @@ impl AddressMan {
             dns_seeds.len()
         );
 
-        let anchors = std::fs::read_to_string(format!("{datadir}/anchors.json"))?;
+        let anchors = std::fs::read_to_string(format!("{datadir}/anchors.json"))
+            .map_err(|_| WireError::AnchorFileNotFound)?;
         let anchors = serde_json::from_str::<Vec<DiskLocalAddress>>(&anchors)?;
         let anchors = anchors
             .iter()

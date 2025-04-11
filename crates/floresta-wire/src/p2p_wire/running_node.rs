@@ -35,6 +35,7 @@ use super::peer::PeerMessages;
 use crate::address_man::AddressState;
 use crate::node::periodic_job;
 use crate::node::try_and_log;
+use crate::node::try_and_warn;
 use crate::node::ConnectionKind;
 use crate::node::InflightRequests;
 use crate::node::NodeNotification;
@@ -347,7 +348,7 @@ where
     }
 
     pub async fn run(mut self, stop_signal: futures::channel::oneshot::Sender<()>) {
-        try_and_log!(self.init_peers().await);
+        try_and_warn!(self.init_peers().await);
 
         // Use this node state to Initial Block download
         let mut ibd = UtreexoNode {
