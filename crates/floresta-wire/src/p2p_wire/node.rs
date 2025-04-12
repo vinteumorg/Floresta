@@ -942,7 +942,7 @@ where
         for peer in self.peer_ids.iter() {
             try_and_log!(self.send_to_peer(*peer, NodeRequest::Shutdown).await);
         }
-        try_and_log!(self.save_utreexo_peers());
+        try_and_warn!(self.save_utreexo_peers());
         try_and_log!(self.save_peers());
         try_and_log!(self.chain.flush());
     }
@@ -1028,10 +1028,10 @@ where
         let peers: &Vec<u32> = self
             .peer_by_service
             .get(&service_flags::UTREEXO.into())
-            .ok_or(WireError::NoPeersAvailable)?;
+            .ok_or(WireError::NoUtreexoPeersAvailable)?;
         let peers_usize: Vec<usize> = peers.iter().map(|&peer| peer as usize).collect();
         if peers_usize.is_empty() {
-            warn!("No connected utreexo peers to save to disk");
+            warn!("No connected Utreexo peers to save to disk");
             return Ok(());
         }
         info!("Saving utreexo peers to disk");
@@ -1318,7 +1318,7 @@ macro_rules! try_and_warn {
         let result = $what;
 
         if let Err(warning) = result {
-            log::warn!("{}: {} - {}", line!(), file!(), warning);
+            log::warn!("{}", warning);
         }
     };
 }
