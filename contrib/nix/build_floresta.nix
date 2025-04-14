@@ -1,14 +1,11 @@
 {
-  pkgs,
-  florestaSrc ? ../../.,
+  pkgs ? import <nixpkgs>,
+  src ? ../../.,
+  packageName ? "all",
 }:
 
 let
-  # Pname defines the name of the package and will decide the output of this expression
-  pname = "floresta-node";
-  version = "0.7.0";
-
-  lib = pkgs.lib;
+  inherit (pkgs) lib;
   # This are deps needed to run and build rust projects.
   basicDeps = [
     pkgs.openssl
@@ -24,7 +21,7 @@ let
       basicDeps;
 
   # This is the 1.74.1 rustup (and its components) toolchain from our `./rust-toolchain.toml`
-  florestaRust = pkgs.rust-bin.fromRustupToolchainFile "${florestaSrc}/rust-toolchain.toml";
+  florestaRust = pkgs.rust-bin.fromRustupToolchainFile "${src}/rust-toolchain.toml";
 
   # This sets the rustc and cargo to the ones from the florestaRust.
   #
@@ -33,22 +30,71 @@ let
     rustc = florestaRust;
     cargo = florestaRust;
   };
+
+  # TLDR: this block below ensures to build the right component with the right flags to it.
+  packageInfo =
+    if packageName == "all" then
+      {
+        pname = "floresta";
+        cargoBuildFlags = [ ]; # no need to specify flags
+        description = "Floresta All";
+
+        # We need to get a different toml for different packages
+        #
+        # Since we only use this instrospection of Cargo.toml for getting package
+        # version, this ones gets the version from florestad which is the one we
+        # track major progress of the project.
+        cargoToml = builtins.fromTOML (builtins.readFile "${src}/florestad/Cargo.toml");
+      }
+    else if packageName == "libfloresta" then
+      {
+        pname = "libfloresta";
+        cargoBuildFlags = [ "--lib" ]; # flag for compiling the lib of this workspace
+        description = "Floresta library";
+
+        # We need to get a different toml for different packages
+        cargoToml = builtins.fromTOML (builtins.readFile "${src}/crates/floresta/Cargo.toml");
+      }
+    else if packageName == "florestad" then
+      {
+        pname = "${packageName}";
+        cargoBuildFlags = [
+          "--bin"
+          "${packageName}"
+        ]; # flag for compiling the florestad binary
+        description = "Floresta daemon";
+
+        # We need to get a different toml for different packages
+        cargoToml = builtins.fromTOML (builtins.readFile "${src}/florestad/Cargo.toml");
+      }
+    else if packageName == "floresta-cli" then
+      {
+        pname = "${packageName}";
+        cargoBuildFlags = [
+          "--bin"
+          "${packageName}"
+        ]; # flag for compiling the floresta-cli binary
+        description = "Floresta CLI";
+
+        # We need to get a different toml for different packages
+        cargoToml = builtins.fromTOML (builtins.readFile "${src}/crates/floresta-cli/Cargo.toml");
+      }
+    else
+      throw "Requested packageName '${packageName}' not found. Available packages: florestalib, florestad, floresta-cli and all (exports everything)";
 in
 buildRustPackage {
-  inherit pname version;
+  inherit (packageInfo.cargoToml.package) version;
+  inherit (packageInfo) pname cargoBuildFlags;
+  inherit buildInputs src;
 
-  doCheck = false;
-
-  src = "${florestaSrc}";
+  doCheck = false; # we need to disable testing, it needs special setup.
 
   cargoLock = {
-    lockFile = "${florestaSrc}/Cargo.lock";
+    lockFile = "${src}/Cargo.lock";
   };
 
-  inherit buildInputs;
-
   meta = with lib; {
-    description = "A lightweight bitcoin full node";
+    description = "A lightweight bitcoin full node; " + packageInfo.description;
     homepage = "https://github.com/vinteumorg/Floresta";
     license = licenses.mit;
     maintainers = [ maintainers.jaoleal ];

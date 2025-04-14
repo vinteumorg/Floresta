@@ -1,15 +1,20 @@
 {
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.05";
-
+    nixpkgs = {
+      url = "github:NixOS/nixpkgs/nixos-24.05";
+    };
+    flake-utils = {
+      url = "github:numtide/flake-utils";
+    };
+    pre-commit-hooks = {
+      url = "github:cachix/git-hooks.nix";
+    };
     rust-overlay = {
       url = "github:oxalica/rust-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
-
     };
-
-    flake-utils = {
-      url = "github:numtide/flake-utils";
+    utreexod-flake = {
+      url = "github:jaoleal/utreexod-flake";
     };
   };
 
@@ -19,110 +24,208 @@
       nixpkgs,
       rust-overlay,
       flake-utils,
+      pre-commit-hooks,
+      utreexod-flake,
     }:
     flake-utils.lib.eachDefaultSystem (
       system:
       let
         overlays = [ (import rust-overlay) ];
 
-        pkgs = (import nixpkgs { inherit system overlays; });
+        utils = import ./contrib/nix/utils.nix { inherit pkgs; };
+
+        pkgs = import nixpkgs { inherit system overlays; };
       in
       with pkgs;
       {
         checks = {
-          # Usefull Checks here
-          python-sanity =
+          # This check runs nixfmt, statix and flake health checker on all defined files in `fileset`,
+          # the nix files we have in this project
+          nix-sanity-check =
             let
-              source = ./tests;
-
+              fileSet = lib.fileset.unions [
+                ./contrib/nix
+                ./flake.nix
+                ./flake.lock
+              ];
             in
-            pkgs.runCommandLocal "Python Fmt Check"
-              {
-                nativeBuildInputs = [
-                  python312Packages.black
-                ];
-              }
-              ''
-                black --check --diff ${source} >> $out
-              '';
+            pre-commit-hooks.lib.${system}.run {
+              src = lib.fileset.toSource {
+                root = ./.;
+                fileset = fileSet;
+              };
+              hooks = {
+                nixfmt-rfc-style = {
+                  enable = true;
+                };
+                statix.enable = true;
+                flake-checker = {
+                  enable = true;
+                  # I want to keep nixpkgs pinned, update = things breaking.
+                  args = [
+                    "--check-outdated"
+                    "false"
+                  ];
+                };
+              };
+            };
+          # This check runs clippy and rusfmt on all defined files in `fileset`,
+          # the rust files we have in this project
+          rust-sanity-check =
+            let
+              # since the rust code of this project is spread across multiple files,
+              # its better to track them using file sets to avoid useless operations.
+              fileSet = lib.fileset.unions [
+                ./Cargo.toml
+                ./Cargo.lock
+                ./rust-toolchain.toml
+                ./.rustfmt.toml
+                ./crates
+                ./metrics
+                ./florestad
+                ./fuzz
+              ];
+              # Nightly cargo
+              cargo = rust-bin.selectLatestNightlyWith (toolchain: toolchain.default);
+            in
+            pre-commit-hooks.lib.${system}.run {
+              src = lib.fileset.toSource {
+                root = ./.;
+                fileset = fileSet;
+              };
+              settings = {
+                rust = {
+                  check.cargoDeps = pkgs.rustPlatform.importCargoLock { lockFile = ./Cargo.lock; };
+                  cargoManifestPath = "./Cargo.toml";
+                };
+              };
+              hooks = {
+                clippy = {
+                  packageOverrides = {
+                    inherit cargo;
+                    clippy = cargo;
+                  };
+                  enable = true;
+                  settings.denyWarnings = true;
+                  settings.extraArgs = "--no-deps";
+                };
+                rustfmt = {
+                  packageOverrides = {
+                    inherit cargo;
+                  };
+                  enable = true;
+                };
+              };
+            };
+          # This check runs black on check mode on all defined files in `fileset`,
+          # the python files we have in this project
+          python-sanity-check =
+            let
+              fileSet = lib.fileset.unions [
+                ./pyproject.toml
+                ./uv.lock
+                ./tests
+              ];
+            in
+            pre-commit-hooks.lib.${system}.run {
+              src = lib.fileset.toSource {
+                root = ./.;
+                fileset = fileSet;
+              };
+              hooks = {
+                black = {
+                  enable = true;
+                  settings.flags = "--check --verbose ./tests";
+                };
+              };
+            };
         };
-
         packages =
           let
-            utreexodSrc = fetchFromGitHub {
-              owner = "utreexo";
-              repo = "utreexod";
-              rev = "v0.4.1";
-              sha256 = "sha256-oC+OqRuOp14qW2wrgmf4gss4g1DoaU4rXorlUDsAdRA=";
+            src = lib.fileset.toSource {
+              root = ./.;
+              fileset = lib.fileset.unions [
+                ./Cargo.toml
+                ./Cargo.lock
+                ./rust-toolchain.toml
+                ./.rustfmt.toml
+                ./crates
+                ./metrics
+                ./florestad
+                ./fuzz
+              ];
             };
-            florestaSrc = ./.;
           in
-          rec {
-            florestad = import ./contrib/nix/build_floresta.nix { inherit pkgs florestaSrc; };
+          {
+            florestad =
+              let
+                packageName = "florestad";
+              in
+              import ./contrib/nix/build_floresta.nix { inherit packageName pkgs src; };
+            floresta-cli =
+              let
+                packageName = "floresta-cli";
+              in
+              import ./contrib/nix/build_floresta.nix { inherit packageName pkgs src; };
 
-            utreexod = import ./contrib/nix/build_utreexod.nix { inherit pkgs utreexodSrc; };
+            libfloresta =
+              let
+                packageName = "libfloresta";
+              in
+              import ./contrib/nix/build_floresta.nix { inherit packageName pkgs src; };
 
-            default = florestad;
+            default =
+              let
+                packageName = "all";
+              in
+              import ./contrib/nix/build_floresta.nix { inherit packageName pkgs src; };
+
           };
-
-        flake.overlays.default = (
-          final: prev: {
-            floresta-overlay = self.packages.${final.system}.default;
-          }
-        );
-
         devShells =
           let
-            # This is the dev tools used while developing in Floresta. see _florestaRust above.
-            devTools = with pkgs; [
+            # This is the dev tools used while developing in Floresta.
+            basicDevTools = with pkgs; [
               just
               rustup
+              git
+              rust-bin.stable.latest.default
+              (rust-bin.selectLatestNightlyWith (toolchain: toolchain.default))
+            ];
+            testBinaries = [
+              self.packages.${system}.florestad
+              utreexod-flake.packages.${system}.utreexod
             ];
           in
           {
             default = mkShell {
               #TO-DO: Use the standar way to include things inside the shell.
-              nativeBuildInputs = devTools;
+              nativeBuildInputs = basicDevTools;
 
               shellHook = "\n";
             };
             func-tests-env =
               let
-                prepareHook = ''
-                  # Modified version of the prepare.sh script from the floresta project.
-                  # This script is used to prepare the environment for the functional tests using nix to provide packages
-                  # without messing with the existing logic of how tests work in the floresta project.
-
-                  HEAD_COMMIT_HASH=$(git rev-parse HEAD)
-
-                  export FLORESTA_TEMP_DIR="/tmp/floresta-temp-dir.$HEAD_COMMIT_HASH"
-
-                  mkdir -p $FLORESTA_TEMP_DIR/binaries
-
-                  ln -s ${self.packages.${system}.florestad}/bin/florestad $FLORESTA_TEMP_DIR/binaries/florestad
-
-                  ln -s ${self.packages.${system}.utreexod}/bin/utreexod $FLORESTA_TEMP_DIR/binaries/utreexod
-
-                  alias run_test="uv run tests/run_tests.py"
-                  echo "run_test alias is set"
-
-                  echo "Floresta func-test-env Nix-Shell"
-                '';
-                testBinaries = [
-                  self.packages.${system}.florestad
-                  self.packages.${system}.utreexod
-                ];
+                prepareHook = utils.prepareBinariesScript {
+                  binariesToLink = testBinaries;
+                  gitRev = self.rev or self.dirtyRev;
+                };
                 pythonDevTools = with pkgs; [
                   uv
+                  python312
                   # If needed, one can add more tools to be used with python. Uv deal with dependencies declared in pyproject.toml
                 ];
               in
               mkShell {
-                packages = devTools ++ pythonDevTools;
+                packages = basicDevTools ++ pythonDevTools;
 
                 inputsFrom = testBinaries;
 
-                shellHook = prepareHook;
+                shellHook =
+                  prepareHook
+                  + ''
+                    alias run_test="uv run tests/run_tests.py"
+                    echo "run_test alias is set"
+                  '';
               };
           };
       }
