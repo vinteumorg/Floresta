@@ -62,7 +62,7 @@ class FlorestaTestMetaClass(type):
     adheres to a standard whereby the subclass override `set_test_params` and
     `run_test but DOES NOT override either `__init__` or `main`.
 
-    If any of those standards are violated, a ``TypeError`` is raised.
+    If any of those standards are violated, a `TypeError` is raised.
     """
 
     def __new__(mcs, clsname, bases, dct):
@@ -94,28 +94,47 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
     - implement set_test_params();
     - implement run_test();
 
-    The `set_test_params` method is called before the test starts
-    and aims to configure nodes, florestad params, what should be
-    considered as expected result, and what you think should be defined.
-    It is a good practice to set the number of nodes and their
-    configuration in this method with `self.add_node_settings`.
 
-    The `run_test` method is the test itself, where a (or more) node(s)
-    are started, and the test is executed. This is where you start a node
-    with `run_node`. It will wait for it to be ready, but if you want
-    you could verify yourself with node.rpc.wait_for_connections(opened=True)
-    or node.rpc.wait_for_connections(opened=False). It is also where you should
-    do the assertions (`self.assertIsNone`, `self.assertIsSome`, `self.assertEqual`,
-    `self.assertIn`, `self.assertMatch`, `self.assertTrue`, `self.assertRaises`)
-    as well stop nodes when done (`self.stop_node` for stop one node
-    or `self.stop` to stop all nodes).
+    The `set_test_params` method is called before the test starts
+    and aims to configure the node variant, its daemon parameters
+    or whatever you think should be defined. It is a good practice
+    to set the number of nodes and their configuration in this method
+    with `self.add_node`.
+
+    The `run_test` method is the test itself, where one (or more) node(s)
+    are started with the `self.run_node` method. This method will return
+    a index integer for a `Node` object stored in a `self.nodes` property,
+    each node containing the initialized `daemon` process, a `rpc` and
+    `rpc_config` objects. The `rpc` object can be a `FlorestaRPC` or
+    `UtreexoRPC` object, depending on the node variant defined.
+
+    When a node start, it will wait for ALL node's socket ports to be opened.
+    Inversely, the method `self.stop_node` will wait for ALL node's ports to
+    be closed (you could also use `self.stop` to stop all nodes). Internally,
+    it uses `node.rpc.wait_for_connections(opened=True)` to wait for all ports
+    to be opened, or `node.rpc.wait_for_connections(opened=False)` to wait for
+    all ports to be closed. You could use them if you want more control.
+
+    Also, the `self.run_test` method is where you should call for assertions
+    like `self.assertIsNone`, `self.assertIsSome`, `self.assertEqual`,
+    `self.assertIn`, `self.assertMatch`, `self.assertTrue` and
+    `self.assertRaises`. If the assertion passes, the test will continue.
+    If it fails, the test will stop all nodes and raise an `AssertionError`.
+
+    The `self.assertRaises` method is a special case. It should be used in a
+    context manager, i.e., the `with self.assertRaises(<SomeException>)`
+    clause. The context will expect for some exception to be raised and,
+    if it raises, the script will continue. If it does not raise, it will stop
+    all nodes and raise an `AssertionError`.
 
     In both methods, you can use `self.log` to log messages.
 
     At the end of file, you should execute `MyTest().main()` method.
 
-    For more details, see the tests/example/example-test.py and/or
-    tests/test_framework/test_framework.py.
+    For more details, see the tests/example/*-test.py file to see how
+    the Floresta team thought the test framework should be used and
+    test/test_framework/{crypto,daemon,rpc,electrum}/*.py to see
+    how the test framework was structured.
     """
 
     class _AssertRaisesContext:
@@ -303,7 +322,8 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
 
     def get_node(self, index: int) -> Node:
         """
-        Given an index, return a node configuration
+        Given an index, return a node configuration.
+        If the node not exists, raise a IndexError exception.
         """
         if index < 0 or index >= len(self._nodes):
             raise IndexError(
@@ -333,14 +353,13 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
     def stop_node(self, index: int):
         """
         Stop a node given an index on self._tests.
-        If the node not exists raise a IndexError.
         """
         node = self.get_node(index)
         return node.stop()
 
     def stop(self):
         """
-        Stop all nodes
+        Stop all nodes.
         """
         for i in range(len(self._nodes)):
             self.stop_node(i)
@@ -350,7 +369,7 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
         """
         Assert if the condition is True, otherwise
         all nodes will be stopped and an AssertionError will
-        be raised
+        be raised.
         """
         if not condition:
             self.stop()
@@ -361,7 +380,7 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
         """
         Assert if the condition is None, otherwise
         all nodes will be stopped and an AssertionError will
-        be raised
+        be raised.
         """
         if thing is not None:
             self.stop()
@@ -372,7 +391,7 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
         """
         Assert if the condition is not None, otherwise
         all nodes will be stopped and an AssertionError will
-        be raised
+        be raised.
         """
         if thing is None:
             self.stop()
@@ -383,7 +402,7 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
         """
         Assert if the condition is True, otherwise
         all nodes will be stopped and an AssertionError will
-        be raised
+        be raised.
         """
 
         if not condition == expected:
@@ -395,7 +414,7 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
         """
         Assert if the element is in listany , otherwise
         all nodes will be stopped and an AssertionError will
-        be raised
+        be raised.
         """
 
         if element not in listany:
