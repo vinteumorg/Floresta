@@ -54,6 +54,10 @@ test-functional-run:
 test-functional-uv-run:
     uv run tests/run_tests.py
 
+# Run the benchmarks
+bench:
+    cargo bench --features test-utils
+
 # Generate documentation for all crates
 doc:
     @just test-doc

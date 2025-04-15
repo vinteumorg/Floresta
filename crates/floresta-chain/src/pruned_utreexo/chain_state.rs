@@ -1370,7 +1370,6 @@ mod test {
     use bitcoin::Block;
     use bitcoin::BlockHash;
     use bitcoin::OutPoint;
-    use bitcoin::TxOut;
     use floresta_common::bhash;
     use rand::Rng;
     use rustreexo::accumulator::proof::Proof;
@@ -1403,9 +1402,9 @@ mod test {
         let block_bytes = zstd::decode_all(block_file).unwrap();
         let block: Block = deserialize(&block_bytes).unwrap();
 
-        // Get txos spent in the block
+        // Get utxos spent in the block
         let stxos_bytes = zstd::decode_all(stxos_file).unwrap();
-        let mut stxos: Vec<TxOut> =
+        let mut stxos: Vec<UtxoData> =
             serde_json::from_slice(&stxos_bytes).expect("Failed to deserialize JSON");
 
         let inputs = block
@@ -1413,18 +1412,7 @@ mod test {
             .iter()
             .skip(1) // Skip the coinbase transaction
             .flat_map(|tx| &tx.input)
-            .map(|txin| {
-                (
-                    txin.previous_output,
-                    UtxoData {
-                        txout: stxos.remove(0),
-                        is_coinbase: false,
-                        // Using 0 for simplicity, we won't test the transaction time locks
-                        creation_height: 0,
-                        creation_time: 0,
-                    },
-                )
-            })
+            .map(|txin| (txin.previous_output, stxos.remove(0)))
             .collect();
 
         assert!(stxos.is_empty(), "Moved all stxos to the inputs map");
@@ -1436,7 +1424,7 @@ mod test {
     #[cfg_attr(debug_assertions, ignore = "this test is very slow in debug mode")]
     fn test_validate_many_inputs_block() {
         let block_file = File::open("./testdata/block_367891/raw.zst").unwrap();
-        let stxos_file = File::open("./testdata/block_367891/spent_txos.zst").unwrap();
+        let stxos_file = File::open("./testdata/block_367891/spent_utxos.zst").unwrap();
         let (block, inputs) = decode_block_and_inputs(block_file, stxos_file);
 
         assert_eq!(
@@ -1454,7 +1442,7 @@ mod test {
     #[test]
     fn test_validate_full_block() {
         let block_file = File::open("./testdata/block_866342/raw.zst").unwrap();
-        let stxos_file = File::open("./testdata/block_866342/spent_txos.zst").unwrap();
+        let stxos_file = File::open("./testdata/block_866342/spent_utxos.zst").unwrap();
         let (block, inputs) = decode_block_and_inputs(block_file, stxos_file);
 
         assert_eq!(

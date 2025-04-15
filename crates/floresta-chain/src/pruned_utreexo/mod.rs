@@ -27,7 +27,6 @@ use bitcoin::Block;
 use bitcoin::BlockHash;
 use bitcoin::OutPoint;
 use bitcoin::Transaction;
-use bitcoin::TxOut;
 use rustreexo::accumulator::node_hash::BitcoinNodeHash;
 use rustreexo::accumulator::proof::Proof;
 use rustreexo::accumulator::stump::Stump;
@@ -377,9 +376,13 @@ impl<T: BlockchainInterface> BlockchainInterface for Arc<T> {
 
 /// This module defines an [UtxoData] struct, helpful for transaction validation
 pub mod utxo_data {
-    use super::*;
+    use bitcoin::TxOut;
 
     #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    #[cfg_attr(
+        any(test, feature = "test-utils"),
+        derive(serde::Serialize, serde::Deserialize)
+    )]
     /// Represents an unspent transaction output (UTXO) with additional metadata for validation.
     pub struct UtxoData {
         /// The unspent transaction output.
