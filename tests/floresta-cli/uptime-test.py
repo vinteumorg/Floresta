@@ -8,8 +8,8 @@ import os
 import tempfile
 import time
 
-from test_framework.floresta_rpc import REGTEST_RPC_SERVER
-from test_framework.test_framework import FlorestaTestFramework
+from test_framework import FlorestaTestFramework
+from test_framework.rpc.floresta import REGTEST_RPC_SERVER
 
 
 class UptimeTest(FlorestaTestFramework):
@@ -36,8 +36,7 @@ class UptimeTest(FlorestaTestFramework):
         Setup the two node florestad process with different data-dirs, electrum-addresses
         and rpc-addresses in the same regtest network
         """
-        UptimeTest.nodes[0] = self.add_node_settings(
-            chain="regtest",
+        UptimeTest.nodes[0] = self.add_node(
             extra_args=[
                 f"--data-dir={UptimeTest.data_dir}",
             ],
@@ -50,7 +49,6 @@ class UptimeTest(FlorestaTestFramework):
         """
         # Start node
         self.run_node(UptimeTest.nodes[0])
-        self.wait_for_rpc_connection(UptimeTest.nodes[0])
 
         # wait for some seconds before get the uptime
         # and get the current time
@@ -59,7 +57,7 @@ class UptimeTest(FlorestaTestFramework):
 
         # Test assertions
         node = self.get_node(UptimeTest.nodes[0])
-        uptime = node.uptime()
+        uptime = node.rpc.uptime()
 
         # calculate the elapsed time
         after = time.time()
@@ -67,7 +65,7 @@ class UptimeTest(FlorestaTestFramework):
 
         self.assertEqual(uptime, elapsed)
 
-        # Stop node
+        # stop the node
         self.stop_node(UptimeTest.nodes[0])
 
 

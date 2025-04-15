@@ -5,12 +5,11 @@ This functional test cli utility to interact with a Floresta node with `getmemor
 """
 
 import os
-import re
 import sys
 import tempfile
 
-from test_framework.floresta_rpc import REGTEST_RPC_SERVER
-from test_framework.test_framework import FlorestaTestFramework
+from test_framework import FlorestaTestFramework
+from test_framework.rpc.floresta import REGTEST_RPC_SERVER
 
 
 class GetMemoryInfoTest(FlorestaTestFramework):
@@ -36,8 +35,7 @@ class GetMemoryInfoTest(FlorestaTestFramework):
         Setup the two node florestad process with different data-dirs, electrum-addresses
         and rpc-addresses in the same regtest network
         """
-        GetMemoryInfoTest.nodes[0] = self.add_node_settings(
-            chain="regtest",
+        GetMemoryInfoTest.nodes[0] = self.add_node(
             extra_args=[
                 f"--data-dir={GetMemoryInfoTest.data_dir}",
             ],
@@ -50,7 +48,7 @@ class GetMemoryInfoTest(FlorestaTestFramework):
         It should return a dictionary with key(str)/value(int).
         """
         if sys.platform == "linux":
-            result = node.get_memoryinfo("stats")
+            result = node.rpc.get_memoryinfo("stats")
             self.assertIn("locked", result)
             self.assertIn("chunks_free", result["locked"])
             self.assertIn("chunks_used", result["locked"])
@@ -89,7 +87,7 @@ class GetMemoryInfoTest(FlorestaTestFramework):
                 r"</heap>"
                 r"</malloc>"
             )
-            result = node.get_memoryinfo("mallocinfo")
+            result = node.rpc.get_memoryinfo("mallocinfo")
             self.assertMatch(result, pattern)
         else:
             self.log(
@@ -102,14 +100,13 @@ class GetMemoryInfoTest(FlorestaTestFramework):
         """
         # Start node
         self.run_node(GetMemoryInfoTest.nodes[0])
-        self.wait_for_rpc_connection(GetMemoryInfoTest.nodes[0])
 
         # Test assertions
         node = self.get_node(GetMemoryInfoTest.nodes[0])
         self.test_mode_stats_ibd(node)
         self.test_mode_mallocinfo_ibd(node)
 
-        # Stop node
+        # Stop the node
         self.stop_node(GetMemoryInfoTest.nodes[0])
 
 
