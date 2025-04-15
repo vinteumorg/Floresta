@@ -49,7 +49,7 @@ jobs:
 
       # Run benchmarks
       - name: Run cargo bench
-        run: cargo bench
+        run: cargo bench --features test-utils
 
       # Save cache only if the previous steps succeeded and there was not an exact cache key match
       # This happens everytime we modify any `cargo.lock` or `cargo.toml`, or each two weeks (caching recent changes)
