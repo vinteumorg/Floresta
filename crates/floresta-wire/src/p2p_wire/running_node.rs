@@ -652,25 +652,6 @@ where
         Ok(())
     }
 
-    async fn handle_new_block(&mut self, block: BlockHash, peer: u32) -> Result<(), WireError> {
-        if self.inflight.contains_key(&InflightRequests::Headers) {
-            return Ok(());
-        }
-
-        if self.chain.get_block_header(&block).is_ok() {
-            return Ok(());
-        }
-
-        let locator = self.chain.get_block_locator().unwrap();
-        self.send_to_peer(peer, NodeRequest::GetHeaders(locator))
-            .await?;
-
-        self.inflight
-            .insert(InflightRequests::Headers, (peer, Instant::now()));
-
-        Ok(())
-    }
-
     /// This function is called every time we get a Block message from a peer.
     /// This block may be a rescan block, a user request or a new block that we
     /// need to process.
@@ -842,6 +823,25 @@ where
         Ok(())
     }
 
+    async fn handle_new_block(&mut self, block: BlockHash, peer: u32) -> Result<(), WireError> {
+        if self.inflight.contains_key(&InflightRequests::Headers) {
+            return Ok(());
+        }
+
+        if self.chain.get_block_header(&block).is_ok() {
+            return Ok(());
+        }
+
+        let locator = self.chain.get_block_locator().unwrap();
+        self.send_to_peer(peer, NodeRequest::GetHeaders(locator))
+            .await?;
+
+        self.inflight
+            .insert(InflightRequests::Headers, (peer, Instant::now()));
+
+        Ok(())
+    }
+
     pub(crate) async fn handle_notification(
         &mut self,
         notification: NodeNotification,
@@ -865,6 +865,7 @@ where
                                 if peers.contains(&peer) {
                                     return;
                                 }
+
                                 // if it's been less than 5 seconds since we got the first inv message
                                 // for this block, we should mark as this peer sent us in a timely manner
                                 if when.elapsed() < Duration::from_secs(5) {
@@ -873,7 +874,25 @@ where
                             })
                             .or_insert_with(|| (Instant::now(), Vec::new()));
 
-                        self.handle_new_block(block, peer).await?;
+                        if self.chain.get_block_header(&block).is_ok() {
+                            return Ok(());
+                        }
+
+                        if self.inflight.contains_key(&InflightRequests::Blocks(block)) {
+                            return Ok(());
+                        }
+
+                        let p = self
+                            .peers
+                            .get(&peer)
+                            .cloned()
+                            .ok_or(WireError::PeerNotFound)?;
+
+                        // if this is a utreexo peer, we should ask for the block if we don't
+                        // have it
+                        if p.services.has(UTREEXO.into()) {
+                            self.handle_new_block(block, peer).await?;
+                        }
                     }
 
                     PeerMessages::Block(block) => {
@@ -924,6 +943,17 @@ where
 
                         for header in headers.iter() {
                             self.chain.accept_header(*header)?;
+
+                            self.send_to_peer(
+                                peer,
+                                NodeRequest::GetBlock((vec![header.block_hash()], true)),
+                            )
+                            .await?;
+
+                            self.inflight.insert(
+                                InflightRequests::Blocks(header.block_hash()),
+                                (peer, Instant::now()),
+                            );
                         }
 
                         // update the peer info

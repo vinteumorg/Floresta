@@ -198,16 +198,14 @@ where
             .collect::<Vec<_>>();
 
         for (request, peer) in to_remove {
+            self.inflight.remove(&request);
             match request {
                 InflightRequests::Blocks(block) => {
-                    self.inflight.remove(&InflightRequests::Blocks(block));
-
                     try_and_log!(self.increase_banscore(peer, 1).await);
                     try_and_log!(self.request_blocks(vec![block]).await);
                 }
 
-                InflightRequests::Connect(addr) => {
-                    self.inflight.remove(&InflightRequests::Connect(addr));
+                InflightRequests::Connect(_) => {
                     if let Some(peer) = self.peers.remove(&peer) {
                         let _ = peer.channel.send(NodeRequest::Shutdown);
                     }
@@ -215,14 +213,6 @@ where
 
                 _ => {}
             }
-            self.inflight.remove(&request);
-            try_and_log!(self.increase_banscore(peer, 1).await);
-
-            let InflightRequests::Blocks(block) = request else {
-                continue;
-            };
-
-            try_and_log!(self.request_blocks(vec![block]).await);
         }
     }
 
