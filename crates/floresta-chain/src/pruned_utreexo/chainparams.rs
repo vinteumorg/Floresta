@@ -190,11 +190,7 @@ impl ChainParams {
 /// When we call verify_script we need to tell what to validate (taproot, segwit, CSV, P2SH...).
 /// Although those features were added later in the protocol, their exact template would rarely appear in a transaction.
 /// There's almost no transactions in the chain that "looks like segwit but are not segwit".
-/// We pretend segwit was enabled since genesis, and only skip this for blocks that have such transactions.
-///
-/// Some blocks in the mainnet and testnet have different rules than it should
-/// be, so we need to keep a list of exceptions and treat them differently. These block's hashes are inside this hash map.
-/// This function returns a HashMap of block hashes and their corresponding verification flags.
+/// We pretend segwit was enabled since genesis, and only skip this for blocks that have such transactions using hardcoded values.
 fn get_exceptions() -> HashMap<BlockHash, c_uint> {
     use bitcoinconsensus::VERIFY_NONE;
     use bitcoinconsensus::VERIFY_P2SH;
