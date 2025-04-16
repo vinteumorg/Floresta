@@ -28,13 +28,13 @@ pub enum WireError {
     NoPeersAvailable,
     #[error("Our peer is misbehaving")]
     PeerMisbehaving,
-    #[error("Failed to init peers, anchors.json does not exist yet.")]
+    #[error("Failed to init Utreexo peers: anchors.json does not exist yet")]
     AnchorFileNotFound,
     #[error("Generic io error: {0}")]
     Io(std::io::Error),
     #[error("{0}")]
     Serde(serde_json::Error),
-    #[error("We don't have any utreexo peers")]
+    #[error("Failed to save Utreexo peers: no peers to save to anchors.json")]
     NoUtreexoPeersAvailable,
     #[error("We couldn't find a peer to send the request")]
     NoPeerToSendRequest,
