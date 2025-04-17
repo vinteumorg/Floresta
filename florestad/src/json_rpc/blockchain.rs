@@ -6,8 +6,6 @@ use bitcoin::BlockHash;
 use bitcoin::OutPoint;
 use bitcoin::ScriptBuf;
 use bitcoin::Txid;
-use floresta_chain::pruned_utreexo::BlockchainInterface;
-use floresta_chain::pruned_utreexo::UpdatableChainstate;
 use serde_json::json;
 use serde_json::Value;
 
@@ -15,9 +13,10 @@ use super::res::Error as RpcError;
 use super::res::Error;
 use super::res::GetBlockResVerbose;
 use super::res::GetBlockchainInfoRes;
+use super::server::RpcChain;
 use super::server::RpcImpl;
 
-impl RpcImpl {
+impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
     async fn get_block_inner(&self, hash: BlockHash) -> Result<Block, RpcError> {
         let is_genesis = self.chain.get_block_hash(0).unwrap().eq(&hash);
 
@@ -34,7 +33,7 @@ impl RpcImpl {
 }
 
 // blockchain rpcs
-impl RpcImpl {
+impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
     // dumputxoutset
 
     // getbestblockhash
