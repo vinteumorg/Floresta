@@ -17,6 +17,7 @@ use floresta_common::impl_error_from;
 use crate::prelude::*;
 pub trait DatabaseError: Debug + Send + Sync + 'static {}
 #[derive(Debug)]
+/// Represents errors encountered during blockchain validation.
 pub enum BlockchainError {
     BlockNotPresent,
     Parsing(String),
@@ -31,13 +32,16 @@ pub enum BlockchainError {
     ScriptValidationFailed(script::Error),
     Io(ioError),
 }
+
 #[derive(Clone, Debug, PartialEq)]
+/// Represents errors encountered during transaction validation.
 pub struct TransactionError {
     pub txid: Txid,
     pub error: BlockValidationErrors,
 }
 
 #[derive(Clone, Debug, PartialEq)]
+/// Represents errors encountered during block validation.
 pub enum BlockValidationErrors {
     InvalidCoinbase(String),
     UtxoNotFound(OutPoint),
