@@ -4,8 +4,8 @@ floresta_cli_getblockheader.py
 This functional test cli utility to interact with a Floresta node with `getblockheader`
 """
 
-from test_framework.floresta_rpc import REGTEST_RPC_SERVER
-from test_framework.test_framework import FlorestaTestFramework
+from test_framework import FlorestaTestFramework
+from test_framework.rpc.floresta import REGTEST_RPC_SERVER
 
 
 class GetBlockheaderHeightZeroTest(FlorestaTestFramework):
@@ -39,8 +39,8 @@ class GetBlockheaderHeightZeroTest(FlorestaTestFramework):
         """
         Setup a single node
         """
-        GetBlockheaderHeightZeroTest.nodes[0] = self.add_node_settings(
-            chain="regtest", extra_args=[], rpcserver=REGTEST_RPC_SERVER
+        GetBlockheaderHeightZeroTest.nodes[0] = self.add_node(
+            extra_args=[], rpcserver=REGTEST_RPC_SERVER
         )
 
     def run_test(self):
@@ -49,11 +49,10 @@ class GetBlockheaderHeightZeroTest(FlorestaTestFramework):
         """
         # Start node
         self.run_node(GetBlockheaderHeightZeroTest.nodes[0])
-        self.wait_for_rpc_connection(GetBlockheaderHeightZeroTest.nodes[0])
 
         # Test assertions
         node = self.get_node(GetBlockheaderHeightZeroTest.nodes[0])
-        response = node.get_blockheader(GetBlockheaderHeightZeroTest.blockhash)
+        response = node.rpc.get_blockheader(GetBlockheaderHeightZeroTest.blockhash)
         self.assertEqual(response["version"], GetBlockheaderHeightZeroTest.version)
         self.assertEqual(
             response["prev_blockhash"], GetBlockheaderHeightZeroTest.prev_blockhash
@@ -65,7 +64,7 @@ class GetBlockheaderHeightZeroTest(FlorestaTestFramework):
         self.assertEqual(response["bits"], GetBlockheaderHeightZeroTest.bits)
         self.assertEqual(response["nonce"], GetBlockheaderHeightZeroTest.nonce)
 
-        # Shutdown node
+        # stop the node
         self.stop_node(GetBlockheaderHeightZeroTest.nodes[0])
 
 

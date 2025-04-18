@@ -4,8 +4,8 @@ floresta_cli_getblock.py
 This functional test cli utility to interact with a Floresta node with `getblock`
 """
 
-from test_framework.floresta_rpc import REGTEST_RPC_SERVER
-from test_framework.test_framework import FlorestaTestFramework
+from test_framework import FlorestaTestFramework
+from test_framework.rpc.floresta import REGTEST_RPC_SERVER
 
 
 class GetBlockTest(FlorestaTestFramework):
@@ -42,8 +42,8 @@ class GetBlockTest(FlorestaTestFramework):
         """
         Setup a single node
         """
-        GetBlockTest.nodes[0] = self.add_node_settings(
-            chain="regtest", extra_args=[], rpcserver=REGTEST_RPC_SERVER
+        GetBlockTest.nodes[0] = self.add_node(
+            extra_args=[], rpcserver=REGTEST_RPC_SERVER
         )
 
     def run_test(self):
@@ -51,17 +51,16 @@ class GetBlockTest(FlorestaTestFramework):
         Run JSONRPC server and get some data about first block
         """
         self.run_node(GetBlockTest.nodes[0])
-        self.wait_for_rpc_connection(GetBlockTest.nodes[0])
 
         # Test assertions
         node = self.get_node(GetBlockTest.nodes[0])
 
         # Test verbose level 0
-        response = node.get_block(GetBlockTest.block, 0)
-        assert response == GetBlockTest.serialized_data
+        response = node.rpc.get_block(GetBlockTest.block, 0)
+        self.assertEqual(response, GetBlockTest.serialized_data)
 
         # Test verbose level 1
-        response = node.get_block(GetBlockTest.block, 1)
+        response = node.rpc.get_block(GetBlockTest.block, 1)
         self.assertEqual(response["bits"], GetBlockTest.bits)
         self.assertEqual(response["chainwork"], GetBlockTest.chainwork)
         self.assertEqual(response["confirmations"], GetBlockTest.confirmations)
@@ -82,7 +81,7 @@ class GetBlockTest(FlorestaTestFramework):
         self.assertEqual(response["weight"], GetBlockTest.weight)
 
         # Shutdown node
-        self.stop_node(GetBlockTest.nodes[0])
+        node.stop()
 
 
 if __name__ == "__main__":
