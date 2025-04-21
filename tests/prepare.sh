@@ -61,6 +61,18 @@ build_utreexod() {
 	git clone https://github.com/utreexo/utreexod
 
 	cd utreexod
+	
+	# check if UTREEXO_REVISION is set, if so checkout to it
+	if [ -n "$UTREEXO_REVISION" ]; then
+		# Check if the revision exists as a tag only
+		if git --no-pager tag -l | grep "$UTREEXO_REVISION"; then
+			git checkout "tags/v$UTREEXO_REVISION"
+		else
+			echo "utreexod 'v$UTREEXO_REVISION' is not a valid tag in this repository."
+			exit 1
+		fi
+	fi
+
 	go build -o $FLORESTA_TEMP_DIR/binaries/. .
 	rm -rf $FLORESTA_TEMP_DIR/binaries/build
 }
@@ -96,3 +108,4 @@ fi
 
 echo "All done!"
 exit 0
+

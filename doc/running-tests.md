@@ -47,6 +47,13 @@ Using these scripts, you have a few options for running the tests and verifying 
 
 3) With installed binaries: If you've already installed the binaries system-wide, you can simply run the tests directly.
 
+By default, the tool will build `utreexod` on its latest commit on `main` branch. If you want to build a specific commit, you can set the `UTREEXO_REVISION` environment variable before running the script. It may be a tag or a commit hash. For example:
+
+```bash
+export UTREEXO_REVISION=0.1.0
+./tests/prepare.sh
+```
+
 ### Running Functional Tests
 
 Additional functional tests are available (minimum python version: 3.12).
