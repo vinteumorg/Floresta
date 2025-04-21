@@ -545,23 +545,20 @@ impl AddressMan {
                 .iter()
                 .filter(|&x| {
                     if let Some(address) = self.addresses.get(x) {
-                        // skip banned and peers that just failed
-                        if address.state == AddressState::NeverTried
-                            || matches!(address.state, AddressState::Tried(_))
-                        {
-                            return true;
-                        }
-
                         if let AddressState::Failed(when) = address.state {
                             let now = SystemTime::now()
                                 .duration_since(UNIX_EPOCH)
                                 .unwrap()
                                 .as_secs();
 
-                            if when + RETRY_TIME < now {
+                            if (when + RETRY_TIME) < now {
                                 return true;
                             }
                         }
+
+                        return matches!(address.state, AddressState::Connected)
+                            || matches!(address.state, AddressState::Tried(_))
+                            || matches!(address.state, AddressState::NeverTried);
                     }
 
                     false
