@@ -183,7 +183,6 @@ pub struct NodeCommon<Chain: BlockchainInterface + UpdatableChainstate> {
     pub(crate) inflight: HashMap<InflightRequests, (u32, Instant)>,
     pub(crate) inflight_user_requests:
         HashMap<UserRequest, (u32, Instant, oneshot::Sender<NodeResponse>)>,
-    pub(crate) last_headers_request: Instant,
     pub(crate) last_tip_update: Instant,
     pub(crate) last_connection: Instant,
     pub(crate) last_peer_db_dump: Instant,
@@ -269,7 +268,6 @@ where
                 node_rx,
                 node_tx,
                 address_man,
-                last_headers_request: Instant::now(),
                 last_tip_update: Instant::now(),
                 last_connection: Instant::now(),
                 last_peer_db_dump: Instant::now(),
@@ -287,6 +285,52 @@ where
             },
             context: T::default(),
         })
+    }
+
+    /// Checks whether some of our inflight requests have timed out.
+    ///
+    /// This function will check if any of our inflight requests have timed out, and if so,
+    /// it will remove them from the inflight list and increase the banscore of the peer that
+    /// sent the request. It will also resend the request to another peer.
+    pub(crate) async fn check_for_timeout(&mut self) -> Result<(), WireError> {
+        let now = Instant::now();
+
+        let timed_out_fn = |req: &InflightRequests, time: &Instant| match req {
+            InflightRequests::Connect(_)
+                if now.duration_since(*time).as_secs() > T::CONNECTION_TIMEOUT =>
+            {
+                Some(req.clone())
+            }
+
+            _ if now.duration_since(*time).as_secs() > T::REQUEST_TIMEOUT => Some(req.clone()),
+
+            _ => None,
+        };
+
+        let timed_out = self
+            .inflight
+            .iter()
+            .filter_map(|(req, (_, time))| timed_out_fn(req, time))
+            .collect::<Vec<_>>();
+
+        for req in timed_out {
+            let Some((peer, _)) = self.inflight.remove(&req) else {
+                continue;
+            };
+
+            if let InflightRequests::Connect(_) = req {
+                // ignore the output as it might fail due to the task being cancelled
+                let _ = self.send_to_peer(peer, NodeRequest::Shutdown).await;
+
+                continue;
+            }
+
+            debug!("Request timed out: {:?}", req);
+            self.increase_banscore(peer, 1).await?;
+            self.redo_inflight_request(req).await?;
+        }
+
+        Ok(())
     }
 
     /// Returns a handle to the node interface that we can use to request data from our
