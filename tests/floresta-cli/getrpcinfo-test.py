@@ -19,8 +19,8 @@ class GetRpcInfoTest(FlorestaTestFramework):
     nodes = [-1]
     data_dir = os.path.normpath(
         os.path.join(
-            tempfile.gettempdir(),
-            "floresta-func-tests",
+            FlorestaTestFramework.get_integration_test_dir(),
+            "data",
             "florestacli-getrpcinfo-test",
             "node-0",
         )

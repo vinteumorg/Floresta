@@ -18,9 +18,9 @@ set -e
 FLORESTA_PROJ_DIR=$(git rev-parse --show-toplevel)
 
 # This helps us to keep track of the actual version being tested without conflicting with any already installed binaries.
-HEAD_COMMIT_HASH=$(git rev-parse HEAD)
+GIT_DESCRIBE=$(git describe --tags --always)
 
-export FLORESTA_TEMP_DIR="/tmp/floresta-functional-tests.${HEAD_COMMIT_HASH}"
+export FLORESTA_TEMP_DIR="/tmp/floresta-func-tests.${GIT_DESCRIBE}"
 
 echo "Temporary Directory at $FLORESTA_TEMP_DIR"
 
@@ -53,20 +53,46 @@ fi
 # Dont use mktemp so we can have deterministic results for each version of floresta.
 mkdir -p $FLORESTA_TEMP_DIR/binaries
 
-# Download and build utreexod
-echo "Downloading and Building utreexod..."
-git clone https://github.com/utreexo/utreexod
+build_utreexod() {
+	# Download and build utreexod
+	mkdir -p $FLORESTA_TEMP_DIR/binaries/build
+	cd $FLORESTA_TEMP_DIR/binaries/build
+	echo "Downloading and Building utreexod..."
+	git clone https://github.com/utreexo/utreexod
 
-cd utreexod
-go build -o $FLORESTA_TEMP_DIR/binaries/. ./...
-cd ..
-# We dont check if floresta already exist because a floresta binary could be already be installed on PATH
-# causing collisions with the tests.
-echo "Building florestad..."
+	cd utreexod
+	go build -o $FLORESTA_TEMP_DIR/binaries/. .
+	rm -rf $FLORESTA_TEMP_DIR/binaries/build
+}
 
-cargo build --bin florestad  --release --target-dir $FLORESTA_TEMP_DIR/binaries/
+build_floresta() {
+	# We dont check if floresta already exist because a floresta binary could be already be installed on PATH
+	# causing collisions with the tests.
+	echo "Building florestad..."
 
-ln -s $FLORESTA_TEMP_DIR/binaries/release/florestad $FLORESTA_TEMP_DIR/binaries/.
+	cd $FLORESTA_PROJ_DIR
+	cargo build --bin florestad  --release --target-dir $FLORESTA_TEMP_DIR/binaries/
+
+	rm -rf $FLORESTA_TEMP_DIR/binaries/target/
+	ln -s $FLORESTA_TEMP_DIR/binaries/release/florestad $FLORESTA_TEMP_DIR/binaries/.
+}
+
+# Check if utreexod is already built or if --build is passed
+if [ ! -f $FLORESTA_TEMP_DIR/binaries/utreexod ] || [ "$1" == "--build" ]
+then
+	build_utreexod
+else
+	echo "Utreexod already built, skipping..."
+fi
+
+
+# Check if florestad is already built
+if [ ! -f $FLORESTA_TEMP_DIR/binaries/florestad ]
+then
+	build_floresta
+else
+	echo "Florestad already built, skipping..."
+fi
 
 echo "All done!"
 exit 0

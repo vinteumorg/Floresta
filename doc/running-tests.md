@@ -45,7 +45,7 @@ Using these scripts, you have a few options for running the tests and verifying 
 
 2) (Recommended): Use the helper scripts — [prepare.sh](https://github.com/vinteumorg/Floresta/blob/master/tests/prepare.sh) and [run.sh](https://github.com/vinteumorg/Floresta/blob/master/tests/run.sh) — to automatically build and run the tests.
 
-3) With installed binaries: If you’ve already installed the binaries system-wide, you can simply run the tests directly.
+3) With installed binaries: If you've already installed the binaries system-wide, you can simply run the tests directly.
 
 ### Running Functional Tests
 

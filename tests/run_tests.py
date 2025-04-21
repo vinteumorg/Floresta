@@ -7,7 +7,6 @@ can run it with `python` if you installed the packages properly, in a isolated o
 environment (althought we recommend the isolated environment).
 
 All tests will run as a spwaned subprocess and what happens will be logged to a temporary directory
-(we defined, in linux, /tmp/floresta-func-tests/<test_name>):
 
 ```bash
 # The default way to run all tests
@@ -32,10 +31,13 @@ import os
 import subprocess
 import time
 import argparse
-import tempfile
 
 
-BASE_DIR = os.path.normpath(os.path.join(tempfile.gettempdir(), "floresta-func-tests"))
+from test_framework.test_framework import FlorestaTestFramework
+
+BASE_DIR = os.path.normpath(
+    os.path.join(FlorestaTestFramework.get_integration_test_dir(), "logs")
+)
 INFO_EMOJI = "ℹ️"
 SUCCESS_EMOJI = "✅"
 FAILURE_EMOJI = "❌"

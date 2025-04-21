@@ -24,8 +24,8 @@ class UptimeTest(FlorestaTestFramework):
     # pylint: disable=duplicate-code
     data_dir = os.path.normpath(
         os.path.join(
-            tempfile.gettempdir(),
-            "floresta-func-tests",
+            FlorestaTestFramework.get_integration_test_dir(),
+            "data",
             "florestacli-uptime-test",
             "node-0",
         )

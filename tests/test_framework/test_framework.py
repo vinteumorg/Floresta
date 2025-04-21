@@ -191,9 +191,8 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
                 "FLORESTA_TEMP_DIR not set. "
                 + " Please set it to the path of the integration test directory."
             )
-        return os.path.normpath(
-            os.path.join(os.getenv("FLORESTA_TEMP_DIR"), "binaries")
-        )
+
+        return os.getenv("FLORESTA_TEMP_DIR")
 
     def create_ssl_keys(self) -> tuple[str, str]:
         """
@@ -206,7 +205,7 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
         # tempfile will be used to get the proper
         # temp dir for the OS
         ssl_rel_path = os.path.join(
-            FlorestaTestFramework.get_integration_test_dir(), "..", "..", "ssl"
+            FlorestaTestFramework.get_integration_test_dir(), "data", "ssl"
         )
         ssl_path = os.path.normpath(os.path.abspath(ssl_rel_path))
 
@@ -224,6 +223,15 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
 
         return (pk_path, cert_path)
 
+    def is_option_set(self, extra_args: list[str], option: str) -> bool:
+        """
+        Check if an option is set in extra_args
+        """
+        for arg in extra_args:
+            if arg.startswith(option):
+                return True
+        return False
+
     # Framework
     def add_node_settings(
         self, chain: str, extra_args: list[str], rpcserver: dict, ssl: bool = False
@@ -237,14 +245,8 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
         # PR #331 introduced a preparatory environment at
         # /tmp/floresta-integration-tests.$(git rev-parse HEAD).
         # So, check for it first before define the florestad path.
-        if os.getenv("FLORESTA_TEMP_DIR") is not None:
-            targetdir = FlorestaTestFramework.get_integration_test_dir()
-
-        else:
-            raise RuntimeError(
-                "FLORESTA_TEMP_DIR not set. "
-                + " Please set it to the path of the integration test directory."
-            )
+        tempdir = FlorestaTestFramework.get_integration_test_dir()
+        targetdir = os.path.normpath(os.path.join(tempdir, "binaries"))
 
         florestad = os.path.join(targetdir, "florestad")
 
@@ -270,6 +272,11 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
                     setting["config"].append(extra)
                 else:
                     raise ValueError(f"Invalid extra_arg '{extra}'")
+
+        # if data-dir isn't set, use the temp_dir one
+        if not self.is_option_set(extra_args, "--data-dir"):
+            testname = self.__class__.__name__
+            setting["config"].append(f"--data-dir={tempdir}/data/{testname}")
 
         # If ssl isnt enabled, add --no-ssl
         # if ssl is enabled, user can add:
