@@ -30,6 +30,7 @@ core2 = { version = "0.4.0", default-features = false }
 floresta-common = { path = "../floresta-common", default-features = false, features = ["std"] }
 bitcoinconsensus = { version = "0.106.0", optional = true, default-features = false }
 metrics = { path = "../../metrics", optional = true }
+serde = { version = "1.0", features = ["derive"], optional = true }
 
 [dev-dependencies]
 criterion = "0.5.1"
@@ -43,7 +44,9 @@ hex = "0.4.3"
 default = []
 bitcoinconsensus = ["bitcoin/bitcoinconsensus", "dep:bitcoinconsensus"]
 metrics = ["dep:metrics"]
+test-utils = ["dep:serde"]
 
 [[bench]]
 name = "chain_state_bench"
 harness = false
+required-features = ["test-utils"]
