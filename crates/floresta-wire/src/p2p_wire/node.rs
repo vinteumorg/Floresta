@@ -983,10 +983,10 @@ where
 
     pub(crate) async fn shutdown(&mut self) {
         info!("Shutting down node");
+        try_and_warn!(self.save_utreexo_peers());
         for peer in self.peer_ids.iter() {
             try_and_log!(self.send_to_peer(*peer, NodeRequest::Shutdown).await);
         }
-        try_and_warn!(self.save_utreexo_peers());
         try_and_log!(self.save_peers());
         try_and_log!(self.chain.flush());
     }
