@@ -23,7 +23,7 @@ use alloc::string::ToString;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::cell::UnsafeCell;
-#[cfg(feature = "bitcoinconsensus")]
+#[cfg(feature = "bitcoinkernel")]
 use core::ffi::c_uint;
 
 use bitcoin::block::Header as BlockHeader;
@@ -162,7 +162,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         }
         Ok(())
     }
-    #[cfg(feature = "bitcoinconsensus")]
+    #[cfg(feature = "bitcoinkernel")]
     /// Returns the validation flags, given the current block height
     fn get_validation_flags(&self, height: u32, hash: BlockHash) -> c_uint {
         let chain_params = &read_lock!(self).consensus.parameters;
@@ -180,19 +180,21 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         // mainnet.
         // For simplicity, always leave P2SH+WITNESS+TAPROOT on except for the two
         // violating blocks.
-        let mut flags = bitcoinconsensus::VERIFY_P2SH | bitcoinconsensus::VERIFY_WITNESS;
+        let mut flags = bitcoinkernel::VERIFY_P2SH
+            | bitcoinkernel::VERIFY_WITNESS
+            | bitcoinkernel::VERIFY_TAPROOT;
 
         if height >= chain_params.params.bip65_height {
-            flags |= bitcoinconsensus::VERIFY_CHECKLOCKTIMEVERIFY;
+            flags |= bitcoinkernel::VERIFY_CHECKLOCKTIMEVERIFY;
         }
         if height >= chain_params.params.bip66_height {
-            flags |= bitcoinconsensus::VERIFY_DERSIG;
+            flags |= bitcoinkernel::VERIFY_DERSIG;
         }
         if height >= chain_params.csv_activation_height {
-            flags |= bitcoinconsensus::VERIFY_CHECKSEQUENCEVERIFY;
+            flags |= bitcoinkernel::VERIFY_CHECKSEQUENCEVERIFY;
         }
         if height >= chain_params.segwit_activation_height {
-            flags |= bitcoinconsensus::VERIFY_NULLDUMMY;
+            flags |= bitcoinkernel::VERIFY_NULLDUMMY;
         }
         flags
     }
@@ -808,9 +810,9 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         // Validate block transactions
         let subsidy = read_lock!(self).consensus.get_subsidy(height);
         let verify_script = self.verify_script(height);
-        #[cfg(feature = "bitcoinconsensus")]
+        #[cfg(feature = "bitcoinkernel")]
         let flags = self.get_validation_flags(height, block.header.block_hash());
-        #[cfg(not(feature = "bitcoinconsensus"))]
+        #[cfg(not(feature = "bitcoinkernel"))]
         let flags = 0;
         Consensus::verify_block_transactions(
             height,

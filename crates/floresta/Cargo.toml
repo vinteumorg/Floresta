@@ -35,11 +35,9 @@ miniscript = "11"
 tokio = { version = "1", features = ["full"] }
 bitcoin = { version = "0.32", features = [
     "serde",
-    "bitcoinconsensus",
 ], default-features=false }
 
 floresta = { version = "0.3.0", path = "../floresta", features = [
-    "bitcoinconsensus",
     "memory-database",
     "electrum-server",
     "watch-only-wallet",
@@ -48,9 +46,9 @@ floresta = { version = "0.3.0", path = "../floresta", features = [
 futures = "0.3.30"
 
 [features]
-default = ["bitcoinconsensus", "electrum-server", "watch-only-wallet"]
-bitcoinconsensus = ["floresta-chain/bitcoinconsensus"]
+default = ["electrum-server", "watch-only-wallet", "bitcoinkernel"]
 electrum-server = ["dep:floresta-electrum"]
+bitcoinkernel = ["floresta-chain/bitcoinkernel"]
 watch-only-wallet = ["dep:floresta-watch-only"]
 # Works only if `watch-only-wallet` is set
 memory-database = ["floresta-watch-only?/memory-database"]

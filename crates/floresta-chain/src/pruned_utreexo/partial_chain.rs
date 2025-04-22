@@ -26,7 +26,7 @@ use rustreexo::accumulator::node_hash::BitcoinNodeHash;
 extern crate alloc;
 
 use core::cell::UnsafeCell;
-#[cfg(feature = "bitcoinconsensus")]
+#[cfg(feature = "bitcoinkernel")]
 use core::ffi::c_uint;
 
 use bitcoin::block::Header as BlockHeader;
@@ -106,7 +106,7 @@ impl PartialChainStateInner {
         self.blocks.get(height as usize)
     }
 
-    #[cfg(feature = "bitcoinconsensus")]
+    #[cfg(feature = "bitcoinkernel")]
     /// Returns the validation flags, given the current block height
     fn get_validation_flags(&self, height: u32, hash: BlockHash) -> c_uint {
         let chains_params = &self.consensus.parameters;
@@ -124,19 +124,19 @@ impl PartialChainStateInner {
         // mainnet.
         // For simplicity, always leave P2SH+WITNESS+TAPROOT on except for the two
         // violating blocks.
-        let mut flags = bitcoinconsensus::VERIFY_P2SH | bitcoinconsensus::VERIFY_WITNESS;
+        let mut flags = bitcoinkernel::VERIFY_P2SH | bitcoinkernel::VERIFY_WITNESS;
 
         if height >= chains_params.params.bip65_height {
-            flags |= bitcoinconsensus::VERIFY_CHECKLOCKTIMEVERIFY;
+            flags |= bitcoinkernel::VERIFY_CHECKLOCKTIMEVERIFY;
         }
         if height >= chains_params.params.bip66_height {
-            flags |= bitcoinconsensus::VERIFY_DERSIG;
+            flags |= bitcoinkernel::VERIFY_DERSIG;
         }
         if height >= chains_params.csv_activation_height {
-            flags |= bitcoinconsensus::VERIFY_CHECKSEQUENCEVERIFY;
+            flags |= bitcoinkernel::VERIFY_CHECKSEQUENCEVERIFY;
         }
         if height >= chains_params.segwit_activation_height {
-            flags |= bitcoinconsensus::VERIFY_NULLDUMMY;
+            flags |= bitcoinkernel::VERIFY_NULLDUMMY;
         }
         flags
     }
@@ -232,10 +232,13 @@ impl PartialChainStateInner {
         // Validate block transactions
         let subsidy = self.consensus.get_subsidy(height);
         let verify_script = self.assume_valid;
-        #[cfg(feature = "bitcoinconsensus")]
+
+        #[cfg(feature = "bitcoinkernel")]
         let flags = self.get_validation_flags(height, block.block_hash());
-        #[cfg(not(feature = "bitcoinconsensus"))]
+
+        #[cfg(not(feature = "bitcoinkernel"))]
         let flags = 0;
+
         Consensus::verify_block_transactions(
             height,
             inputs,
