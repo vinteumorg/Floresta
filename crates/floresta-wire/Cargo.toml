@@ -17,7 +17,7 @@ categories = ["cryptography::cryptocurrencies", "network-programming"]
 [dependencies]
 ahash = "0.8"
 bip324 = { version = "=0.7.0", features = [ "tokio" ] }
-bitcoin = { workspace = true, features = ["serde", "std", "bitcoinconsensus"] }
+bitcoin = { workspace = true, features = ["serde", "std"] }
 dns-lookup = { workspace = true }
 rand = { workspace = true }
 rustls = "=0.23.27"

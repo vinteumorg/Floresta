@@ -6,7 +6,7 @@ readme.workspace = true # Floresta/README.md
 
 [dependencies]
 axum = { workspace = true, optional = true }
-bitcoin = { workspace = true, features = ["serde", "std", "bitcoinconsensus"] }
+bitcoin = { workspace = true, features = ["serde", "std"] }
 corepc-types = { workspace = true }
 dns-lookup = { workspace = true }
 miniscript = { workspace = true, features = ["std"] }
@@ -22,7 +22,7 @@ tracing = { workspace = true }
 zmq = { version = "0.10", optional = true }
 
 # Local dependencies
-floresta-chain = { workspace = true }
+floresta-chain = { workspace = true, features = ["bitcoinkernel"] }
 floresta-compact-filters = { workspace = true, optional = true }
 floresta-common = { workspace = true }
 floresta-electrum = { workspace = true }
