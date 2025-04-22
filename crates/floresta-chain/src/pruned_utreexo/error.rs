@@ -17,7 +17,8 @@ use floresta_common::impl_error_from;
 use crate::prelude::*;
 pub trait DatabaseError: Debug + Send + Sync + 'static {}
 #[derive(Debug)]
-/// Represents errors encountered during blockchain validation.
+/// This is the highest level error type in floresta-chain, returned by the [crate::ChainState] methods.
+/// It represents errors encountered during blockchain validation.
 pub enum BlockchainError {
     BlockNotPresent,
     Parsing(String),
