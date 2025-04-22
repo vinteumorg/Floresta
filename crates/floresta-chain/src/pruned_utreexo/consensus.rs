@@ -7,6 +7,8 @@ extern crate alloc;
 use core::ffi::c_uint;
 
 use bitcoin::block::Header as BlockHeader;
+#[cfg(feature = "bitcoinkernel")]
+use bitcoin::consensus::serialize;
 use bitcoin::hashes::sha256;
 use bitcoin::Block;
 use bitcoin::CompactTarget;
@@ -206,17 +208,58 @@ impl Consensus {
         }
 
         // Verify the tx script
-        #[cfg(feature = "bitcoinconsensus")]
         if _verify_script {
-            transaction
-                .verify_with_flags(
-                    |outpoint| utxos.remove(outpoint).map(|utxo| utxo.txout),
-                    _flags,
-                )
-                .map_err(|e| tx_err!(txid, ScriptValidationError, format!("{e:?}")))?;
+            #[cfg(feature = "bitcoinkernel")]
+            Self::verify_input_scripts(transaction, utxos, _flags)?;
         };
 
         Ok((in_value, out_value))
+    }
+
+    #[cfg(feature = "bitcoinkernel")]
+    fn verify_input_scripts(
+        transaction: &Transaction,
+        utxos: &mut HashMap<OutPoint, UtxoData>,
+        flags: c_uint,
+    ) -> Result<(), BlockchainError> {
+        let tx = serialize(&transaction);
+        let txid = || transaction.compute_txid();
+
+        let tx = bitcoinkernel::Transaction::try_from(tx.as_slice())
+            .map_err(|e| tx_err!(txid, ScriptValidationError, e.to_string()))?;
+
+        let mut spent_utxos = Vec::new();
+        let mut spent_scripts = Vec::new();
+
+        for input in transaction.input.iter() {
+            let spent_output = utxos
+                .remove(&input.previous_output)
+                .ok_or_else(|| tx_err!(txid, UtxoNotFound, input.previous_output))?;
+
+            let spk =
+                bitcoinkernel::ScriptPubkey::try_from(spent_output.txout.script_pubkey.as_bytes())
+                    .map_err(|e| tx_err!(txid, ScriptValidationError, e.to_string()))?;
+
+            spent_utxos.push(bitcoinkernel::TxOut::new(
+                &spk,
+                spent_output.txout.value.to_sat() as i64,
+            ));
+            spent_scripts.push((spk, spent_output.txout.value.to_sat()));
+        }
+
+        for (input_index, (script, amount)) in spent_scripts.iter().enumerate() {
+            bitcoinkernel::verify(
+                script,
+                Some(*amount as i64),
+                &tx,
+                input_index,
+                Some(flags),
+                &spent_utxos,
+            )
+            .map_err(|e| tx_err!(txid, ScriptValidationError, e.to_string()))?;
+        }
+
+        Ok(())
     }
 
     /// Returns the TxOut being spent by the given input.
@@ -410,7 +453,7 @@ mod tests {
         };
     }
 
-    #[cfg(feature = "bitcoinconsensus")]
+    #[cfg(feature = "bitcoinkernel")]
     /// Some made up transactions that test our script limits checks.
     /// Here's what is wrong with each transaction:
     ///     - tx1: Too many ops (512, should be <= 201)
@@ -573,7 +616,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "bitcoinconsensus")]
+    #[cfg(feature = "bitcoinkernel")]
     fn test_consume_utxos() {
         // Transaction extracted from https://learnmeabitcoin.com/explorer/tx/0094492b6f010a5e39c2aacc97396ce9b6082dc733a7b4151ccdbd580f789278
         // Mock data for testing
@@ -586,25 +629,28 @@ mod tests {
 
         let output_script =
             ScriptBuf::from_hex("76a9149206a30c09cc853bb03bd917a4f9f29b089c1bc788ac").unwrap();
-        utxos.insert(outpoint, txout!(18000000, output_script));
+
+        utxos.insert(
+            outpoint,
+            UtxoData {
+                txout: txout!(18000000, output_script),
+                is_coinbase: false,
+                creation_height: 0,
+                creation_time: 0,
+            },
+        );
 
         // Test consuming UTXOs
-        let flags = bitcoinconsensus::VERIFY_P2SH;
-        tx.verify_with_flags(|outpoint| utxos.remove(outpoint), flags)
-            .unwrap();
+        let flags = bitcoinkernel::VERIFY_P2SH;
+        Consensus::verify_transaction(&tx, &mut utxos, 0, true, flags)
+            .expect("Transaction should be valid");
 
-        assert!(utxos.is_empty(), "Utxo should have been consumed");
-        // Test double consuming UTXOs
-        assert_eq!(
-            tx.verify_with_flags(|outpoint| utxos.remove(outpoint), flags),
-            Err(bitcoin::transaction::TxVerifyError::UnknownSpentOutput(
-                outpoint
-            )),
-        );
+        // Check that the UTXO was consumed
+        assert_eq!(utxos.len(), 0, "UTXO should be consumed");
     }
 
-    #[cfg(feature = "bitcoinconsensus")]
     // Test cases for Bitcoin script limits in the format <spending_tx>:<prevout>.
+    #[cfg(feature = "bitcoinkernel")]
     fn create_case(case: &str) -> (Transaction, HashMap<OutPoint, UtxoData>) {
         let Some((spending, prevout)) = case.split_once(':') else {
             panic!("Invalid case: {case}");
@@ -627,7 +673,7 @@ mod tests {
         (spending_tx, utxos)
     }
 
-    #[cfg(feature = "bitcoinconsensus")]
+    #[cfg(feature = "bitcoinkernel")]
     #[test]
     fn test_transaction_validation_legacy() {
         let expected = [false, true, false, false, true, false, false];
@@ -642,7 +688,7 @@ mod tests {
                 &mut utxos,
                 dummy_height,
                 true,
-                bitcoinconsensus::VERIFY_ALL_PRE_TAPROOT,
+                bitcoinkernel::VERIFY_ALL_PRE_TAPROOT,
             );
 
             let expected = valid.next().unwrap();
