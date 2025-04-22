@@ -110,7 +110,7 @@ pub struct AssumeUtreexoValue {
 }
 
 impl ChainParams {
-    /// This method is called when Assume Utreexo is set to true. It means that the user will accept these hardcoded roots, assuming them as valid and check the state of the chain only from here.
+    /// This method is called when Assume Utreexo is set to true. It means that the user will accept the hardcoded utreexo state for the specified block, if it is found in the best chain. We can then sync rapidly from this state.
     pub fn get_assume_utreexo(network: Network) -> AssumeUtreexoValue {
         let genesis = genesis_block(Params::new(network.into()));
         match network {
@@ -162,7 +162,7 @@ impl ChainParams {
         }
     }
 
-    /// This method is used to assume a valid block hash. It can be None (disabled), user input or hardcoded.
+    /// This method is used to assume all the scripts up to a specific block in the chain as valid. It can be None (we will verify all the scripts), user input or hardcoded.
     pub fn get_assume_valid(network: Network, arg: AssumeValidArg) -> Option<BlockHash> {
         match arg {
             AssumeValidArg::Disabled => None,
