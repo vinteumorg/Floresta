@@ -13,31 +13,30 @@ use spin::RwLock;
 
 use crate::prelude::*;
 #[derive(Debug, Clone, Copy)]
-/// This enum is used to represent the state of a block header in the database.
-/// It contains information about the block header's validity, height, and other metadata together with its height.
+/// This enum is used to store a block header in the database.
+/// It contains the header along with metadaba about the validation state of the block, and, if applicable, also its height.
 pub enum DiskBlockHeader {
-    /// Represents a fully valid block header with its height.
+    /// Represents a fully validated block header in the current best chain.
     FullyValid(BlockHeader, u32),
 
-    /// Represents an assumed valid block header with its height.
+    /// Represents an assumed valid block header.
     AssumedValid(BlockHeader, u32),
 
     /// Represents an orphan block header.
     Orphan(BlockHeader),
 
-    /// Represents a block header with headers only and its height.
+    /// Represents a block header in the current best chain whose block is pending validation.
     HeadersOnly(BlockHeader, u32),
 
-    /// Represents a block header in a fork with its height.
+    /// Represents a block header in a fork.
     InFork(BlockHeader, u32),
 
     /// Represents an invalid chain block header.
     InvalidChain(BlockHeader),
 }
 
-/// Implements the `DiskBlockHeader` enum.
 impl DiskBlockHeader {
-    /// Gets a block hash.
+    /// Computes the block hash.
     pub fn block_hash(&self) -> BlockHash {
         self.deref().block_hash()
     }
@@ -55,7 +54,7 @@ impl DiskBlockHeader {
     }
 }
 
-/// Implements the `Deref` trait for `DiskBlockHeader`.
+/// `DiskBlockHeader` dereferences to the inner header type.
 impl Deref for DiskBlockHeader {
     type Target = BlockHeader;
     fn deref(&self) -> &Self::Target {
@@ -70,7 +69,6 @@ impl Deref for DiskBlockHeader {
     }
 }
 
-/// Implements the `Decodable` trait for `DiskBlockHeader`.
 /// Decodable is a trait from bitcoin::consensus::encode that allows decoding of a type from a reader in a consistent manner.
 impl Decodable for DiskBlockHeader {
     /// Decodes a `DiskBlockHeader` from a reader.
@@ -105,7 +103,6 @@ impl Decodable for DiskBlockHeader {
     }
 }
 
-/// Implements the `Encodable` trait for `DiskBlockHeader`.
 impl Encodable for DiskBlockHeader {
     /// Encodes a `DiskBlockHeader` to a writer using the consensus encoding.
     fn consensus_encode<W: bitcoin::io::Write + ?Sized>(
@@ -157,11 +154,11 @@ use kv::Store;
 use super::chain_state::BestChain;
 use super::ChainStore;
 
-/// As for now we use KV (key/value) to store the chain data.
+/// As for now we use a KV (key/value) database to store the chain data.
 /// This struct provides a way to interact with the chain data stored in the KV store.
 /// It uses buckets to store and retrieve data concerning headers, indexes, and metadata.
 ///
-/// It also uses cache for headers and indexes using Raw Lock and HashMap.
+/// It temporarily caches headers and indexes using a HashMap, which are later persisted.
 pub struct KvChainStore<'a> {
     _store: Store,
     headers: Bucket<'a, Vec<u8>, Vec<u8>>,
@@ -172,7 +169,7 @@ pub struct KvChainStore<'a> {
 }
 
 impl<'a> KvChainStore<'a> {
-    /// Creates a new instance of KvChainStore from a directory path.
+    /// Creates a new [KvChainStore] instance in the specified directory path.
     pub fn new(datadir: String) -> Result<KvChainStore<'a>, kv::Error> {
         // Configure the database
         let cfg = Config::new(datadir + "/chain_data").cache_capacity(100_000_000);
@@ -191,21 +188,20 @@ impl<'a> KvChainStore<'a> {
     }
 }
 
-/// Implements the ChainStore trait for KvChainStore.
 impl ChainStore for KvChainStore<'_> {
     type Error = kv::Error;
-    /// Loads the roots from the metadata.
+    /// Loads the utreexo roots from the metadata bucket.
     fn load_roots(&self) -> Result<Option<Vec<u8>>, Self::Error> {
         self.meta.get(&"roots")
     }
 
-    /// Saves the roots to the metadata.
+    /// Saves the current utreexo roots to the metadata bucket.
     fn save_roots(&self, roots: Vec<u8>) -> Result<(), Self::Error> {
         self.meta.set(&"roots", &roots)?;
         Ok(())
     }
 
-    /// Loads the height from the metadata.
+    /// Loads the best chain data from the metadata bucket.
     fn load_height(&self) -> Result<Option<BestChain>, Self::Error> {
         let height = self.meta.get(&"height")?;
         if let Some(height) = height {
@@ -215,7 +211,7 @@ impl ChainStore for KvChainStore<'_> {
         Ok(None)
     }
 
-    /// Saves the height to the metadata.
+    /// Saves the best chain data to the metadata bucket.
     fn save_height(&self, height: &BestChain) -> Result<(), Self::Error> {
         let height = serialize(height);
         self.meta.set(&"height", &height)?;
