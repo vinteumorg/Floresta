@@ -37,7 +37,10 @@ pub enum BlockchainError {
 #[derive(Clone, Debug, PartialEq)]
 /// Represents errors encountered during transaction validation.
 pub struct TransactionError {
+    /// The id of the transaction that caused this error
     pub txid: Txid,
+
+    /// The error we've encountered
     pub error: BlockValidationErrors,
 }
 
