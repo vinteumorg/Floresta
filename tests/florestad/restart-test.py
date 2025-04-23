@@ -25,12 +25,18 @@ class TestRestart(FlorestaTestFramework):
     data_dirs = [
         os.path.normpath(
             os.path.join(
-                tempfile.gettempdir(), "floresta-func-tests", "restart", "node-0"
+                FlorestaTestFramework.get_integration_test_dir(),
+                "data",
+                "restart",
+                "node-0",
             )
         ),
         os.path.normpath(
             os.path.join(
-                tempfile.gettempdir(), "floresta-func-tests", "restart", "node-1"
+                FlorestaTestFramework.get_integration_test_dir(),
+                "data",
+                "restart",
+                "node-1",
             )
         ),
     ]

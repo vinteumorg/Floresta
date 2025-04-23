@@ -31,21 +31,22 @@ class GetAddnodeIDBErrorTest(FlorestaTestFramework):
     data_dirs = [
         os.path.normpath(
             os.path.join(
-                tempfile.gettempdir(),
-                "floresta-func-tests",
+                FlorestaTestFramework.get_integration_test_dir(),
+                "data",
                 "florestacli-addnode-test",
                 "node-0",
             )
         ),
         os.path.normpath(
             os.path.join(
-                tempfile.gettempdir(),
-                "floresta-func-tests",
+                FlorestaTestFramework.get_integration_test_dir(),
+                "data",
                 "floresta-cli-addnode-test",
                 "node-1",
             )
         ),
     ]
+
     electrum_addrs = ["0.0.0.0:50001", "0.0.0.0:50002"]
     rpc_addrs = ["0.0.0.0:18442", "0.0.0.0:18443"]
     node_ibd_error = "Node is in initial block download, wait until it's finished"
