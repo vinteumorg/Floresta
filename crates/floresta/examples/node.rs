@@ -105,5 +105,5 @@ async fn main() {
         .await
         .unwrap();
 
-    println!("Block: {:?}", block);
+    println!("Block: {block:?}");
 }

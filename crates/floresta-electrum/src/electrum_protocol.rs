@@ -993,7 +993,7 @@ mod test {
     }
 
     async fn send_request(request: String, port: u16) -> Result<Value, io::Error> {
-        let address = format!("localhost:{}", port);
+        let address = format!("localhost:{port}");
         let mut stream = TcpStream::connect(address).await?;
 
         stream.write_all(request.as_bytes()).await?;
@@ -1014,7 +1014,7 @@ mod test {
                 Ok(response)
             }
             Ok(Err(e)) => {
-                eprintln!("Error reading from socket: {}", e);
+                eprintln!("Error reading from socket: {e}");
                 Err(e)
             }
             Err(_) => Err(io::Error::new(io::ErrorKind::TimedOut, "Timeout occurred")),

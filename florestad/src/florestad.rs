@@ -666,7 +666,7 @@ impl Florestad {
         let file_dispatcher = fern::Dispatch::new()
             .format(formatter(false))
             .level(log::LevelFilter::Info)
-            .chain(fern::log_file(format!("{}/output.log", data_dir))?);
+            .chain(fern::log_file(format!("{data_dir}/output.log"))?);
 
         if log_file {
             dispatchers = dispatchers.chain(file_dispatcher);

@@ -232,6 +232,6 @@ mod tests {
 
         assert_eq!(iter.next(), None);
         remove_file(path).expect("could not remove file after test");
-        remove_file(format!("{}-index", path)).expect("could not remove index after test");
+        remove_file(format!("{path}-index")).expect("could not remove index after test");
     }
 }

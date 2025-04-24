@@ -47,7 +47,7 @@ impl<DatabaseError: fmt::Debug> Display for WatchOnlyError<DatabaseError> {
                 write!(f, "Transaction not found")
             }
             WatchOnlyError::DatabaseError(e) => {
-                write!(f, "Database error: {:?}", e)
+                write!(f, "Database error: {e:?}")
             }
         }
     }

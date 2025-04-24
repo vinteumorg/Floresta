@@ -39,10 +39,10 @@ impl_error_from!(KvDatabaseError, Error, DeserializeError);
 impl Display for KvDatabaseError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            KvDatabaseError::KvError(e) => write!(f, "KvError: {}", e),
-            KvDatabaseError::SerdeJsonError(e) => write!(f, "SerdeJsonError: {}", e),
+            KvDatabaseError::KvError(e) => write!(f, "KvError: {e}"),
+            KvDatabaseError::SerdeJsonError(e) => write!(f, "SerdeJsonError: {e}"),
             KvDatabaseError::WalletNotInitialized => write!(f, "WalletNotInitialized"),
-            KvDatabaseError::DeserializeError(e) => write!(f, "DeserializeError: {}", e),
+            KvDatabaseError::DeserializeError(e) => write!(f, "DeserializeError: {e}"),
             KvDatabaseError::TransactionNotFound => write!(f, "TransactionNotFound"),
         }
     }

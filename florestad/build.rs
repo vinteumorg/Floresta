@@ -17,8 +17,8 @@ fn main() {
         .expect("Failed to run rustc --version. Is rustc installed?");
 
     let long_version = format!("version {version} compiled for {arch}-{os}-{runtime} with {rustc}");
-    println!("cargo:rustc-env=LONG_VERSION={}", long_version);
-    println!("cargo:rustc-env=GIT_DESCRIBE={}", version);
+    println!("cargo:rustc-env=LONG_VERSION={long_version}");
+    println!("cargo:rustc-env=GIT_DESCRIBE={version}");
 
     // re-run if either the build script or the git HEAD changes
     println!("cargo:rerun-if-changed=../.git/HEAD");

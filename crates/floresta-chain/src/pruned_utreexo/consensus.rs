@@ -460,7 +460,7 @@ mod tests {
         // order <spending_tx>:<prevout>.
 
         let Some((spending, prevout)) = case.split_once(':') else {
-            panic!("Invalid case: {}", case);
+            panic!("Invalid case: {case}");
         };
 
         let spending_tx: Transaction = deserialize_hex(spending).unwrap();
@@ -582,7 +582,7 @@ mod tests {
             BlockchainError::TransactionError(inner) => {
                 assert_eq!(inner, tx_err!(|| spending_tx.compute_txid(), ScriptError));
             }
-            e => panic!("Expected a TransactionError, but got: {:?}", e),
+            e => panic!("Expected a TransactionError, but got: {e:?}"),
         }
     }
 }

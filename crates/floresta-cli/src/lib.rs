@@ -93,13 +93,13 @@ mod tests {
         let fld = Command::new(&florestad_path)
             .args(["-n", "regtest"])
             .args(["--data-dir", &dirname])
-            .args(["--rpc-address", &format!("127.0.0.1:{}", port)])
+            .args(["--rpc-address", &format!("127.0.0.1:{port}")])
             .args(["--electrum-address", "127.0.0.1:0"])
             .args(["--ssl-electrum-address", "127.0.0.1:0"])
             .stdout(Stdio::null())
             .stderr(Stdio::inherit())
             .spawn()
-            .unwrap_or_else(|e| panic!("Couldn't launch florestad at {}: {}", florestad_path, e));
+            .unwrap_or_else(|e| panic!("Couldn't launch florestad at {florestad_path}: {e}"));
 
         let client = Client::new(format!("http://127.0.0.1:{port}"));
 

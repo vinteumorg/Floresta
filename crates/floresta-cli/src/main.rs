@@ -22,7 +22,7 @@ fn main() -> anyhow::Result<()> {
     let res = do_request(&cli, client)?;
 
     // Print the result to the console
-    println!("{}", res);
+    println!("{res}");
 
     // Return Ok to indicate the program ran successfully
     anyhow::Ok(())

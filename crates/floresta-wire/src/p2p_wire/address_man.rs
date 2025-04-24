@@ -273,7 +273,7 @@ impl AddressMan {
     ) -> Result<Vec<LocalAddress>, dns_lookup::LookupError> {
         let mut addresses = Vec::new();
         for ip in dns_lookup::lookup_host(address)? {
-            if let Ok(ip) = LocalAddress::try_from(format!("{}:{}", ip, default_port).as_str()) {
+            if let Ok(ip) = LocalAddress::try_from(format!("{ip}:{default_port}").as_str()) {
                 addresses.push(ip);
             }
         }
