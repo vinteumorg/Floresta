@@ -1536,7 +1536,7 @@ mod test {
             if let Ok(DiskBlockHeader::HeadersOnly(..)) = chain.get_disk_block_header(&accepted) {
                 continue;
             }
-            panic!("Block {} is not in the store", i);
+            panic!("Block {i} is not in the store");
         }
     }
 

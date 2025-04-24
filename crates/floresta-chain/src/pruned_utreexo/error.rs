@@ -93,17 +93,17 @@ impl Display for BlockValidationErrors {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             BlockValidationErrors::ScriptValidationError(e) => {
-                write!(f, "{}", e)
+                write!(f, "{e}")
             }
             BlockValidationErrors::UtxoNotFound(outpoint) => {
-                write!(f, "Utxo referenced by {:?} not found", outpoint)
+                write!(f, "Utxo referenced by {outpoint:?} not found")
             }
             BlockValidationErrors::InvalidOutput => {
                 write!(f, "Invalid output, verify spending values")
             }
             BlockValidationErrors::BlockTooBig => write!(f, "Block too big"),
             BlockValidationErrors::InvalidCoinbase(e) => {
-                write!(f, "Invalid coinbase: {:?}", e)
+                write!(f, "Invalid coinbase: {e:?}")
             }
             BlockValidationErrors::TooManyCoins => write!(f, "Moving more coins that exists"),
             BlockValidationErrors::ScriptError => {
@@ -160,7 +160,7 @@ impl_error_from!(BlockchainError, script::Error, ScriptValidationFailed);
 
 impl Display for BlockchainError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 
