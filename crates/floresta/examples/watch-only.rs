@@ -75,11 +75,11 @@ fn main() {
 
     // We can now print the information we fetched.
     println!("************** Wallet Summary *****************\n");
-    println!("Descriptor: {}\n", descriptor);
-    println!("Address #1 hash: {}\n", hash);
-    println!("History: {:#?}\n", history);
-    println!("Balance: {:?}\n", balance);
-    println!("UTXOs: {:#?}", utxos);
+    println!("Descriptor: {descriptor}\n");
+    println!("Address #1 hash: {hash}\n");
+    println!("History: {history:#?}\n");
+    println!("Balance: {balance:?}\n");
+    println!("UTXOs: {utxos:#?}");
 }
 
 const BLOCKS: [&str; 11] = [
