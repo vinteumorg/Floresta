@@ -208,14 +208,14 @@ impl Display for Error {
             Error::InvalidHex =>  write!(f, "Invalid hex"),
             Error::InvalidVout =>  write!(f, "Invalid vout"),
             Error::MethodNotFound =>  write!(f, "Method not found"),
-            Error::Decode(e) =>  write!(f, "error decoding request: {}", e),
+            Error::Decode(e) =>  write!(f, "error decoding request: {e}"),
             Error::TxNotFound =>  write!(f, "Transaction not found"),
             Error::InvalidDescriptor =>  write!(f, "Invalid descriptor"),
             Error::BlockNotFound =>  write!(f, "Block not found"),
             Error::Chain => write!(f, "Chain error"),
             Error::InvalidPort => write!(f, "Invalid port"),
             Error::InvalidAddress => write!(f, "Invalid address"),
-            Error::Node(e) => write!(f, "Node error: {}", e),
+            Error::Node(e) => write!(f, "Node error: {e}"),
             Error::NoBlockFilters => write!(f, "You don't have block filters enabled, please start florestad with --cfilters to run this RPC"),
             Error::InvalidNetwork => write!(f, "Invalid network"),
             Error::InInitialBlockDownload => write!(f, "Node is in initial block download, wait until it's finished"),
@@ -225,8 +225,8 @@ impl Display for Error {
             Error::MissingReq => write!(f, "Missing request field"),
             Error::InvalidVerbosityLevel => write!(f, "Invalid verbosity level"),
             Error::InvalidMemInfoMode => write!(f, "Invalid meminfo mode, should be stats or mallocinfo"),
-            Error::Wallet(e) => write!(f, "Wallet error: {}", e),
-            Error::Filters(e) => write!(f, "Error with filters: {}", e),
+            Error::Wallet(e) => write!(f, "Wallet error: {e}"),
+            Error::Filters(e) => write!(f, "Error with filters: {e}"),
         }
     }
 }
