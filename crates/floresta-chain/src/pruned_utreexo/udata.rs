@@ -298,6 +298,11 @@ impl From<Block> for UtreexoBlock {
     }
 }
 
+/// This module provides utility functions for working with Utreexo proofs.
+///
+/// These functions can be used, for example, when verifying if a mempool transaction is valid;
+/// to consume a block (delete transactions included in it from the mempool);
+/// or to validate a block.
 pub mod proof_util {
     use bitcoin::blockdata::script::Instruction;
     use bitcoin::consensus::Encodable;
@@ -330,7 +335,9 @@ pub mod proof_util {
     use crate::UData;
 
     #[derive(Debug)]
+    /// This enum represents the possible errors that can occur when reconstructing a leaf.
     pub enum Error {
+        /// Used when trying to get the script type from a proof results in an empty stack.
         EmptyStack,
     }
 
@@ -343,6 +350,14 @@ pub mod proof_util {
         }
     }
 
+    /// This function returns the script type of a given script data.
+    /// It can be:
+    ///
+    /// - `PubKeyHash`: A pay-to-public-key-hash script.
+    /// - `ScriptHash`: A pay-to-script-hash script.
+    /// - `WitnessV0PubKeyHash`: A pay-to-witness-public-key-hash script.
+    /// - `WitnessV0ScriptHash`: A pay-to-witness-script-hash script.
+    /// - `Other`: a non specified script type. It is just copied over.
     pub fn get_script_type(script: &ScriptBuf) -> ScriptPubkeyType {
         if script.is_p2pkh() {
             return ScriptPubkeyType::PubKeyHash;
@@ -363,6 +378,7 @@ pub mod proof_util {
         ScriptPubkeyType::Other(script.to_bytes().into_boxed_slice())
     }
 
+    /// This function reconstructs the leaf data from a compact leaf data, a transaction input, and a block hash.
     pub fn reconstruct_leaf_data(
         leaf: &CompactLeafData,
         input: &TxIn,
@@ -381,6 +397,7 @@ pub mod proof_util {
         })
     }
 
+    /// This function checks if a script is unspendable either by its length or if it contains the `OP_RETURN` opcode.
     fn is_unspendable(script: &ScriptBuf) -> bool {
         if script.len() > 10_000 {
             return true;
@@ -461,6 +478,9 @@ pub mod proof_util {
     }
 
     type UtxoMap = HashMap<OutPoint, UtxoData>;
+    /// This function processes a proof of inclusion for a given block.
+    /// It takes a `UData`, a slice of transactions, the block height, and a function to get the block hash.
+    /// It returns a Result containing a Proof, a vector of deleted hashes, and a `UtxoMap`, which is defined as `HashMap<OutPoint, UtxoData>`.
     pub fn process_proof<F, E>(
         udata: &UData,
         txdata: &[Transaction],
@@ -530,6 +550,10 @@ pub mod proof_util {
         Ok((proof, del_hashes, utxos))
     }
 
+    /// This function reconstructs the script public key from a compact leaf data and a transaction input.
+    /// It takes a CompactLeafData and a TxIn as input and returns a `Result` containing a `ScriptBuf` or `Error`.
+    ///
+    /// This is needed as we use compact leaf data.
     pub fn reconstruct_script_pubkey(
         leaf: &CompactLeafData,
         input: &TxIn,
@@ -554,6 +578,8 @@ pub mod proof_util {
             }
         }
     }
+
+    /// This function gets a public key hash from a transaction input.
     fn get_pk_hash(input: &TxIn) -> Result<PubkeyHash, Error> {
         let script_sig = &input.script_sig;
         let inst = script_sig.instructions().last();
@@ -562,6 +588,8 @@ pub mod proof_util {
         }
         Err(Error::EmptyStack)
     }
+
+    /// This function gets a script hash from a transaction input.
     fn get_script_hash(input: &TxIn) -> Result<ScriptHash, Error> {
         let script_sig = &input.script_sig;
         let inst = script_sig.instructions().last();
@@ -570,6 +598,8 @@ pub mod proof_util {
         }
         Err(Error::EmptyStack)
     }
+
+    /// This function gets a witness public key hash from a transaction input.
     fn get_witness_pk_hash(input: &TxIn) -> Result<WPubkeyHash, Error> {
         let witness = &input.witness;
         let pk = witness.last();
@@ -578,6 +608,8 @@ pub mod proof_util {
         }
         Err(Error::EmptyStack)
     }
+
+    /// This function gets a witness script hash from a transaction input.
     fn get_witness_script_hash(input: &TxIn) -> Result<WScriptHash, Error> {
         let witness = &input.witness;
         let script = witness.last();
