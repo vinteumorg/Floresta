@@ -1353,9 +1353,9 @@ mod tests {
         let result =
             UtreexoNode::<PartialChainState, RunningNode>::resolve_connect_host(address, port);
         if should_succeed {
-            assert!(result.is_ok(), "Failed: {}", description);
+            assert!(result.is_ok(), "Failed: {description}");
         } else {
-            assert!(result.is_err(), "Unexpected success: {}", description);
+            assert!(result.is_err(), "Unexpected success: {description}");
         }
     }
 
