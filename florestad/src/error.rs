@@ -39,9 +39,9 @@ impl std::fmt::Display for Error {
             Error::Rustreexo(err) => write!(f, "Rustreexo error: {err}"),
             Error::Io(err) => write!(f, "Io error {err}"),
             Error::ScriptValidation(err) => write!(f, "Error during script evaluation: {err}"),
-            Error::Blockchain(err) => write!(f, "Error with our blockchain backend: {:?}", err),
+            Error::Blockchain(err) => write!(f, "Error with our blockchain backend: {err:?}"),
             Error::SerdeJson(err) => write!(f, "Error serializing object {err}"),
-            Error::WalletInput(err) => write!(f, "Error while parsing user input {:?}", err),
+            Error::WalletInput(err) => write!(f, "Error while parsing user input {err:?}"),
             Error::TomlParsing(err) => write!(f, "Error deserializing toml file {err}"),
             Error::AddressParsing(err) => write!(f, "Invalid address {err}"),
             Error::Miniscript(err) => write!(f, "Miniscript error: {err}"),
@@ -64,10 +64,10 @@ impl std::fmt::Display for Error {
                 write!(f, "Error while generating PKCS#8 keypair: {err}")
             }
             Error::CouldNotGenerateCertParam(err) => {
-                write!(f, "Error while generating certificate param: {}", err)
+                write!(f, "Error while generating certificate param: {err}")
             }
             Error::CouldNotGenerateSelfSignedCert(err) => {
-                write!(f, "Error while generating self-signed certificate: {}", err)
+                write!(f, "Error while generating self-signed certificate: {err}")
             }
             Error::CouldNotWriteFile(path, err) => {
                 write!(f, "Error while creating file {path}: {err}")
