@@ -27,24 +27,34 @@ use crate::AssumeValidArg;
 use crate::Network;
 
 #[derive(Clone, Debug)]
+/// This struct encapsulates all chain-specific parameters.
 pub struct ChainParams {
+    /// Field to store parameters related to the chain consensus.
     pub params: Params,
+
     /// The network's first block, also called genesis block.
     pub genesis: Block,
+
     /// Interval of blocks until the block reward halves
     pub subsidy_halving_interval: u64,
+
     /// When we retarget we expect this many seconds to be elapsed since last time. If
     /// it's more, we decrease difficulty, if it's less we increase difficulty
     pub pow_target_timespan: u64,
+
     /// We wait this many blocks before a coinbase output can be spent
     pub coinbase_maturity: u32,
+
     /// The height at which segwit is activated
     pub segwit_activation_height: u32,
+
     /// The height at which csv(CHECK_SEQUENCE_VERIFY) is activated
     pub csv_activation_height: u32,
+
     /// A list of exceptions to the rules, where the key is the block hash and the value is the
     /// verification flags
     pub exceptions: HashMap<BlockHash, c_uint>,
+
     /// The network this chain params is for
     pub network: bitcoin::Network,
 }
@@ -60,13 +70,17 @@ pub struct ChainParams {
 pub struct DnsSeed {
     /// The network this peer supports (e.g, mainnet, testnet, etc)
     pub network: Network,
+
     /// The domain name of the seed
     pub seed: &'static str,
+
     /// Useful filters we can use to find relevant peers
     pub filters: ServiceFlags,
 }
 
+/// This functionality is used to create a new DNS seed with possible filters.
 impl DnsSeed {
+    /// Create a new DNS seed
     pub fn new(network: Network, seed: &'static str, filters: ServiceFlags) -> Self {
         DnsSeed {
             network,
@@ -84,15 +98,19 @@ impl DnsSeed {
 pub struct AssumeUtreexoValue {
     /// The latest block assumed to be valid. This acc is the roots at this block
     pub block_hash: BlockHash,
+
     /// Same as block_hash, but in height
     pub height: u32,
+
     /// The roots of the Utreexo accumulator at this block
     pub roots: Vec<BitcoinNodeHash>,
+
     /// The number of leaves in the Utreexo accumulator at this block
     pub leaves: u64,
 }
 
 impl ChainParams {
+    /// This method is called when Assume Utreexo is set to true. It means that the user will accept the hardcoded utreexo state for the specified block, if it is found in the best chain. We can then sync rapidly from this state.
     pub fn get_assume_utreexo(network: Network) -> AssumeUtreexoValue {
         let genesis = genesis_block(Params::new(network.into()));
         match network {
@@ -144,6 +162,7 @@ impl ChainParams {
         }
     }
 
+    /// This method is used to assume all the scripts up to a specific block in the chain as valid. It can be None (we will verify all the scripts), user input or hardcoded.
     pub fn get_assume_valid(network: Network, arg: AssumeValidArg) -> Option<BlockHash> {
         match arg {
             AssumeValidArg::Disabled => None,
@@ -167,10 +186,12 @@ impl ChainParams {
 }
 
 #[cfg(feature = "bitcoinconsensus")]
+/// We use an inverse logic to pick validation flags.
+/// When we call verify_script we need to tell what to validate (taproot, segwit, CSV, P2SH...).
+/// Although those features were added later in the protocol, their exact template would rarely appear in a transaction.
+/// There's almost no transactions in the chain that "looks like segwit but are not segwit".
+/// We pretend segwit was enabled since genesis, and only skip this for blocks that have such transactions using hardcoded values.
 fn get_exceptions() -> HashMap<BlockHash, c_uint> {
-    // For some reason, some blocks in the mainnet and testnet have different rules than it should
-    // be, so we need to keep a list of exceptions and treat them differently
-
     use bitcoinconsensus::VERIFY_NONE;
     use bitcoinconsensus::VERIFY_P2SH;
     use bitcoinconsensus::VERIFY_WITNESS;
@@ -256,13 +277,15 @@ impl From<Network> for ChainParams {
     }
 }
 
+/// This function returns the DNS seeds for the given network.
+///
+/// DNS seeds taken from Bitcoin Core at commit 382b692a503355df7347efd9c128aff465b5583e
+///
+/// Some dns seeds lets us filter the returned peers by advertised services. We are interested
+/// in peers with: UTREEXO, COMPACT_FILTERS, WITNESS and NETWORK. Not all seeds supports all
+/// bits, so from this list, we pick the ones they support, and ask for this.
 pub fn get_chain_dns_seeds(network: Network) -> Vec<DnsSeed> {
-    // DNS seeds taken from Bitcoin Core at commit 382b692a503355df7347efd9c128aff465b5583e
     let mut seeds = Vec::new();
-
-    // Some dns seeds lets us filter the returned peers by advertised services. We are interested
-    // in peers with: UTREEXO, COMPACT_FILTERS, WITNESS and NETWORK. Not all seeds supports all
-    // bits, so from this list, we pick the ones they support, and ask for this
 
     // x9 or 0x09 means NETWORK + WITNESS
     let x9: ServiceFlags = ServiceFlags::from(0x9);
