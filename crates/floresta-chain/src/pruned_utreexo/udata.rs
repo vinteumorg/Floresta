@@ -335,9 +335,10 @@ pub mod proof_util {
     use crate::UData;
 
     #[derive(Debug)]
-    /// This enum represents the possible errors that can occur when reconstructing a leaf.
+    /// Errors that may occur while reconstructing a leaf's scriptPubKey.
     pub enum Error {
-        /// Used when trying to get the script type from a proof results in an empty stack.
+        /// Triggered when the input lacks the hashed data required by the [ScriptPubkeyType]
+        /// (i.e. the public key for P2PKH/P2WPKH, the redeem script for P2SH, or the witness script for P2WSH).
         EmptyStack,
     }
 
@@ -350,7 +351,7 @@ pub mod proof_util {
         }
     }
 
-    /// This function returns the script type of a given script data.
+    /// This function returns the scriptPubkey type (i.e. address type) of a given script data.
     /// It can be:
     ///
     /// - `PubKeyHash`: A pay-to-public-key-hash script.
@@ -398,6 +399,7 @@ pub mod proof_util {
     }
 
     /// This function checks if a script is unspendable either by its length or if it contains the `OP_RETURN` opcode.
+    /// It follows the implementation on Bitcoin Core.
     fn is_unspendable(script: &ScriptBuf) -> bool {
         if script.len() > 10_000 {
             return true;
@@ -477,7 +479,9 @@ pub mod proof_util {
         leaf_hashes
     }
 
+    /// A hash map that provides the UTXO data given the outpoint. We will get this data from either our own cache or the utreexo proofs, and use it to validate blocks and transactions.
     type UtxoMap = HashMap<OutPoint, UtxoData>;
+
     /// This function processes a proof of inclusion for a given block.
     /// It takes a `UData`, a slice of transactions, the block height, and a function to get the block hash.
     /// It returns a Result containing a Proof, a vector of deleted hashes, and a `UtxoMap`, which is defined as `HashMap<OutPoint, UtxoData>`.
@@ -551,7 +555,7 @@ pub mod proof_util {
     }
 
     /// This function reconstructs the script public key from a compact leaf data and a transaction input.
-    /// It takes a CompactLeafData and a TxIn as input and returns a `Result` containing a `ScriptBuf` or `Error`.
+    /// It takes a CompactLeafData and a TxIn as input and returns a `Result` containing a `ScriptBuf` or an error if we can't reconstruct the script.
     ///
     /// This is needed as we use compact leaf data.
     pub fn reconstruct_script_pubkey(
