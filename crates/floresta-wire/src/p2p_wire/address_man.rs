@@ -556,8 +556,7 @@ impl AddressMan {
                             }
                         }
 
-                        return matches!(address.state, AddressState::Connected)
-                            || matches!(address.state, AddressState::Tried(_))
+                        return matches!(address.state, AddressState::Tried(_))
                             || matches!(address.state, AddressState::NeverTried);
                     }
 
