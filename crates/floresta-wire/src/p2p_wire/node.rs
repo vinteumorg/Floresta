@@ -321,7 +321,7 @@ where
             if let InflightRequests::Connect(_) = req {
                 // ignore the output as it might fail due to the task being cancelled
                 let _ = self.send_to_peer(peer, NodeRequest::Shutdown).await;
-
+                self.peers.remove(&peer);
                 continue;
             }
 
