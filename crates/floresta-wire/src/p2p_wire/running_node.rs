@@ -125,9 +125,6 @@ where
     /// If we are missing the speciall peers but have 10 connections, we should disconnect one
     /// random peer and try to connect to a utreexo and a compact filters peer.
     async fn check_connections(&mut self) -> Result<(), WireError> {
-        // We're always looking for a peer with the following services
-        let base_services: ServiceFlags = ServiceFlags::NETWORK | ServiceFlags::WITNESS;
-
         // if we have 10 connections, but not a single utreexo or CBF one, disconnect one random
         // peer and create a utreexo and CBS connection
         if !self.has_utreexo_peers() {
@@ -140,7 +137,7 @@ where
                 self.send_to_peer(*peer, NodeRequest::Shutdown).await?;
             }
 
-            self.create_connection(ConnectionKind::Regular(base_services | UTREEXO.into()))
+            self.create_connection(ConnectionKind::Regular(UTREEXO.into()))
                 .await;
         }
 
@@ -158,14 +155,12 @@ where
                 self.send_to_peer(*peer, NodeRequest::Shutdown).await?;
             }
 
-            self.create_connection(ConnectionKind::Regular(
-                base_services | ServiceFlags::COMPACT_FILTERS,
-            ))
-            .await;
+            self.create_connection(ConnectionKind::Regular(ServiceFlags::COMPACT_FILTERS))
+                .await;
         }
 
         if self.peers.len() < 10 {
-            self.create_connection(ConnectionKind::Regular(base_services))
+            self.create_connection(ConnectionKind::Regular(ServiceFlags::NONE))
                 .await;
         }
 
