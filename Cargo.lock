@@ -1025,6 +1025,7 @@ dependencies = [
  "dns-lookup 2.0.4",
  "fern",
  "floresta-chain",
+ "floresta-cli",
  "floresta-common",
  "floresta-compact-filters",
  "floresta-electrum",

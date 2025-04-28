@@ -25,6 +25,8 @@ floresta-common = { path = "../crates/floresta-common" }
 floresta-electrum = { path = "../crates/floresta-electrum" }
 floresta-watch-only = { path = "../crates/floresta-watch-only" }
 floresta-wire = { path = "../crates/floresta-wire" }
+floresta-cli = { path = "../crates/floresta-cli" }
+
 floresta-compact-filters = { path = "../crates/floresta-compact-filters", optional = true }
 metrics = { path = "../metrics", optional = true }
 axum = { version = "0.7", optional = true }
@@ -55,11 +57,7 @@ pretty_assertions = "1"
 compact-filters = ["dep:floresta-compact-filters"]
 zmq-server = ["dep:zmq"]
 experimental-p2p = []
-json-rpc = [
-    "dep:axum",
-    "dep:tower-http",
-    "compact-filters"
-]
+json-rpc = ["dep:axum", "dep:tower-http", "compact-filters"]
 default = ["experimental-p2p", "json-rpc"]
 metrics = ["dep:metrics", "floresta-wire/metrics"]
 

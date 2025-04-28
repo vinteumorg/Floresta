@@ -13,6 +13,8 @@ type Result<T> = std::result::Result<T, rpc_types::Error>;
 
 /// A trait specifying all possible methods for floresta's json-rpc
 pub trait FlorestaRPC {
+    /// Get information about the utreexo accumulator in the current state.
+    fn get_utreexoinfo(&self) -> Result<GetUtreexoInfo>;
     /// Get the BIP158 filter for a given block height
     ///
     /// BIP158 filters are a compact representation of the set of transactions in a block,
@@ -123,7 +125,6 @@ pub trait FlorestaRPC {
     fn get_rpc_info(&self) -> Result<GetRpcInfoRes>;
     /// Returns for how long florestad has been running, in seconds
     fn uptime(&self) -> Result<u32>;
-
     /// Returns a list of all descriptors currently loaded in the wallet
     fn list_descriptors(&self) -> Result<Vec<String>>;
 }
@@ -141,6 +142,10 @@ pub trait JsonRPCClient: Sized {
 }
 
 impl<T: JsonRPCClient> FlorestaRPC for T {
+    fn get_utreexoinfo(&self) -> Result<GetUtreexoInfo> {
+        self.call("findtxout", &[])
+    }
+
     fn find_tx_out(
         &self,
         tx_id: Txid,

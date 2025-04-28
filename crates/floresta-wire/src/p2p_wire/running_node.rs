@@ -43,6 +43,7 @@ use crate::node::NodeRequest;
 use crate::node::UtreexoNode;
 use crate::node_context::NodeContext;
 use crate::node_context::PeerId;
+use crate::node_interface::NodeInterface;
 use crate::node_interface::NodeResponse;
 use crate::node_interface::UserRequest;
 use crate::p2p_wire::chain_selector::ChainSelector;
@@ -58,6 +59,91 @@ pub struct RunningNode {
     /// We also keep the moment we received the first inv message
     pub(crate) last_invs: HashMap<BlockHash, (Instant, Vec<PeerId>)>,
     pub(crate) inflight_filters: BTreeMap<u32, BlockFilter>,
+    /// Used to keep track about backfilling. Any value different from 0 or 1 means
+    /// that backfill is in progress and the value represent the actual progress of backfill
+    /// in the current chain.
+    ///
+    /// 0 means that backfill was never activated or failed.
+    ///
+    /// 1 means that backfill terminated with success.
+    pub(crate) backfill_progress: f32,
+}
+
+/// Helper wrapper to instantiate and operate the backfill node.
+pub struct Backfill {
+    /// The node wholl actually backfill the chain.
+    node: UtreexoNode<PartialChainState, SyncNode>,
+    /// The chain we are backfilling
+    outer_chain: Chain
+}
+impl Backfill {
+    /// If either PoW fraud proofs or assumeutreexo are enabled, we will "skip" IBD for all
+    /// historical blocks. This allow us to start the node faster, making it usable in a few
+    /// minutes. If you still want to validate all blocks, you can enable the backfill option.
+    ///
+    /// This function will build a [`UtreexoNode<Chain, SyncNode>`] to run as a background task
+    /// that will download and validate all  assumed blocks . After completion, the task will
+    /// shutdown and the node will continue running normally. If we ever assume an invalid chain,
+    /// the node will [halt and catch fire].
+    ///
+    /// [halt and catch fire]: https://en.wikipedia.org/wiki/Halt_and_Catch_Fire_(computing)
+    pub fn setup_backfill<Chain: BlockchainInterface + UpdatableChainstate + Sync + Send + Clone + 'static>(
+        father_node: &UtreexoNode<Chain, RunningNode>
+    ) -> Result<Option<UtreexoNode<PartialChainState, SyncNode>>, WireError> {
+        // try finding the last state of the sync node
+        let state = std::fs::read(self.config.datadir.clone() + "/.sync_node_state");
+        // try to recover from the disk state, if it exists. Otherwise, start from genesis
+        let (chain, end) = match state {
+            Ok(state) => {
+                // if this file is empty, this means we've finished backfilling
+                if state.is_empty() {
+                    return Ok(None);
+                }
+
+                let acc = Stump::deserialize(&state[..(state.len() - 8)]).unwrap();
+                let tip = u32::from_le_bytes(
+                    state[(state.len() - 8)..(state.len() - 4)]
+                        .try_into()
+                        .unwrap(),
+                );
+
+                let end = u32::from_le_bytes(state[(state.len() - 4)..].try_into().unwrap());
+                info!(
+                    "Recovering backfill node from state tip={}, end={}",
+                    tip, end
+                );
+                (
+                    self.chain
+                        .get_partial_chain(tip, end, acc)
+                        .expect("Failed to get partial chain"),
+                    end,
+                )
+            }
+            Err(_) => {
+                // if the file doesn't exist or got corrupted, start from genesis
+                let end = self
+                    .chain
+                    .get_validation_index()
+                    .expect("can get the validation index");
+                (
+                    self.chain
+                        .get_partial_chain(0, end, Stump::default())
+                        .unwrap(),
+                    end,
+                )
+            }
+        };
+        Ok(Some(         UtreexoNode::<PartialChainState, SyncNode>::new(
+            self.config.clone(),
+            chain,
+            self.mempool.clone(),
+            None,
+            self.kill_signal.clone(),
+            self.address_man.clone(),
+        )
+        .expect("Unreachable, this constructor can only fails if we cant connect to ourselves, which should happen at this rate");
+))
+    }
 }
 
 impl NodeContext for RunningNode {
@@ -240,112 +326,7 @@ where
         Ok(())
     }
 
-    /// If either PoW fraud proofs or assumeutreexo are enabled, we will "skip" IBD for all
-    /// historical blocks. This allow us to start the node faster, making it usable in a few
-    /// minutes. If you still want to validate all blocks, you can enable the backfill option.
-    ///
-    /// This function will spawn a background task that will download and validate all blocks
-    /// that got assumed. After completion, the task will shutdown and the node will continue
-    /// running normally. If we ever assume an invalid chain, the node will [halt and catch fire].
-    ///
-    /// [halt and catch fire]: https://en.wikipedia.org/wiki/Halt_and_Catch_Fire_(computing)
-    pub fn backfill(&self, done_flag: std::sync::mpsc::Sender<()>) -> Result<bool, WireError> {
-        // try finding the last state of the sync node
-        let state = std::fs::read(self.config.datadir.clone() + "/.sync_node_state");
-        // try to recover from the disk state, if it exists. Otherwise, start from genesis
-        let (chain, end) = match state {
-            Ok(state) => {
-                // if this file is empty, this means we've finished backfilling
-                if state.is_empty() {
-                    return Ok(false);
-                }
 
-                let acc = Stump::deserialize(&state[..(state.len() - 8)]).unwrap();
-                let tip = u32::from_le_bytes(
-                    state[(state.len() - 8)..(state.len() - 4)]
-                        .try_into()
-                        .unwrap(),
-                );
-
-                let end = u32::from_le_bytes(state[(state.len() - 4)..].try_into().unwrap());
-                info!(
-                    "Recovering backfill node from state tip={}, end={}",
-                    tip, end
-                );
-                (
-                    self.chain
-                        .get_partial_chain(tip, end, acc)
-                        .expect("Failed to get partial chain"),
-                    end,
-                )
-            }
-            Err(_) => {
-                // if the file doesn't exist or got corrupted, start from genesis
-                let end = self
-                    .chain
-                    .get_validation_index()
-                    .expect("can get the validation index");
-                (
-                    self.chain
-                        .get_partial_chain(0, end, Stump::default())
-                        .unwrap(),
-                    end,
-                )
-            }
-        };
-
-        let backfill = UtreexoNode::<PartialChainState, SyncNode>::new(
-            self.config.clone(),
-            chain,
-            self.mempool.clone(),
-            None,
-            self.kill_signal.clone(),
-            self.address_man.clone(),
-        )
-        .unwrap();
-
-        let datadir = self.config.datadir.clone();
-        let outer_chain = self.chain.clone();
-
-        let fut = UtreexoNode::<PartialChainState, SyncNode>::run(
-            backfill,
-            move |chain: &PartialChainState| {
-                if chain.has_invalid_blocks() {
-                    panic!("We assumed a chain with invalid blocks, something went really wrong");
-                }
-
-                done_flag.send(()).unwrap();
-
-                // we haven't finished the backfill yet, save the current state for the next run
-                if chain.is_in_ibd() {
-                    let acc = chain.get_acc();
-                    let tip = chain.get_height().unwrap();
-                    let mut ser_acc = Vec::new();
-                    acc.serialize(&mut ser_acc).unwrap();
-                    ser_acc.extend_from_slice(&tip.to_le_bytes());
-                    ser_acc.extend_from_slice(&end.to_le_bytes());
-                    std::fs::write(datadir + "/.sync_node_state", ser_acc)
-                        .expect("Failed to write sync node state");
-                    return;
-                }
-
-                // empty the file if we're done
-                std::fs::write(datadir + "/.sync_node_state", Vec::new())
-                    .expect("Failed to write sync node state");
-
-                for block in chain.list_valid_blocks() {
-                    outer_chain
-                        .mark_block_as_valid(block.block_hash())
-                        .expect("Failed to mark block as valid");
-                }
-
-                info!("Backfilling task shutting down...");
-            },
-        );
-
-        tokio::task::spawn(fut);
-        Ok(true)
-    }
 
     pub async fn run(mut self, stop_signal: futures::channel::oneshot::Sender<()>) {
         try_and_warn!(self.init_peers().await);
@@ -362,6 +343,7 @@ where
             common: ibd.common,
             context: self.context,
         };
+
 
         if *self.kill_signal.read().await {
             self.shutdown().await;
@@ -381,6 +363,36 @@ where
             false => false,
         };
 
+        let active_backfilling  = backfill_node.run(       move |chain: &PartialChainState| {
+            if chain.has_invalid_blocks() {
+                panic!("We assumed a chain with invalid blocks, something went really wrong");
+            }
+
+            // we haven't finished the backfill yet, save the current state for the next run
+            if chain.is_in_ibd() {
+                let acc = chain.get_acc();
+                let tip = chain.get_height().unwrap();
+                let mut ser_acc = Vec::new();
+                acc.serialize(&mut ser_acc).unwrap();
+                ser_acc.extend_from_slice(&tip.to_le_bytes());
+                ser_acc.extend_from_slice(&end.to_le_bytes());
+                std::fs::write(datadir + "/.sync_node_state", ser_acc)
+                    .expect("Failed to write sync node state");
+                return;
+            }
+
+            // empty the file if we're done
+            std::fs::write(datadir + "/.sync_node_state", Vec::new())
+                .expect("Failed to write sync node state");
+
+            for block in chain.list_valid_blocks() {
+                outer_chain
+                    .mark_block_as_valid(block.block_hash())
+                    .expect("Failed to mark block as valid");
+            }
+
+            info!("Backfilling task shutting down...");
+        });
         // Catch up with the network, downloading blocks from our last validation index to the tip
         info!("Catching up with the network...");
         self = match self.catch_up().await {
