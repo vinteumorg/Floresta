@@ -75,7 +75,7 @@ const DNS_SEED_RETRY_PERIOD: Duration = Duration::from_secs(5 * 60);
 pub enum NodeNotification {
     DnsSeedAddresses(Vec<LocalAddress>),
     FromPeer(u32, PeerMessages),
-    FromUser(UserRequest, tokio::sync::oneshot::Sender<NodeResponse>),
+    FromUser(UserRequest, oneshot::Sender<NodeResponse>),
 }
 
 #[derive(Debug, Clone, PartialEq, Hash)]
@@ -176,6 +176,7 @@ pub struct NodeCommon<Chain: ChainBackend> {
     pub(crate) peer_by_service: HashMap<ServiceFlags, Vec<u32>>,
     pub(crate) max_banscore: u32,
     pub(crate) address_man: AddressMan,
+    pub(crate) added_peers: Vec<AddedPeerInfo>,
 
     // 3. Internal Communication
     pub(crate) node_rx: UnboundedReceiver<NodeNotification>,
@@ -235,6 +236,19 @@ impl<T, Chain: ChainBackend> DerefMut for UtreexoNode<Chain, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.common
     }
+}
+
+#[derive(Debug, Clone)]
+/// A simple struct of added peers, used to track the ones we added manually by `addnode <ip:port> add` command.
+pub struct AddedPeerInfo {
+    /// The address of the peer
+    pub(crate) address: AddrV2,
+
+    /// The port of the peer
+    pub(crate) port: u16,
+
+    /// The transport protocol used to connect to the peer (either [`TransportProtocol::V1`] or [`TransportProtocol::V2`])
+    pub(crate) transport_protocol: TransportProtocol,
 }
 
 #[derive(Debug, PartialEq, Clone, Copy, Deserialize, Serialize)]
@@ -301,6 +315,7 @@ where
                 fixed_peer,
                 config,
                 kill_signal,
+                added_peers: Vec::new(),
             },
             context: T::default(),
         })
@@ -362,7 +377,7 @@ where
 
     /// Handles getpeerinfo requests, returning a list of all connected peers and some useful
     /// information about it.
-    fn handle_get_peer_info(&self, responder: tokio::sync::oneshot::Sender<NodeResponse>) {
+    fn handle_get_peer_info(&self, responder: oneshot::Sender<NodeResponse>) {
         let mut peers = Vec::new();
         for peer in self.peer_ids.iter() {
             peers.push(self.get_peer_info(peer));
@@ -372,6 +387,110 @@ where
         responder.send(NodeResponse::GetPeerInfo(peers)).unwrap();
     }
 
+    // Helper function to resolve an IpAddr to AddrV2
+    // This is a little bit of a hack while rust-bitcoin
+    // do not have an `from` or `into` that do IpAddr <> AddrV2
+    fn to_addr_v2(&self, addr: IpAddr) -> AddrV2 {
+        match addr {
+            IpAddr::V4(addr) => AddrV2::Ipv4(addr),
+            IpAddr::V6(addr) => AddrV2::Ipv6(addr),
+        }
+    }
+
+    /// Handles addnode add requests, adding a new peer to the node and add a node to the added_node list.
+    /// This means the node is marked as a "manually added node" for future connection attempts does not directly establish a connection to the node.
+    /// Instead, the connection management process will attempt to connect to the manually added nodes in the background
+    pub fn handle_addnode_add_peer(
+        &mut self,
+        addr: IpAddr,
+        port: u16,
+        transport_protocol: TransportProtocol,
+    ) -> Result<(), WireError> {
+        // See https://github.com/bitcoin/bitcoin/blob/8309a9747a8df96517970841b3648937d05939a3/src/net.cpp#L3558
+        debug!("Trying to add peer {addr}:{port} with transport_protocol={transport_protocol:?}");
+        let address = self.to_addr_v2(addr);
+
+        // Check if the peer already exists
+        if self
+            .added_peers
+            .iter()
+            .any(|info| address == info.address && port == info.port)
+        {
+            return Err(WireError::PeerAlreadyExists(addr, port));
+        }
+
+        // Add a simple reference to the peer
+        self.added_peers.push(AddedPeerInfo {
+            address,
+            port,
+            transport_protocol,
+        });
+        Ok(())
+    }
+
+    /// Handles remove node requests, removing a peer from the node.
+    ///
+    /// Removes a node from the [`added_peers`] list but does not
+    /// disconnect the node if it was already connected.  It only ensures
+    /// that the node is no longer treated as a manually added node
+    /// (i.e., it won't be reconnected if disconnected).
+    ///
+    /// If someone wants to remove a peer, it should be done using the
+    /// `disconnectnode`.
+    pub fn handle_addnode_remove_peer(&mut self, addr: IpAddr, port: u16) -> Result<(), WireError> {
+        //
+        // (TODO) Make `disconnectnode`` command.
+        debug!("Trying to remove peer {addr}:{port}");
+
+        let address = self.to_addr_v2(addr);
+        let index = self
+            .added_peers
+            .iter()
+            .position(|info| address == info.address && port == info.port);
+
+        match index {
+            Some(peer_id) => self.added_peers.remove(peer_id),
+            None => return Err(WireError::PeerNotFoundAtAddress(addr, port)),
+        };
+
+        Ok(())
+    }
+
+    /// Handles addnode onetry requests, connecting to the node and this will try to connect to the given address and port.
+    /// If it's successful, it will add the node to the peers list, but not to the added_peers list (e.g., it won't be reconnected if disconnected).
+    pub async fn handle_addnode_onetry_peer(
+        &mut self,
+        addr: IpAddr,
+        port: u16,
+        transport_protocol: TransportProtocol,
+    ) -> Result<(), WireError> {
+        debug!("Trying to connect to peer {addr}:{port} with transport_protocol={transport_protocol:?}");
+
+        // Check if the peer already exists
+        if self
+            .peers
+            .iter()
+            .any(|(_, peer)| addr == peer.address && port == peer.port)
+        {
+            return Err(WireError::PeerAlreadyExists(addr, port));
+        }
+
+        let kind = ConnectionKind::Regular(ServiceFlags::NONE);
+        let peer_id = self.peer_id_count;
+        let address = LocalAddress::new(
+            self.to_addr_v2(addr),
+            0,
+            AddressState::NeverTried,
+            ServiceFlags::NONE,
+            port,
+            peer_id as usize,
+        );
+
+        // Return true if exists or false if anything fails during connection
+        self.open_connection(kind, peer_id as usize, address, transport_protocol)
+            .await
+    }
+
     /// Actually perform the user request
     ///
     /// These are requests made by some consumer of `floresta-wire` using the [`NodeInterface`], and may
@@ -379,7 +498,7 @@ where
     pub(crate) async fn perform_user_request(
         &mut self,
         user_req: UserRequest,
-        responder: tokio::sync::oneshot::Sender<NodeResponse>,
+        responder: oneshot::Sender<NodeResponse>,
     ) {
         if self.inflight.len() >= RunningNode::MAX_INFLIGHT_REQUESTS {
             return;
@@ -395,24 +514,65 @@ where
                 self.handle_get_peer_info(responder);
                 return;
             }
-            UserRequest::Connect((addr, port)) => {
-                let addr_v2 = match addr {
-                    IpAddr::V4(addr) => AddrV2::Ipv4(addr),
-                    IpAddr::V6(addr) => AddrV2::Ipv6(addr),
+            UserRequest::Add((addr, port, v2transport)) => {
+                let transport_protocol = if v2transport {
+                    TransportProtocol::V2
+                } else {
+                    TransportProtocol::V1
                 };
-                let local_addr = LocalAddress::new(
-                    addr_v2,
-                    0,
-                    AddressState::NeverTried,
-                    0.into(),
-                    port,
-                    self.peer_id_count as usize,
-                );
-                self.open_connection(ConnectionKind::Regular(ServiceFlags::NONE), 0, local_addr)
-                    .await;
-                self.peer_id_count += 1;
 
-                let _ = responder.send(NodeResponse::Connect(true));
+                let node_response =
+                    match self.handle_addnode_add_peer(addr, port, transport_protocol) {
+                        Ok(_) => {
+                            info!("Added peer {addr}:{port}");
+                            NodeResponse::Add(true)
+                        }
+                        Err(err) => {
+                            warn!("{err:?}");
+                            NodeResponse::Add(false)
+                        }
+                    };
+
+                let _ = responder.send(node_response);
+                return;
+            }
+            UserRequest::Remove((addr, port)) => {
+                let node_response = match self.handle_addnode_remove_peer(addr, port) {
+                    Ok(_) => {
+                        info!("Removed peer {addr}:{port}");
+                        NodeResponse::Remove(true)
+                    }
+                    Err(err) => {
+                        warn!("{err:?}");
+                        NodeResponse::Remove(false)
+                    }
+                };
+
+                let _ = responder.send(node_response);
+                return;
+            }
+            UserRequest::Onetry((addr, port, v2transport)) => {
+                let transport_protocol = if v2transport {
+                    TransportProtocol::V2
+                } else {
+                    TransportProtocol::V1
+                };
+
+                let node_response = match self
+                    .handle_addnode_onetry_peer(addr, port, transport_protocol)
+                    .await
+                {
+                    Ok(_) => {
+                        info!("Connected to peer {addr}:{port}");
+                        NodeResponse::Onetry(true)
+                    }
+                    Err(err) => {
+                        warn!("{err:?}");
+                        NodeResponse::Onetry(false)
+                    }
+                };
+
+                let _ = responder.send(node_response);
                 return;
             }
         };
@@ -1025,8 +1185,13 @@ where
         }
 
         for address in anchors {
-            self.open_connection(ConnectionKind::Regular(UTREEXO.into()), address.id, address)
-                .await;
+            self.open_connection(
+                ConnectionKind::Regular(UTREEXO.into()),
+                address.id,
+                address,
+                TransportProtocol::V1, // Default to V1, will be updated when peer is ready,
+            )
+            .await?;
         }
 
         Ok(())
@@ -1181,6 +1346,46 @@ where
         self.address_man.add_fixed_addresses(net);
     }
 
+    pub(crate) async fn maybe_open_connection_with_added_peers(&mut self) -> Result<(), WireError> {
+        if self.added_peers.is_empty() {
+            return Ok(());
+        }
+
+        let peers_count = self.peer_id_count;
+        for added_peer in self.added_peers.clone() {
+            let matching_peer = self.peers.values().find(|peer| {
+                self.to_addr_v2(peer.address) == added_peer.address && peer.port == added_peer.port
+            });
+
+            if matching_peer.is_none() {
+                let address = LocalAddress::new(
+                    added_peer.address.clone(),
+                    0,
+                    AddressState::Tried(
+                        SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap()
+                            .as_secs(),
+                    ),
+                    ServiceFlags::NONE,
+                    added_peer.port,
+                    peers_count as usize,
+                );
+
+                // Finally, open the connection with the node
+                self.open_connection(
+                    ConnectionKind::Regular(ServiceFlags::NONE),
+                    peers_count as usize,
+                    address,
+                    added_peer.transport_protocol,
+                )
+                .await?
+            }
+        }
+
+        Ok(())
+    }
+
     pub(crate) async fn maybe_open_connection(
         &mut self,
         required_service: ServiceFlags,
@@ -1195,6 +1400,9 @@ where
         // working. Try getting some more addresses from DNS
         self.maybe_ask_for_dns_peers();
         self.maybe_use_hadcoded_addresses();
+
+        // try to connect with mannually added peers
+        self.maybe_open_connection_with_added_peers().await?;
 
         let connection_kind = ConnectionKind::Regular(required_service);
         if self.peers.len() < T::MAX_OUTGOING_PEERS {
@@ -1273,7 +1481,11 @@ where
         {
             return None;
         }
-        self.open_connection(kind, peer_id, address).await;
+
+        // Default to V1, will be updated when peer is ready.)
+        self.open_connection(kind, peer_id, address, TransportProtocol::V1)
+            .await
+            .ok()?;
 
         Some(())
     }
@@ -1368,15 +1580,18 @@ where
         Ok(())
     }
 
-    /// Creates a new outgoing connection with `address`. Connection may or may not be feeler,
-    /// a special connection type that is used to learn about good peers, but are not kept after
-    /// handshake.
+    /// Creates a new outgoing connection with `address`. The [`kind`] may or may not  be a
+    /// a [`ConnectionKind::Feeler`], a special connection type that is used to learn about
+    /// good peers, but are not kept after handshake (others are [`ConnectionKind::Regular`] and
+    /// [`ConnectionKind::Extra`]). The `transport_protocol` identify the version of the
+    /// transport protocol used, either [`TransportProtocol::V1`] or [`TransportProtocol::V2`].
     pub(crate) async fn open_connection(
         &mut self,
         kind: ConnectionKind,
         peer_id: usize,
         address: LocalAddress,
-    ) {
+        transport_protocol: TransportProtocol,
+    ) -> Result<(), WireError> {
         let (requests_tx, requests_rx) = unbounded_channel();
         if let Some(ref proxy) = self.socks5 {
             spawn(timeout(
@@ -1434,11 +1649,16 @@ where
                 address_id: peer_id as u32,
                 height: 0,
                 banscore: 0,
-                transport_protocol: TransportProtocol::V1, // Default to V1, will be updated when peer is ready.
+                transport_protocol,
             },
         );
 
+        // Increment peer_id count and the list of peer ids
+        // so we can get information about connected or
+        // added peers when requesting with getpeerinfo command
         self.peer_id_count += 1;
+
+        Ok(())
     }
 }
 

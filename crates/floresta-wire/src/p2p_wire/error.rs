@@ -2,6 +2,7 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::fmt::{self};
 use std::io;
+use std::net::IpAddr;
 
 use floresta_chain::BlockchainError;
 use floresta_common::impl_error_from;
@@ -30,6 +31,10 @@ pub enum WireError {
     PeerMisbehaving,
     #[error("Failed to init Utreexo peers: anchors.json does not exist yet")]
     AnchorFileNotFound,
+    #[error("Peer {0}:{1} already exists")]
+    PeerAlreadyExists(IpAddr, u16),
+    #[error("Peer {0}:{1} not found")]
+    PeerNotFoundAtAddress(IpAddr, u16),
     #[error("Generic io error: {0}")]
     Io(std::io::Error),
     #[error("{0}")]
