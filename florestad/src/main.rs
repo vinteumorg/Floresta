@@ -35,8 +35,7 @@ fn main() {
     let params = Cli::parse();
 
     let config = Config {
-        disable_dns_seeds:  params.connect.is_some(), // don't use DNS seeds if we are connecting
-                                                      // to a specific peer
+        disable_dns_seeds: params.connect.is_some() || params.disable_dns_seeds,
         network: params.network.into(),
         debug: params.debug,
         data_dir: params.data_dir.clone(),

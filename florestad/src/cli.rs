@@ -54,6 +54,10 @@ impl std::fmt::Display for Network {
     long_about = env!("LONG_VERSION"),
 )]
 pub struct Cli {
+    #[arg(long, default_value_t = false)]
+    /// Whether to disable DNS seeds
+    pub disable_dns_seeds: bool,
+
     #[arg(short, long, value_name = "FILE")]
     /// Sets a custom config file
     pub config_file: Option<String>,
