@@ -76,7 +76,7 @@ const DNS_SEED_RETRY_PERIOD: Duration = Duration::from_secs(5 * 60);
 pub enum NodeNotification {
     DnsSeedAddresses(Vec<LocalAddress>),
     FromPeer(u32, PeerMessages),
-    FromUser(UserRequest, tokio::sync::oneshot::Sender<NodeResponse>),
+    FromUser(UserRequest, oneshot::Sender<NodeResponse>),
 }
 
 #[derive(Debug, Clone, PartialEq, Hash)]
@@ -209,9 +209,19 @@ pub struct NodeCommon<Chain: BlockchainInterface + UpdatableChainstate> {
     pub(crate) kill_signal: Arc<tokio::sync::RwLock<bool>>,
 }
 
+/// A simple struct of added peers,
+/// used to track the ones we added manually
+/// by `addnode <ip:port> add` command.
+#[derive(Debug, Clone)]
+pub struct AddedPeerInfo {
+    pub(crate) address: LocalAddress,
+    pub(crate) transport_protocol: TransportProtocol,
+}
+
 pub struct UtreexoNode<Chain: BlockchainInterface + UpdatableChainstate, Context> {
     pub(crate) common: NodeCommon<Chain>,
     pub(crate) context: Context,
+    pub(crate) added_peers: Vec<AddedPeerInfo>,
 }
 
 impl<Chain: BlockchainInterface + UpdatableChainstate, T> Deref for UtreexoNode<Chain, T> {
@@ -295,6 +305,7 @@ where
                 kill_signal,
             },
             context: T::default(),
+            added_peers: Vec::new(),
         })
     }
 
@@ -354,14 +365,186 @@ where
 
     /// Handles getpeerinfo requests, returning a list of all connected peers and some useful
     /// information about it.
-    fn handle_get_peer_info(&self, responder: tokio::sync::oneshot::Sender<NodeResponse>) {
+    fn handle_get_peer_info(&self, responder: oneshot::Sender<NodeResponse>) {
         let mut peers = Vec::new();
         for peer in self.peer_ids.iter() {
+            info!("Peer {peer} info requested");
             peers.push(self.get_peer_info(peer));
         }
 
         let peers = peers.into_iter().flatten().collect();
         responder.send(NodeResponse::GetPeerInfo(peers)).unwrap();
+    }
+
+    /// Handles addnode requests, adding a new peer to the node.
+    ///
+    /// This function will try to connect to the given address and port, and if it succeeds,
+    /// it will add the peer to the node and send a bool true to requester. If it fails, it will
+    /// send a bool false to requester.
+    ///
+    /// You can either use [`TransportProtocol::V1`] or [`TransportProtocol::V2`] to specify the
+    /// transport protocol to use. If you don't specify it, it will use [`TransportProtocol::V1`].
+    /// It can be specified using a boolean value in `addnode <node> <add|remove|onetry> true`.
+    ///
+    /// If [`insert_peer`] is true, it will add the peer to the node (used by `addnode <node> add` command). If
+    /// it's false, it will only try to connect to the peer (used by `addnode <node> onetry` command).
+    pub async fn handle_connect_peer(
+        &mut self,
+        responder: oneshot::Sender<NodeResponse>,
+        addr: IpAddr,
+        port: u16,
+        v2transport: bool,
+        insert_peer: bool,
+    ) -> Result<(), WireError> {
+        debug!("Trying to add peer {addr}:{port} with _v2transport={v2transport}");
+
+        let kind = ConnectionKind::Regular(ServiceFlags::NONE);
+
+        let peer_id = self.peer_id_count;
+
+        let addr_v2 = match addr {
+            IpAddr::V4(addr) => AddrV2::Ipv4(addr),
+            IpAddr::V6(addr) => AddrV2::Ipv6(addr),
+        };
+
+        let address = LocalAddress::new(
+            addr_v2,
+            0,
+            AddressState::NeverTried,
+            0.into(),
+            port,
+            self.peer_id_count as usize,
+        );
+
+        let transport_protocol = if v2transport {
+            TransportProtocol::V2
+        } else {
+            TransportProtocol::V1
+        };
+
+        let response = match self
+            .open_connection(
+                kind,
+                peer_id as usize,
+                address,
+                transport_protocol,
+                insert_peer,
+            )
+            .await
+        {
+            Ok(value) => {
+                if insert_peer {
+                    info!("Peer {peer_id} ({addr}:{port}) added");
+                    NodeResponse::Add(Some(value))
+                } else {
+                    info!("Peer {peer_id} ({addr}:{port}) connected");
+                    NodeResponse::Onetry(Some(value))
+                }
+            }
+            Err(err) => {
+                warn!("{err:?}: {addr}:{port}");
+                if insert_peer {
+                    NodeResponse::Add(None)
+                } else {
+                    NodeResponse::Onetry(None)
+                }
+            }
+        };
+
+        responder
+            .send(response)
+            .map_err(|_| WireError::ResponseSendError)?;
+
+        Ok(())
+    }
+
+    /// Handles remove node requests, removing a peer from the node.
+    ///
+    /// This function will try to disconnect from the given address and port, and if it succeeds,
+    /// it will remove the peer from the node and send a bool true to requester. If it fails, it will
+    /// send a bool false to requester.
+    pub async fn handle_disconnect_peer(
+        &mut self,
+        addr: IpAddr,
+        port: u16,
+        responder: oneshot::Sender<NodeResponse>,
+    ) -> Result<(), WireError> {
+        // First, lets find the requested peer to remove
+        // if it not find any, respond with false
+        let addr_v2 = match addr {
+            IpAddr::V4(a) => AddrV2::Ipv4(a),
+            IpAddr::V6(a) => AddrV2::Ipv6(a),
+        };
+
+        let (peer_id, view) = match self.peers.iter().find(|(_, p)| {
+            let peer_addr_v2 = match p.address {
+                IpAddr::V4(a) => AddrV2::Ipv4(a),
+                IpAddr::V6(a) => AddrV2::Ipv6(a),
+            };
+            peer_addr_v2 == addr_v2 && p.port == port
+        }) {
+            Some((&id, p)) => (id, p.clone()),
+            None => {
+                warn!("Peer {addr}:{port} not found in the list of known peers");
+                responder
+                    .send(NodeResponse::Remove(None))
+                    .map_err(|_| WireError::ResponseSendError)?;
+                return Ok(());
+            }
+        };
+
+        // If the requested peer is found in the list of mannually added peers
+        // we need send a NodeRequest::Shutdown.
+        let was_manually_added = self.added_peers.iter().any(|info| {
+            info.address.get_net_address() == view.address && info.address.get_port() == view.port
+        });
+
+        // The remotion only occurs if the peer was mannualy added
+        let response = if was_manually_added {
+            self.send_to_peer(peer_id, NodeRequest::Shutdown)
+                .await
+                .map_err(|_| WireError::ResponseSendError)?;
+
+            // After shutting down, we need to wait for the peer to disconnect and then
+            // remove it from added_peers and peers list and drop the peer channel.
+            let removed_peer = self.peers.remove(&peer_id);
+            let removed_from_added = {
+                let before = self.added_peers.len();
+                self.added_peers.retain(|p| {
+                    p.address.get_net_address() != view.address || p.address.get_port() != view.port
+                });
+                before != self.added_peers.len()
+            };
+
+            let was_removed = was_manually_added && (removed_peer.is_some() || removed_from_added);
+
+            if let Some(peer) = removed_peer {
+                std::mem::drop(peer.channel);
+                info!("Peer {peer_id} removed from known peers");
+            }
+
+            // Remotion will be only successful if are mannually added and being in
+            // peers list. If all is successful send a NodeResponse::Remove(Some()),
+            // otherwise, send NodeResponse::Remove(None)
+            NodeResponse::Remove({
+                if was_removed {
+                    Some(())
+                } else {
+                    None
+                }
+            })
+        } else {
+            // If the peer was not manually added,
+            // Do nothing, but warn the user about it.
+            warn!("Peer {addr}:{port} not manually added, can't remove it");
+            NodeResponse::Remove(None)
+        };
+
+        responder
+            .send(response)
+            .map_err(|_| WireError::ResponseSendError)?;
+
+        Ok(())
     }
 
     /// Actually perform the user request
@@ -371,7 +554,7 @@ where
     pub(crate) async fn perform_user_request(
         &mut self,
         user_req: UserRequest,
-        responder: tokio::sync::oneshot::Sender<NodeResponse>,
+        responder: oneshot::Sender<NodeResponse>,
     ) {
         debug!("Performing user request {user_req:?}");
         if self.inflight.len() >= RunningNode::MAX_INFLIGHT_REQUESTS {
@@ -386,24 +569,25 @@ where
                 self.handle_get_peer_info(responder);
                 return;
             }
-            UserRequest::Connect((addr, port)) => {
-                let addr_v2 = match addr {
-                    IpAddr::V4(addr) => AddrV2::Ipv4(addr),
-                    IpAddr::V6(addr) => AddrV2::Ipv6(addr),
-                };
-                let local_addr = LocalAddress::new(
-                    addr_v2,
-                    0,
-                    AddressState::NeverTried,
-                    0.into(),
-                    port,
-                    self.peer_id_count as usize,
-                );
-                self.open_connection(ConnectionKind::Regular(ServiceFlags::NONE), 0, local_addr)
-                    .await;
-                self.peer_id_count += 1;
-
-                let _ = responder.send(NodeResponse::Connect(true));
+            UserRequest::Add((addr, port, v2transport)) => {
+                let _ = self
+                    .handle_connect_peer(responder, addr, port, v2transport, true)
+                    .await
+                    .map_err(|_| WireError::ResponseSendError);
+                return;
+            }
+            UserRequest::Remove((addr, port)) => {
+                let _ = self
+                    .handle_disconnect_peer(addr, port, responder)
+                    .await
+                    .map_err(|_| WireError::ResponseSendError);
+                return;
+            }
+            UserRequest::Onetry((addr, port, _v2transport)) => {
+                let _ = self
+                    .handle_connect_peer(responder, addr, port, _v2transport, false)
+                    .await
+                    .map_err(|_| WireError::ResponseSendError);
                 return;
             }
         };
@@ -635,6 +819,10 @@ where
             user_agent: peer.user_agent.clone(),
             initial_height: peer.height,
             transport_protocol: peer.transport_protocol,
+            oneshot: !self.added_peers.iter().any(|info| {
+                info.address.get_net_address() == peer.address
+                    && info.address.get_port() == peer.port
+            }),
         })
     }
 
@@ -655,6 +843,51 @@ where
             std::mem::drop(p.channel);
             if matches!(p.kind, ConnectionKind::Regular(_)) && p.state == PeerStatus::Ready {
                 info!("Peer disconnected: {}", peer);
+
+                // if the disconnected peer is in the added peers list,
+                // this peer should be able to retry a reconnection
+                let added_peer = self.added_peers.iter().find(|&p| {
+                    let addr = p.address.get_net_address();
+                    let port = p.address.get_port();
+                    addr == p.address.get_net_address() && port == p.address.get_port()
+                });
+
+                if added_peer.is_some() {
+                    // track the address as failed and when happened. This could
+                    // be used to track something like a ban time
+                    let state = AddressState::Failed(
+                        SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap()
+                            .as_secs(),
+                    );
+
+                    let addr_v2 = match p.address {
+                        IpAddr::V4(addr) => AddrV2::Ipv4(addr),
+                        IpAddr::V6(addr) => AddrV2::Ipv6(addr),
+                    };
+
+                    let address = LocalAddress::new(
+                        addr_v2,
+                        0,
+                        state,
+                        p.services,
+                        p.port,
+                        self.peer_id_count as usize,
+                    );
+
+                    // try to reconnect to the peer
+                    // but do not add it to the list of peers
+                    // since it is already added to the list
+                    self.open_connection(
+                        p.kind,
+                        peer as usize,
+                        address,
+                        p.transport_protocol,
+                        false,
+                    )
+                    .await?;
+                }
             }
 
             let now = SystemTime::now()
@@ -1005,8 +1238,14 @@ where
         }
 
         for address in anchors {
-            self.open_connection(ConnectionKind::Regular(UTREEXO.into()), address.id, address)
-                .await;
+            self.open_connection(
+                ConnectionKind::Regular(UTREEXO.into()),
+                address.id,
+                address,
+                TransportProtocol::V1, // Default to V1, will be updated when peer is ready.
+                true,
+            )
+            .await?;
         }
 
         Ok(())
@@ -1176,6 +1415,36 @@ where
         self.maybe_ask_for_dns_peers();
         self.maybe_use_hadcoded_addresses();
 
+        // Do an extra check for added_peers
+        // if any of them wasn't connected, we try to connect with them
+        // again, because if we get an timeout , handle_disconnection
+        // will not be called.
+        let need_reconnect = self
+            .added_peers
+            .iter()
+            .filter_map(|info| {
+                let address = info.address.get_net_address();
+                let port = info.address.get_port();
+                let kind = ConnectionKind::Regular(required_service);
+                let transport = info.transport_protocol;
+
+                self.peers.iter().find_map(|(&id, peer)| {
+                    let is_same = peer.address == address && peer.port == port;
+                    let is_stale = matches!(peer.state, PeerStatus::Awaiting | PeerStatus::Ready);
+                    if is_same && is_stale {
+                        Some((id as usize, kind, info.address.clone(), transport))
+                    } else {
+                        None
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+
+        for (peer_id, kind, address, transport_protocol) in need_reconnect {
+            self.open_connection(kind, peer_id, address, transport_protocol, false)
+                .await?;
+        }
+
         let connection_kind = ConnectionKind::Regular(required_service);
         if self.peers.len() < T::MAX_OUTGOING_PEERS {
             self.create_connection(connection_kind).await;
@@ -1256,7 +1525,16 @@ where
         {
             return None;
         }
-        self.open_connection(kind, peer_id, address).await;
+
+        let _ = self
+            .open_connection(
+                kind,
+                peer_id,
+                address,
+                TransportProtocol::V1, // Default to V1, will be updated when peer is ready.
+                true,
+            )
+            .await;
 
         Some(())
     }
@@ -1351,15 +1629,41 @@ where
         Ok(())
     }
 
-    /// Creates a new outgoing connection with `address`. Connection may or may not be feeler,
-    /// a special connection type that is used to learn about good peers, but are not kept after
+    /// Creates a new outgoing connection with `address`.
+    ///
+    /// The `kind` is the type of connection, either a [`ConnectionKind::Regular`],
+    /// [`ConnectionKind::Extra`] or [`ConnectionKind::Feeler`]. The last one is a special
+    /// connection type that is used to learn about good peers, but are not kept after
     /// handshake.
+    ///
+    /// The `peer_id` is a `usize` used to identify the peer in the address manager.
+    ///
+    /// The `address` is a [`LocalAddress`] that contains the address and port of the peer.
+    ///
+    /// The `transport_protocol` is used to identify the protocol either by
+    /// [`TransportProtocol::V1`] or [`TransportProtocol::V2`].
+    ///
+    /// The `insert_peer` is a `bool` flag is used to determine if the peer should be
+    /// inserted into the list of known peers. If `insert_peer` is false, the peer will
+    /// not be inserted (used by command `floresta-cli addnode <addr> onetry`).
     pub(crate) async fn open_connection(
         &mut self,
         kind: ConnectionKind,
         peer_id: usize,
         address: LocalAddress,
-    ) {
+        transport_protocol: TransportProtocol,
+        insert_peer: bool,
+    ) -> Result<(), WireError> {
+        let peer_already_exists = self.peers.iter().any(|(_, view)| {
+            let addr_exists = view.address == address.get_net_address();
+            let port_exists = view.port == address.get_port();
+            addr_exists && port_exists
+        });
+
+        if peer_already_exists {
+            return Err(WireError::PeerAlreadyExists);
+        }
+
         let (requests_tx, requests_rx) = unbounded_channel();
         if let Some(ref proxy) = self.socks5 {
             spawn(timeout(
@@ -1417,11 +1721,36 @@ where
                 address_id: peer_id as u32,
                 height: 0,
                 banscore: 0,
-                transport_protocol: TransportProtocol::V1, // Default to V1, will be updated when peer is ready.
+                transport_protocol,
             },
         );
 
+        // Increment peer_id count and the list of peer ids
+        // so we can get information about connected or
+        // added peers when requesting with getpeerinfo command
+        self.peer_ids.push(peer_count);
         self.peer_id_count += 1;
+
+        if insert_peer {
+            // Check if the peer already exists
+            let added_peer_already_exists = self.added_peers.iter().any(|info| {
+                let addr_exists = info.address.get_net_address() == address.get_net_address();
+                let port_exists = info.address.get_port() == address.get_port();
+                addr_exists && port_exists
+            });
+
+            if added_peer_already_exists {
+                return Err(WireError::PeerAlreadyExists);
+            }
+
+            // Add a simple reference to the peer
+            self.added_peers.push(AddedPeerInfo {
+                address,
+                transport_protocol,
+            });
+        }
+
+        Ok(())
     }
 }
 

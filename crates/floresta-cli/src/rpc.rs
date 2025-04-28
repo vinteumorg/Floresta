@@ -104,7 +104,7 @@ pub trait FlorestaRPC {
     /// Tells florestad to connect with a peer
     ///
     /// You can use this to connect with a given node, providing it's IP address and port.
-    fn add_node(&self, node: String) -> Result<bool>;
+    fn add_node(&self, node: String, command: String, v2transport: bool) -> Result<()>;
     /// Finds an specific utxo in the chain
     ///
     /// You can use this to look for a utxo. If it exists, it will return the amount and
@@ -171,8 +171,15 @@ impl<T: JsonRPCClient> FlorestaRPC for T {
         self.call("getrpcinfo", &[])
     }
 
-    fn add_node(&self, node: String) -> Result<bool> {
-        self.call("addnode", &[Value::String(node)])
+    fn add_node(&self, node: String, command: String, v2transport: bool) -> Result<()> {
+        self.call(
+            "addnode",
+            &[
+                Value::String(node),
+                Value::String(command),
+                Value::Bool(v2transport),
+            ],
+        )
     }
 
     fn stop(&self) -> Result<String> {

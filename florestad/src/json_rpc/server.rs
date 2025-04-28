@@ -69,7 +69,12 @@ pub struct RpcImpl {
 type Result<T> = std::result::Result<T, Error>;
 
 impl RpcImpl {
-    async fn add_node(&self, node: String) -> Result<bool> {
+    async fn add_node(
+        &self,
+        node: String,
+        command: String,
+        v2transport: bool,
+    ) -> Result<Option<()>> {
         let node = node.split(':').collect::<Vec<&str>>();
         let (ip, port) = if node.len() == 2 {
             (node[0], node[1].parse().map_err(|_| Error::InvalidPort)?)
@@ -84,10 +89,29 @@ impl RpcImpl {
         };
 
         let peer = ip.parse().map_err(|_| Error::InvalidAddress)?;
-        self.node
-            .connect(peer, port)
-            .await
-            .map_err(|_| Error::Node("Failed to connect".to_string()))
+        let cmd = command.as_str();
+
+        let result = match cmd {
+            "add" => self
+                .node
+                .add_peer(peer, port, v2transport)
+                .await
+                .map_err(|_| Error::FailedToAddPeer(ip.to_string(), port))?,
+            "remove" => self
+                .node
+                .remove_peer(peer, port)
+                .await
+                .map_err(|_| Error::FailedToRemovePeer(ip.to_string(), port))?,
+
+            "onetry" => self
+                .node
+                .onetry_peer(peer, port, v2transport)
+                .await
+                .map_err(|_| Error::FailedToConnectPeer(ip.to_string(), port))?,
+            _ => return Err(Error::InvalidAddnodeCommand),
+        };
+
+        Ok(result)
     }
 
     fn get_transaction(&self, tx_id: Txid, verbosity: Option<bool>) -> Result<Value> {
@@ -336,8 +360,11 @@ async fn handle_json_rpc_request(req: Value, state: Arc<RpcImpl>) -> Result<serd
 
         "addnode" => {
             let node = params[0].as_str().ok_or(Error::InvalidAddress)?;
+            let command = params[1].as_str().ok_or(Error::InvalidAddnodeCommand)?;
+            let v2transport = params[2].as_bool().unwrap_or(false);
+
             state
-                .add_node(node.to_string())
+                .add_node(node.to_string(), command.to_string(), v2transport)
                 .await
                 .map(|v| ::serde_json::to_value(v).unwrap())
         }
@@ -394,6 +421,7 @@ fn get_http_error_code(err: &Error) -> u16 {
         | Error::MissingReq
         | Error::NoBlockFilters
         | Error::InvalidMemInfoMode
+        | Error::InvalidAddnodeCommand
         | Error::Wallet(_) => 400,
 
         // idunnolol
@@ -404,7 +432,10 @@ fn get_http_error_code(err: &Error) -> u16 {
         | Error::Node(_)
         | Error::Chain
         | Error::Encode
-        | Error::Filters(_) => 503,
+        | Error::Filters(_)
+        | Error::FailedToAddPeer(_, _)
+        | Error::FailedToRemovePeer(_, _)
+        | Error::FailedToConnectPeer(_, _) => 503,
     }
 }
 
@@ -429,6 +460,7 @@ fn get_json_rpc_error_code(err: &Error) -> i32 {
         | Error::TxNotFound
         | Error::BlockNotFound
         | Error::InvalidMemInfoMode
+        | Error::InvalidAddnodeCommand
         | Error::Wallet(_) => -32600,
 
         // server error
@@ -437,7 +469,10 @@ fn get_json_rpc_error_code(err: &Error) -> i32 {
         | Error::Chain
         | Error::Encode
         | Error::NoBlockFilters
-        | Error::Filters(_) => -32603,
+        | Error::Filters(_)
+        | Error::FailedToAddPeer(_, _)
+        | Error::FailedToRemovePeer(_, _)
+        | Error::FailedToConnectPeer(_, _) => -32603,
     }
 }
 

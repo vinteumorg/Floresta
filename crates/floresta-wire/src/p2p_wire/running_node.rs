@@ -107,6 +107,7 @@ where
         let sync = UtreexoNode {
             common: self.common,
             context: SyncNode::default(),
+            added_peers: self.added_peers.clone(),
         };
 
         let sync = sync.run(|_| {}).await;
@@ -114,6 +115,7 @@ where
         Ok(UtreexoNode {
             common: sync.common,
             context: self.context,
+            added_peers: self.added_peers.clone(),
         })
     }
 
@@ -281,6 +283,7 @@ where
         let mut ibd = UtreexoNode {
             common: self.common,
             context: ChainSelector::default(),
+            added_peers: self.added_peers.clone(),
         };
 
         try_and_log!(UtreexoNode::<Chain, ChainSelector>::run(&mut ibd).await);
@@ -288,6 +291,7 @@ where
         self = UtreexoNode {
             common: ibd.common,
             context: self.context,
+            added_peers: self.added_peers.clone(),
         };
 
         if *self.kill_signal.read().await {
