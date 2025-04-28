@@ -462,7 +462,7 @@ mod tests {
                         let txid = || spending_tx.compute_txid();
                         assert_eq!(inner, tx_err!(txid, CoinbaseNotMatured));
                     }
-                    e => panic!("Expected a TransactionError, but got: {:?}", e),
+                    e => panic!("Expected a TransactionError, but got: {e:?}"),
                 }
             }
         }
