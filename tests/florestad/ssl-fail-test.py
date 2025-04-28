@@ -6,9 +6,9 @@ This functional test checks the failure on connect to florestad's TLS port.
 
 import errno
 
-from test_framework.electrum_client import ElectrumClient
-from test_framework.floresta_rpc import REGTEST_RPC_SERVER
-from test_framework.test_framework import FlorestaTestFramework
+from test_framework import FlorestaTestFramework
+from test_framework.electrum.client import ElectrumClient
+from test_framework.rpc.floresta import REGTEST_RPC_SERVER
 
 
 class TestSslFailInitialization(FlorestaTestFramework):
@@ -24,8 +24,8 @@ class TestSslFailInitialization(FlorestaTestFramework):
         """
         Setup a single node without SSL
         """
-        TestSslFailInitialization.nodes[0] = self.add_node_settings(
-            chain="regtest", extra_args=[], rpcserver=REGTEST_RPC_SERVER, ssl=False
+        TestSslFailInitialization.nodes[0] = self.add_node(
+            extra_args=[], rpcserver=REGTEST_RPC_SERVER, ssl=False
         )
 
     def run_test(self):
@@ -34,16 +34,20 @@ class TestSslFailInitialization(FlorestaTestFramework):
         and assert a connection refused failure.
         """
         self.run_node(TestSslFailInitialization.nodes[0])
-        self.wait_for_rpc_connection(TestSslFailInitialization.nodes[0])
 
         # now try create a connection with an electrum client at default port
         # it must fail, since the TLS port isnt opened
         with self.assertRaises(ConnectionRefusedError) as exc:
-            TestSslFailInitialization.electrum = ElectrumClient("0.0.0.0", 50002)
+            self.log("Trying to connect to electrum client")
+            TestSslFailInitialization.electrum = ElectrumClient(
+                REGTEST_RPC_SERVER["host"], 50002
+            )
 
+        self.log("failed to connect to electrum client")
+        self.assertIsSome(exc.exception)
         self.assertEqual(exc.exception.errno, errno.ECONNREFUSED)
 
-        # Shutdown node
+        # stop the node
         self.stop_node(TestSslFailInitialization.nodes[0])
 
 

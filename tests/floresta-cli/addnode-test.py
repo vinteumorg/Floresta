@@ -7,16 +7,8 @@ This functional test cli utility to interact with a Floresta node with `addnode`
 import os
 import tempfile
 
-from test_framework.floresta_rpc import REGTEST_RPC_SERVER, JSONRPCError
-from test_framework.test_framework import FlorestaTestFramework
-
-# Setup a little node with another port
-ANOTHER_REGTEST_RPC_SERVER = {
-    "host": "127.0.0.1",
-    "port": 18443,
-    "user": "anotheruser",
-    "password": "anotherpassword",
-}
+from test_framework import FlorestaTestFramework
+from test_framework.rpc.floresta import REGTEST_RPC_SERVER
 
 
 class GetAddnodeIDBErrorTest(FlorestaTestFramework):
@@ -47,6 +39,8 @@ class GetAddnodeIDBErrorTest(FlorestaTestFramework):
         ),
     ]
 
+    # The port 50002 do not have any TLS meaning here,
+    # it's just another port for another node
     electrum_addrs = ["0.0.0.0:50001", "0.0.0.0:50002"]
     rpc_addrs = ["0.0.0.0:18442", "0.0.0.0:18443"]
     node_ibd_error = "Node is in initial block download, wait until it's finished"
@@ -56,24 +50,29 @@ class GetAddnodeIDBErrorTest(FlorestaTestFramework):
         Setup the two node florestad process with different data-dirs, electrum-addresses
         and rpc-addresses in the same regtest network
         """
-        GetAddnodeIDBErrorTest.nodes[0] = self.add_node_settings(
-            chain="regtest",
+        GetAddnodeIDBErrorTest.nodes[0] = self.add_node(
             extra_args=[
                 f"--data-dir={GetAddnodeIDBErrorTest.data_dirs[0]}",
                 f"--electrum-address={GetAddnodeIDBErrorTest.electrum_addrs[0]}",
                 f"--rpc-address={GetAddnodeIDBErrorTest.rpc_addrs[0]}",
             ],
             rpcserver=REGTEST_RPC_SERVER,
+            ssl=False,
         )
 
-        GetAddnodeIDBErrorTest.nodes[1] = self.add_node_settings(
-            chain="regtest",
+        GetAddnodeIDBErrorTest.nodes[1] = self.add_node(
             extra_args=[
                 f"--data-dir={GetAddnodeIDBErrorTest.data_dirs[1]}",
                 f"--electrum-address={GetAddnodeIDBErrorTest.electrum_addrs[1]}",
                 f"--rpc-address={GetAddnodeIDBErrorTest.rpc_addrs[1]}",
             ],
-            rpcserver=ANOTHER_REGTEST_RPC_SERVER,
+            rpcserver={
+                "host": "127.0.0.1",
+                "ports": {"rpc": 18443, "server": 50002},
+                "jsonrpc": "2.0",
+                "timeout": 10000,
+            },
+            ssl=False,
         )
 
     def run_test(self):
@@ -82,20 +81,21 @@ class GetAddnodeIDBErrorTest(FlorestaTestFramework):
         """
         # Start node
         self.run_node(GetAddnodeIDBErrorTest.nodes[0])
-        self.wait_for_rpc_connection(GetAddnodeIDBErrorTest.nodes[0])
+        node_0 = self.get_node(GetAddnodeIDBErrorTest.nodes[0])
 
         # start a second node
         self.run_node(GetAddnodeIDBErrorTest.nodes[1])
-        self.wait_for_rpc_connection(GetAddnodeIDBErrorTest.nodes[1])
+        node_1 = self.get_node(GetAddnodeIDBErrorTest.nodes[1])
 
         # Test assertions
-        node = self.get_node(GetAddnodeIDBErrorTest.nodes[0])
-        result = node.get_addnode(node="0.0.0.0:18443")
-        self.assertTrue(result)
+        result_0 = node_0.rpc.addnode(node="0.0.0.0:18443")
+        self.assertTrue(result_0)
 
-        # stop nodes
-        self.stop_node(GetAddnodeIDBErrorTest.nodes[1])
-        self.stop_node(GetAddnodeIDBErrorTest.nodes[0])
+        result_1 = node_1.rpc.addnode(node="0.0.0.0:18442")
+        self.assertTrue(result_1)
+
+        # stop both nodes
+        self.stop()
 
 
 if __name__ == "__main__":

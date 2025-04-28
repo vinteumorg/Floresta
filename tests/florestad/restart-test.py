@@ -9,10 +9,9 @@ The directories used between each power-on/power-off must not be corrupted.
 import filecmp
 import os
 import tempfile
-import time
 
-from test_framework.floresta_rpc import REGTEST_RPC_SERVER
-from test_framework.test_framework import FlorestaTestFramework
+from test_framework import FlorestaTestFramework
+from test_framework.rpc.floresta import REGTEST_RPC_SERVER
 
 
 class TestRestart(FlorestaTestFramework):
@@ -45,30 +44,37 @@ class TestRestart(FlorestaTestFramework):
         """
         Here we define setup for test
         """
-        TestRestart.indexes[0] = self.add_node_settings(
-            chain="regtest",
+        TestRestart.indexes[0] = self.add_node(
             extra_args=[f"--data-dir={TestRestart.data_dirs[0]}"],
             rpcserver=REGTEST_RPC_SERVER,
         )
-        TestRestart.indexes[1] = self.add_node_settings(
-            chain="regtest",
+        TestRestart.indexes[1] = self.add_node(
             extra_args=[f"--data-dir={TestRestart.data_dirs[1]}"],
             rpcserver=REGTEST_RPC_SERVER,
         )
 
     def run_test(self):
         """
-        Tests if we don't corrupt our data dir between restarts. This would have caught,
-        the error fixed in #9
+        Tests if we don't corrupt our data dir between restarts.
+        This would have caught, the error fixed in #9
         """
-        # start first node, wait and then kill
+        # start first node then stop
         self.run_node(TestRestart.indexes[0])
-        time.sleep(5.0)
+
+        # wait for some time before restarting
+        # this simulate a shutdown followed by a power-on.
+        # In a real world scenario, we need to wait for
+        # the node to be fully started before stopping it
+        # this is done by waiting for the RPC port (the run_node
+        # method does this for us, but let's wait a bit more)
+        node = self.get_node(TestRestart.indexes[0])
+        node.rpc.wait_for_connections(opened=True)
         self.stop_node(TestRestart.indexes[0])
 
-        # start second node, wait and then kill
+        # start second node then stop
         self.run_node(TestRestart.indexes[1])
-        time.sleep(5.0)
+        node = self.get_node(TestRestart.indexes[1])
+        node.rpc.wait_for_connections(opened=True)
         self.stop_node(TestRestart.indexes[1])
 
         # check for any corruption

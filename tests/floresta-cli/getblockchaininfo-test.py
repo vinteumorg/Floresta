@@ -4,8 +4,8 @@ floresta_cli_getblockchainfo.py
 This functional test cli utility to interact with a Floresta node with `getblockchaininfo`
 """
 
-from test_framework.floresta_rpc import REGTEST_RPC_SERVER
-from test_framework.test_framework import FlorestaTestFramework
+from test_framework import FlorestaTestFramework
+from test_framework.rpc.floresta import REGTEST_RPC_SERVER
 
 
 class GetBlockchaininfoTest(FlorestaTestFramework):
@@ -30,8 +30,8 @@ class GetBlockchaininfoTest(FlorestaTestFramework):
         """
         Setup a single node
         """
-        GetBlockchaininfoTest.nodes[0] = self.add_node_settings(
-            chain="regtest", extra_args=[], rpcserver=REGTEST_RPC_SERVER
+        GetBlockchaininfoTest.nodes[0] = self.add_node(
+            extra_args=[], rpcserver=REGTEST_RPC_SERVER
         )
 
     def run_test(self):
@@ -40,11 +40,11 @@ class GetBlockchaininfoTest(FlorestaTestFramework):
         """
         # Start node
         self.run_node(GetBlockchaininfoTest.nodes[0])
-        self.wait_for_rpc_connection(GetBlockchaininfoTest.nodes[0])
+        node = self.get_node(GetBlockchaininfoTest.nodes[0])
 
         # Test assertions
         node = self.get_node(GetBlockchaininfoTest.nodes[0])
-        response = node.get_blockchain_info()
+        response = node.rpc.get_blockchain_info()
         self.assertEqual(response["best_block"], GetBlockchaininfoTest.best_block)
         self.assertEqual(response["difficulty"], GetBlockchaininfoTest.difficulty)
         self.assertEqual(response["height"], GetBlockchaininfoTest.height)
@@ -59,7 +59,7 @@ class GetBlockchaininfoTest(FlorestaTestFramework):
         self.assertEqual(response["root_hashes"], GetBlockchaininfoTest.root_hashes)
         self.assertEqual(response["validated"], GetBlockchaininfoTest.validated)
 
-        # Shutdown node
+        # Stop the node
         self.stop_node(GetBlockchaininfoTest.nodes[0])
 
 

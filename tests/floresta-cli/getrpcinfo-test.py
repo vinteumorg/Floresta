@@ -7,8 +7,8 @@ This functional test cli utility to interact with a Floresta node with `getrpcin
 import os
 import tempfile
 
-from test_framework.floresta_rpc import REGTEST_RPC_SERVER
-from test_framework.test_framework import FlorestaTestFramework
+from test_framework import FlorestaTestFramework
+from test_framework.rpc.floresta import REGTEST_RPC_SERVER
 
 
 class GetRpcInfoTest(FlorestaTestFramework):
@@ -31,19 +31,24 @@ class GetRpcInfoTest(FlorestaTestFramework):
         Setup the two node florestad process with different data-dirs, electrum-addresses
         and rpc-addresses in the same regtest network
         """
-        GetRpcInfoTest.nodes[0] = self.add_node_settings(
-            chain="regtest",
+        GetRpcInfoTest.nodes[0] = self.add_node(
             extra_args=[
                 f"--data-dir={GetRpcInfoTest.data_dir}",
             ],
             rpcserver=REGTEST_RPC_SERVER,
         )
 
-    def test_rpcinfo_result(self, node):
+    def run_test(self):
         """
-        Test if the 'getrpcinfo' result was built correctly
+        Run JSONRPC server on first, wait to connect, then call `addnode ip[:port]`
         """
-        result = node.get_rpcinfo()
+        # Start node
+        self.run_node(GetRpcInfoTest.nodes[0])
+
+        # Test assertions
+        node = self.get_node(GetRpcInfoTest.nodes[0])
+
+        result = node.rpc.get_rpcinfo()
         self.assertIn("active_commands", result)
         self.assertIn("logpath", result)
         self.assertEqual(len(result["active_commands"]), 1)
@@ -58,19 +63,7 @@ class GetRpcInfoTest(FlorestaTestFramework):
             ),
         )
 
-    def run_test(self):
-        """
-        Run JSONRPC server on first, wait to connect, then call `addnode ip[:port]`
-        """
-        # Start node
-        self.run_node(GetRpcInfoTest.nodes[0])
-        self.wait_for_rpc_connection(GetRpcInfoTest.nodes[0])
-
-        # Test assertions
-        node = self.get_node(GetRpcInfoTest.nodes[0])
-        self.test_rpcinfo_result(node)
-
-        # Stop node
+        # stop node
         self.stop_node(GetRpcInfoTest.nodes[0])
 
 

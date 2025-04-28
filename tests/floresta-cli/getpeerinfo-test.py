@@ -4,8 +4,8 @@ floresta_cli_getpeerinfo.py
 This functional test cli utility to interact with a Floresta node with `getpeerinfo`
 """
 
-from test_framework.floresta_rpc import REGTEST_RPC_SERVER, JSONRPCError
-from test_framework.test_framework import FlorestaTestFramework
+from test_framework import FlorestaTestFramework
+from test_framework.rpc.floresta import REGTEST_RPC_SERVER
 
 
 class GetPeerInfoTest(FlorestaTestFramework):
@@ -21,8 +21,8 @@ class GetPeerInfoTest(FlorestaTestFramework):
         """
         Setup a single node
         """
-        GetPeerInfoTest.nodes[0] = self.add_node_settings(
-            chain="regtest", extra_args=[], rpcserver=REGTEST_RPC_SERVER
+        GetPeerInfoTest.nodes[0] = self.add_node(
+            extra_args=[], rpcserver=REGTEST_RPC_SERVER
         )
 
     def run_test(self):
@@ -31,14 +31,15 @@ class GetPeerInfoTest(FlorestaTestFramework):
         """
         # Start node
         self.run_node(GetPeerInfoTest.nodes[0])
-        self.wait_for_rpc_connection(GetPeerInfoTest.nodes[0])
 
         # Test assertions
         node = self.get_node(GetPeerInfoTest.nodes[0])
 
-        result = node.get_peerinfo()
+        result = node.rpc.get_peerinfo()
         self.assertIsSome(result)
         self.assertEqual(len(result), 0)
+
+        # stop the node
         self.stop_node(GetPeerInfoTest.nodes[0])
 
 
