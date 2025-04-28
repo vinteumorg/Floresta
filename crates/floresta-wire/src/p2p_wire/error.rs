@@ -30,6 +30,14 @@ pub enum WireError {
     PeerMisbehaving,
     #[error("Failed to init Utreexo peers: anchors.json does not exist yet")]
     AnchorFileNotFound,
+    #[error("Peer already exists")]
+    PeerAlreadyExists,
+    #[error("Failed to add peer")]
+    FailedToAddPeer,
+    #[error("Failed to remove peer")]
+    FailedToRemovePeer,
+    #[error("Failed to connect to peer once")]
+    FailedToConnectToPeer,
     #[error("Generic io error: {0}")]
     Io(std::io::Error),
     #[error("{0}")]
@@ -50,6 +58,8 @@ pub enum WireError {
     Transport(TransportError),
     #[error("Can't send back response for user request")]
     ResponseSendError,
+    #[error("Failed to open a connection to the peer")]
+    ConnectionFailed,
 }
 
 impl_error_from!(WireError, PeerError, PeerError);
