@@ -1,3 +1,5 @@
+use std::ops::Div;
+
 use bitcoin::block::Header;
 use bitcoin::consensus::encode::serialize_hex;
 use bitcoin::constants::genesis_block;
@@ -107,12 +109,39 @@ impl RpcImpl {
 
     // getblockchaininfo
     pub(super) fn get_blockchain_info(&self) -> Result<GetBlockchainInfoRes, RpcError> {
-        let (height, hash) = self.chain.get_best_block().unwrap();
-        let validated = self.chain.get_validation_index().unwrap();
-        let ibd = self.chain.is_in_ibd();
-        let latest_header = self.chain.get_block_header(&hash).unwrap();
-        let latest_work = latest_header.work();
-        let latest_block_time = latest_header.time;
+        let params = self.chain.get_params();
+        let chain = params.network.to_string();
+
+        let (blocks, bestblockhash) = self.chain.get_best_block().unwrap();
+
+        // This may not be very precise but these numbers should be equal all the time
+        let headers = blocks;
+
+        let latest_header = self.chain.get_block_header(&bestblockhash).unwrap();
+
+        let bestblockhash = bestblockhash.to_string();
+
+        let difficulty = latest_header.difficulty(params).to_string();
+
+        let mediantime = self.chain.get_mtp(None).unwrap();
+
+        let validated = self.chain.get_validation_index().unwrap() as f32;
+        let verificationprogress = validated.div(blocks as f32);
+
+        let initialblockdownload = self.chain.is_in_ibd();
+
+        let chainwork = latest_header.work().to_string();
+
+        let size_on_disk = self.chain.get_size_in_disk().unwrap();
+
+        // These will be hardcoded values since we still dont store
+        // any blocks.
+
+        let pruned = true;
+        let pruneheight: Option<u32> = Some(0);
+        let automatic_pruning = true;
+        let prune_target_size = 0;
+
         let leaf_count = self.chain.acc().leaves as u32;
         let root_count = self.chain.acc().roots.len() as u32;
         let root_hashes = self
@@ -122,22 +151,24 @@ impl RpcImpl {
             .into_iter()
             .map(|r| r.to_string())
             .collect();
-
-        let validated_blocks = self.chain.get_validation_index().unwrap();
-
         Ok(GetBlockchainInfoRes {
-            best_block: hash.to_string(),
-            height,
-            ibd,
-            validated,
-            latest_work: latest_work.to_string(),
-            latest_block_time,
+            chain,
+            blocks,
+            headers,
+            bestblockhash,
+            difficulty,
+            mediantime,
+            verificationprogress,
+            initialblockdownload,
+            chainwork,
+            size_on_disk,
+            pruned,
+            pruneheight,
+            automatic_pruning,
+            prune_target_size,
             leaf_count,
             root_count,
             root_hashes,
-            chain: self.network.to_string(),
-            difficulty: latest_header.difficulty(self.chain.get_params()) as u64,
-            progress: validated_blocks as f32 / height as f32,
         })
     }
 

@@ -190,6 +190,11 @@ impl<'a> KvChainStore<'a> {
 
 impl ChainStore for KvChainStore<'_> {
     type Error = kv::Error;
+    /// Calculate the size on disk of self
+    fn get_size(&self) -> Result<u64, Self::Error> {
+        self._store.size_on_disk()
+    }
+
     /// Loads the utreexo roots from the metadata bucket.
     fn load_roots(&self) -> Result<Option<Vec<u8>>, Self::Error> {
         self.meta.get(&"roots")

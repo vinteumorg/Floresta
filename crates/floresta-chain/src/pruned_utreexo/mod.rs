@@ -45,6 +45,11 @@ use crate::UtreexoBlock;
 /// It'll be useful for transitioning from rpc to a p2p based node
 pub trait BlockchainInterface {
     type Error: core2::error::Error + Send + Sync + 'static;
+    /// Returns the mtp for the given height, if height is None, it will return
+    /// the mtp of the Tip.
+    fn get_mtp(&self, height: Option<u32>) -> Result<u32, Self::Error>;
+    /// Returns the size that this blockchain occupies in disk
+    fn get_size_in_disk(&self) -> Result<usize, Self::Error>;
     /// Returns the block with a given height in our current tip.
     fn get_block_hash(&self, height: u32) -> Result<bitcoin::BlockHash, Self::Error>;
     /// Returns a bitcoin [Transaction] given it's txid.
@@ -201,6 +206,8 @@ pub trait ChainStore {
     fn flush(&self) -> Result<(), Self::Error>;
     /// Associates a block hash with a given height, so we can retrieve it later.
     fn update_block_index(&self, height: u32, hash: BlockHash) -> Result<(), Self::Error>;
+    /// Returns the size being occupied in bytes.
+    fn get_size(&self) -> Result<u64, Self::Error>;
 }
 
 #[derive(Debug, Clone)]
@@ -275,6 +282,13 @@ impl<T: UpdatableChainstate> UpdatableChainstate for Arc<T> {
 impl<T: BlockchainInterface> BlockchainInterface for Arc<T> {
     type Error = <T as BlockchainInterface>::Error;
 
+    fn get_size_in_disk(&self) -> Result<usize, Self::Error> {
+        T::get_size_in_disk(&self)
+    }
+
+    fn get_mtp(&self, height: Option<u32>) -> Result<u32, Self::Error> {
+        T::get_mtp(self, height)
+    }
     fn get_tx(&self, txid: &bitcoin::Txid) -> Result<Option<bitcoin::Transaction>, Self::Error> {
         T::get_tx(self, txid)
     }

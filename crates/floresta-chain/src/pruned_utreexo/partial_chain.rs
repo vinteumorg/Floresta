@@ -11,7 +11,7 @@
 //! This choice removes the use of costly atomic operations, but opens space for design flaws
 //! and memory unsoundness, so here are some tips about this module and how people looking for
 //! extend or use this code should proceed:
-//!   
+//!
 //!   - Shared ownership is forbidden: if you have two threads or tasks owning this, you'll have
 //!     data race. If you want to hold shared ownership for this module, you need to place a
 //!     [PartialChainState] inside an `Arc<Mutex>` yourself. Don't just Arc this and expect it to
@@ -366,6 +366,10 @@ impl UpdatableChainstate for PartialChainState {
 impl BlockchainInterface for PartialChainState {
     type Error = BlockchainError;
 
+    fn get_size_in_disk(&self) -> Result<usize, Self::Error> {
+        Ok(core::mem::size_of_val(self))
+    }
+
     fn get_params(&self) -> bitcoin::params::Params {
         self.inner().chain_params().params
     }
@@ -422,6 +426,13 @@ impl BlockchainInterface for PartialChainState {
         }
 
         Ok(hashes)
+    }
+
+    // MTP for partial chainstate is completely possible but
+    // its implementation was not needed on the PR that introduced
+    // get_mtp to BlockChainInterface
+    fn get_mtp(&self, _height: Option<u32>) -> Result<u32, Self::Error> {
+        unimplemented!("PartialChainState::get_mtp")
     }
 
     // partial chain states are only used for IBD, so we don't need to implement these

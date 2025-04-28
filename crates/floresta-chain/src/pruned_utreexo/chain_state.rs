@@ -825,6 +825,56 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
 
 impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedState> {
     type Error = BlockchainError;
+    fn get_size_in_disk(&self) -> Result<usize, Self::Error> {
+        let inner = self.inner.read();
+        Ok(inner.chainstore.get_size()? as usize)
+    }
+
+    fn get_mtp(&self, height: Option<u32>) -> Result<u32, Self::Error> {
+        if height == Some(0) {
+            return Ok(1231006505);
+        }
+        let height = match height {
+            Some(h) => h,
+            None => self.get_height()?,
+        };
+
+        let mut initial_array = [0u32; 11];
+
+        for i in 0..11 {
+            let time = match self.get_block_hash(height.saturating_sub(i)) {
+                Ok(hash) => self.get_block_header(&hash)?.time,
+                _ => {
+                    info!("Block timestamp : {i} Not found");
+                    0
+                }
+            };
+            initial_array[10 - i as usize] = time;
+        }
+        // the case where we didnt find even the block at the given height
+        if initial_array[10] == 0 {
+            return Err(BlockchainError::BlockNotPresent);
+        }
+
+        let mut ret = initial_array
+            .iter()
+            .filter(|t| **t != 0)
+            .collect::<Vec<_>>();
+
+        // This reinforces how many blocks we need to have found to get a valid mtp.
+        // This check is actually useless and will never occur *if* we are in a valid and complete chain.
+        let should_have_this_many_blocks = core::cmp::min(height, 11) as usize;
+
+        if ret.len() < should_have_this_many_blocks {
+            return Err(BlockchainError::BlockNotPresent);
+        }
+
+        ret.sort();
+
+        // At this point we have at least 1 block inside the array so we can safely
+        // divide the length by 2 to have its median.
+        Ok(*ret[ret.len() / 2])
+    }
 
     fn get_params(&self) -> bitcoin::params::Params {
         self.chain_params().params
