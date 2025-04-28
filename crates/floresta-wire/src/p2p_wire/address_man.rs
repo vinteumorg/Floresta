@@ -16,7 +16,6 @@ use bitcoin::p2p::ServiceFlags;
 use floresta_chain::DnsSeed;
 use floresta_chain::Network;
 use floresta_common::service_flags;
-use log::info;
 use serde::Deserialize;
 use serde::Serialize;
 use thiserror::Error;
@@ -281,66 +280,51 @@ impl AddressMan {
         Ok(addresses)
     }
 
-    fn get_seeds_from_dns(
-        &mut self,
+    pub fn get_seeds_from_dns(
         seed: &DnsSeed,
         default_port: u16,
-    ) -> Result<usize, std::io::Error> {
-        let mut seed_address_count = 0;
+    ) -> Result<Vec<LocalAddress>, std::io::Error> {
+        let mut addresses = Vec::new();
 
         // ask for utreexo peers (if filtering is available)
         if seed.filters.has(service_flags::UTREEXO.into()) {
             let address = format!("x1000000.{}", seed.seed);
             let _addresses = Self::do_lookup(&address, default_port).unwrap_or_default();
-            seed_address_count += _addresses.len();
-            _addresses
-                .into_iter()
-                .map(|mut x| {
-                    x.services = ServiceFlags::NETWORK
-                        | service_flags::UTREEXO.into()
-                        | ServiceFlags::WITNESS;
-                    x
-                })
-                .for_each(|x| {
-                    self.push_addresses(&[x]);
-                });
+            let _addresses = _addresses.into_iter().map(|mut x| {
+                x.services =
+                    ServiceFlags::NETWORK | service_flags::UTREEXO.into() | ServiceFlags::WITNESS;
+                x
+            });
+
+            addresses.extend(_addresses);
         }
 
         // ask for compact filter peers (if filtering is available)
         if seed.filters.has(ServiceFlags::COMPACT_FILTERS) {
             let address = format!("x49.{}", seed.seed);
             let _addresses = Self::do_lookup(&address, default_port).unwrap_or_default();
-            seed_address_count += _addresses.len();
-            _addresses
-                .into_iter()
-                .map(|mut x| {
-                    x.services = ServiceFlags::COMPACT_FILTERS
-                        | ServiceFlags::NETWORK
-                        | ServiceFlags::WITNESS;
-                    x
-                })
-                .for_each(|x| {
-                    self.push_addresses(&[x]);
-                });
+            let _addresses = _addresses.into_iter().map(|mut x| {
+                x.services =
+                    ServiceFlags::COMPACT_FILTERS | ServiceFlags::NETWORK | ServiceFlags::WITNESS;
+                x
+            });
+
+            addresses.extend(_addresses);
         }
 
         // ask for any peer (if filtering is available)
         if seed.filters.has(ServiceFlags::WITNESS) {
             let address = format!("x9.{}", seed.seed);
             let _addresses = Self::do_lookup(&address, default_port).unwrap_or_default();
-            seed_address_count += _addresses.len();
-            _addresses
-                .into_iter()
-                .map(|mut x| {
-                    x.services = ServiceFlags::NETWORK | ServiceFlags::WITNESS;
-                    x
-                })
-                .for_each(|x| {
-                    self.push_addresses(&[x]);
-                });
+            let _addresses = _addresses.into_iter().map(|mut x| {
+                x.services = ServiceFlags::NETWORK | ServiceFlags::WITNESS;
+                x
+            });
+
+            addresses.extend(_addresses);
         }
 
-        Ok(seed_address_count)
+        Ok(addresses)
     }
 
     /// Returns a new random address to open a new connection, we try to get addresses with
@@ -440,67 +424,27 @@ impl AddressMan {
         Some((*utreexo_peer, self.addresses.get(utreexo_peer)?.to_owned()))
     }
 
-    fn get_net_seeds(network: Network) -> &'static str {
-        match network {
-            Network::Bitcoin => include_str!("seeds/mainnet_seeds.json"),
-            Network::Testnet => include_str!("seeds/testnet_seeds.json"),
-            Network::Signet => include_str!("seeds/signet_seeds.json"),
-            Network::Regtest => include_str!("seeds/regtest_seeds.json"),
-        }
-    }
-
-    pub fn start_addr_man(
-        &mut self,
-        datadir: String,
-        default_port: u16,
-        network: Network,
-        dns_seeds: &[DnsSeed],
-    ) -> Result<Vec<LocalAddress>, WireError> {
+    pub fn start_addr_man(&mut self, datadir: String) -> Result<Vec<LocalAddress>, WireError> {
         let persisted_peers = std::fs::read_to_string(format!("{datadir}/peers.json"))
             .map(|seeds| serde_json::from_str::<Vec<DiskLocalAddress>>(&seeds));
 
-        let persisted_peers = match persisted_peers {
-            Ok(Ok(peers)) => peers,
-            _ => {
-                let addresses = Self::get_net_seeds(network);
-                serde_json::from_str(addresses).expect("BUG: fixed peers are invalid")
-            }
-        };
+        if let Ok(Ok(peers)) = persisted_peers {
+            let peers = peers
+                .into_iter()
+                .map(Into::<LocalAddress>::into)
+                .collect::<Vec<_>>();
 
-        let persisted_peers = persisted_peers
-            .iter()
-            .cloned()
-            .map(Into::<LocalAddress>::into)
-            .collect::<Vec<_>>();
-        self.push_addresses(&persisted_peers);
-
-        let mut peers_from_dns = 0;
-        info!("Starting peer discovery via DNS seeds");
-        for seed in dns_seeds {
-            match self.get_seeds_from_dns(seed, default_port) {
-                Ok(peers) => {
-                    peers_from_dns += peers;
-                    info!("Got {} peers from {}", peers, seed.seed);
-                }
-                Err(e) => {
-                    info!("Error getting peers from DNS seed {}: {e:?}", seed.seed);
-                }
-            }
+            self.push_addresses(&peers);
         }
-        info!(
-            "Got {} peers from {} DNS seeds",
-            peers_from_dns,
-            dns_seeds.len()
-        );
 
         let anchors = std::fs::read_to_string(format!("{datadir}/anchors.json"))
             .map_err(|_| WireError::AnchorFileNotFound)?;
         let anchors = serde_json::from_str::<Vec<DiskLocalAddress>>(&anchors)?;
         let anchors = anchors
-            .iter()
-            .cloned()
+            .into_iter()
             .map(Into::<LocalAddress>::into)
             .collect::<Vec<_>>();
+
         Ok(anchors)
     }
 
@@ -706,6 +650,33 @@ impl AddressMan {
 
         self.update_peer_services_buckets(idx);
         self
+    }
+
+    /// Returns the file path to the seeds file for the given network
+    fn get_net_seeds(network: Network) -> &'static str {
+        match network {
+            Network::Bitcoin => include_str!("seeds/mainnet_seeds.json"),
+            Network::Testnet => include_str!("seeds/testnet_seeds.json"),
+            Network::Signet => include_str!("seeds/signet_seeds.json"),
+            Network::Regtest => include_str!("seeds/regtest_seeds.json"),
+        }
+    }
+
+    /// Reads the hard-coded addresses from the seeds file and adds them to the address manager
+    ///
+    /// This is a last-resort method to try to connect to a peer, if we don't have any other
+    /// addresses to connect to.
+    pub(crate) fn add_fixed_addresses(&mut self, network: Network) {
+        let addresses = Self::get_net_seeds(network);
+        let peers: Vec<DiskLocalAddress> =
+            serde_json::from_str(addresses).expect("BUG: fixed peers are invalid");
+
+        let peers = peers
+            .into_iter()
+            .map(Into::<LocalAddress>::into)
+            .collect::<Vec<_>>();
+
+        self.push_addresses(&peers);
     }
 }
 
@@ -919,9 +890,9 @@ mod test {
         assert!(!AddressMan::get_net_seeds(Network::Regtest).is_empty());
         assert!(!AddressMan::get_net_seeds(Network::Testnet).is_empty());
 
-        assert!(address_man
-            .get_seeds_from_dns(&get_chain_dns_seeds(Network::Signet)[0], 8333)
-            .is_ok());
+        assert!(
+            AddressMan::get_seeds_from_dns(&get_chain_dns_seeds(Network::Signet)[0], 8333).is_ok()
+        );
 
         address_man.rearrange_buckets();
     }

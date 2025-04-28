@@ -654,6 +654,10 @@ where
                         try_and_log!(self.handle_peer_notification(notification, peer).await);
                     }
 
+                    Some(NodeNotification::DnsSeedAddresses(addresses)) => {
+                        self.address_man.push_addresses(&addresses);
+                    }
+
                     None => {
                         break;
                     }
@@ -747,6 +751,10 @@ where
 
             if let Ok(Some(message)) = timeout(Duration::from_secs(60), self.node_rx.recv()).await {
                 match message {
+                    NodeNotification::DnsSeedAddresses(addresses) => {
+                        self.address_man.push_addresses(&addresses);
+                    }
+
                     NodeNotification::FromPeer(peer, message) => {
                         if let PeerMessages::UtreexoState(state) = message {
                             self.inflight.remove(&InflightRequests::UtreexoState(peer));

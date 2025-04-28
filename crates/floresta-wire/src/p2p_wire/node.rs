@@ -19,7 +19,6 @@ use bitcoin::p2p::address::AddrV2Message;
 use bitcoin::p2p::ServiceFlags;
 use bitcoin::BlockHash;
 use bitcoin::Txid;
-use floresta_chain::pruned_utreexo::chainparams::get_chain_dns_seeds;
 use floresta_chain::pruned_utreexo::BlockchainInterface;
 use floresta_chain::pruned_utreexo::UpdatableChainstate;
 use floresta_chain::Network;
@@ -66,8 +65,16 @@ use super::transport::TransportProtocol;
 use super::UtreexoNodeConfig;
 use crate::node_context::PeerId;
 
+/// How long before we consider using alternative ways to find addresses,
+/// such as hard-coded peers
+const HARDCODED_ADDRESSES_GRACE_PERIOD: Duration = Duration::from_secs(60);
+
+/// How long before we try to get addresses from DNS seeds again (5 minutes)
+const DNS_SEED_RETRY_PERIOD: Duration = Duration::from_secs(5 * 60);
+
 #[derive(Debug)]
 pub enum NodeNotification {
+    DnsSeedAddresses(Vec<LocalAddress>),
     FromPeer(u32, PeerMessages),
     FromUser(UserRequest, tokio::sync::oneshot::Sender<NodeResponse>),
 }
@@ -192,6 +199,8 @@ pub struct NodeCommon<Chain: BlockchainInterface + UpdatableChainstate> {
     pub(crate) last_send_addresses: Instant,
     pub(crate) block_sync_avg: FractionAvg,
     pub(crate) last_feeler: Instant,
+    pub(crate) startup_time: Instant,
+    pub(crate) last_dns_seed_call: Instant,
 
     // 6. Configuration and Metadata
     pub(crate) config: UtreexoNodeConfig,
@@ -252,6 +261,8 @@ where
 
         Ok(UtreexoNode {
             common: NodeCommon {
+                last_dns_seed_call: Instant::now(),
+                startup_time: Instant::now(),
                 block_sync_avg: FractionAvg::new(0, 0),
                 last_filter: chain.get_block_hash(0).unwrap(),
                 block_filters,
@@ -859,15 +870,6 @@ where
         Ok(())
     }
 
-    pub(crate) fn get_default_port(&self) -> u16 {
-        match self.network {
-            Network::Bitcoin => 8333,
-            Network::Testnet => 18333,
-            Network::Signet => 38333,
-            Network::Regtest => 18444,
-        }
-    }
-
     pub(crate) async fn send_to_peer(
         &self,
         peer_id: u32,
@@ -965,13 +967,42 @@ where
         Ok(peer)
     }
 
+    /// Fetch peers from DNS seeds, sending a `NodeNotification` with found ones.
+    pub(crate) fn get_peers_from_dns(&self) -> Result<(), WireError> {
+        let node_sender = self.node_tx.clone();
+        let network = self.network;
+
+        tokio::task::spawn_blocking(move || {
+            let dns_seeds = floresta_chain::get_chain_dns_seeds(network);
+            let mut addresses = Vec::new();
+
+            let default_port = Self::get_port(network);
+            for seed in dns_seeds {
+                let _addresses = AddressMan::get_seeds_from_dns(&seed, default_port);
+
+                if let Ok(_addresses) = _addresses {
+                    addresses.extend(_addresses);
+                }
+            }
+
+            node_sender
+                .send(NodeNotification::DnsSeedAddresses(addresses))
+                .unwrap();
+        });
+
+        Ok(())
+    }
+
     pub(crate) async fn init_peers(&mut self) -> Result<(), WireError> {
-        let anchors = self.common.address_man.start_addr_man(
-            self.datadir.clone(),
-            self.get_default_port(),
-            self.network,
-            &get_chain_dns_seeds(self.network),
-        )?;
+        let anchors = self
+            .common
+            .address_man
+            .start_addr_man(self.datadir.clone())?;
+
+        if !self.config.disable_dns_seeds {
+            self.get_peers_from_dns()?;
+            self.last_dns_seed_call = Instant::now();
+        }
 
         for address in anchors {
             self.open_connection(ConnectionKind::Regular(UTREEXO.into()), address.id, address)
@@ -1084,6 +1115,52 @@ where
             .map_err(WireError::Io)
     }
 
+    /// Checks whether is necessary to fetch peers from DNS seeds.
+    ///
+    /// If the last DNS lookup was more than 5 minutes ago, and we still
+    /// don't have any connected peers, we retry another DNS lookup.
+    fn maybe_ask_for_dns_peers(&self) {
+        if self.config.disable_dns_seeds {
+            return;
+        }
+
+        if !self.peers.is_empty() {
+            return;
+        }
+
+        let last_dns_request = self.last_dns_seed_call.elapsed();
+        // don't ask too often
+        if last_dns_request < DNS_SEED_RETRY_PERIOD {
+            return;
+        }
+
+        info!("We've been running for a while and we don't have any peers, asking for DNS peers");
+        try_and_log!(self.get_peers_from_dns());
+    }
+
+    /// If we don't have any peers, we use the hardcoded addresses.
+    ///
+    /// This is only done if we don't have any peers for a long time, and we
+    /// don't have a `--connect` argument.
+    fn maybe_use_hadcoded_addresses(&mut self) {
+        if self.fixed_peer.is_some() {
+            return;
+        }
+
+        if !self.peers.is_empty() {
+            return;
+        }
+
+        // it's been more than a minute since we started, and we don't have any peers
+        if self.startup_time.elapsed() < HARDCODED_ADDRESSES_GRACE_PERIOD {
+            return;
+        }
+
+        info!("No peers found, using hardcoded addresses");
+        let net = self.network;
+        self.address_man.add_fixed_addresses(net);
+    }
+
     pub(crate) async fn maybe_open_connection(
         &mut self,
         required_service: ServiceFlags,
@@ -1093,6 +1170,11 @@ where
         if self.fixed_peer.is_some() && !self.peers.is_empty() {
             return Ok(());
         }
+
+        // If we've tried getting some connections, but the addresses we have are not
+        // working. Try getting some more addresses from DNS
+        self.maybe_ask_for_dns_peers();
+        self.maybe_use_hadcoded_addresses();
 
         let connection_kind = ConnectionKind::Regular(required_service);
         if self.peers.len() < T::MAX_OUTGOING_PEERS {

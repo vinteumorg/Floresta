@@ -179,6 +179,7 @@ pub fn get_node_config(
     pow_fraud_proofs: bool,
 ) -> UtreexoNodeConfig {
     UtreexoNodeConfig {
+        disable_dns_seeds: false,
         network: network.into(),
         pow_fraud_proofs,
         compact_filters: false,
