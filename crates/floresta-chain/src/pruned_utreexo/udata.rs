@@ -90,7 +90,7 @@ impl Decodable for LeafData {
 /// Commitment of the leaf data, but in a compact way
 ///
 /// The serialized format is:
-/// [<header_code><amount><spk_type>]
+/// `[<header_code><amount><spk_type>]`
 ///
 /// The serialized header code format is:
 ///   bit 0 - containing transaction is a coinbase
@@ -186,7 +186,7 @@ impl Encodable for ScriptPubkeyType {
 /// and thus is better for wire and disk storage.
 ///
 /// The serialized format is:
-/// [<target count><targets><proof count><proofs>]
+/// `[<target count><targets><proof count><proofs>]`
 ///
 /// All together, the serialization looks like so:
 /// Field          Type       Size
