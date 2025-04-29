@@ -189,7 +189,7 @@ class BaseDaemon(metaclass=BaseDaemonMetaClass):
             )
 
         elif self.name == "florestad":
-            cmd.extend(["--daemon", "--network=regtest"])
+            cmd.extend(["--network=regtest"])
 
         if len(self._settings) >= 1:
             cmd.extend(self._settings)

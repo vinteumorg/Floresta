@@ -375,6 +375,16 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
             self.stop()
             raise AssertionError(f"Actual: {condition}\nExpected: True")
 
+    def assertFalse(self, condition: bool):
+        """
+        Assert if the condition is False, otherwise
+        all nodes will be stopped and an AssertionError will
+        be raised.
+        """
+        if condition:
+            self.stop()
+            raise AssertionError(f"Actual: {condition}\nExpected: False")
+
     # pylint: disable=invalid-name
     def assertIsNone(self, thing: Any):
         """
