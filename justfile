@@ -82,8 +82,9 @@ test-features arg="":
     cargo install cargo-hack --locked
     ./contrib/feature_matrix.sh test {{arg}}
 
-# Run clippy for all feature combinations in each crate (arg: optional, e.g., '-- -D warnings')
+# Format code and run clippy for all feature combinations in each crate (arg: optional, e.g., '-- -D warnings')
 lint-features arg="":
+    @just fmt
     cargo install cargo-hack --locked
     ./contrib/feature_matrix.sh clippy '{{arg}}'
 
@@ -93,6 +94,6 @@ clean-data:
 
 # Run all needed checks before contributing code (pre-commit check)
 pcc:
-    @just fmt
     @just lint-features '-- -D warnings'
     @just test-features
+    @just test-functional-uv-run

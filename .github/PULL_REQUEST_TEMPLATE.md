@@ -17,21 +17,25 @@
 - [ ] floresta-wire
 - [ ] floresta
 - [ ] florestad
-- [ ] Other: <!-- Please describe it -->.
+- [ ] Other: <!-- Please describe it -->
 
 ### Description
 
-<!-- Describe the purpose of this PR, what's being adding and/or fixed. If there is an open issue for it, link it here -->
+<!-- Describe the purpose of this PR, what's being added and/or fixed. If there's an open issue for it, link it here -->
 
 ### Notes to the reviewers
 
 <!-- In this section you can include notes directed to the reviewers, like explaining why some parts of the PR were done in a specific way -->
 
-### Checklist
+### Author Checklist
 
-- [ ] I've signed all my commits
-- [ ] I ran `just lint`
-- [ ] I ran `cargo test`
-- [ ] I've checked the integration tests
+<!-- Feel free to remove this section once you've confirmed all items -->
+
 - [ ] I've followed the [contribution guidelines](https://github.com/vinteumorg/Floresta/blob/master/CONTRIBUTING.md)
-- [ ] I'm linking the issue being fixed by this PR (if any)
+- [ ] I've verified one of the following:
+  - Ran `just pcc` (recommended but slower)
+  - Ran `just lint-features '-- -D warnings' && cargo test --release`
+  - Confirmed CI passed on my fork
+- [ ] I've linked any related issue(s) in the sections above
+
+Finally, you are encouraged to sign all your commits (it proves authorship and guards against tampering—see [How (and why) to sign Git commits](https://withblue.ink/2020/05/17/how-and-why-to-sign-git-commits.html) and [GitHub's guide to signing commits](https://docs.github.com/en/authentication/managing-commit-signature-verification/signing-commits)).
