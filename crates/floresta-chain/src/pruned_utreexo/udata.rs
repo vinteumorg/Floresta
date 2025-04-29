@@ -554,10 +554,21 @@ pub mod proof_util {
         Ok((proof, del_hashes, utxos))
     }
 
-    /// This function reconstructs the script public key from a compact leaf data and a transaction input.
-    /// It takes a CompactLeafData and a TxIn as input and returns a `Result` containing a `ScriptBuf` or an error if we can't reconstruct the script.
+    /// Reconstructs the output script, also called scriptPubkey, from a [CompactLeafData] and
+    /// the spending tx input. Returns an error if we can't reconstruct the script (the input
+    /// doesn't contain the required data).
     ///
-    /// This is needed as we use compact leaf data.
+    /// The reconstructed output script is the hash of either a public key or a script (i.e. P2PKH,
+    /// P2SH, P2WPKH and P2WSH).
+    ///
+    /// The logic behind is:
+    ///
+    /// For some script types, the output script is just the hash of something that needs to be
+    /// revealed at some later stage (e.g. pkh is the hash of a public key that will be reveled
+    /// afterwards in the scriptSig, at spend time). Therefore, this information is redoutant,
+    /// as we have it inside the spending transaction. For types where reconstruction is possible,
+    /// we just need to communicate the type with a single byte marker, and the rest can be built
+    /// from that using the spending transaction.
     pub fn reconstruct_script_pubkey(
         leaf: &CompactLeafData,
         input: &TxIn,
