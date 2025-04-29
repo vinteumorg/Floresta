@@ -379,7 +379,7 @@ pub mod proof_util {
         ScriptPubkeyType::Other(script.to_bytes().into_boxed_slice())
     }
 
-    /// This function reconstructs the leaf data from a compact leaf data, a transaction input, and a block hash.
+    /// Reconstructs the leaf data from a [CompactLeafData], the UTXO's block hash, and its spending tx input.
     pub fn reconstruct_leaf_data(
         leaf: &CompactLeafData,
         input: &TxIn,
@@ -398,7 +398,7 @@ pub mod proof_util {
         })
     }
 
-    /// This function checks if a script is unspendable either by its length or if it contains the `OP_RETURN` opcode.
+    /// Checks if a script is unspendable either by its length or if it contains the `OP_RETURN` opcode.
     /// It follows the implementation on Bitcoin Core.
     fn is_unspendable(script: &ScriptBuf) -> bool {
         if script.len() > 10_000 {
@@ -583,7 +583,7 @@ pub mod proof_util {
         }
     }
 
-    /// This function gets a public key hash from a transaction input.
+    /// Computes the public key hash from the pushed key in the input's scriptSig.
     fn get_pk_hash(input: &TxIn) -> Result<PubkeyHash, Error> {
         let script_sig = &input.script_sig;
         let inst = script_sig.instructions().last();
@@ -593,7 +593,7 @@ pub mod proof_util {
         Err(Error::EmptyStack)
     }
 
-    /// This function gets a script hash from a transaction input.
+    /// Computes the script hash from the input's scriptSig.
     fn get_script_hash(input: &TxIn) -> Result<ScriptHash, Error> {
         let script_sig = &input.script_sig;
         let inst = script_sig.instructions().last();
@@ -603,7 +603,7 @@ pub mod proof_util {
         Err(Error::EmptyStack)
     }
 
-    /// This function gets a witness public key hash from a transaction input.
+    /// Computes the witness public key hash from the input's witness data.
     fn get_witness_pk_hash(input: &TxIn) -> Result<WPubkeyHash, Error> {
         let witness = &input.witness;
         let pk = witness.last();
@@ -613,7 +613,7 @@ pub mod proof_util {
         Err(Error::EmptyStack)
     }
 
-    /// This function gets a witness script hash from a transaction input.
+    /// Computes the witness script hash from the input's witness data.
     fn get_witness_script_hash(input: &TxIn) -> Result<WScriptHash, Error> {
         let witness = &input.witness;
         let script = witness.last();
