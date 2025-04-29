@@ -12,8 +12,7 @@ cargo build
 
 The functional tests also need some dependencies, we use python for writing them and `uv` to manage its dependencies.
 
-Our tests also needs the `Utreexod` and `florestad` binaries to match some functionalities and we have some helper scripts to avoid conflicts, which happens a lot while developing but can help one that have one of them installed in the system.
-
+Our tests also needs `utreexod` and `florestad` to test some functionalities. We offer a helper script to assist in this process and guarantee isolation and reproducibility. Since `go` is a requirement to build utreexod, make sure you have `go` available on your system.
 See [Setting Functional Tests Binaries](#setting-functional-tests-binaries) for more instructions.
 
 ## Testing Options
