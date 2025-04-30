@@ -90,7 +90,7 @@ impl Decodable for LeafData {
 /// Commitment of the leaf data, but in a compact way
 ///
 /// The serialized format is:
-/// [<header_code><amount><spk_type>]
+/// `[<header_code><amount><spk_type>]`
 ///
 /// The serialized header code format is:
 ///   bit 0 - containing transaction is a coinbase
@@ -186,7 +186,7 @@ impl Encodable for ScriptPubkeyType {
 /// and thus is better for wire and disk storage.
 ///
 /// The serialized format is:
-/// [<target count><targets><proof count><proofs>]
+/// `[<target count><targets><proof count><proofs>]`
 ///
 /// All together, the serialization looks like so:
 /// Field          Type       Size
@@ -298,6 +298,11 @@ impl From<Block> for UtreexoBlock {
     }
 }
 
+/// This module provides utility functions for working with Utreexo proofs.
+///
+/// These functions can be used, for example, when verifying if a mempool transaction is valid;
+/// to consume a block (delete transactions included in it from the mempool);
+/// or to validate a block.
 pub mod proof_util {
     use bitcoin::blockdata::script::Instruction;
     use bitcoin::consensus::Encodable;
@@ -330,7 +335,10 @@ pub mod proof_util {
     use crate::UData;
 
     #[derive(Debug)]
+    /// Errors that may occur while reconstructing a leaf's scriptPubKey.
     pub enum Error {
+        /// Triggered when the input lacks the hashed data required by the [ScriptPubkeyType]
+        /// (i.e. the public key for P2PKH/P2WPKH, the redeem script for P2SH, or the witness script for P2WSH).
         EmptyStack,
     }
 
@@ -343,6 +351,14 @@ pub mod proof_util {
         }
     }
 
+    /// This function returns the scriptPubkey type (i.e. address type) of a given script data.
+    /// It can be:
+    ///
+    /// - `PubKeyHash`: A pay-to-public-key-hash script.
+    /// - `ScriptHash`: A pay-to-script-hash script.
+    /// - `WitnessV0PubKeyHash`: A pay-to-witness-public-key-hash script.
+    /// - `WitnessV0ScriptHash`: A pay-to-witness-script-hash script.
+    /// - `Other`: a non specified script type. It is just copied over.
     pub fn get_script_type(script: &ScriptBuf) -> ScriptPubkeyType {
         if script.is_p2pkh() {
             return ScriptPubkeyType::PubKeyHash;
@@ -363,6 +379,7 @@ pub mod proof_util {
         ScriptPubkeyType::Other(script.to_bytes().into_boxed_slice())
     }
 
+    /// Reconstructs the leaf data from a [CompactLeafData], the UTXO's block hash, and its spending tx input.
     pub fn reconstruct_leaf_data(
         leaf: &CompactLeafData,
         input: &TxIn,
@@ -381,6 +398,8 @@ pub mod proof_util {
         })
     }
 
+    /// Checks if a script is unspendable either by its length or if it contains the `OP_RETURN` opcode.
+    /// It follows the implementation on Bitcoin Core.
     fn is_unspendable(script: &ScriptBuf) -> bool {
         if script.len() > 10_000 {
             return true;
@@ -460,7 +479,12 @@ pub mod proof_util {
         leaf_hashes
     }
 
+    /// A hash map that provides the UTXO data given the outpoint. We will get this data from either our own cache or the utreexo proofs, and use it to validate blocks and transactions.
     type UtxoMap = HashMap<OutPoint, UtxoData>;
+
+    /// This function processes a proof of inclusion for a given block.
+    /// It takes a `UData`, a slice of transactions, the block height, and a function to get the block hash.
+    /// It returns a Result containing a Proof, a vector of deleted hashes, and a `UtxoMap`, which is defined as `HashMap<OutPoint, UtxoData>`.
     pub fn process_proof<F, E>(
         udata: &UData,
         txdata: &[Transaction],
@@ -530,6 +554,21 @@ pub mod proof_util {
         Ok((proof, del_hashes, utxos))
     }
 
+    /// Reconstructs the output script, also called scriptPubkey, from a [CompactLeafData] and
+    /// the spending tx input. Returns an error if we can't reconstruct the script (the input
+    /// doesn't contain the required data).
+    ///
+    /// The reconstructed output script is the hash of either a public key or a script (i.e. P2PKH,
+    /// P2SH, P2WPKH and P2WSH).
+    ///
+    /// The logic behind is:
+    ///
+    /// For some script types, the output script is just the hash of something that needs to be
+    /// revealed at some later stage (e.g. pkh is the hash of a public key that will be reveled
+    /// afterwards in the scriptSig, at spend time). Therefore, this information is redoutant,
+    /// as we have it inside the spending transaction. For types where reconstruction is possible,
+    /// we just need to communicate the type with a single byte marker, and the rest can be built
+    /// from that using the spending transaction.
     pub fn reconstruct_script_pubkey(
         leaf: &CompactLeafData,
         input: &TxIn,
@@ -554,6 +593,8 @@ pub mod proof_util {
             }
         }
     }
+
+    /// Computes the public key hash from the pushed key in the input's scriptSig.
     fn get_pk_hash(input: &TxIn) -> Result<PubkeyHash, Error> {
         let script_sig = &input.script_sig;
         let inst = script_sig.instructions().last();
@@ -562,6 +603,8 @@ pub mod proof_util {
         }
         Err(Error::EmptyStack)
     }
+
+    /// Computes the script hash from the input's scriptSig.
     fn get_script_hash(input: &TxIn) -> Result<ScriptHash, Error> {
         let script_sig = &input.script_sig;
         let inst = script_sig.instructions().last();
@@ -570,6 +613,8 @@ pub mod proof_util {
         }
         Err(Error::EmptyStack)
     }
+
+    /// Computes the witness public key hash from the input's witness data.
     fn get_witness_pk_hash(input: &TxIn) -> Result<WPubkeyHash, Error> {
         let witness = &input.witness;
         let pk = witness.last();
@@ -578,6 +623,8 @@ pub mod proof_util {
         }
         Err(Error::EmptyStack)
     }
+
+    /// Computes the witness script hash from the input's witness data.
     fn get_witness_script_hash(input: &TxIn) -> Result<WScriptHash, Error> {
         let witness = &input.witness;
         let script = witness.last();
