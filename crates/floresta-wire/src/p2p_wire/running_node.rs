@@ -94,74 +94,6 @@ where
         Ok(())
     }
 
-    async fn check_for_timeout(&mut self) -> Result<(), WireError> {
-        let timed_out = self
-            .common
-            .inflight
-            .iter()
-            .filter(|(_, (_, instant))| {
-                instant.elapsed().as_secs() > ChainSelector::REQUEST_TIMEOUT
-            })
-            .map(|(req, (_, _))| req.clone())
-            .collect::<Vec<_>>();
-
-        for request in timed_out {
-            let Some((peer, _)) = self.inflight.remove(&request) else {
-                warn!(
-                    "POSSIBLE BUG: Request {:?} timed out, but it wasn't in the inflight list",
-                    request
-                );
-                continue;
-            };
-
-            if !matches!(request, InflightRequests::Connect(_)) {
-                // Punishing this peer for taking too long to respond
-                self.increase_banscore(peer, 2).await?;
-            }
-
-            match request {
-                InflightRequests::UtreexoState(_) => {}
-
-                InflightRequests::Blocks(block) => {
-                    if !self.has_utreexo_peers() {
-                        continue;
-                    }
-                    let peer = self
-                        .send_to_random_peer(
-                            NodeRequest::GetBlock((vec![block], true)),
-                            service_flags::UTREEXO.into(),
-                        )
-                        .await?;
-                    self.inflight
-                        .insert(InflightRequests::Blocks(block), (peer, Instant::now()));
-                }
-
-                InflightRequests::Headers => {
-                    let peer = self
-                        .send_to_random_peer(NodeRequest::GetAddresses, ServiceFlags::NONE)
-                        .await?;
-                    self.last_headers_request = Instant::now();
-                    self.inflight
-                        .insert(InflightRequests::Headers, (peer, Instant::now()));
-                }
-
-                InflightRequests::Connect(peer) => {
-                    self.peers.remove(&peer);
-                }
-
-                InflightRequests::GetFilters => {
-                    if let Some(ref block_filters) = self.block_filters {
-                        let last_success = block_filters.get_height()? + 1;
-                        self.last_filter = self.chain.get_block_hash(last_success)?;
-                        self.download_filters().await?;
-                    }
-                }
-            }
-        }
-
-        Ok(())
-    }
-
     /// Every time we restart the node, we'll be a few blocks behind the tip. This function
     /// will start a sync node that will request, download and validate all blocks from the
     /// last validation index to the tip. This function will block until the sync node is
@@ -193,9 +125,6 @@ where
     /// If we are missing the speciall peers but have 10 connections, we should disconnect one
     /// random peer and try to connect to a utreexo and a compact filters peer.
     async fn check_connections(&mut self) -> Result<(), WireError> {
-        // We're always looking for a peer with the following services
-        let base_services: ServiceFlags = ServiceFlags::NETWORK | ServiceFlags::WITNESS;
-
         // if we have 10 connections, but not a single utreexo or CBF one, disconnect one random
         // peer and create a utreexo and CBS connection
         if !self.has_utreexo_peers() {
@@ -208,7 +137,7 @@ where
                 self.send_to_peer(*peer, NodeRequest::Shutdown).await?;
             }
 
-            self.create_connection(ConnectionKind::Regular(base_services | UTREEXO.into()))
+            self.create_connection(ConnectionKind::Regular(UTREEXO.into()))
                 .await;
         }
 
@@ -226,14 +155,12 @@ where
                 self.send_to_peer(*peer, NodeRequest::Shutdown).await?;
             }
 
-            self.create_connection(ConnectionKind::Regular(
-                base_services | ServiceFlags::COMPACT_FILTERS,
-            ))
-            .await;
+            self.create_connection(ConnectionKind::Regular(ServiceFlags::COMPACT_FILTERS))
+                .await;
         }
 
         if self.peers.len() < 10 {
-            self.create_connection(ConnectionKind::Regular(base_services))
+            self.create_connection(ConnectionKind::Regular(ServiceFlags::NONE))
                 .await;
         }
 

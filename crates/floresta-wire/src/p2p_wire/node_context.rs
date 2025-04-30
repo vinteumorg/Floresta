@@ -29,33 +29,51 @@ use bitcoin::p2p::ServiceFlags;
 /// This trait mainly defines a bunch of constants that we need for the node, but we may tweak
 /// those values for each one. It's also an organized way of defining those constants anyway.
 pub trait NodeContext {
+    /// How long we wait for a peer to respond to our request
     const REQUEST_TIMEOUT: u64;
+
     /// Max number of simultaneous connections we initiates we are willing to hold
     const MAX_OUTGOING_PEERS: usize = 10;
+
     /// We ask for peers every ASK_FOR_PEERS_INTERVAL seconds
     const ASK_FOR_PEERS_INTERVAL: u64 = 60 * 60; // One hour
+
     /// Save our database of peers every PEER_DB_DUMP_INTERVAL seconds
     const PEER_DB_DUMP_INTERVAL: u64 = 30; // 30 seconds
+
     /// Attempt to open a new connection (if needed) every TRY_NEW_CONNECTION seconds
     const TRY_NEW_CONNECTION: u64 = 10; // 10 seconds
+
     /// If ASSUME_STALE seconds passed since our last tip update, treat it as stale
     const ASSUME_STALE: u64 = 15 * 60; // 15 minutes
+
     /// While on IBD, if we've been without blocks for this long, ask for headers again
     const IBD_REQUEST_BLOCKS_AGAIN: u64 = 30; // 30 seconds
+
     /// How often we broadcast transactions
     const BROADCAST_DELAY: u64 = 30; // 30 seconds
+
     /// Max number of simultaneous inflight requests we allow
     const MAX_INFLIGHT_REQUESTS: usize = 1_000;
+
     /// Interval at which we open new feeler connections
     const FEELER_INTERVAL: u64 = 30; // 30 seconds
+
     /// Interval at which we rearrange our addresses
     const ADDRESS_REARRANGE_INTERVAL: u64 = 60 * 60; // 1 hour
+
     /// How long we ban a peer for
     const BAN_TIME: u64 = 60 * 60 * 24;
+
     /// How often we check if we haven't missed a block
     const BLOCK_CHECK_INTERVAL: u64 = 60 * 5; // 5 minutes
+
     /// How often we send our addresses to our peers
     const SEND_ADDRESSES_INTERVAL: u64 = 60 * 60; // 1 hour
+
+    /// How long should we wait for a peer to respond our connection request
+    const CONNECTION_TIMEOUT: u64 = 30; // 30 seconds
+
     fn get_required_services(&self) -> ServiceFlags {
         ServiceFlags::NETWORK
     }

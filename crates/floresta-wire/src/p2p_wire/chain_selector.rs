@@ -66,7 +66,6 @@ use rustreexo::accumulator::stump::Stump;
 use tokio::time::timeout;
 
 use super::error::WireError;
-use super::node::PeerStatus;
 use super::node_interface::UserRequest;
 use super::peer::PeerMessages;
 use crate::address_man::AddressState;
@@ -620,53 +619,6 @@ where
         let peer = self.context.sync_peer;
         self.inflight
             .insert(InflightRequests::Headers, (peer, Instant::now()));
-
-        Ok(())
-    }
-
-    /// Checks if some request has timed-out.
-    ///
-    /// If it does, we disconnect and ban this peer
-    async fn check_for_timeout(&mut self) -> Result<(), WireError> {
-        let (failed, mut peers) = self
-            .common
-            .inflight
-            .iter()
-            .filter(|(_, (_, instant))| {
-                instant.elapsed().as_secs() > ChainSelector::REQUEST_TIMEOUT
-            })
-            .map(|(req, (peer, _))| (req.clone(), *peer))
-            .unzip::<_, _, Vec<_>, Vec<_>>();
-
-        for request in failed {
-            if let InflightRequests::Headers = request {
-                if self.context.state == ChainSelectorState::DownloadingHeaders {
-                    let new_sync_peer = rand::random::<usize>() % self.peer_ids.len();
-                    let new_sync_peer = *self.peer_ids.get(new_sync_peer).unwrap();
-                    self.context.sync_peer = new_sync_peer;
-                    self.request_headers(self.chain.get_best_block()?.1, self.context.sync_peer)
-                        .await?;
-                    self.inflight
-                        .insert(InflightRequests::Headers, (new_sync_peer, Instant::now()));
-                }
-            }
-
-            self.inflight.remove(&request);
-        }
-
-        peers.sort();
-        peers.dedup();
-
-        for peer in peers {
-            self.common.peers.entry(peer).and_modify(|e| {
-                if e.state != PeerStatus::Awaiting {
-                    e.state = PeerStatus::Banned;
-                }
-            });
-
-            self.send_to_peer(peer, NodeRequest::Shutdown).await?;
-            self.common.peers.remove(&peer);
-        }
 
         Ok(())
     }

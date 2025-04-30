@@ -545,23 +545,19 @@ impl AddressMan {
                 .iter()
                 .filter(|&x| {
                     if let Some(address) = self.addresses.get(x) {
-                        // skip banned and peers that just failed
-                        if address.state == AddressState::NeverTried
-                            || matches!(address.state, AddressState::Tried(_))
-                        {
-                            return true;
-                        }
-
                         if let AddressState::Failed(when) = address.state {
                             let now = SystemTime::now()
                                 .duration_since(UNIX_EPOCH)
                                 .unwrap()
                                 .as_secs();
 
-                            if when + RETRY_TIME < now {
+                            if (when + RETRY_TIME) < now {
                                 return true;
                             }
                         }
+
+                        return matches!(address.state, AddressState::Tried(_))
+                            || matches!(address.state, AddressState::NeverTried);
                     }
 
                     false
@@ -637,11 +633,78 @@ impl AddressMan {
         self
     }
 
+    /// Adds a peer to the list of peers known to have some service
+    fn add_peer_to_service(&mut self, idx: usize, service: ServiceFlags) {
+        if let Some(peers) = self.peers_by_service.get_mut(&service) {
+            if peers.contains(&idx) {
+                return;
+            }
+
+            peers.push(idx);
+        } else {
+            self.peers_by_service.insert(service, vec![idx]);
+        }
+    }
+
+    /// Removes a peer from the list of peers known to have some service
+    fn remove_peer_from_service(&mut self, idx: usize, service: ServiceFlags) {
+        if let Some(peers) = self.peers_by_service.get_mut(&service) {
+            peers.retain(|&x| x != idx);
+        }
+    }
+
+    /// Updates the list of peers that have a service
+    ///
+    /// If a peer used to advertise a service, but now it doesn't, we remove it from the list
+    /// of peers that have that service. If a peer didn't advertise a service, but now it does,
+    /// we add it to the list of peers that have that service.
+    fn update_peer_for_service(&mut self, id: usize, service: ServiceFlags) {
+        let Some(peer) = self.addresses.get(&id) else {
+            return;
+        };
+
+        match peer.services.has(service) {
+            true => self.add_peer_to_service(id, service),
+            false => self.remove_peer_from_service(id, service),
+        }
+    }
+
+    /// Updates `peers_by_service` buckets with the latest service flags info about a peer
+    ///
+    /// This function is called when we receive a version message from a peer, telling which
+    /// services it advertises.
+    ///
+    /// We only index for Compact Filters and Utreexo. For NODE_NETWORK and NODE_WITNESS we already
+    /// filter them out when we add them to the address manager, therefore, all peers in this list
+    /// is already known for having those. And we don't care about the rest of the services,
+    /// like NODE_BLOOM.
+    fn update_peer_services_buckets(&mut self, idx: usize) {
+        self.update_peer_for_service(idx, service_flags::UTREEXO.into());
+        self.update_peer_for_service(idx, ServiceFlags::COMPACT_FILTERS);
+    }
+
     /// Updates the service flags after we receive a version message
     pub fn update_set_service_flag(&mut self, idx: usize, flags: ServiceFlags) -> &mut Self {
+        // if this peer turns out to not have the minimum required services, we remove it
+        if !flags.has(ServiceFlags::NETWORK) || !flags.has(ServiceFlags::WITNESS) {
+            self.addresses.remove(&idx);
+            for peers in self.peers_by_service.values_mut() {
+                peers.retain(|&x| x != idx);
+            }
+
+            self.good_addresses.retain(|&x| x != idx);
+            self.good_peers_by_service
+                .values_mut()
+                .for_each(|peers| peers.retain(|&x| x != idx));
+
+            return self;
+        }
+
         if let Some(address) = self.addresses.get_mut(&idx) {
             address.services = flags;
         }
+
+        self.update_peer_services_buckets(idx);
         self
     }
 }

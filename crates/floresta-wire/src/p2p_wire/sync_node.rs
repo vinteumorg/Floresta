@@ -157,6 +157,8 @@ where
                 SyncNode
             );
 
+            try_and_log!(self.check_for_timeout().await);
+
             let assume_stale = Instant::now()
                 .duration_since(self.common.last_tip_update)
                 .as_secs()
@@ -168,8 +170,6 @@ where
                 self.last_tip_update = Instant::now();
                 continue;
             }
-
-            self.handle_timeout().await;
 
             if !self.has_utreexo_peers() {
                 continue;
@@ -185,35 +185,6 @@ where
 
         done_cb(&self.chain);
         self
-    }
-
-    /// Isolate inflights that have timed out and increase the banscore of the peer that sent them and re-request it.
-    async fn handle_timeout(&mut self) {
-        let to_remove = self
-            .common
-            .inflight
-            .iter()
-            .filter(|(_, (_, instant))| instant.elapsed().as_secs() > SyncNode::REQUEST_TIMEOUT)
-            .map(|(req, (peer, _))| (req.clone(), *peer))
-            .collect::<Vec<_>>();
-
-        for (request, peer) in to_remove {
-            self.inflight.remove(&request);
-            match request {
-                InflightRequests::Blocks(block) => {
-                    try_and_log!(self.increase_banscore(peer, 1).await);
-                    try_and_log!(self.request_blocks(vec![block]).await);
-                }
-
-                InflightRequests::Connect(_) => {
-                    if let Some(peer) = self.peers.remove(&peer) {
-                        let _ = peer.channel.send(NodeRequest::Shutdown);
-                    }
-                }
-
-                _ => {}
-            }
-        }
     }
 
     /// Process a block received from a peer.
