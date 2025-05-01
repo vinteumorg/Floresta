@@ -41,18 +41,23 @@ test-wkspc:
     cargo test --workspace -- --nocapture
 
 # Execute tests/prepare.sh.
-test-functional-prepare:
-    bash tests/prepare.sh
+test-functional-prepare arg="":
+    bash tests/prepare.sh {{arg}}
 
 # Execute tests/run.sh
-test-functional-run:
-    bash tests/run.sh
+test-functional-run arg="":
+    bash tests/run.sh {{arg}}
 
-# Execute our python integration tests inside /tests.
-#
-# Make sure you have done the necessary setup explained in our README.md in the root of the folder.
-test-functional-uv-run:
-    uv run tests/run_tests.py
+# format and lint functional tests 
+test-functional-uv-fmt:
+    uv run black --check --verbose ./tests
+    uv run pylint --verbose ./tests
+
+# Run all required stuff to functional tests
+test-functional:
+  @just test-functional-uv-fmt
+  @just test-functional-prepare --build
+  @just test-functional-run
 
 # Run the benchmarks
 bench:
@@ -96,4 +101,4 @@ clean-data:
 pcc:
     @just lint-features '-- -D warnings'
     @just test-features
-    @just test-functional-uv-run
+    @just test-functional
