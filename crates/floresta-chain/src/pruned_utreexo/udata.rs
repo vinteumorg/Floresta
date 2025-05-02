@@ -2,7 +2,6 @@
 //! data needed for validating some piece of information, like a transaction and a block.
 
 use bitcoin::consensus;
-use bitcoin::consensus::encode::Error;
 use bitcoin::consensus::Decodable;
 use bitcoin::consensus::Encodable;
 use bitcoin::hashes::sha256;
@@ -68,12 +67,12 @@ impl LeafData {
 impl Decodable for LeafData {
     fn consensus_decode<R: bitcoin::io::Read + ?Sized>(
         reader: &mut R,
-    ) -> Result<Self, bitcoin::consensus::encode::Error> {
+    ) -> Result<Self, consensus::encode::Error> {
         Self::consensus_decode_from_finite_reader(reader)
     }
     fn consensus_decode_from_finite_reader<R: bitcoin::io::Read + ?Sized>(
         reader: &mut R,
-    ) -> Result<Self, bitcoin::consensus::encode::Error> {
+    ) -> Result<Self, consensus::encode::Error> {
         let block_hash = BlockHash::consensus_decode(reader)?;
         let prevout = OutPoint::consensus_decode(reader)?;
         let header_code = u32::consensus_decode(reader)?;
@@ -101,9 +100,9 @@ impl Decodable for LeafData {
 ///   if IsCoinBase {
 ///       header_code |= 1 // only set the bit 0 if it's a coinbase.
 ///   }
-/// ScriptPubkeyType is the output's scriptPubkey, but serialized in a more efficient way
+/// ScriptPubKeyKind is the output's scriptPubKey, but serialized in a more efficient way
 /// to save bandwidth. If the type is recoverable from the scriptSig, don't download the
-/// scriptPubkey.
+/// scriptPubKey.
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub struct CompactLeafData {
     /// Header code tells the height of creating for this UTXO and whether it's a coinbase
@@ -111,16 +110,16 @@ pub struct CompactLeafData {
     /// The amount locked in this UTXO
     pub amount: u64,
     /// The type of the locking script for this UTXO
-    pub spk_ty: ScriptPubkeyType,
+    pub spk_ty: ScriptPubKeyKind,
 }
 
-/// A recoverable scriptPubkey type, this avoids copying over data that are already
+/// A recoverable scriptPubKey type, this avoids copying over data that are already
 /// present or can be computed from the transaction itself.
 /// An example is a p2pkh, the public key is serialized in the scriptSig, so we can just
-/// grab it and hash to obtain the actual scriptPubkey. Since this data is committed in
+/// grab it and hash to obtain the actual scriptPubKey. Since this data is committed in
 /// the Utreexo leaf hash, it is still authenticated
 #[derive(PartialEq, Eq, Clone, Debug)]
-pub enum ScriptPubkeyType {
+pub enum ScriptPubKeyKind {
     /// An non-specified type, in this case the script is just copied over
     Other(Box<[u8]>),
     /// p2pkh
@@ -133,21 +132,23 @@ pub enum ScriptPubkeyType {
     WitnessV0ScriptHash,
 }
 
-impl Decodable for ScriptPubkeyType {
-    fn consensus_decode<R: bitcoin::io::Read + ?Sized>(reader: &mut R) -> Result<Self, Error> {
+impl Decodable for ScriptPubKeyKind {
+    fn consensus_decode<R: bitcoin::io::Read + ?Sized>(
+        reader: &mut R,
+    ) -> Result<Self, consensus::encode::Error> {
         let ty = u8::consensus_decode(reader)?;
         match ty {
-            0x00 => Ok(ScriptPubkeyType::Other(Box::consensus_decode(reader)?)),
-            0x01 => Ok(ScriptPubkeyType::PubKeyHash),
-            0x02 => Ok(ScriptPubkeyType::WitnessV0PubKeyHash),
-            0x03 => Ok(ScriptPubkeyType::ScriptHash),
-            0x04 => Ok(ScriptPubkeyType::WitnessV0ScriptHash),
-            _ => Err(Error::ParseFailed("Invalid script type")),
+            0x00 => Ok(ScriptPubKeyKind::Other(Box::consensus_decode(reader)?)),
+            0x01 => Ok(ScriptPubKeyKind::PubKeyHash),
+            0x02 => Ok(ScriptPubKeyKind::WitnessV0PubKeyHash),
+            0x03 => Ok(ScriptPubKeyKind::ScriptHash),
+            0x04 => Ok(ScriptPubKeyKind::WitnessV0ScriptHash),
+            _ => Err(consensus::encode::Error::ParseFailed("Invalid script type")),
         }
     }
 }
 
-impl Encodable for ScriptPubkeyType {
+impl Encodable for ScriptPubKeyKind {
     fn consensus_encode<W: bitcoin::io::Write + ?Sized>(
         &self,
         writer: &mut W,
@@ -155,20 +156,20 @@ impl Encodable for ScriptPubkeyType {
         let mut len = 1;
 
         match self {
-            ScriptPubkeyType::Other(script) => {
+            ScriptPubKeyKind::Other(script) => {
                 00_u8.consensus_encode(writer)?;
                 len += script.consensus_encode(writer)?;
             }
-            ScriptPubkeyType::PubKeyHash => {
+            ScriptPubKeyKind::PubKeyHash => {
                 0x01_u8.consensus_encode(writer)?;
             }
-            ScriptPubkeyType::WitnessV0PubKeyHash => {
+            ScriptPubKeyKind::WitnessV0PubKeyHash => {
                 0x02_u8.consensus_encode(writer)?;
             }
-            ScriptPubkeyType::ScriptHash => {
+            ScriptPubKeyKind::ScriptHash => {
                 0x03_u8.consensus_encode(writer)?;
             }
-            ScriptPubkeyType::WitnessV0ScriptHash => {
+            ScriptPubKeyKind::WitnessV0ScriptHash => {
                 0x04_u8.consensus_encode(writer)?;
             }
         }
@@ -243,7 +244,7 @@ impl Decodable for UtreexoBlock {
     ) -> Result<Self, consensus::encode::Error> {
         let block = Block::consensus_decode(reader)?;
 
-        if let Err(Error::Io(_remember)) = VarInt::consensus_decode(reader) {
+        if let Err(consensus::encode::Error::Io(_remember)) = VarInt::consensus_decode(reader) {
             return Ok(block.into());
         };
 
@@ -266,7 +267,7 @@ impl Decodable for UtreexoBlock {
         for _ in 0..n_leaves.0 {
             let header_code = u32::consensus_decode(reader)?;
             let amount = u64::consensus_decode(reader)?;
-            let spk_ty = ScriptPubkeyType::consensus_decode(reader)?;
+            let spk_ty = ScriptPubKeyKind::consensus_decode(reader)?;
 
             leaves.push(CompactLeafData {
                 header_code,
@@ -331,13 +332,13 @@ pub mod proof_util {
     use crate::pruned_utreexo::utxo_data::UtxoData;
     use crate::BlockchainError;
     use crate::CompactLeafData;
-    use crate::ScriptPubkeyType;
+    use crate::ScriptPubKeyKind;
     use crate::UData;
 
     #[derive(Debug)]
     /// Errors that may occur while reconstructing a leaf's scriptPubKey.
     pub enum Error {
-        /// Triggered when the input lacks the hashed data required by the [ScriptPubkeyType]
+        /// Triggered when the input lacks the hashed data required by the [ScriptPubKeyKind]
         /// (i.e. the public key for P2PKH/P2WPKH, the redeem script for P2SH, or the witness script for P2WSH).
         EmptyStack,
     }
@@ -351,7 +352,7 @@ pub mod proof_util {
         }
     }
 
-    /// This function returns the scriptPubkey type (i.e. address type) of a given script data.
+    /// This function returns the scriptPubKey type (i.e. address type) of a given script data.
     /// It can be:
     ///
     /// - `PubKeyHash`: A pay-to-public-key-hash script.
@@ -359,31 +360,31 @@ pub mod proof_util {
     /// - `WitnessV0PubKeyHash`: A pay-to-witness-public-key-hash script.
     /// - `WitnessV0ScriptHash`: A pay-to-witness-script-hash script.
     /// - `Other`: a non specified script type. It is just copied over.
-    pub fn get_script_type(script: &ScriptBuf) -> ScriptPubkeyType {
+    pub fn get_script_type(script: &ScriptBuf) -> ScriptPubKeyKind {
         if script.is_p2pkh() {
-            return ScriptPubkeyType::PubKeyHash;
+            return ScriptPubKeyKind::PubKeyHash;
         }
 
         if script.is_p2sh() {
-            return ScriptPubkeyType::ScriptHash;
+            return ScriptPubKeyKind::ScriptHash;
         }
 
         if script.is_p2wpkh() {
-            return ScriptPubkeyType::WitnessV0PubKeyHash;
+            return ScriptPubKeyKind::WitnessV0PubKeyHash;
         }
 
         if script.is_p2wsh() {
-            return ScriptPubkeyType::WitnessV0ScriptHash;
+            return ScriptPubKeyKind::WitnessV0ScriptHash;
         }
 
-        ScriptPubkeyType::Other(script.to_bytes().into_boxed_slice())
+        ScriptPubKeyKind::Other(script.to_bytes().into_boxed_slice())
     }
 
     /// Reconstructs the leaf data from a [CompactLeafData], the UTXO's block hash, and its spending tx input.
     pub fn reconstruct_leaf_data(
         leaf: &CompactLeafData,
         input: &TxIn,
-        block_hash: bitcoin::BlockHash,
+        block_hash: BlockHash,
     ) -> Result<LeafData, Error> {
         let spk = reconstruct_script_pubkey(leaf, input)?;
 
@@ -554,7 +555,7 @@ pub mod proof_util {
         Ok((proof, del_hashes, utxos))
     }
 
-    /// Reconstructs the output script, also called scriptPubkey, from a [CompactLeafData] and
+    /// Reconstructs the output script, also called scriptPubKey, from a [CompactLeafData] and
     /// the spending tx input. Returns an error if we can't reconstruct the script (the input
     /// doesn't contain the required data).
     ///
@@ -564,8 +565,8 @@ pub mod proof_util {
     /// The logic behind is:
     ///
     /// For some script types, the output script is just the hash of something that needs to be
-    /// revealed at some later stage (e.g. pkh is the hash of a public key that will be reveled
-    /// afterwards in the scriptSig, at spend time). Therefore, this information is redoutant,
+    /// revealed at some later stage (e.g. pkh is the hash of a public key that will be revealed
+    /// afterwards in the scriptSig, at spend time). Therefore, this information is redundant,
     /// as we have it inside the spending transaction. For types where reconstruction is possible,
     /// we just need to communicate the type with a single byte marker, and the rest can be built
     /// from that using the spending transaction.
@@ -574,20 +575,20 @@ pub mod proof_util {
         input: &TxIn,
     ) -> Result<ScriptBuf, Error> {
         match &leaf.spk_ty {
-            ScriptPubkeyType::Other(spk) => Ok(ScriptBuf::from(spk.clone().into_vec())),
-            ScriptPubkeyType::PubKeyHash => {
+            ScriptPubKeyKind::Other(spk) => Ok(ScriptBuf::from(spk.clone().into_vec())),
+            ScriptPubKeyKind::PubKeyHash => {
                 let pkhash = get_pk_hash(input)?;
                 Ok(ScriptBuf::new_p2pkh(&pkhash))
             }
-            ScriptPubkeyType::WitnessV0PubKeyHash => {
+            ScriptPubKeyKind::WitnessV0PubKeyHash => {
                 let pk_hash = get_witness_pk_hash(input)?;
                 Ok(ScriptBuf::new_p2wpkh(&pk_hash))
             }
-            ScriptPubkeyType::ScriptHash => {
+            ScriptPubKeyKind::ScriptHash => {
                 let script_hash = get_script_hash(input)?;
                 Ok(ScriptBuf::new_p2sh(&script_hash))
             }
-            ScriptPubkeyType::WitnessV0ScriptHash => {
+            ScriptPubKeyKind::WitnessV0ScriptHash => {
                 let witness_program_hash = get_witness_script_hash(input)?;
                 Ok(ScriptBuf::new_p2wsh(&witness_program_hash))
             }
@@ -598,7 +599,7 @@ pub mod proof_util {
     fn get_pk_hash(input: &TxIn) -> Result<PubkeyHash, Error> {
         let script_sig = &input.script_sig;
         let inst = script_sig.instructions().last();
-        if let Some(Ok(bitcoin::blockdata::script::Instruction::PushBytes(bytes))) = inst {
+        if let Some(Ok(Instruction::PushBytes(bytes))) = inst {
             return Ok(PubkeyHash::hash(bytes.as_bytes()));
         }
         Err(Error::EmptyStack)
@@ -609,7 +610,7 @@ pub mod proof_util {
         let script_sig = &input.script_sig;
         let inst = script_sig.instructions().last();
         if let Some(Ok(Instruction::PushBytes(bytes))) = inst {
-            return Ok(ScriptBuf::from_bytes(bytes.as_bytes().to_vec()).script_hash());
+            return Ok(ScriptHash::hash(bytes.as_bytes()));
         }
         Err(Error::EmptyStack)
     }
@@ -617,8 +618,7 @@ pub mod proof_util {
     /// Computes the witness public key hash from the input's witness data.
     fn get_witness_pk_hash(input: &TxIn) -> Result<WPubkeyHash, Error> {
         let witness = &input.witness;
-        let pk = witness.last();
-        if let Some(pk) = pk {
+        if let Some(pk) = witness.last() {
             return Ok(WPubkeyHash::hash(pk));
         }
         Err(Error::EmptyStack)
@@ -627,8 +627,7 @@ pub mod proof_util {
     /// Computes the witness script hash from the input's witness data.
     fn get_witness_script_hash(input: &TxIn) -> Result<WScriptHash, Error> {
         let witness = &input.witness;
-        let script = witness.last();
-        if let Some(script) = script {
+        if let Some(script) = witness.last() {
             return Ok(WScriptHash::hash(script));
         }
         Err(Error::EmptyStack)
@@ -656,7 +655,7 @@ mod test {
     use super::proof_util::reconstruct_leaf_data;
     use super::CompactLeafData;
     use super::LeafData;
-    use super::ScriptPubkeyType;
+    use super::ScriptPubKeyKind;
     use crate::proof_util::process_proof;
     use crate::AssumeValidArg;
     use crate::BlockchainError;
@@ -760,7 +759,7 @@ mod test {
             let leaf = CompactLeafData {
                 amount: Amount::from_btc($amount).unwrap().to_sat(),
                 header_code: $height,
-                spk_ty: ScriptPubkeyType::$spk_type,
+                spk_ty: ScriptPubKeyKind::$spk_type,
             };
             let spk =
                 super::proof_util::reconstruct_leaf_data(&leaf, &s.input[0], bhash!($block_hash))
@@ -831,7 +830,7 @@ mod test {
         let compact = CompactLeafData {
             amount: Amount::from_btc(69373.68668596).unwrap().to_sat(),
             header_code: 262348,
-            spk_ty: ScriptPubkeyType::WitnessV0PubKeyHash,
+            spk_ty: ScriptPubKeyKind::WitnessV0PubKeyHash,
         };
         let reconstructed = reconstruct_leaf_data(
             &compact,

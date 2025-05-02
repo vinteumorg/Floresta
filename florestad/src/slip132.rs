@@ -147,32 +147,32 @@ pub struct KeyVersion([u8; 4]);
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct DefaultResolver;
 
-/// SLIP 132-defined key applications defining types of scriptPubkey descriptors
+/// SLIP 132-defined key applications defining types of scriptPubKey descriptors
 /// in which they can be used
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum KeyApplication {
     /// xprv/xpub: keys that can be used for P2PKH and multisig P2SH
-    /// scriptPubkey descriptors.
+    /// scriptPubKey descriptors.
     #[serde(rename = "bip44")]
     Hashed,
 
-    /// zprv/zpub: keys that can be used for P2WPKH scriptPubkey descriptors
+    /// zprv/zpub: keys that can be used for P2WPKH scriptPubKey descriptors
     #[serde(rename = "bip84")]
     SegWit,
 
-    /// Zprv/Zpub: keys that can be used for multisig P2WSH scriptPubkey
+    /// Zprv/Zpub: keys that can be used for multisig P2WSH scriptPubKey
     /// descriptors
     #[serde(rename = "bip48-native")]
     SegWitMultisig,
 
-    /// yprv/ypub: keys that can be used for P2WPKH-in-P2SH scriptPubkey
+    /// yprv/ypub: keys that can be used for P2WPKH-in-P2SH scriptPubKey
     /// descriptors
     #[serde(rename = "bip49")]
     Nested,
 
     /// Yprv/Ypub: keys that can be used for multisig P2WSH-in-P2SH
-    /// scriptPubkey descriptors
+    /// scriptPubKey descriptors
     #[serde(rename = "bip48-nested")]
     NestedMultisig,
 }

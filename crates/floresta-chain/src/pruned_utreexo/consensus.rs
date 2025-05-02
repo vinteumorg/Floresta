@@ -602,7 +602,7 @@ mod tests {
     }
 
     #[test]
-    // Bitcoin Consensus rules dictate that a scriptPubkey that's more than 10_000 bytes long
+    // Bitcoin Consensus rules dictate that a scriptPubKey that's more than 10_000 bytes long
     // won't be spendable. However, such an output **can** be created. We only check those
     // sizes when it gets spent.
     //
