@@ -56,8 +56,8 @@ fn do_request(cmd: &Cli, client: Client) -> anyhow::Result<String> {
         Methods::GetTxOut { txid, vout } => {
             serde_json::to_string_pretty(&client.get_tx_out(txid, vout)?)?
         }
-        Methods::GetTxProof { txids, .. } => {
-            serde_json::to_string_pretty(&client.get_tx_proof(txids)?)?
+        Methods::GetTxOutProof { txids, blockhash } => {
+            serde_json::to_string_pretty(&client.get_txout_proof(txids, blockhash)?)?
         }
         Methods::GetTransaction { txid, .. } => {
             serde_json::to_string_pretty(&client.get_transaction(txid, Some(true))?)?
@@ -144,9 +144,14 @@ pub enum Methods {
     #[command(name = "getblockhash")]
     GetBlockHash { height: u32 },
     /// Returns the proof that one or more transactions were included in a block
-    #[command(name = "gettxproof")]
-    GetTxProof {
-        txids: Txid,
+    #[command(name = "gettxoutproof")]
+    GetTxOutProof {
+        /// The transaction IDs to prove
+        #[arg( required = true, value_parser = parsers::jsonlike_array_of_txids)]
+        txids: std::vec::Vec<Txid>, // you need to specify the path of Vec https://github.com/clap-rs/clap/discussions/4695
+
+        /// The block in which to look for the transactions
+        #[arg(required = false)]
         blockhash: Option<BlockHash>,
     },
     /// Returns the transaction, assuming it is cached by our watch only wallet
@@ -207,4 +212,29 @@ pub enum Methods {
     /// Returns a list of all descriptors currently loaded in the wallet
     #[command(name = "listdescriptors")]
     ListDescriptors,
+}
+
+/// These are parser methods that help to maintain a core-like API.
+///
+/// A good example for these parsers is the ['parsers::jsonlike_array_of_txids']
+/// that permit to `gettxoutproof` to receive the txids input as '["txid1","txid2"]'.
+pub mod parsers {
+    use bitcoin::Txid;
+    use thiserror::Error;
+
+    #[derive(Debug, Error)]
+    pub enum ParseError {
+        #[error("Couldnt parse the inserted as a Hash Array, please refer to the docs")]
+        InvalidHashArray,
+        #[error("Couldnt parse the inserted item as a Txid, please refer to the docs. Item: ${0}")]
+        InvalidTxid(String),
+    }
+
+    pub type Result<T> = std::result::Result<T, ParseError>;
+    /// Tries to parse a json array of txids.
+    ///
+    /// Example: '["4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b", "4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b"]'
+    pub fn jsonlike_array_of_txids(s: &str) -> Result<Vec<Txid>> {
+        serde_json::from_str(s).map_err(|_| ParseError::InvalidHashArray)
+    }
 }
