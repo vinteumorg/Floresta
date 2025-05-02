@@ -10,9 +10,9 @@ use serde::Deserialize;
 use serde::Serialize;
 #[derive(Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MerkleProof {
-    target: Txid,
-    pos: u64,
-    hashes: Vec<sha256d::Hash>,
+    pub target: Txid,
+    pub pos: u64,
+    pub hashes: Vec<sha256d::Hash>,
 }
 impl Default for MerkleProof {
     fn default() -> Self {
@@ -28,10 +28,17 @@ impl MerkleProof {
             pos: 0,
         }
     }
+
+    /// Return the hashes for this proof as a [`Vec<String>`]
+    pub fn to_string_array(&self) -> Vec<String> {
+        self.hashes().iter().map(|hash| hash.to_string()).collect()
+    }
+
     /// Returns the hashes for this proof
     pub fn hashes(&self) -> Vec<sha256d::Hash> {
         self.hashes.clone()
     }
+
     /// Creates a new proof from a list of hashes and a target. Target is a 64 bits
     /// unsigned integer indicating the index of a transaction we with to prove. Note that
     /// this only proves one tx at the time.
@@ -44,6 +51,7 @@ impl MerkleProof {
             hashes: proof,
         }
     }
+
     /// Same as [MerkleProof::from_block_hashes] but you give a block instead of a list of
     /// hashes.
     pub fn from_block(block: &Block, target: u64) -> Self {
@@ -54,7 +62,7 @@ impl MerkleProof {
             .collect();
         Self::from_block_hashes(tx_list, target)
     }
-    #[allow(unused)]
+
     /// Verifies a proof by hashing up all nodes until reach a root, and compare `root` with
     /// computed root.
     pub fn verify(&self, root: sha256d::Hash) -> Result<bool, String> {
@@ -71,15 +79,18 @@ impl MerkleProof {
         }
         Ok(root == computed)
     }
+
     /// Returns the position of a node's parent
     fn get_parent(pos: u64) -> u64 {
         (pos ^ 1) / 2
     }
+
     /// Returns a node's sibling. This is useful because we have to copy a node's sibling
     /// to proof, so we can compute it's parent.
     fn get_sibling(pos: u64) -> u64 {
         pos ^ 1
     }
+
     /// Computes the hash of two node's parent, by taking sha256d(left_child | right_child), where |
     /// means byte-wise concatenation.
     fn parent_hash(left: &[u8], right: &[u8]) -> sha256d::Hash {
@@ -88,6 +99,7 @@ impl MerkleProof {
         engine.input(right);
         sha256d::Hash::from_engine(engine)
     }
+
     /// Iterates over the tree, collecting required nodes for proof, internally we compute
     /// all intermediate nodes, but don't keep them.
     fn transverse(
