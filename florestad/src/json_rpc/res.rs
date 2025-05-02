@@ -176,6 +176,7 @@ pub enum Error {
     MissingReq,
     InvalidVerbosityLevel,
     TxNotFound,
+
     InvalidScript,
     InvalidDescriptor,
     BlockNotFound,

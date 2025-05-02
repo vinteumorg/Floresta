@@ -4,6 +4,9 @@ use serde::Deserialize;
 use serde::Serialize;
 
 #[derive(Debug, Deserialize, Serialize)]
+pub struct GetTxOutProof(pub Vec<u8>);
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct GetBlockchainInfoRes {
     /// The best block we know about
     ///

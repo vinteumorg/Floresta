@@ -270,11 +270,16 @@ async fn handle_json_rpc_request(req: Value, state: Arc<RpcImpl>) -> Result<serd
         }
 
         "gettxoutproof" => {
-            let txid = Txid::from_str(params[0].as_str().ok_or(Error::InvalidHash)?)
-                .map_err(|_| Error::InvalidHash)?;
-            state
-                .get_tx_proof(txid)
-                .map(|v| ::serde_json::to_value(v).unwrap())
+            let txids: Vec<Txid> =
+                serde_json::from_str(params[0].as_str().ok_or(Error::InvalidHash)?)
+                    .map_err(|_| Error::InvalidHash)?;
+
+            let optional_blockhash =
+                BlockHash::from_str(params[1].as_str().ok_or(Error::InvalidHash)?).ok();
+            Ok(
+                serde_json::to_value(state.get_txout_proof(&txids, optional_blockhash).await?)
+                    .expect("GetTxOutProof implements serde"),
+            )
         }
 
         "getrawtransaction" => {

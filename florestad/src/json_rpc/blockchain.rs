@@ -1,13 +1,17 @@
+use anyhow::Result;
 use bitcoin::block::Header;
 use bitcoin::consensus::encode::serialize_hex;
+use bitcoin::consensus::Encodable;
 use bitcoin::constants::genesis_block;
 use bitcoin::Block;
 use bitcoin::BlockHash;
+use bitcoin::MerkleBlock;
 use bitcoin::OutPoint;
 use bitcoin::ScriptBuf;
 use bitcoin::Txid;
 use floresta_chain::pruned_utreexo::BlockchainInterface;
 use floresta_chain::pruned_utreexo::UpdatableChainstate;
+use floresta_cli::rpc_types::GetTxOutProof;
 use serde_json::json;
 use serde_json::Value;
 
@@ -189,13 +193,41 @@ impl RpcImpl {
         res.map_err(|_e| RpcError::Encode)
     }
 
-    // gettxoutproof
-    pub(super) fn get_tx_proof(&self, tx_id: Txid) -> Result<Vec<String>, RpcError> {
-        Ok(self
-            .wallet
-            .get_merkle_proof(&tx_id)
-            .ok_or(RpcError::TxNotFound)?
-            .0)
+    /// Return the block that contains the given Txid
+    pub fn get_block_by_txid(&self, txid: &Txid) -> Result<Block, RpcError> {
+        let height = self.wallet.get_height(txid).ok_or(RpcError::TxNotFound)?;
+        let blockhash = self.chain.get_block_hash(height).unwrap();
+        Ok(self.chain.get_block(&blockhash).unwrap())
+    }
+
+    /// Computes the necessary information for the RPC `gettxoutproof [txids] blockhash (optional)`
+    ///
+    /// This function has two paths, when blockhash is inserted and when isn't.
+    ///
+    /// Specifying the blockhash will make this function go after the block and search
+    /// for the transcations inside it, building a merkle proof from the block with its
+    /// indexes. Not specifying will redirect it to search for the merkle proof on our
+    /// Watch-only wallet which may not have the transaction cached, returning [`RpcError::UncertainTxNotFound`].
+    ///
+    /// Not founding one of the specified transactions will raise [`RpcError::TxNotFound`], if none is
+    /// found, [`RpcError::TxsNotFound`] is raised then.
+    pub(super) async fn get_txout_proof(
+        &self,
+        tx_ids: &[Txid],
+        blockhash: Option<BlockHash>,
+    ) -> Result<GetTxOutProof, RpcError> {
+        let block = match blockhash {
+            Some(blockhash) => self.get_block_inner(blockhash).await?,
+            // Using the first Txid to get the block should be fine since they are expected to all
+            // live in the same block, otherwise, theres no way they have a commong proof.
+            None => self.get_block_by_txid(&tx_ids[0])?,
+        };
+        let merkle_block = MerkleBlock::from_block_with_predicate(&block, |tx| tx_ids.contains(tx));
+        let mut bytes: Vec<u8> = Vec::new();
+        merkle_block
+            .consensus_encode(&mut bytes)
+            .expect("This will raise if a writer error happens");
+        Ok(GetTxOutProof(bytes))
     }
 
     // gettxoutsetinfo

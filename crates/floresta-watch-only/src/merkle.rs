@@ -10,9 +10,9 @@ use serde::Deserialize;
 use serde::Serialize;
 #[derive(Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MerkleProof {
-    target: Txid,
-    pos: u64,
-    hashes: Vec<sha256d::Hash>,
+    pub target: Txid,
+    pub pos: u64,
+    pub hashes: Vec<sha256d::Hash>,
 }
 impl Default for MerkleProof {
     fn default() -> Self {
@@ -27,6 +27,10 @@ impl MerkleProof {
             hashes: Vec::new(),
             pos: 0,
         }
+    }
+    /// Return the hashes fot this proof as a [`Vec<String>`]
+    pub fn to_hash_list(&self) -> Vec<String> {
+        self.hashes().iter().map(|hash| hash.to_string()).collect()
     }
     /// Returns the hashes for this proof
     pub fn hashes(&self) -> Vec<sha256d::Hash> {
@@ -54,7 +58,7 @@ impl MerkleProof {
             .collect();
         Self::from_block_hashes(tx_list, target)
     }
-    #[allow(unused)]
+
     /// Verifies a proof by hashing up all nodes until reach a root, and compare `root` with
     /// computed root.
     pub fn verify(&self, root: sha256d::Hash) -> Result<bool, String> {
