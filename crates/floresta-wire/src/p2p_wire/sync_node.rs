@@ -325,6 +325,10 @@ where
                 self.perform_user_request(request, responder).await;
             }
 
+            NodeNotification::DnsSeedAddresses(addresses) => {
+                self.address_man.push_addresses(&addresses);
+            }
+
             NodeNotification::FromPeer(peer, notification) => {
                 #[cfg(feature = "metrics")]
                 self.register_message_time(&notification, peer);

@@ -1039,6 +1039,7 @@ mod test {
 
         // Create test_node_interface
         let u_config = UtreexoNodeConfig {
+            disable_dns_seeds: true,
             network: bitcoin::Network::Signet,
             pow_fraud_proofs: true,
             proxy: None,

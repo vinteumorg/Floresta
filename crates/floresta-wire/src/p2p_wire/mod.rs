@@ -67,11 +67,14 @@ pub struct UtreexoNodeConfig {
     /// Whether to allow fallback to v1 transport if v2 connection fails.
     /// Defaults to true.
     pub allow_v1_fallback: bool,
+    /// Whether to disable DNS seeds. Defaults to false.
+    pub disable_dns_seeds: bool,
 }
 
 impl Default for UtreexoNodeConfig {
     fn default() -> Self {
         UtreexoNodeConfig {
+            disable_dns_seeds: false,
             network: Network::Bitcoin,
             pow_fraud_proofs: false,
             compact_filters: false,

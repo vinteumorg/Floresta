@@ -70,12 +70,15 @@ use crate::json_rpc;
 use crate::wallet_input::InitialWalletSetup;
 #[cfg(feature = "zmq-server")]
 use crate::zmq::ZMQServer;
+
 #[derive(Default, Clone)]
 /// General configuration for the floresta daemon.
 ///
 /// Those configs should be passed in by anyone that wants to start a floresta instance. Some of
 /// these are also exposed through the config file.
 pub struct Config {
+    /// Whether we should disable dns seeds
+    pub disable_dns_seeds: bool,
     /// Where we should place our data
     ///
     /// This directory must be readable and writable by our process. We'll use this dir to store
@@ -407,6 +410,7 @@ impl Florestad {
         };
 
         let config = UtreexoNodeConfig {
+            disable_dns_seeds: self.config.disable_dns_seeds,
             network: Self::get_net(&self.config.network),
             pow_fraud_proofs,
             proxy: self
