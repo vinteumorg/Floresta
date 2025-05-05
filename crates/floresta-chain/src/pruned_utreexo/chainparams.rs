@@ -18,13 +18,13 @@ use bitcoin::p2p::ServiceFlags;
 use bitcoin::params::Params;
 use bitcoin::Block;
 use bitcoin::BlockHash;
+use bitcoin::Network;
 use floresta_common::acchashes;
 use floresta_common::bhash;
 use rustreexo::accumulator::node_hash::BitcoinNodeHash;
 
 use crate::prelude::*;
 use crate::AssumeValidArg;
-use crate::Network;
 
 #[derive(Clone, Debug)]
 /// This struct encapsulates all chain-specific parameters.
@@ -56,7 +56,7 @@ pub struct ChainParams {
     pub exceptions: HashMap<BlockHash, c_uint>,
 
     /// The network this chain params is for
-    pub network: bitcoin::Network,
+    pub network: Network,
 }
 
 /// A dns seed is a authoritative DNS server that returns the IP addresses of nodes that are
@@ -112,7 +112,7 @@ pub struct AssumeUtreexoValue {
 impl ChainParams {
     /// This method is called when Assume Utreexo is set to true. It means that the user will accept the hardcoded utreexo state for the specified block, if it is found in the best chain. We can then sync rapidly from this state.
     pub fn get_assume_utreexo(network: Network) -> AssumeUtreexoValue {
-        let genesis = genesis_block(Params::new(network.into()));
+        let genesis = genesis_block(Params::new(network));
         match network {
             Network::Bitcoin => AssumeUtreexoValue {
                 block_hash: bhash!(
@@ -147,6 +147,12 @@ impl ChainParams {
                 leaves: 0,
                 roots: Vec::new(),
             },
+            Network::Testnet4 => AssumeUtreexoValue {
+                block_hash: genesis.block_hash(),
+                height: 0,
+                leaves: 0,
+                roots: Vec::new(),
+            },
             Network::Signet => AssumeUtreexoValue {
                 block_hash: genesis.block_hash(),
                 height: 0,
@@ -154,6 +160,12 @@ impl ChainParams {
                 roots: Vec::new(),
             },
             Network::Regtest => AssumeUtreexoValue {
+                block_hash: genesis.block_hash(),
+                height: 0,
+                leaves: 0,
+                roots: Vec::new(),
+            },
+            _ => AssumeUtreexoValue {
                 block_hash: genesis.block_hash(),
                 height: 0,
                 leaves: 0,
@@ -174,12 +186,16 @@ impl ChainParams {
                 Network::Testnet => Some(bhash!(
                     "000000000000001142ad197bff16a1393290fca09e4ca904dd89e7ae98a90fcd"
                 )),
+                Network::Testnet4 => Some(bhash!(
+                    "0000000006af13c1117f3e2eb14f10eb9736e255713118cf7eb6659b1448efc1"
+                )),
                 Network::Signet => Some(bhash!(
                     "0000003ed17b9c93954daab00d73ccbd0092074c4ebfc751c7458d58b827dfea"
                 )),
                 Network::Regtest => Some(bhash!(
                     "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206"
                 )),
+                _ => panic!("This network does not exist!"),
             },
         }
     }
@@ -223,37 +239,47 @@ impl AsRef<Params> for ChainParams {
 }
 
 impl From<Network> for ChainParams {
-    fn from(net: Network) -> Self {
-        let genesis = genesis_block(Params::new(net.into()));
+    fn from(network: Network) -> Self {
+        let genesis = genesis_block(Params::new(network));
         let exceptions = get_exceptions();
 
-        match net {
+        match network {
             Network::Bitcoin => ChainParams {
-                params: Params::new(net.into()),
-                network: net.into(),
+                params: Params::new(network),
+                network,
                 genesis,
                 pow_target_timespan: 14 * 24 * 60 * 60, // two weeks
                 subsidy_halving_interval: 210_000,
                 coinbase_maturity: 100,
-                segwit_activation_height: 481824,
-                csv_activation_height: 419328,
+                segwit_activation_height: 481_824,
+                csv_activation_height: 419_328,
                 exceptions,
             },
             Network::Testnet => ChainParams {
-                params: Params::new(net.into()),
-                network: net.into(),
+                params: Params::new(network),
+                network,
                 genesis,
                 pow_target_timespan: 14 * 24 * 60 * 60, // two weeks
                 subsidy_halving_interval: 210_000,
                 coinbase_maturity: 100,
-
                 segwit_activation_height: 834_624,
                 csv_activation_height: 770_112,
                 exceptions,
             },
+            Network::Testnet4 => ChainParams {
+                params: Params::new(network),
+                network,
+                genesis,
+                pow_target_timespan: 14 * 24 * 60 * 60,
+                subsidy_halving_interval: 210_000,
+                coinbase_maturity: 100,
+                segwit_activation_height: 0,
+                csv_activation_height: 0,
+                exceptions,
+            },
             Network::Signet => ChainParams {
-                params: Params::new(net.into()),
-                network: net.into(),
+                params: Params::new(network),
+                network,
                 genesis,
                 pow_target_timespan: 14 * 24 * 60 * 60, // two weeks
                 subsidy_halving_interval: 210_000,
@@ -263,8 +289,8 @@ impl From<Network> for ChainParams {
                 exceptions,
             },
             Network::Regtest => ChainParams {
-                params: Params::new(net.into()),
-                network: net.into(),
+                params: Params::new(network),
+                network,
                 genesis,
                 pow_target_timespan: 14 * 24 * 60 * 60, // two weeks
                 subsidy_halving_interval: 150,
@@ -273,6 +299,7 @@ impl From<Network> for ChainParams {
                 segwit_activation_height: 0,
                 exceptions,
             },
+            _ => panic!("This network does not exist."),
         }
     }
 }
@@ -352,6 +379,7 @@ pub fn get_chain_dns_seeds(network: Network) -> Vec<DnsSeed> {
                 none,
             ));
         }
+        Network::Testnet4 => {}
         Network::Signet => {
             seeds.push(DnsSeed::new(
                 Network::Signet,
@@ -363,6 +391,7 @@ pub fn get_chain_dns_seeds(network: Network) -> Vec<DnsSeed> {
         Network::Regtest => {
             // No seeds for regtest
         }
+        _ => {}
     };
     seeds
 }

@@ -645,6 +645,7 @@ mod test {
     use bitcoin::hashes::sha256;
     use bitcoin::Amount;
     use bitcoin::BlockHash;
+    use bitcoin::Network;
     use bitcoin::ScriptBuf;
     use bitcoin::Transaction;
     use floresta_common::acchashes;
@@ -661,7 +662,6 @@ mod test {
     use crate::BlockchainError;
     use crate::ChainState;
     use crate::KvChainStore;
-    use crate::Network;
     use crate::UtreexoBlock;
 
     fn setup_test_chain<'a>(

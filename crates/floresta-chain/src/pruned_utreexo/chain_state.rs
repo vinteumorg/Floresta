@@ -35,6 +35,7 @@ use bitcoin::hashes::sha256;
 use bitcoin::script;
 use bitcoin::Block;
 use bitcoin::BlockHash;
+use bitcoin::Network;
 use bitcoin::OutPoint;
 use bitcoin::Target;
 use bitcoin::Transaction;
@@ -66,7 +67,6 @@ use crate::prelude::*;
 use crate::pruned_utreexo::utxo_data::UtxoData;
 use crate::read_lock;
 use crate::write_lock;
-use crate::Network;
 use crate::UtreexoBlock;
 
 /// Trait for components that need to receive notifications about new blocks.
@@ -1369,6 +1369,7 @@ mod test {
     use bitcoin::consensus::Decodable;
     use bitcoin::Block;
     use bitcoin::BlockHash;
+    use bitcoin::Network;
     use bitcoin::OutPoint;
     use floresta_common::bhash;
     use rand::Rng;
@@ -1384,7 +1385,6 @@ mod test {
     use crate::pruned_utreexo::utxo_data::UtxoData;
     use crate::AssumeValidArg;
     use crate::KvChainStore;
-    use crate::Network;
 
     fn setup_test_chain<'a>(
         network: Network,

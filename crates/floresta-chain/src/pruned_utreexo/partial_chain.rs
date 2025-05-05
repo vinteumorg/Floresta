@@ -11,7 +11,7 @@
 //! This choice removes the use of costly atomic operations, but opens space for design flaws
 //! and memory unsoundness, so here are some tips about this module and how people looking for
 //! extend or use this code should proceed:
-//!   
+//!
 //!   - Shared ownership is forbidden: if you have two threads or tasks owning this, you'll have
 //!     data race. If you want to hold shared ownership for this module, you need to place a
 //!     [PartialChainState] inside an `Arc<Mutex>` yourself. Don't just Arc this and expect it to
@@ -511,6 +511,7 @@ mod tests {
     use bitcoin::block::Header;
     use bitcoin::consensus::encode::deserialize_hex;
     use bitcoin::Block;
+    use bitcoin::Network;
     use floresta_common::acchashes;
     use rustreexo::accumulator::node_hash::BitcoinNodeHash;
     use rustreexo::accumulator::proof::Proof;
@@ -523,7 +524,6 @@ mod tests {
     use crate::pruned_utreexo::partial_chain::PartialChainStateInner;
     use crate::pruned_utreexo::UpdatableChainstate;
     use crate::BlockchainError;
-    use crate::Network;
 
     #[test]
     fn test_with_invalid_block() {
