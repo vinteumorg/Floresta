@@ -203,9 +203,9 @@ impl ChainStore for KvChainStore<'_> {
 
     /// Loads the best chain data from the metadata bucket.
     fn load_height(&self) -> Result<Option<BestChain>, Self::Error> {
-        let height = self.meta.get(&"height")?;
-        if let Some(height) = height {
-            return Ok(Some(deserialize(&height).unwrap()));
+        if let Some(b) = self.meta.get(&"height")? {
+            let height = deserialize(&b).expect("infallible: came from `serialize(height)`");
+            return Ok(Some(height));
         }
 
         Ok(None)

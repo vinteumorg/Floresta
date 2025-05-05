@@ -108,12 +108,13 @@ impl PartialChainStateInner {
 
     #[cfg(feature = "bitcoinconsensus")]
     /// Returns the validation flags, given the current block height
-    fn get_validation_flags(&self, height: u32) -> c_uint {
+    fn get_validation_flags(&self, height: u32, hash: BlockHash) -> c_uint {
         let chains_params = &self.consensus.parameters;
-        let hash = self.get_block(height).unwrap().block_hash();
+
         if let Some(flag) = chains_params.exceptions.get(&hash) {
             return *flag;
         }
+
         // From Bitcoin Core:
         // BIP16 didn't become active until Apr 1 2012 (on mainnet, and
         // retroactively applied to testnet)
@@ -156,7 +157,10 @@ impl PartialChainStateInner {
     #[inline]
     /// Returns the ancestor for a given block header
     fn get_ancestor(&self, height: u32) -> Result<BlockHeader, BlockchainError> {
-        let prev = self.get_block(height - 1).unwrap();
+        let prev = self
+            .get_block(height - 1)
+            .ok_or(BlockchainError::BlockNotPresent)?;
+
         Ok(*prev)
     }
 
@@ -229,7 +233,7 @@ impl PartialChainStateInner {
         let subsidy = self.consensus.get_subsidy(height);
         let verify_script = self.assume_valid;
         #[cfg(feature = "bitcoinconsensus")]
-        let flags = self.get_validation_flags(height);
+        let flags = self.get_validation_flags(height, block.block_hash());
         #[cfg(not(feature = "bitcoinconsensus"))]
         let flags = 0;
         Consensus::verify_block_transactions(

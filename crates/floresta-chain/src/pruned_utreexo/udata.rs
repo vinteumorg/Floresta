@@ -47,7 +47,9 @@ pub struct LeafData {
 impl LeafData {
     pub fn _get_leaf_hashes(&self) -> sha256::Hash {
         let mut ser_utxo = Vec::new();
-        self.utxo.consensus_encode(&mut ser_utxo).unwrap();
+        self.utxo
+            .consensus_encode(&mut ser_utxo)
+            .expect("serializing TxOut never fails: Vec<u8>::Write always returns Ok");
 
         let leaf_hash = Sha512_256::new()
             .chain_update(UTREEXO_TAG_V1)
@@ -59,8 +61,7 @@ impl LeafData {
             .chain_update(ser_utxo)
             .finalize();
 
-        sha256::Hash::from_slice(leaf_hash.as_slice())
-            .expect("parent_hash: Engines shouldn't be Err")
+        sha256::Hash::from_byte_array(leaf_hash.into())
     }
 }
 
@@ -319,6 +320,7 @@ pub mod proof_util {
     use bitcoin::Transaction;
     use bitcoin::TxIn;
     use bitcoin::TxOut;
+    use bitcoin::Txid;
     use bitcoin::WPubkeyHash;
     use bitcoin::WScriptHash;
     use rustreexo::accumulator::node_hash::BitcoinNodeHash;
@@ -416,19 +418,20 @@ pub mod proof_util {
     /// Computes the hash of a leaf node in the utreexo accumulator.
     #[inline]
     fn get_leaf_hashes(
-        transaction: &Transaction,
+        txid: Txid,
+        is_coinbase: bool,
         vout: u32,
+        utxo: &TxOut,
         height: u32,
         block_hash: BlockHash,
     ) -> sha256::Hash {
-        let utxo = transaction.output.get(vout as usize).unwrap();
-
         // An utreexo leaf hash is computed by hashing the UTXO bytes with some metadata
         let mut ser_utxo = Vec::new();
-        utxo.consensus_encode(&mut ser_utxo).unwrap();
+        utxo.consensus_encode(&mut ser_utxo)
+            .expect("serializing TxOut never fails: Vec<u8>::Write always returns Ok");
 
         // Header code encodes the block height (at the 31 MSB) and coinbase flag (LSB = 1 for coinbase)
-        let header_code = if transaction.is_coinbase() {
+        let header_code = if is_coinbase {
             height << 1 | 1
         } else {
             height << 1
@@ -438,46 +441,51 @@ pub mod proof_util {
             .chain_update(UTREEXO_TAG_V1)
             .chain_update(UTREEXO_TAG_V1)
             .chain_update(block_hash)
-            .chain_update(transaction.compute_txid())
+            .chain_update(txid)
             .chain_update(vout.to_le_bytes())
             .chain_update(header_code.to_le_bytes())
             .chain_update(ser_utxo)
             .finalize();
 
-        sha256::Hash::from_slice(leaf_hash.as_slice())
-            .expect("parent_hash: Engines shouldn't be Err")
+        sha256::Hash::from_byte_array(leaf_hash.into())
     }
 
     /// From a block, gets the roots that will be included on the acc, certifying
-    /// that any utxo will not be spend in the same block.
+    /// that any utxo will not be spent in the same block.
     pub fn get_block_adds(
         block: &Block,
         height: u32,
         block_hash: BlockHash,
     ) -> Vec<BitcoinNodeHash> {
-        let mut leaf_hashes = Vec::new();
         // Get inputs from the block, we'll need this HashSet to check if an output is spent
         // in the same block. If it is, we don't need to add it to the accumulator.
-        let mut block_inputs = HashSet::new();
-        for transaction in block.txdata.iter() {
-            for input in transaction.input.iter() {
-                block_inputs.insert((input.previous_output.txid, input.previous_output.vout));
+        let mut spent = HashSet::new();
+        for tx in &block.txdata {
+            for input in &tx.input {
+                spent.insert((input.previous_output.txid, input.previous_output.vout));
             }
         }
 
         // Get all leaf hashes that will be added to the accumulator
-        for transaction in block.txdata.iter() {
-            for (i, output) in transaction.output.iter().enumerate() {
-                if !is_unspendable(&output.script_pubkey)
-                    && !block_inputs.contains(&(transaction.compute_txid(), i as u32))
-                {
-                    leaf_hashes
-                        .push(get_leaf_hashes(transaction, i as u32, height, block_hash).into())
+        let mut adds = Vec::new();
+        for tx in &block.txdata {
+            let txid = tx.compute_txid();
+            let is_cb = tx.is_coinbase();
+
+            for (vout, output) in tx.output.iter().enumerate() {
+                let utxo_id = (txid, vout as u32);
+
+                if is_unspendable(&output.script_pubkey) || spent.contains(&utxo_id) {
+                    // Do not add unspendable nor already spent utxos
+                    continue;
                 }
+                adds.push(
+                    get_leaf_hashes(txid, is_cb, vout as u32, output, height, block_hash).into(),
+                );
             }
         }
 
-        leaf_hashes
+        adds
     }
 
     /// A hash map that provides the UTXO data given the outpoint. We will get this data from either our own cache or the utreexo proofs, and use it to validate blocks and transactions.
