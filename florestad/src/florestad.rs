@@ -71,7 +71,7 @@ use crate::wallet_input::InitialWalletSetup;
 #[cfg(feature = "zmq-server")]
 use crate::zmq::ZMQServer;
 
-#[derive(Default, Clone)]
+#[derive(Clone)]
 /// General configuration for the floresta daemon.
 ///
 /// Those configs should be passed in by anyone that wants to start a floresta instance. Some of
@@ -123,7 +123,7 @@ pub struct Config {
     /// will be made through this one, except dns seed connections.
     pub proxy: Option<String>,
     /// The network we are running in, it may be one of: bitcoin, signet, regtest or testnet.
-    pub network: crate::Network,
+    pub network: bitcoin::Network,
     /// Whether we should build and store compact block filters
     ///
     /// Those filters are used for rescanning our wallet for historical transactions. If you don't
@@ -190,6 +190,42 @@ pub struct Config {
     /// and won't affect the node's operation. You may notice that this will take a lot of CPU
     /// and bandwidth to run.
     pub backfill: bool,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            disable_dns_seeds: false,
+            data_dir: None,
+            assume_valid: None,
+            wallet_xpub: None,
+            wallet_descriptor: None,
+            config_file: None,
+            proxy: None,
+            network: Network::Bitcoin,
+            cfilters: false,
+            filters_start_height: None,
+            #[cfg(feature = "zmq-server")]
+            zmq_address: None,
+            connect: None,
+            #[cfg(feature = "json-rpc")]
+            json_rpc_address: None,
+            electrum_address: None,
+            ssl_electrum_address: None,
+            log_to_stdout: false,
+            log_to_file: false,
+            assume_utreexo: false,
+            debug: false,
+            user_agent: String::default(),
+            assumeutreexo_value: None,
+            ssl_cert_path: None,
+            ssl_key_path: None,
+            no_ssl: false,
+            gen_selfsigned_cert: false,
+            allow_v1_fallback: false,
+            backfill: false,
+        }
+    }
 }
 
 pub struct Florestad {
