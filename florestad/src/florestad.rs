@@ -123,7 +123,7 @@ pub struct Config {
     /// will be made through this one, except dns seed connections.
     pub proxy: Option<String>,
     /// The network we are running in, it may be one of: bitcoin, signet, regtest or testnet.
-    pub network: bitcoin::Network,
+    pub network: Network,
     /// Whether we should build and store compact block filters
     ///
     /// Those filters are used for rescanning our wallet for historical transactions. If you don't
@@ -350,10 +350,12 @@ impl Florestad {
             })
             .unwrap_or("floresta".into());
         let data_dir = match self.config.network {
-            crate::Network::Bitcoin => data_dir,
-            crate::Network::Signet => data_dir + "/signet/",
-            crate::Network::Testnet => data_dir + "/testnet3/",
-            crate::Network::Regtest => data_dir + "/regtest/",
+            Network::Bitcoin => data_dir,
+            Network::Signet => data_dir + "/signet/",
+            Network::Testnet => data_dir + "/testnet3/",
+            Network::Testnet4 => data_dir + "/testnet4/",
+            Network::Regtest => data_dir + "/regtest/",
+            _ => panic!("This network does not exist."),
         };
 
         // create the data directory if it doesn't exist
@@ -405,7 +407,7 @@ impl Florestad {
         info!("Loading blockchain database");
         let blockchain_state = Arc::new(Self::load_chain_state(
             data_dir.clone(),
-            Self::get_net(&self.config.network),
+            self.config.network,
             self.config
                 .assume_valid
                 .as_ref()
@@ -431,23 +433,24 @@ impl Florestad {
 
         // For now, we only have compatible bridges on signet
         let pow_fraud_proofs = match self.config.network {
-            crate::Network::Bitcoin => false,
-            crate::Network::Signet => true,
-            crate::Network::Testnet => false,
-            crate::Network::Regtest => false,
+            Network::Bitcoin => false,
+            Network::Signet => true,
+            Network::Testnet => false,
+            Network::Regtest => false,
+            _ => false,
         };
 
         // If this network already allows pow fraud proofs, we should use it instead of assumeutreexo
         let assume_utreexo = match (pow_fraud_proofs, self.config.assume_utreexo) {
             (false, true) => Some(floresta_chain::ChainParams::get_assume_utreexo(
-                Self::get_net(&self.config.network).into(),
+                self.config.network,
             )),
             _ => None,
         };
 
         let config = UtreexoNodeConfig {
             disable_dns_seeds: self.config.disable_dns_seeds,
-            network: Self::get_net(&self.config.network),
+            network: self.config.network,
             pow_fraud_proofs,
             proxy: self
                 .config
@@ -509,7 +512,7 @@ impl Florestad {
                 wallet.clone(),
                 chain_provider.get_handle(),
                 self.stop_signal.clone(),
-                Self::get_net(&self.config.network),
+                self.config.network,
                 cfilters.clone(),
                 self.config
                     .json_rpc_address
@@ -780,13 +783,13 @@ impl Florestad {
         let assume_valid =
             assume_valid.map_or(AssumeValidArg::Hardcoded, AssumeValidArg::UserInput);
 
-        match ChainState::<KvChainStore>::load_chain_state(db, network.into(), assume_valid) {
+        match ChainState::<KvChainStore>::load_chain_state(db, network, assume_valid) {
             Ok(chainstate) => chainstate,
             Err(err) => match err {
                 BlockchainError::ChainNotInitialized => {
                     let db = KvChainStore::new(data_dir.to_string()).expect("Could not read db");
 
-                    ChainState::<KvChainStore>::new(db, network.into(), assume_valid)
+                    ChainState::<KvChainStore>::new(db, network, assume_valid)
                 }
                 _ => unreachable!(),
             },
@@ -803,32 +806,17 @@ impl Florestad {
         }
     }
 
-    fn get_net(net: &crate::Network) -> bitcoin::Network {
-        match net {
-            crate::Network::Bitcoin => bitcoin::Network::Bitcoin,
-            crate::Network::Signet => bitcoin::Network::Signet,
-            crate::Network::Testnet => bitcoin::Network::Testnet,
-            crate::Network::Regtest => bitcoin::Network::Regtest,
-        }
-    }
-
     fn setup_wallet<D: AddressCacheDatabase>(
         mut xpubs: Vec<String>,
         descriptors: Vec<String>,
         addresses: Vec<String>,
         wallet: &mut AddressCache<D>,
-        network: crate::Network,
+        network: Network,
     ) -> anyhow::Result<()> {
         if let Some(key) = Self::get_key_from_env() {
             xpubs.push(key);
         }
-        let setup = InitialWalletSetup::build(
-            &xpubs,
-            &descriptors,
-            &addresses,
-            Self::get_net(&network),
-            100,
-        )?;
+        let setup = InitialWalletSetup::build(&xpubs, &descriptors, &addresses, network, 100)?;
         for descriptor in setup.descriptors {
             let descriptor = descriptor.to_string();
             if !wallet.is_cached(&descriptor)? {

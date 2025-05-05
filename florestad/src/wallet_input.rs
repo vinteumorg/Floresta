@@ -1,9 +1,9 @@
-//!
 //! Handles different inputs, try to make sense out of it and store a sane descriptor at the end
 
 use std::str::FromStr;
 
 use bitcoin::Address;
+use bitcoin::Network;
 use miniscript::Descriptor;
 use miniscript::DescriptorPublicKey;
 
@@ -46,7 +46,7 @@ impl InitialWalletSetup {
         xpubs: &[String],
         initial_descriptors: &[String],
         addresses: &[String],
-        network: bitcoin::Network,
+        network: Network,
         addresses_per_descriptor: u32,
     ) -> Result<Self, crate::error::Error> {
         let mut descriptors = parse_xpubs(xpubs)?;
@@ -132,14 +132,14 @@ pub mod test {
             .unwrap();
         // Old p2pkh
         assert_eq!(
-            Address::p2pkh(xpub.to_pub(), bitcoin::Network::Bitcoin)
+            Address::p2pkh(xpub.to_pub(), Network::Bitcoin)
                 .to_string()
                 .as_str(),
             "1LqBGSKuX5yYUonjxT5qGfpUsXKYYWeabA"
         );
 
         // p2wpkh-p2pkh
-        let script = Address::p2wpkh(&ypub.to_pub(), bitcoin::Network::Bitcoin).script_pubkey();
+        let script = Address::p2wpkh(&ypub.to_pub(), Network::Bitcoin).script_pubkey();
 
         assert_eq!(
             Address::p2sh(&script, Network::Bitcoin)
@@ -151,7 +151,7 @@ pub mod test {
 
         // p2wpkh
         assert_eq!(
-            Address::p2wpkh(&zpub.to_pub(), bitcoin::Network::Bitcoin)
+            Address::p2wpkh(&zpub.to_pub(), Network::Bitcoin)
                 .to_string()
                 .as_str(),
             "bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu"
