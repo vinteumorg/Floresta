@@ -896,11 +896,11 @@ mod test {
     use bitcoin::hashes::hex::FromHex;
     use bitcoin::hashes::sha256;
     use bitcoin::Address;
+    use bitcoin::Network;
     use bitcoin::Transaction;
     use floresta_chain::AssumeValidArg;
     use floresta_chain::ChainState;
     use floresta_chain::KvChainStore;
-    use floresta_chain::Network;
     use floresta_common::get_spk_hash;
     use floresta_watch_only::kv_database::KvDatabase;
     use floresta_watch_only::merkle::MerkleProof;
@@ -1040,7 +1040,7 @@ mod test {
         // Create test_node_interface
         let u_config = UtreexoNodeConfig {
             disable_dns_seeds: true,
-            network: bitcoin::Network::Signet,
+            network: Network::Signet,
             pow_fraud_proofs: true,
             proxy: None,
             datadir: "/tmp-db".to_string(),
