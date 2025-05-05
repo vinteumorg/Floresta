@@ -18,10 +18,10 @@ use bitcoin::p2p::address::AddrV2;
 use bitcoin::p2p::address::AddrV2Message;
 use bitcoin::p2p::ServiceFlags;
 use bitcoin::BlockHash;
+use bitcoin::Network;
 use bitcoin::Txid;
 use floresta_chain::pruned_utreexo::BlockchainInterface;
 use floresta_chain::pruned_utreexo::UpdatableChainstate;
-use floresta_chain::Network;
 use floresta_chain::UtreexoBlock;
 use floresta_common::service_flags;
 use floresta_common::service_flags::UTREEXO;
@@ -254,9 +254,7 @@ where
         let fixed_peer = config
             .fixed_peer
             .as_ref()
-            .map(|address| {
-                Self::resolve_connect_host(address, Self::get_port(config.network.into()))
-            })
+            .map(|address| Self::resolve_connect_host(address, Self::get_port(config.network)))
             .transpose()?;
 
         Ok(UtreexoNode {
@@ -275,7 +273,7 @@ where
                 peer_ids: Vec::new(),
                 peer_by_service: HashMap::new(),
                 mempool,
-                network: config.network.into(),
+                network: config.network,
                 node_rx,
                 node_tx,
                 address_man,
@@ -459,6 +457,7 @@ where
             Network::Signet => 38333,
             Network::Testnet => 18333,
             Network::Regtest => 18444,
+            _ => panic!("This network does not exist."),
         }
     }
 
@@ -1270,7 +1269,7 @@ where
         requests_rx: UnboundedReceiver<NodeRequest>,
         peer_id_count: u32,
         mempool: Arc<Mutex<Mempool>>,
-        network: bitcoin::Network,
+        network: Network,
         node_tx: UnboundedSender<NodeNotification>,
         user_agent: String,
         allow_v1_fallback: bool,
@@ -1313,7 +1312,7 @@ where
         proxy: SocketAddr,
         kind: ConnectionKind,
         mempool: Arc<Mutex<Mempool>>,
-        network: bitcoin::Network,
+        network: Network,
         node_tx: UnboundedSender<NodeNotification>,
         peer_id: usize,
         address: LocalAddress,
@@ -1368,7 +1367,7 @@ where
                     proxy.address,
                     kind,
                     self.mempool.clone(),
-                    self.network.into(),
+                    self.network,
                     self.node_tx.clone(),
                     peer_id,
                     address.clone(),
@@ -1388,7 +1387,7 @@ where
                     requests_rx,
                     self.peer_id_count,
                     self.mempool.clone(),
-                    self.network.into(),
+                    self.network,
                     self.node_tx.clone(),
                     self.config.user_agent.clone(),
                     self.config.allow_v1_fallback,

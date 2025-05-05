@@ -13,8 +13,8 @@ use std::time::UNIX_EPOCH;
 use bitcoin::p2p::address::AddrV2;
 use bitcoin::p2p::address::AddrV2Message;
 use bitcoin::p2p::ServiceFlags;
+use bitcoin::Network;
 use floresta_chain::DnsSeed;
-use floresta_chain::Network;
 use floresta_common::service_flags;
 use serde::Deserialize;
 use serde::Serialize;
@@ -659,6 +659,7 @@ impl AddressMan {
             Network::Testnet => include_str!("seeds/testnet_seeds.json"),
             Network::Signet => include_str!("seeds/signet_seeds.json"),
             Network::Regtest => include_str!("seeds/regtest_seeds.json"),
+            _ => panic!("This network does not exist."),
         }
     }
 
@@ -773,8 +774,8 @@ mod test {
 
     use bitcoin::p2p::address::AddrV2;
     use bitcoin::p2p::ServiceFlags;
+    use bitcoin::Network;
     use floresta_chain::get_chain_dns_seeds;
-    use floresta_chain::Network;
     use floresta_common::service_flags;
     use rand::Rng;
     use serde::Deserialize;
