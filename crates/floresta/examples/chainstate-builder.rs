@@ -12,6 +12,7 @@ use bitcoin::Network;
 use floresta::chain::ChainState;
 use floresta::chain::KvChainStore;
 use floresta_chain::pruned_utreexo::chain_state_builder::ChainStateBuilder;
+use floresta_chain::AssumeValidArg;
 use floresta_chain::ChainParams;
 use rustreexo::accumulator::stump::Stump;
 

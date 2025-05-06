@@ -9,7 +9,6 @@
 //! - UTREEXO accumulator state
 //! - Current chain tip and header
 use bitcoin::block::Header as BlockHeader;
-use bitcoin::hashes::Hash;
 use bitcoin::BlockHash;
 use rustreexo::accumulator::stump::Stump;
 
@@ -17,19 +16,33 @@ use super::chain_state::BestChain;
 use super::chain_state::ChainState;
 use super::chainparams::ChainParams;
 use super::ChainStore;
+use crate::pruned_utreexo::Box;
+use crate::AssumeValidArg;
+use crate::DatabaseError;
+use crate::DiskBlockHeader;
+use crate::Network;
 
-#[derive(Clone, Debug)]
-/// This enum is used to represent errors that can occur during the construction of a ChainState instance.
+#[derive(Debug)]
+/// Represents errors that can occur during the construction of a ChainState instance.
 pub enum BlockchainBuilderError {
     /// Indicates that the chainstore is missing.
     MissingChainstore,
 
     /// Indicates that the chain parameters are missing.
     MissingChainParams,
+
+    /// Indicates that the `tip` and `tip_header` parameters were not provided together.
+    IncompleteTip,
+
+    /// Error while trying to save initial data.
+    Database(Box<dyn DatabaseError>),
 }
+
 #[derive(Clone, Debug, Default)]
-/// Represents a builder for constructing a ChainState instance.
-/// It should use the methods to access and modify the state of the chain and fields.
+/// A builder for configuring and creating a `ChainState`.
+///
+/// It implements a few methods to access and modify the settings. Call `.build()` to consume the
+/// builder and produce the `ChainState`.
 pub struct ChainStateBuilder<PersistedState: ChainStore> {
     /// The accumulator stump.
     acc: Option<Stump>,
@@ -67,97 +80,105 @@ impl<T: ChainStore> ChainStateBuilder<T> {
         }
     }
 
-    /// Builds the chain state.
+    /// Builds the chain state. Returns error if the `chainstore` or `chain_params` are missing, or
+    /// if only one of `tip_header` and `tip` is set (either set both or none).
     pub fn build(self) -> Result<ChainState<T>, BlockchainBuilderError> {
-        if self.chainstore.is_none() {
-            return Err(BlockchainBuilderError::MissingChainstore);
+        let chainstore = self
+            .chainstore
+            .as_ref()
+            .ok_or(BlockchainBuilderError::MissingChainstore)?;
+
+        // Tip header and tip tuple must come as a pair (both Some or both None)
+        match (self.tip_header, self.tip) {
+            // Persist both values
+            (Some(first_header), Some((height, block_hash))) => {
+                chainstore.save_header(&DiskBlockHeader::FullyValid(first_header, block_hash))?;
+                chainstore.update_block_index(block_hash, height)?;
+            }
+            // Do nothing
+            (None, None) => {}
+            // One was Some and one None, return error
+            _ => return Err(BlockchainBuilderError::IncompleteTip),
         }
-        if self.chain_params.is_none() {
-            return Err(BlockchainBuilderError::MissingChainParams);
-        }
-        if let Some(first) = self.tip_header {
-            self.chainstore
-                .as_ref()
-                .unwrap()
-                .save_header(&crate::DiskBlockHeader::FullyValid(
-                    first,
-                    self.tip.unwrap().1,
-                ))
-                .unwrap();
-            self.chainstore
-                .as_ref()
-                .unwrap()
-                .update_block_index(self.tip.unwrap().1, self.tip.unwrap().0)
-                .unwrap();
-        }
-        Ok(ChainState::from(self))
+
+        ChainState::try_from(self)
     }
 
-    /// Builds the chain state using a chain store.
+    /// Set the chainstore backend, implementing [ChainStore]. **Always required**.
     pub fn with_chainstore(mut self, chainstore: T) -> Self {
         self.chainstore = Some(chainstore);
         self
     }
 
-    /// Toggles the initial block download on/off using true/false as argument. By enabling IBD, the chain state will start downloading blocks from the network, by disabling it, you will trust the chain state.
+    /// Enable or disable Initial Block Download (IBD) mode.
     pub fn toggle_ibd(mut self, ibd: bool) -> Self {
         self.ibd = ibd;
         self
     }
 
-    /// Sets the chain parameters using the argument.
+    /// Sets the chain parameters. **Always required**.
     pub fn with_chain_params(mut self, chain_params: ChainParams) -> Self {
         self.chain_params = Some(chain_params);
         self
     }
 
-    /// Sets the block hash to assume valid passing the argument.
-    pub fn with_assume_valid(mut self, assume_valid: BlockHash) -> Self {
-        self.assume_valid = Some(assume_valid);
+    /// Sets the assume-valid argument, which can be `Disabled`, `Hardcoded` or `UserInput`. This
+    /// option is used to skip script validation up to the specified block, speeding up IBD.
+    pub fn with_assume_valid(mut self, arg: AssumeValidArg, network: Network) -> Self {
+        self.assume_valid = ChainParams::get_assume_valid(network, arg);
         self
     }
 
-    /// Sets the utreexo accumulator passing the argument.
+    /// Sets the utreexo accumulator, assumed as the initial state.
     pub fn assume_utreexo(mut self, acc: Stump) -> Self {
         self.acc = Some(acc);
         self
     }
 
-    /// Sets the tip block hash and header by passing 2 arguments, the tip (BlockHash, height) and the header of the tip.
+    /// Sets the tip block data, assumed as the initial state.
     pub fn with_tip(mut self, tip: (BlockHash, u32), header: BlockHeader) -> Self {
         self.tip = Some(tip);
         self.tip_header = Some(header);
         self
     }
 
-    /// Returns the utreexo accumulator, it is made with the roots of the accumulator hash and the number of leaves.
-    pub fn acc(&self) -> Stump {
-        self.acc.clone().unwrap_or_default()
+    /// Returns the utreexo accumulator that was set or None if empty.
+    pub(super) fn acc(&self) -> Option<Stump> {
+        self.acc.clone()
     }
 
-    /// Returns the chainstore leaving an None on the chain state builder.
-    pub fn chainstore(&mut self) -> T {
-        self.chainstore.take().unwrap()
+    /// Take the chainstore out of the builder, returning it or an error if missing.
+    pub(super) fn chainstore(&mut self) -> Result<T, BlockchainBuilderError> {
+        self.chainstore
+            .take()
+            .ok_or(BlockchainBuilderError::MissingChainstore)
     }
 
-    /// Returns the initial block download condition (true/false).
-    pub fn ibd(&self) -> bool {
+    /// Returns whether Initial Block Download (IBD) mode is enabled.
+    pub(super) fn ibd(&self) -> bool {
         self.ibd
     }
 
-    /// Returns the chain parameters.
-    pub fn chain_params(&self) -> ChainParams {
-        self.chain_params.clone().unwrap()
+    /// Get the chain parameters, returning an error if they haven't been set.
+    pub(super) fn chain_params(&self) -> Result<ChainParams, BlockchainBuilderError> {
+        self.chain_params
+            .clone()
+            .ok_or(BlockchainBuilderError::MissingChainParams)
     }
 
-    /// Returns the best block in a BestChain struct.
-    pub fn best_block(&self) -> BestChain {
-        let block = self.tip.unwrap_or((BlockHash::all_zeros(), 0));
-        BestChain::from(block)
+    /// Get the specified best tip as a `BestChain`, or fall back to the genesis block if unset.
+    /// Returns an error if chain parameters are missing when determining the genesis block.
+    pub(super) fn best_block(&self) -> Result<BestChain, BlockchainBuilderError> {
+        let block = match self.tip {
+            Some(value) => value,
+            None => (self.chain_params()?.genesis.header.block_hash(), 0),
+        };
+
+        Ok(BestChain::from(block))
     }
 
-    /// Returns the block hash of assume valid.
-    pub fn assume_valid(&self) -> Option<BlockHash> {
+    /// Returns the block hash of the assume-valid option, if enabled.
+    pub(super) fn assume_valid(&self) -> Option<BlockHash> {
         self.assume_valid
     }
 }
