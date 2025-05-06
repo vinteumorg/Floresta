@@ -10,6 +10,7 @@
 use core::fmt::Debug;
 
 use bitcoin::blockdata::script;
+use bitcoin::Network;
 use bitcoin::OutPoint;
 use bitcoin::Txid;
 use floresta_common::impl_error_from;
@@ -32,6 +33,7 @@ pub enum BlockchainError {
     InvalidTip(String),
     ScriptValidationFailed(script::Error),
     Io(ioError),
+    UnsupportedNetwork(Network),
 }
 
 #[derive(Clone, Debug, PartialEq)]
