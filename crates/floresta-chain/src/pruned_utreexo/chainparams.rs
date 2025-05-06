@@ -379,7 +379,18 @@ pub fn get_chain_dns_seeds(network: Network) -> Vec<DnsSeed> {
                 none,
             ));
         }
-        Network::Testnet4 => {}
+        Network::Testnet4 => {
+            seeds.push(DnsSeed::new(
+                Network::Testnet4,
+                "seed.testnet4.bitcoin.sprovoost.nl",
+                none,
+            ));
+            seeds.push(DnsSeed::new(
+                Network::Testnet4,
+                "seed.testnet4.wiz.biz",
+                none,
+            ));
+        }
         Network::Signet => {
             seeds.push(DnsSeed::new(
                 Network::Signet,
