@@ -345,6 +345,13 @@ where
                     }
 
                     PeerMessages::Disconnected(idx) => {
+                        // check if this peer had inflight block requests, if so, bring our
+                        // `last_block_requested` back
+                        if self.inflight.values().any(|(peer_id, _)| *peer_id == peer) {
+                            self.context.last_block_requested =
+                                self.chain.get_validation_index()?;
+                        }
+
                         try_and_log!(self.handle_disconnection(peer, idx).await);
                     }
 
