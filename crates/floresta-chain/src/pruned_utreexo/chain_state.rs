@@ -50,6 +50,7 @@ use rustreexo::accumulator::proof::Proof;
 use rustreexo::accumulator::stump::Stump;
 use spin::RwLock;
 
+use super::chain_state_builder::BlockchainBuilderError;
 use super::chain_state_builder::ChainStateBuilder;
 use super::chainparams::ChainParams;
 use super::chainstore::DiskBlockHeader;
@@ -1245,24 +1246,26 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
     }
 }
 
-impl<T: ChainStore> From<ChainStateBuilder<T>> for ChainState<T> {
-    fn from(mut builder: ChainStateBuilder<T>) -> Self {
+impl<T: ChainStore> TryFrom<ChainStateBuilder<T>> for ChainState<T> {
+    type Error = BlockchainBuilderError;
+
+    fn try_from(mut builder: ChainStateBuilder<T>) -> Result<Self, Self::Error> {
         let inner = ChainStateInner {
-            acc: builder.acc(),
-            chainstore: builder.chainstore(),
-            best_block: builder.best_block(),
+            acc: builder.acc().unwrap_or_default(),
+            chainstore: builder.chainstore()?,
+            best_block: builder.best_block()?,
             assume_valid: builder.assume_valid(),
             ibd: builder.ibd(),
             broadcast_queue: Vec::new(),
             subscribers: Vec::new(),
             fee_estimation: (1_f64, 1_f64, 1_f64),
             consensus: Consensus {
-                parameters: builder.chain_params(),
+                parameters: builder.chain_params()?,
             },
         };
 
         let inner = RwLock::new(inner);
-        Self { inner }
+        Ok(Self { inner })
     }
 }
 

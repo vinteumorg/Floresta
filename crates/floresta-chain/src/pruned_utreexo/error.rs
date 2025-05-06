@@ -15,6 +15,8 @@ use bitcoin::Txid;
 use floresta_common::impl_error_from;
 
 use crate::prelude::*;
+use crate::pruned_utreexo::chain_state_builder::BlockchainBuilderError;
+
 pub trait DatabaseError: Debug + Send + Sync + 'static {}
 #[derive(Debug)]
 /// This is the highest level error type in floresta-chain, returned by the [crate::ChainState] methods.
@@ -144,6 +146,12 @@ impl Display for BlockValidationErrors {
 impl<T: DatabaseError> From<T> for BlockchainError {
     fn from(value: T) -> Self {
         BlockchainError::Database(Box::new(value))
+    }
+}
+
+impl<T: DatabaseError> From<T> for BlockchainBuilderError {
+    fn from(value: T) -> Self {
+        BlockchainBuilderError::Database(Box::new(value))
     }
 }
 
