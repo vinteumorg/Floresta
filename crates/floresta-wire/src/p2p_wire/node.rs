@@ -707,12 +707,17 @@ where
     ) -> Result<(), WireError> {
         match req {
             InflightRequests::Blocks(block) => {
+                if !self.has_utreexo_peers() {
+                    return Ok(());
+                }
+
                 let peer = self
                     .send_to_random_peer(
                         NodeRequest::GetBlock((vec![block], true)),
                         service_flags::UTREEXO.into(),
                     )
                     .await?;
+
                 self.inflight
                     .insert(InflightRequests::Blocks(block), (peer, Instant::now()));
             }
@@ -737,6 +742,9 @@ where
                     .insert(InflightRequests::UtreexoState(peer), (peer, Instant::now()));
             }
             InflightRequests::GetFilters => {
+                if !self.has_compact_filters_peer() {
+                    return Ok(());
+                }
                 let peer = self
                     .send_to_random_peer(
                         NodeRequest::GetFilter((self.chain.get_block_hash(0).unwrap(), 0)),
