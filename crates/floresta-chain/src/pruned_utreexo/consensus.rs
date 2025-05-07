@@ -305,6 +305,8 @@ mod tests {
     use bitcoin::TxOut;
     use bitcoin::Txid;
     use bitcoin::Witness;
+    use floresta_common::assert_err;
+    use floresta_common::assert_ok;
 
     use super::*;
 
@@ -402,8 +404,8 @@ mod tests {
         let small_script =
             ScriptBuf::from_hex("76a9149206a30c09cc853bb03bd917a4f9f29b089c1bc788ac").unwrap();
 
-        assert!(Consensus::validate_script_size(&small_script, dummy_txid).is_ok());
-        assert!(Consensus::validate_script_size(&large_script, dummy_txid).is_err());
+        assert_ok!(Consensus::validate_script_size(&small_script, dummy_txid));
+        assert_err!(Consensus::validate_script_size(&large_script, dummy_txid));
     }
 
     #[test]
@@ -411,7 +413,7 @@ mod tests {
         let valid_one = coinbase(true);
         let invalid_one = coinbase(false);
         // The case that should be valid
-        assert!(Consensus::verify_coinbase(&valid_one).is_ok());
+        assert_ok!(Consensus::verify_coinbase(&valid_one));
         // Invalid coinbase script
         assert_eq!(
             Consensus::verify_coinbase(&invalid_one)
@@ -438,7 +440,7 @@ mod tests {
 
             assert_eq!(coinbase_tx.compute_txid().to_string(), expected_coinbase);
             assert_eq!(spending_tx.compute_txid().to_string(), expected_spending);
-            assert!(Consensus::verify_coinbase(coinbase_tx).is_ok());
+            assert_ok!(Consensus::verify_coinbase(coinbase_tx));
 
             let mut utxos = HashMap::new();
             utxos.insert(
@@ -455,7 +457,7 @@ mod tests {
                 Consensus::verify_transaction(spending_tx, &mut utxos, spending_height, true, 0);
 
             if expected_ok {
-                assert!(spend_result.is_ok(), "Expected Ok, found: {spend_result:?}");
+                assert_ok!(spend_result);
             } else {
                 match spend_result.unwrap_err() {
                     BlockchainError::TransactionError(inner) => {

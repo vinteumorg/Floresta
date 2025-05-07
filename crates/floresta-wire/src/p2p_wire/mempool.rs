@@ -620,6 +620,7 @@ mod tests {
     use floresta_chain::CompactLeafData;
     use floresta_chain::LeafData;
     use floresta_common::acchashes;
+    use floresta_common::assert_ok;
     use floresta_common::bhash;
     use rand::Rng;
     use rand::SeedableRng;
@@ -798,7 +799,7 @@ mod tests {
             .get_block_proof(&block, hashes)
             .expect("failed to get block proof");
 
-        assert!(mempool.acc.verify(&proof, &target_hashes).is_ok());
+        assert_ok!(mempool.acc.verify(&proof, &target_hashes));
     }
 
     #[test]
@@ -988,7 +989,7 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        assert!(mempool.acc.verify(&proof, &del_hashes).is_ok());
+        assert_ok!(mempool.acc.verify(&proof, &del_hashes));
         mempool
             .consume_block(&block, proof, &adds, &target_hashes, 170, true)
             .expect("failed to consume block");

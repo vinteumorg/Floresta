@@ -230,11 +230,8 @@ mod test {
 
         let proof = MerkleProof::from_block_hashes(hashes, 2);
         let ser_proof = serialize(&proof);
-        let de_proof = deserialize::<MerkleProof>(&ser_proof);
+        let de_proof = deserialize::<MerkleProof>(&ser_proof).unwrap();
 
-        assert!(de_proof.is_ok());
-
-        let de_proof = de_proof.unwrap();
         assert_eq!(de_proof, proof);
         assert!(de_proof.verify(root).unwrap());
     }
