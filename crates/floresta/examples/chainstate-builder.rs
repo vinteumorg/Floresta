@@ -6,8 +6,6 @@
 //! block, or that doesn't validate all signatures. All customizations are done through the
 //! ChainStateBuilder struct. This example shows how to use it.
 use bitcoin::blockdata::constants::genesis_block;
-use bitcoin::hashes::Hash;
-use bitcoin::BlockHash;
 use bitcoin::Network;
 use floresta::chain::ChainState;
 use floresta::chain::KvChainStore;
@@ -24,7 +22,6 @@ async fn main() {
     // TODO: handle possible Err
     let params = ChainParams::try_from(Network::Bitcoin).expect("Unsupported network");
     let genesis = genesis_block(&params);
-
     // Create a new chain state, which will store the accumulator and the headers chain.
     // It will be stored in the DATA_DIR directory. With this chain state, we don't keep
     // the block data after we validated it. This saves a lot of space, but it means that
