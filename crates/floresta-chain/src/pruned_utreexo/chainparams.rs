@@ -25,6 +25,7 @@ use rustreexo::accumulator::node_hash::BitcoinNodeHash;
 
 use crate::prelude::*;
 use crate::AssumeValidArg;
+use crate::BlockchainError;
 
 #[derive(Clone, Debug)]
 /// This struct encapsulates all chain-specific parameters.
@@ -175,27 +176,30 @@ impl ChainParams {
     }
 
     /// This method is used to assume all the scripts up to a specific block in the chain as valid. It can be None (we will verify all the scripts), user input or hardcoded.
-    pub fn get_assume_valid(network: Network, arg: AssumeValidArg) -> Option<BlockHash> {
+    pub fn get_assume_valid(
+        network: Network,
+        arg: AssumeValidArg,
+    ) -> Result<Option<BlockHash>, BlockchainError> {
         match arg {
-            AssumeValidArg::Disabled => None,
-            AssumeValidArg::UserInput(hash) => Some(hash),
+            AssumeValidArg::Disabled => Ok(None),
+            AssumeValidArg::UserInput(hash) => Ok(Some(hash)),
             AssumeValidArg::Hardcoded => match network {
-                Network::Bitcoin => Some(bhash!(
+                Network::Bitcoin => Ok(Some(bhash!(
                     "00000000000000000000569f4d863c27e667cbee8acc8da195e7e5551658e6e9"
-                )),
-                Network::Testnet => Some(bhash!(
+                ))),
+                Network::Testnet => Ok(Some(bhash!(
                     "000000000000001142ad197bff16a1393290fca09e4ca904dd89e7ae98a90fcd"
-                )),
-                Network::Testnet4 => Some(bhash!(
+                ))),
+                Network::Testnet4 => Ok(Some(bhash!(
                     "0000000006af13c1117f3e2eb14f10eb9736e255713118cf7eb6659b1448efc1"
-                )),
-                Network::Signet => Some(bhash!(
+                ))),
+                Network::Signet => Ok(Some(bhash!(
                     "0000003ed17b9c93954daab00d73ccbd0092074c4ebfc751c7458d58b827dfea"
-                )),
-                Network::Regtest => Some(bhash!(
+                ))),
+                Network::Regtest => Ok(Some(bhash!(
                     "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206"
-                )),
-                _ => panic!("This network does not exist!"),
+                ))),
+                network => Err(BlockchainError::UnsupportedNetwork(network)),
             },
         }
     }
@@ -238,13 +242,15 @@ impl AsRef<Params> for ChainParams {
     }
 }
 
-impl From<Network> for ChainParams {
-    fn from(network: Network) -> Self {
+impl TryFrom<Network> for ChainParams {
+    type Error = BlockchainError;
+
+    fn try_from(network: Network) -> Result<Self, Self::Error> {
         let genesis = genesis_block(Params::new(network));
         let exceptions = get_exceptions();
 
         match network {
-            Network::Bitcoin => ChainParams {
+            Network::Bitcoin => Ok(ChainParams {
                 params: Params::new(network),
                 network,
                 genesis,
@@ -254,8 +260,8 @@ impl From<Network> for ChainParams {
                 segwit_activation_height: 481_824,
                 csv_activation_height: 419_328,
                 exceptions,
-            },
-            Network::Testnet => ChainParams {
+            }),
+            Network::Testnet => Ok(ChainParams {
                 params: Params::new(network),
                 network,
                 genesis,
@@ -265,19 +271,19 @@ impl From<Network> for ChainParams {
                 segwit_activation_height: 834_624,
                 csv_activation_height: 770_112,
                 exceptions,
-            },
-            Network::Testnet4 => ChainParams {
+            }),
+            Network::Testnet4 => Ok(ChainParams {
                 params: Params::new(network),
                 network,
                 genesis,
                 pow_target_timespan: 14 * 24 * 60 * 60,
                 subsidy_halving_interval: 210_000,
                 coinbase_maturity: 100,
-                segwit_activation_height: 0,
-                csv_activation_height: 0,
+                segwit_activation_height: 1,
+                csv_activation_height: 1,
                 exceptions,
-            },
-            Network::Signet => ChainParams {
+            }),
+            Network::Signet => Ok(ChainParams {
                 params: Params::new(network),
                 network,
                 genesis,
@@ -287,8 +293,8 @@ impl From<Network> for ChainParams {
                 csv_activation_height: 1,
                 segwit_activation_height: 1,
                 exceptions,
-            },
-            Network::Regtest => ChainParams {
+            }),
+            Network::Regtest => Ok(ChainParams {
                 params: Params::new(network),
                 network,
                 genesis,
@@ -298,8 +304,8 @@ impl From<Network> for ChainParams {
                 csv_activation_height: 0,
                 segwit_activation_height: 0,
                 exceptions,
-            },
-            _ => panic!("This network does not exist."),
+            }),
+            network => Err(BlockchainError::UnsupportedNetwork(network)),
         }
     }
 }
