@@ -1,4 +1,4 @@
-# runs our functinal tests from tests/
+name: Functional Tests
 
 on:
   push:

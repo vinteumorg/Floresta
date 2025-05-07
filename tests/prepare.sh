@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Prepare a directory with the right testing binaries to avoid conflicts with different versions of floresta.
 #
@@ -22,36 +22,15 @@ GIT_DESCRIBE=$(git describe --tags --always)
 
 export FLORESTA_TEMP_DIR="/tmp/floresta-func-tests.${GIT_DESCRIBE}"
 
-echo "Temporary Directory at $FLORESTA_TEMP_DIR"
-
-
-go version &>/dev/null
-
-if [ $? -ne 0 ]
-then
-	echo "You must have golang installed to run those tests!"
-	exit 1
-fi
-
-
-cargo version &>/dev/null
-
-if [ $? -ne 0 ]
-then
-	echo "You must have rust with cargo installed to run those tests!"
-	exit 1
-fi
-
-uv -V  &>/dev/null
-
-if [ $? -ne 0 ]
-then
-	echo "You must have uv installed to run those tests!"
-	exit 1
-fi
-
 # Dont use mktemp so we can have deterministic results for each version of floresta.
 mkdir -p $FLORESTA_TEMP_DIR/binaries
+
+check_installed() {
+    if ! command -v "$1" &>/dev/null; then
+        echo "You must have $1 installed to run those tests!"
+        exit 1
+    fi
+}
 
 build_utreexod() {
 	# Download and build utreexod
@@ -61,7 +40,7 @@ build_utreexod() {
 	git clone https://github.com/utreexo/utreexod
 
 	cd utreexod
-	
+
 	# check if UTREEXO_REVISION is set, if so checkout to it
 	if [ -n "$UTREEXO_REVISION" ]; then
 		# Check if the revision exists as a tag only
@@ -83,11 +62,22 @@ build_floresta() {
 	echo "Building florestad..."
 
 	cd $FLORESTA_PROJ_DIR
-	cargo build --bin florestad  --release --target-dir $FLORESTA_TEMP_DIR/binaries/
+	cargo build --bin florestad --release
 
-	rm -rf $FLORESTA_TEMP_DIR/binaries/target/
-	ln -s $FLORESTA_TEMP_DIR/binaries/release/florestad $FLORESTA_TEMP_DIR/binaries/.
+	ln -fs $(pwd)/target/release/florestad $FLORESTA_TEMP_DIR/binaries/florestad
 }
+
+check_installed go
+check_installed cargo
+check_installed uv
+
+# Check if florestad is already built or if --build is passed
+if [ ! -f $FLORESTA_TEMP_DIR/binaries/florestad ] || [ "$1" == "--build" ]
+then
+	build_floresta
+else
+	echo "Florestad already built, skipping..."
+fi
 
 # Check if utreexod is already built or if --build is passed
 if [ ! -f $FLORESTA_TEMP_DIR/binaries/utreexod ] || [ "$1" == "--build" ]
@@ -97,15 +87,8 @@ else
 	echo "Utreexod already built, skipping..."
 fi
 
-
-# Check if florestad is already built
-if [ ! -f $FLORESTA_TEMP_DIR/binaries/florestad ]
-then
-	build_floresta
-else
-	echo "Florestad already built, skipping..."
-fi
-
 echo "All done!"
-exit 0
 
+echo "Temporary Directory at $FLORESTA_TEMP_DIR"
+
+exit 0
