@@ -113,10 +113,10 @@ pub struct AssumeUtreexoValue {
 
 impl ChainParams {
     /// This method is called when Assume Utreexo is set to true. It means that the user will accept the hardcoded utreexo state for the specified block, if it is found in the best chain. We can then sync rapidly from this state.
-    pub fn get_assume_utreexo(network: Network) -> AssumeUtreexoValue {
+    pub fn get_assume_utreexo(network: Network) -> Result<AssumeUtreexoValue, BlockchainError> {
         let genesis = genesis_block(Params::new(network));
         match network {
-            Network::Bitcoin => AssumeUtreexoValue {
+            Network::Bitcoin => Ok(AssumeUtreexoValue {
                 block_hash: bhash!(
                     "00000000000000000000569f4d863c27e667cbee8acc8da195e7e5551658e6e9"
                 ),
@@ -142,37 +142,32 @@ impl ChainParams {
                 ]
                 .to_vec(),
                 leaves: 2587882501,
-            },
-            Network::Testnet => AssumeUtreexoValue {
+            }),
+            Network::Testnet => Ok(AssumeUtreexoValue {
                 block_hash: genesis.block_hash(),
                 height: 0,
                 leaves: 0,
                 roots: Vec::new(),
-            },
-            Network::Testnet4 => AssumeUtreexoValue {
+            }),
+            Network::Testnet4 => Ok(AssumeUtreexoValue {
                 block_hash: genesis.block_hash(),
                 height: 0,
                 leaves: 0,
                 roots: Vec::new(),
-            },
-            Network::Signet => AssumeUtreexoValue {
+            }),
+            Network::Signet => Ok(AssumeUtreexoValue {
                 block_hash: genesis.block_hash(),
                 height: 0,
                 leaves: 0,
                 roots: Vec::new(),
-            },
-            Network::Regtest => AssumeUtreexoValue {
+            }),
+            Network::Regtest => Ok(AssumeUtreexoValue {
                 block_hash: genesis.block_hash(),
                 height: 0,
                 leaves: 0,
                 roots: Vec::new(),
-            },
-            _ => AssumeUtreexoValue {
-                block_hash: genesis.block_hash(),
-                height: 0,
-                leaves: 0,
-                roots: Vec::new(),
-            },
+            }),
+            network => Err(BlockchainError::UnsupportedNetwork(network)),
         }
     }
 

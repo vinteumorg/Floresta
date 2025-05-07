@@ -355,7 +355,8 @@ impl Florestad {
             Network::Testnet => data_dir + "/testnet3/",
             Network::Testnet4 => data_dir + "/testnet4/",
             Network::Regtest => data_dir + "/regtest/",
-            _ => panic!("This network does not exist."),
+            // TODO: handle possible Err
+            _ => panic!("This network is not supported: {}", self.config.network),
         };
 
         // create the data directory if it doesn't exist
@@ -442,9 +443,10 @@ impl Florestad {
 
         // If this network already allows pow fraud proofs, we should use it instead of assumeutreexo
         let assume_utreexo = match (pow_fraud_proofs, self.config.assume_utreexo) {
-            (false, true) => Some(floresta_chain::ChainParams::get_assume_utreexo(
-                self.config.network,
-            )),
+            (false, true) => Some(
+                floresta_chain::ChainParams::get_assume_utreexo(self.config.network)
+                    .expect("Network already validaded as supported"),
+            ),
             _ => None,
         };
 
