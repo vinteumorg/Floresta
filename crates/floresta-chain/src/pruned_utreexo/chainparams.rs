@@ -9,6 +9,7 @@
 //!
 //! The main struct [`ChainParams`] encapsulates all chain-specific parameters while
 //! [`DnsSeed`] handles peer discovery through DNS.
+
 extern crate alloc;
 use alloc::vec::Vec;
 use core::ffi::c_uint;
@@ -317,7 +318,7 @@ impl TryFrom<Network> for ChainParams {
 /// Some dns seeds lets us filter the returned peers by advertised services. We are interested
 /// in peers with: UTREEXO, COMPACT_FILTERS, WITNESS and NETWORK. Not all seeds supports all
 /// bits, so from this list, we pick the ones they support, and ask for this.
-pub fn get_chain_dns_seeds(network: Network) -> Vec<DnsSeed> {
+pub fn get_chain_dns_seeds(network: Network) -> Result<Vec<DnsSeed>, BlockchainError> {
     let mut seeds = Vec::new();
 
     // x9 or 0x09 means NETWORK + WITNESS
@@ -408,7 +409,7 @@ pub fn get_chain_dns_seeds(network: Network) -> Vec<DnsSeed> {
         Network::Regtest => {
             // No seeds for regtest
         }
-        _ => {}
+        network => return Err(BlockchainError::UnsupportedNetwork(network)),
     };
-    seeds
+    Ok(seeds)
 }

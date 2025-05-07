@@ -659,7 +659,7 @@ impl AddressMan {
             Network::Testnet => include_str!("seeds/testnet_seeds.json"),
             Network::Signet => include_str!("seeds/signet_seeds.json"),
             Network::Regtest => include_str!("seeds/regtest_seeds.json"),
-            _ => panic!("This network does not exist."),
+            _ => panic!("Unsupported network"),
         }
     }
 
@@ -891,9 +891,11 @@ mod test {
         assert!(!AddressMan::get_net_seeds(Network::Regtest).is_empty());
         assert!(!AddressMan::get_net_seeds(Network::Testnet).is_empty());
 
-        assert!(
-            AddressMan::get_seeds_from_dns(&get_chain_dns_seeds(Network::Signet)[0], 8333).is_ok()
-        );
+        assert!(AddressMan::get_seeds_from_dns(
+            &get_chain_dns_seeds(Network::Signet).unwrap()[0],
+            8333
+        )
+        .is_ok());
 
         address_man.rearrange_buckets();
     }

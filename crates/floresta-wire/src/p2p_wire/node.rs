@@ -980,7 +980,9 @@ where
         let network = self.network;
 
         tokio::task::spawn_blocking(move || {
-            let dns_seeds = floresta_chain::get_chain_dns_seeds(network);
+            // TODO: handle possible Err
+            let dns_seeds =
+                floresta_chain::get_chain_dns_seeds(network).expect("Unsupported network");
             let mut addresses = Vec::new();
 
             let default_port = Self::get_port(network);
