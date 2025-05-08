@@ -659,6 +659,7 @@ impl AddressMan {
             Network::Testnet => include_str!("seeds/testnet_seeds.json"),
             Network::Signet => include_str!("seeds/signet_seeds.json"),
             Network::Regtest => include_str!("seeds/regtest_seeds.json"),
+            // TODO: handle possible Err
             _ => panic!("Unsupported network"),
         }
     }

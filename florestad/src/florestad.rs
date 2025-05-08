@@ -445,7 +445,7 @@ impl Florestad {
         let assume_utreexo = match (pow_fraud_proofs, self.config.assume_utreexo) {
             (false, true) => Some(
                 floresta_chain::ChainParams::get_assume_utreexo(self.config.network)
-                    .expect("Network already validaded as supported"),
+                    .expect("Network already validated as supported"),
             ),
             _ => None,
         };

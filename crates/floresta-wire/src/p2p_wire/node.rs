@@ -457,7 +457,8 @@ where
             Network::Signet => 38333,
             Network::Testnet => 18333,
             Network::Regtest => 18444,
-            _ => panic!("This network does not exist."),
+            // TODO: handle possible Err
+            _ => panic!("Unsupported network"),
         }
     }
 
