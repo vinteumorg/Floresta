@@ -32,31 +32,71 @@ Next sections will cover the Python functional tests.
 
 ### Setting Functional Tests Binaries
 
-We provide two helper scripts to support our functional tests and ensure the correct binaries are used.
+We provide three way for running functional tests:
+* from `just` tool that abstracts what is necessary to run the tests before doing a commit;
+* from helper scripts — [prepare.sh](https://github.com/vinteumorg/Floresta/blob/master/tests/prepare.sh) and [run.sh](https://github.com/vinteumorg/Floresta/blob/master/tests/run.sh) — to automatically build and run the tests;
+* from python utility directly: the most laborious, but you can run a specific test suite.
+
+#### From `just` tool
+It abstracts all things that will be explained in the next sections, and for that
+reason, we recommend to use it before doing a commit when changes only the functional tests.
+
+```bash
+just test-functional
+```
+
+#### From helper scripts
+
+We provide two helper scripts to support our functional tests in this process and guarantee isolation and reproducibility.
+Since `go` is a requirement to build `utreexod`, make sure you have`go` available on your system.
 
 * [prepare.sh](https://github.com/vinteumorg/Floresta/blob/master/tests/prepare.sh) checks for build dependencies for both `utreexod` and `florestad`, builds them, and sets the `$FLORESTA_TEMP_DIR` environment variable. This variable points to where our functional tests will look for the binaries — specifically at `$FLORESTA_TEMP_DIR/binaries`.
 
 * [run.sh](https://github.com/vinteumorg/Floresta/blob/master/tests/run.sh) adds the binaries found at `$FLORESTA_TEMP_DIR/binaries` to your `$PATH` and runs the tests in that environment.
 
-Using these scripts, you have a few options for running the tests and verifying the functionality of `florestad`:
-
-1) Manually: Build the binaries yourself and place them at `$FLORESTA_TEMP_DIR/binaries`.
-
-2) (Recommended): Use the helper scripts — [prepare.sh](https://github.com/vinteumorg/Floresta/blob/master/tests/prepare.sh) and [run.sh](https://github.com/vinteumorg/Floresta/blob/master/tests/run.sh) — to automatically build and run the tests.
-
-3) With installed binaries: If you've already installed the binaries system-wide, you can simply run the tests directly.
-
-By default, the tool will build `utreexod` on its latest commit on `main` branch. If you want to build a specific commit, you can set the `UTREEXO_REVISION` environment variable before running the script. It may be a tag or a commit hash. For example:
+So a basic usage would be:
 
 ```bash
-export UTREEXO_REVISION=0.1.0
-./tests/prepare.sh
+./tests/prepare.sh && ./tests/run.sh
 ```
 
-### Running Functional Tests
+By default, the tool will build `utreexod` on its latest commit on `main`
+branch. If you want to build a specific commit, you can set the
+`UTREEXO_REVISION` environment variable before running the script.
+It may be a tag or a commit hash. For example:
 
+```bash
+UTREEXO_REVISION=0.1.0 ./tests/prepare.sh && ./tests/run.sh
+```
+
+Additionally, you can use some arguments in those scripts:
+
+```bash
+UTREEXO_REVISION=0.1.0 ./tests/prepare.sh --build && ./tests/run.sh --preserve-data-dir
+```
+
+The `--build` argument will force the script to build `utreexod` even if it is already built.
+The `--preserve-data-dir` argument will keep the data and logs directories after running the tests
+(this is useful if you want to keep the data for debugging purposes).
+
+#### From python utility directly
 Additional functional tests are available (minimum python version: 3.12).
+It's not recommended to run them directly, since you will need to manually
+build the binaries yourself and place them at `$FLORESTA_TEMP_DIR/binaries`.
+The advantage is that you can run a specific test suite. For this you'll need to:
 
+* Setup `floresta`/`utreexod` environment;
+* Setup python utility;
+* Run tests from python utility directly;
+* Clean up the environment.
+
+##### Setup `floresta`/`utreexod` environment
+
+After build the `floresta` and `utreexod` binaries, you'll need to define
+a `FLORESTA_TEMP_DIR` environment variable. This variable points to where
+our functional tests will look for the binaries.
+
+##### Setup python utility
 * Recommended: install [uv: a rust-based python package and project manager](https://docs.astral.sh/uv/).
 
 * Configure an isolated environment:
@@ -109,30 +149,42 @@ uv run black --check --verbose ./tests
 uv run pylint ./tests
 ```
 
-* Run tests:
+##### Run tests from python utility directly
 
 Our tests are separated by "test suites". Suites are folders located in `./tests/<suite>` and the tests are the `./tests/<suite>/*-test.py` files. To run all suites, type:
 
 ```bash
-uv run tests/run_tests.py
+FLORESTA_TEMP_DIR=<your_bin_dir> uv run tests/run_tests.py
 ```
 
 You can list all suites with:
 
 ```bash
-uv run tests/run_tests.py --list-suites
+FLORESTA_TEMP_DIR=<your_bin_dir> uv run tests/run_tests.py --list-suites
 ```
 
 To run a specific suite:
 
 ```bash
-uv run tests/run_tests.py --test-suite <suite>
+FLORESTA_TEMP_DIR=<your_bin_dir> uv run tests/run_tests.py --test-suite <suite>
 ```
 
 You can even add more:
 
 ```bash
-uv run tests/run_tests.py --test-suite <suite_A> --test-suite <suite_B>
+FLORESTA_TEMP_DIR=<your_bin_dir> uv run tests/run_tests.py --test-suite <suite_A> --test-suite <suite_B>
+```
+
+##### Clean up the environment
+
+If you tests fails it will be necessary to cleanup the `data`
+folder created by the tests (some tests use it to retain
+information about tested nodes, like the `addnode` command).
+
+You can do this by running:
+
+```bash
+rm -rf FLORESTA_TEMP_DIR/data
 ```
 
 ### Running/Developing Functional Tests with Nix
