@@ -6,6 +6,7 @@ use bitcoin::block::Header as BlockHeader;
 use bitcoin::consensus::deserialize;
 use bitcoin::consensus::Decodable;
 use bitcoin::Block;
+use bitcoin::Network;
 use bitcoin::OutPoint;
 use criterion::criterion_group;
 use criterion::criterion_main;
@@ -17,7 +18,6 @@ use floresta_chain::pruned_utreexo::UpdatableChainstate;
 use floresta_chain::AssumeValidArg;
 use floresta_chain::ChainState;
 use floresta_chain::KvChainStore;
-use floresta_chain::Network;
 use rustreexo::accumulator::proof::Proof;
 
 // Reads the first 151 blocks (or 150 blocks on top of genesis) from blocks.txt, which are regtest

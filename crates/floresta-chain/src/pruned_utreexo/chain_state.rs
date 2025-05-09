@@ -35,6 +35,7 @@ use bitcoin::hashes::sha256;
 use bitcoin::script;
 use bitcoin::Block;
 use bitcoin::BlockHash;
+use bitcoin::Network;
 use bitcoin::OutPoint;
 use bitcoin::Target;
 use bitcoin::Transaction;
@@ -67,7 +68,6 @@ use crate::prelude::*;
 use crate::pruned_utreexo::utxo_data::UtxoData;
 use crate::read_lock;
 use crate::write_lock;
-use crate::Network;
 use crate::UtreexoBlock;
 
 /// Trait for components that need to receive notifications about new blocks.
@@ -510,7 +510,8 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         network: Network,
         assume_valid: AssumeValidArg,
     ) -> ChainState<PersistedState> {
-        let parameters = network.into();
+        // TODO: handle possible Err
+        let parameters = network.try_into().expect("Unsupported network");
         let genesis = genesis_block(&parameters);
 
         chainstore
@@ -524,7 +525,9 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             .update_block_index(0, genesis.block_hash())
             .expect("Error updating index");
 
-        let assume_valid = ChainParams::get_assume_valid(network, assume_valid);
+        // TODO: handle possible Err
+        let assume_valid =
+            ChainParams::get_assume_valid(network, assume_valid).expect("Unsupported network");
         ChainState {
             inner: RwLock::new(ChainStateInner {
                 chainstore,
@@ -613,9 +616,12 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             subscribers: Vec::new(),
             ibd: true,
             consensus: Consensus {
-                parameters: network.into(),
+                // TODO: handle possile Err
+                parameters: network.try_into().expect("Unsupported network"),
             },
-            assume_valid: ChainParams::get_assume_valid(network, assume_valid),
+            // TODO: handle possible Err
+            assume_valid: ChainParams::get_assume_valid(network, assume_valid)
+                .expect("Unsupported network"),
         };
         info!(
             "Chainstate loaded at height: {}, checking if we have all blocks",
@@ -1372,6 +1378,7 @@ mod test {
     use bitcoin::consensus::Decodable;
     use bitcoin::Block;
     use bitcoin::BlockHash;
+    use bitcoin::Network;
     use bitcoin::OutPoint;
     use floresta_common::bhash;
     use rand::Rng;
@@ -1387,7 +1394,6 @@ mod test {
     use crate::pruned_utreexo::utxo_data::UtxoData;
     use crate::AssumeValidArg;
     use crate::KvChainStore;
-    use crate::Network;
 
     fn setup_test_chain<'a>(
         network: Network,
@@ -1494,7 +1500,7 @@ mod test {
         let next_target = Consensus::calc_next_work_required(
             &last_block,
             &first_block,
-            ChainParams::from(Network::Signet),
+            ChainParams::try_from(Network::Signet).unwrap(),
         );
 
         assert_eq!(0x1e012fa7, next_target.to_compact_lossy().to_consensus());

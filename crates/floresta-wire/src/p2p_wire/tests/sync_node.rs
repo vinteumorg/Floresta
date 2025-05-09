@@ -3,6 +3,7 @@ mod tests_utils {
     use std::sync::Arc;
     use std::time::Duration;
 
+    use bitcoin::Network;
     use floresta_chain::pruned_utreexo::UpdatableChainstate;
     use floresta_chain::AssumeValidArg;
     use floresta_chain::ChainState;
@@ -28,7 +29,7 @@ mod tests_utils {
     pub async fn setup_node(
         peers: Vec<PeerData>,
         pow_fraud_proofs: bool,
-        network: floresta_chain::Network,
+        network: Network,
     ) -> Arc<ChainState<KvChainStore<'static>>> {
         let datadir = format!("./tmp-db/{}.sync_node", rand::random::<u32>());
         let chainstore = KvChainStore::new(datadir.clone()).unwrap();
@@ -86,6 +87,7 @@ mod tests_utils {
 mod tests {
     use std::collections::HashMap;
 
+    use bitcoin::Network;
     use floresta_chain::pruned_utreexo::BlockchainInterface;
     use floresta_chain::UtreexoBlock;
 
@@ -98,7 +100,7 @@ mod tests {
         let chain = setup_node(
             vec![(Vec::new(), essentials.blocks.clone(), HashMap::new())],
             false,
-            floresta_chain::Network::Signet,
+            Network::Signet,
         )
         .await;
 
@@ -124,7 +126,7 @@ mod tests {
             .blocks
             .insert(essentials.headers[7].block_hash(), essentials.invalid_block);
         let peer = vec![(Vec::new(), essentials.blocks.clone(), HashMap::new())];
-        let chain = setup_node(peer, false, floresta_chain::Network::Signet).await;
+        let chain = setup_node(peer, false, Network::Signet).await;
 
         assert_eq!(chain.get_validation_index().unwrap(), 6);
         assert_eq!(
@@ -165,12 +167,7 @@ mod tests {
         let honest1 = (Vec::new(), v_blocks.clone(), HashMap::new());
         let honest2 = (Vec::new(), v_blocks, HashMap::new());
 
-        let chain = setup_node(
-            vec![liar, honest1, honest2],
-            false,
-            floresta_chain::Network::Signet,
-        )
-        .await;
+        let chain = setup_node(vec![liar, honest1, honest2], false, Network::Signet).await;
 
         assert_eq!(chain.get_validation_index().unwrap(), 9);
         assert_eq!(

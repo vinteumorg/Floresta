@@ -36,7 +36,7 @@ fn main() {
 
     let config = Config {
         disable_dns_seeds: params.connect.is_some() || params.disable_dns_seeds,
-        network: params.network.into(),
+        network: params.network,
         debug: params.debug,
         data_dir: params.data_dir.clone(),
         cfilters: params.cfilters,

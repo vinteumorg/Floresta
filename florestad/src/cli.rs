@@ -1,50 +1,7 @@
+use bitcoin::Network;
 use clap::arg;
 use clap::command;
 use clap::Parser;
-use clap::ValueEnum;
-use florestad::Network as FlorestaNetwork;
-
-#[derive(Clone, Debug, ValueEnum, Default)]
-pub enum Network {
-    #[default]
-    Bitcoin,
-    Signet,
-    Testnet,
-    Regtest,
-}
-
-impl From<Network> for FlorestaNetwork {
-    fn from(network: Network) -> Self {
-        match network {
-            Network::Bitcoin => FlorestaNetwork::Bitcoin,
-            Network::Signet => FlorestaNetwork::Signet,
-            Network::Testnet => FlorestaNetwork::Testnet,
-            Network::Regtest => FlorestaNetwork::Regtest,
-        }
-    }
-}
-
-impl From<Network> for floresta_chain::Network {
-    fn from(network: Network) -> Self {
-        match network {
-            Network::Bitcoin => floresta_chain::Network::Bitcoin,
-            Network::Signet => floresta_chain::Network::Signet,
-            Network::Testnet => floresta_chain::Network::Testnet,
-            Network::Regtest => floresta_chain::Network::Regtest,
-        }
-    }
-}
-
-impl std::fmt::Display for Network {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Network::Bitcoin => write!(f, "bitcoin"),
-            Network::Signet => write!(f, "signet"),
-            Network::Testnet => write!(f, "testnet"),
-            Network::Regtest => write!(f, "regtest"),
-        }
-    }
-}
 
 #[derive(Parser)]
 #[command(

@@ -10,6 +10,7 @@
 //! - Current chain tip and header
 use bitcoin::block::Header as BlockHeader;
 use bitcoin::BlockHash;
+use bitcoin::Network;
 use rustreexo::accumulator::stump::Stump;
 
 use super::chain_state::BestChain;
@@ -20,7 +21,6 @@ use crate::pruned_utreexo::Box;
 use crate::AssumeValidArg;
 use crate::DatabaseError;
 use crate::DiskBlockHeader;
-use crate::Network;
 
 #[derive(Debug)]
 /// Represents errors that can occur during the construction of a ChainState instance.
@@ -125,7 +125,9 @@ impl<T: ChainStore> ChainStateBuilder<T> {
     /// Sets the assume-valid argument, which can be `Disabled`, `Hardcoded` or `UserInput`. This
     /// option is used to skip script validation up to the specified block, speeding up IBD.
     pub fn with_assume_valid(mut self, arg: AssumeValidArg, network: Network) -> Self {
-        self.assume_valid = ChainParams::get_assume_valid(network, arg);
+        // TODO: handle possible Err
+        self.assume_valid =
+            ChainParams::get_assume_valid(network, arg).expect("Unsupported network");
         self
     }
 

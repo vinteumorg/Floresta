@@ -9,6 +9,7 @@
 //!
 //! The main struct [`ChainParams`] encapsulates all chain-specific parameters while
 //! [`DnsSeed`] handles peer discovery through DNS.
+
 extern crate alloc;
 use alloc::vec::Vec;
 use core::ffi::c_uint;
@@ -18,13 +19,14 @@ use bitcoin::p2p::ServiceFlags;
 use bitcoin::params::Params;
 use bitcoin::Block;
 use bitcoin::BlockHash;
+use bitcoin::Network;
 use floresta_common::acchashes;
 use floresta_common::bhash;
 use rustreexo::accumulator::node_hash::BitcoinNodeHash;
 
 use crate::prelude::*;
 use crate::AssumeValidArg;
-use crate::Network;
+use crate::BlockchainError;
 
 #[derive(Clone, Debug)]
 /// This struct encapsulates all chain-specific parameters.
@@ -56,7 +58,7 @@ pub struct ChainParams {
     pub exceptions: HashMap<BlockHash, c_uint>,
 
     /// The network this chain params is for
-    pub network: bitcoin::Network,
+    pub network: Network,
 }
 
 /// A dns seed is a authoritative DNS server that returns the IP addresses of nodes that are
@@ -111,10 +113,10 @@ pub struct AssumeUtreexoValue {
 
 impl ChainParams {
     /// This method is called when Assume Utreexo is set to true. It means that the user will accept the hardcoded utreexo state for the specified block, if it is found in the best chain. We can then sync rapidly from this state.
-    pub fn get_assume_utreexo(network: Network) -> AssumeUtreexoValue {
-        let genesis = genesis_block(Params::new(network.into()));
+    pub fn get_assume_utreexo(network: Network) -> Result<AssumeUtreexoValue, BlockchainError> {
+        let genesis = genesis_block(Params::new(network));
         match network {
-            Network::Bitcoin => AssumeUtreexoValue {
+            Network::Bitcoin => Ok(AssumeUtreexoValue {
                 block_hash: bhash!(
                     "00000000000000000000569f4d863c27e667cbee8acc8da195e7e5551658e6e9"
                 ),
@@ -140,46 +142,60 @@ impl ChainParams {
                 ]
                 .to_vec(),
                 leaves: 2587882501,
-            },
-            Network::Testnet => AssumeUtreexoValue {
+            }),
+            Network::Testnet => Ok(AssumeUtreexoValue {
                 block_hash: genesis.block_hash(),
                 height: 0,
                 leaves: 0,
                 roots: Vec::new(),
-            },
-            Network::Signet => AssumeUtreexoValue {
+            }),
+            Network::Testnet4 => Ok(AssumeUtreexoValue {
                 block_hash: genesis.block_hash(),
                 height: 0,
                 leaves: 0,
                 roots: Vec::new(),
-            },
-            Network::Regtest => AssumeUtreexoValue {
+            }),
+            Network::Signet => Ok(AssumeUtreexoValue {
                 block_hash: genesis.block_hash(),
                 height: 0,
                 leaves: 0,
                 roots: Vec::new(),
-            },
+            }),
+            Network::Regtest => Ok(AssumeUtreexoValue {
+                block_hash: genesis.block_hash(),
+                height: 0,
+                leaves: 0,
+                roots: Vec::new(),
+            }),
+            network => Err(BlockchainError::UnsupportedNetwork(network)),
         }
     }
 
     /// This method is used to assume all the scripts up to a specific block in the chain as valid. It can be None (we will verify all the scripts), user input or hardcoded.
-    pub fn get_assume_valid(network: Network, arg: AssumeValidArg) -> Option<BlockHash> {
+    pub fn get_assume_valid(
+        network: Network,
+        arg: AssumeValidArg,
+    ) -> Result<Option<BlockHash>, BlockchainError> {
         match arg {
-            AssumeValidArg::Disabled => None,
-            AssumeValidArg::UserInput(hash) => Some(hash),
+            AssumeValidArg::Disabled => Ok(None),
+            AssumeValidArg::UserInput(hash) => Ok(Some(hash)),
             AssumeValidArg::Hardcoded => match network {
-                Network::Bitcoin => Some(bhash!(
+                Network::Bitcoin => Ok(Some(bhash!(
                     "00000000000000000000569f4d863c27e667cbee8acc8da195e7e5551658e6e9"
-                )),
-                Network::Testnet => Some(bhash!(
+                ))),
+                Network::Testnet => Ok(Some(bhash!(
                     "000000000000001142ad197bff16a1393290fca09e4ca904dd89e7ae98a90fcd"
-                )),
-                Network::Signet => Some(bhash!(
+                ))),
+                Network::Testnet4 => Ok(Some(bhash!(
+                    "0000000006af13c1117f3e2eb14f10eb9736e255713118cf7eb6659b1448efc1"
+                ))),
+                Network::Signet => Ok(Some(bhash!(
                     "0000003ed17b9c93954daab00d73ccbd0092074c4ebfc751c7458d58b827dfea"
-                )),
-                Network::Regtest => Some(bhash!(
+                ))),
+                Network::Regtest => Ok(Some(bhash!(
                     "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206"
-                )),
+                ))),
+                network => Err(BlockchainError::UnsupportedNetwork(network)),
             },
         }
     }
@@ -222,38 +238,50 @@ impl AsRef<Params> for ChainParams {
     }
 }
 
-impl From<Network> for ChainParams {
-    fn from(net: Network) -> Self {
-        let genesis = genesis_block(Params::new(net.into()));
+impl TryFrom<Network> for ChainParams {
+    type Error = BlockchainError;
+
+    fn try_from(network: Network) -> Result<Self, Self::Error> {
+        let genesis = genesis_block(Params::new(network));
         let exceptions = get_exceptions();
 
-        match net {
-            Network::Bitcoin => ChainParams {
-                params: Params::new(net.into()),
-                network: net.into(),
+        match network {
+            Network::Bitcoin => Ok(ChainParams {
+                params: Params::new(network),
+                network,
                 genesis,
                 pow_target_timespan: 14 * 24 * 60 * 60, // two weeks
                 subsidy_halving_interval: 210_000,
                 coinbase_maturity: 100,
-                segwit_activation_height: 481824,
-                csv_activation_height: 419328,
+                segwit_activation_height: 481_824,
+                csv_activation_height: 419_328,
                 exceptions,
-            },
-            Network::Testnet => ChainParams {
-                params: Params::new(net.into()),
-                network: net.into(),
+            }),
+            Network::Testnet => Ok(ChainParams {
+                params: Params::new(network),
+                network,
                 genesis,
                 pow_target_timespan: 14 * 24 * 60 * 60, // two weeks
                 subsidy_halving_interval: 210_000,
                 coinbase_maturity: 100,
-
                 segwit_activation_height: 834_624,
                 csv_activation_height: 770_112,
                 exceptions,
-            },
-            Network::Signet => ChainParams {
-                params: Params::new(net.into()),
-                network: net.into(),
+            }),
+            Network::Testnet4 => Ok(ChainParams {
+                params: Params::new(network),
+                network,
+                genesis,
+                pow_target_timespan: 14 * 24 * 60 * 60,
+                subsidy_halving_interval: 210_000,
+                coinbase_maturity: 100,
+                segwit_activation_height: 1,
+                csv_activation_height: 1,
+                exceptions,
+            }),
+            Network::Signet => Ok(ChainParams {
+                params: Params::new(network),
+                network,
                 genesis,
                 pow_target_timespan: 14 * 24 * 60 * 60, // two weeks
                 subsidy_halving_interval: 210_000,
@@ -261,10 +289,10 @@ impl From<Network> for ChainParams {
                 csv_activation_height: 1,
                 segwit_activation_height: 1,
                 exceptions,
-            },
-            Network::Regtest => ChainParams {
-                params: Params::new(net.into()),
-                network: net.into(),
+            }),
+            Network::Regtest => Ok(ChainParams {
+                params: Params::new(network),
+                network,
                 genesis,
                 pow_target_timespan: 14 * 24 * 60 * 60, // two weeks
                 subsidy_halving_interval: 150,
@@ -272,7 +300,8 @@ impl From<Network> for ChainParams {
                 csv_activation_height: 0,
                 segwit_activation_height: 0,
                 exceptions,
-            },
+            }),
+            network => Err(BlockchainError::UnsupportedNetwork(network)),
         }
     }
 }
@@ -284,7 +313,7 @@ impl From<Network> for ChainParams {
 /// Some dns seeds lets us filter the returned peers by advertised services. We are interested
 /// in peers with: UTREEXO, COMPACT_FILTERS, WITNESS and NETWORK. Not all seeds supports all
 /// bits, so from this list, we pick the ones they support, and ask for this.
-pub fn get_chain_dns_seeds(network: Network) -> Vec<DnsSeed> {
+pub fn get_chain_dns_seeds(network: Network) -> Result<Vec<DnsSeed>, BlockchainError> {
     let mut seeds = Vec::new();
 
     // x9 or 0x09 means NETWORK + WITNESS
@@ -352,6 +381,18 @@ pub fn get_chain_dns_seeds(network: Network) -> Vec<DnsSeed> {
                 none,
             ));
         }
+        Network::Testnet4 => {
+            seeds.push(DnsSeed::new(
+                Network::Testnet4,
+                "seed.testnet4.bitcoin.sprovoost.nl",
+                none,
+            ));
+            seeds.push(DnsSeed::new(
+                Network::Testnet4,
+                "seed.testnet4.wiz.biz",
+                none,
+            ));
+        }
         Network::Signet => {
             seeds.push(DnsSeed::new(
                 Network::Signet,
@@ -363,6 +404,7 @@ pub fn get_chain_dns_seeds(network: Network) -> Vec<DnsSeed> {
         Network::Regtest => {
             // No seeds for regtest
         }
+        network => return Err(BlockchainError::UnsupportedNetwork(network)),
     };
-    seeds
+    Ok(seeds)
 }

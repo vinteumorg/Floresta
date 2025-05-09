@@ -11,6 +11,7 @@ use bitcoin::consensus::Decodable;
 use bitcoin::hex::FromHex;
 use bitcoin::p2p::ServiceFlags;
 use bitcoin::BlockHash;
+use bitcoin::Network;
 use floresta_chain::UtreexoBlock;
 use floresta_common::bhash;
 use floresta_common::service_flags;
@@ -175,12 +176,12 @@ pub fn create_peer(
 
 pub fn get_node_config(
     datadir: String,
-    network: floresta_chain::Network,
+    network: Network,
     pow_fraud_proofs: bool,
 ) -> UtreexoNodeConfig {
     UtreexoNodeConfig {
         disable_dns_seeds: false,
-        network: network.into(),
+        network,
         pow_fraud_proofs,
         compact_filters: false,
         fixed_peer: None,
