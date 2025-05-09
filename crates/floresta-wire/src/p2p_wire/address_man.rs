@@ -777,6 +777,7 @@ mod test {
     use bitcoin::p2p::ServiceFlags;
     use bitcoin::Network;
     use floresta_chain::get_chain_dns_seeds;
+    use floresta_common::assert_ok;
     use floresta_common::service_flags;
     use rand::Rng;
     use serde::Deserialize;
@@ -892,11 +893,10 @@ mod test {
         assert!(!AddressMan::get_net_seeds(Network::Regtest).is_empty());
         assert!(!AddressMan::get_net_seeds(Network::Testnet).is_empty());
 
-        assert!(AddressMan::get_seeds_from_dns(
+        assert_ok!(AddressMan::get_seeds_from_dns(
             &get_chain_dns_seeds(Network::Signet).unwrap()[0],
             8333
-        )
-        .is_ok());
+        ));
 
         address_man.rearrange_buckets();
     }

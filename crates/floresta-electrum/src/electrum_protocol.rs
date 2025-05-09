@@ -901,6 +901,7 @@ mod test {
     use floresta_chain::AssumeValidArg;
     use floresta_chain::ChainState;
     use floresta_chain::KvChainStore;
+    use floresta_common::assert_ok;
     use floresta_common::get_spk_hash;
     use floresta_watch_only::kv_database::KvDatabase;
     use floresta_watch_only::merkle::MerkleProof;
@@ -1218,7 +1219,7 @@ mod test {
         let mut batch_req = json!(batch_req).to_string();
         batch_req.push('\n');
 
-        assert!(send_request(batch_req, port).await.is_ok());
+        assert_ok!(send_request(batch_req, port).await);
     }
 
     #[tokio::test]
@@ -1228,7 +1229,8 @@ mod test {
         let method = Value::String("server.banner".to_string());
         let mut request = generate_request(&mut vec![method]).to_string();
         request.push('\n');
-        assert!(send_request(request, port).await.is_ok())
+
+        assert_ok!(send_request(request, port).await);
     }
 
     #[tokio::test]
@@ -1282,9 +1284,9 @@ mod test {
         let mut mempool_req = generate_request(&mut vec![method]).to_string();
         mempool_req.push('\n');
 
-        assert!(send_request(subscribe_req, port).await.is_ok());
+        assert_ok!(send_request(subscribe_req, port).await);
 
-        assert!(send_request(mempool_req, port).await.is_ok());
+        assert_ok!(send_request(mempool_req, port).await);
 
         assert!(send_request(unsubscribe_req, port).await.unwrap()["result"]
             .as_bool()

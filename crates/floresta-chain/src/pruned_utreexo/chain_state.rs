@@ -1380,6 +1380,7 @@ mod test {
     use bitcoin::BlockHash;
     use bitcoin::Network;
     use bitcoin::OutPoint;
+    use floresta_common::assert_ok;
     use floresta_common::bhash;
     use rand::Rng;
     use rustreexo::accumulator::proof::Proof;
@@ -1564,7 +1565,7 @@ mod test {
         headers.remove(0);
 
         // push_headers
-        assert!(chain.push_headers(headers.clone(), 1).is_ok());
+        assert_ok!(chain.push_headers(headers.clone(), 1));
 
         // get_block_header_by_height
         assert_eq!(chain.get_block_header_by_height(1), headers[0]);
