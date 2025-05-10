@@ -15,6 +15,23 @@ use super::node::NodeNotification;
 use super::node::PeerStatus;
 use super::transport::TransportProtocol;
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// A request to addnode that can be made to the node.
+///
+/// This enum represents all the possible requests that can be made to the node to add, remove
+/// or just try to connect to a peer, following the same pattern as the `addnode` command in
+/// Bitcoin Core (https://bitcoincore.org/en/doc/28.0.0/rpc/network/addnode/)
+///
+/// The `Add` variant is used to add a peer to the node's peer list
+/// The `Remove` variant is used to remove a peer from the node's peer list
+/// The `Onetry` variant is used to try a connection to the peer once, but not add it to the peer
+/// list.
+pub enum AddNode {
+    Add((IpAddr, u16)),
+    Remove((IpAddr, u16)),
+    Onetry((IpAddr, u16)),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 /// A request that can be made to the node.
 ///
@@ -27,7 +44,9 @@ pub enum UserRequest {
     UtreexoBlock(BlockHash),
     MempoolTransaction(Txid),
     GetPeerInfo,
-    Connect((IpAddr, u16)),
+    Add((IpAddr, u16, bool)),
+    Remove((IpAddr, u16)),
+    Onetry((IpAddr, u16, bool)),
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -44,6 +63,7 @@ pub struct PeerInfo {
     pub state: PeerStatus,
     pub kind: ConnectionKind,
     pub transport_protocol: TransportProtocol,
+    pub oneshot: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -56,7 +76,9 @@ pub enum NodeResponse {
     UtreexoBlock(Option<UtreexoBlock>),
     MempoolTransaction(Option<Transaction>),
     GetPeerInfo(Vec<PeerInfo>),
-    Connect(bool),
+    Add(Option<()>),
+    Remove(Option<()>),
+    Onetry(Option<()>),
 }
 
 #[derive(Debug, Clone)]
@@ -103,16 +125,47 @@ impl NodeInterface {
     ///
     /// This function will return a boolean indicating whether the connection was successful. It
     /// may be called multiple times, and may use hostnames or IP addresses.
-    pub async fn connect(
+    pub async fn add_peer(
         &self,
         addr: IpAddr,
         port: u16,
-    ) -> Result<bool, oneshot::error::RecvError> {
+        v2transport: bool,
+    ) -> Result<Option<()>, oneshot::error::RecvError> {
         let val = self
-            .send_request(UserRequest::Connect((addr, port)))
+            .send_request(UserRequest::Add((addr, port, v2transport)))
             .await?;
 
-        extract_variant!(Connect, val);
+        extract_variant!(Add, val);
+    }
+
+    /// Removes a peer from the node's peer list.
+    ///
+    /// This function will return a boolean indicating whether the peer was successfully removed.
+    /// It may be called multiple times, and may use hostnames or IP addresses.
+    pub async fn remove_peer(
+        &self,
+        addr: IpAddr,
+        port: u16,
+    ) -> Result<Option<()>, oneshot::error::RecvError> {
+        let val = self.send_request(UserRequest::Remove((addr, port))).await?;
+        extract_variant!(Remove, val);
+    }
+
+    /// Attempts to connect to a peer once.
+    ///
+    /// This function will try to connect to the peer once, but will not add it to the node's
+    /// peer list. It will return a boolean indicating whether the connection was successful.
+    /// It may be called multiple times, and may use hostnames or IP addresses.
+    pub async fn onetry_peer(
+        &self,
+        addr: IpAddr,
+        port: u16,
+        v2transport: bool,
+    ) -> Result<Option<()>, oneshot::error::RecvError> {
+        let val = self
+            .send_request(UserRequest::Onetry((addr, port, v2transport)))
+            .await?;
+        extract_variant!(Onetry, val);
     }
 
     /// Gets a block by its hash.

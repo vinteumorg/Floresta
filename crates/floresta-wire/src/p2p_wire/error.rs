@@ -30,6 +30,10 @@ pub enum WireError {
     PeerMisbehaving,
     #[error("Failed to init Utreexo peers: anchors.json does not exist yet")]
     AnchorFileNotFound,
+    #[error("Peer already exists")]
+    PeerAlreadyExists,
+    #[error("Failed to add peer")]
+    FailedToAddPeer,
     #[error("Generic io error: {0}")]
     Io(std::io::Error),
     #[error("{0}")]

@@ -197,6 +197,10 @@ pub enum Error {
     InvalidMemInfoMode,
     Wallet(String),
     Filters(String),
+    InvalidAddnodeCommand,
+    FailedToAddPeer(String, u16),
+    FailedToRemovePeer(String, u16),
+    FailedToConnectPeer(String, u16),
 }
 
 impl Display for Error {
@@ -227,6 +231,10 @@ impl Display for Error {
             Error::InvalidMemInfoMode => write!(f, "Invalid meminfo mode, should be stats or mallocinfo"),
             Error::Wallet(e) => write!(f, "Wallet error: {e}"),
             Error::Filters(e) => write!(f, "Error with filters: {e}"),
+            Error::InvalidAddnodeCommand => write!(f, "Invalid addnode command"),
+            Error::FailedToAddPeer(addr, port) => write!(f, "Failed to add peer {addr}:{port}"),
+            Error::FailedToRemovePeer(addr, port) => write!(f, "Failed to remove peer {addr}:{port}"),
+            Error::FailedToConnectPeer(addr, port) => write!(f, "Failed to connect to peer {addr}:{port}"),
         }
     }
 }
