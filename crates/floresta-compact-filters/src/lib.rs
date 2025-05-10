@@ -78,7 +78,7 @@ pub trait IterableFilterStore:
 {
     type I: Iterator<Item = (u32, bip158::BlockFilter)>;
     /// Fetches the first filter and sets our internal cursor to the first filter,
-    /// succeeding calls to [next] will return the next filter until we reach the end
+    /// succeeding calls to [`std::iter::Iterator::next`] will return the next filter until we reach the end
     fn iter(&self, start_height: Option<usize>) -> Result<Self::I, IterableFilterStoreError>;
     /// Writes a new filter to the store
     fn put_filter(

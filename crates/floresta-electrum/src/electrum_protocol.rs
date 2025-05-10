@@ -845,7 +845,7 @@ fn get_status(transactions: Vec<CachedTransaction>) -> sha256::Hash {
 
 #[macro_export]
 /// Builds the response as defined by jsonrpc v2.0. Request should have type [Request] and the
-/// response is always a [Json]
+/// response is always a [json]
 macro_rules! json_rpc_res {
     ($request: ident, $result: ident) => (
         Ok(json!({

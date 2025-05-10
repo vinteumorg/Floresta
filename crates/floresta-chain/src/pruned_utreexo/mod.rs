@@ -174,7 +174,7 @@ pub trait UpdatableChainstate {
 /// Right now, you can use the [KvChainStore](chainstore::KvChainStore) in your code, it implements this trait and
 /// uses a key-value store to save data.
 /// The [DatabaseError] is a simple trait that can be implemented by any error type that
-/// implements [std::error::Error] and [std::fmt::Display]. This is useful to abstract
+/// implements `std::error::Error` and `std::fmt::Display`. This is useful to abstract
 /// the database implementation from the blockchain.
 /// See the documentation of [DatabaseError] for more info.
 pub trait ChainStore {
@@ -195,7 +195,7 @@ pub trait ChainStore {
     fn save_header(&self, header: &DiskBlockHeader) -> Result<(), Self::Error>;
     /// Returns the block hash for a given height.
     fn get_block_hash(&self, height: u32) -> Result<Option<BlockHash>, Self::Error>;
-    /// Flushes write buffers to disk, this is called periodically by the [ChainState],
+    /// Flushes write buffers to disk, this is called periodically by the [`crate::ChainState`],
     /// so in case of a crash, we don't lose too much data. If the database doesn't support
     /// write buffers, this method can be a no-op.
     fn flush(&self) -> Result<(), Self::Error>;
