@@ -195,7 +195,7 @@ pub trait ChainStore {
     fn save_header(&self, header: &DiskBlockHeader) -> Result<(), Self::Error>;
     /// Returns the block hash for a given height.
     fn get_block_hash(&self, height: u32) -> Result<Option<BlockHash>, Self::Error>;
-    /// Flushes write buffers to disk, this is called periodically by the [`crate::ChainState`],
+    /// Flushes write buffers to disk, this is called periodically by the [ChainState](crate::ChainState),
     /// so in case of a crash, we don't lose too much data. If the database doesn't support
     /// write buffers, this method can be a no-op.
     fn flush(&self) -> Result<(), Self::Error>;
