@@ -56,8 +56,8 @@ fn do_request(cmd: &Cli, client: Client) -> anyhow::Result<String> {
         Methods::GetTxOut { txid, vout } => {
             serde_json::to_string_pretty(&client.get_tx_out(txid, vout)?)?
         }
-        Methods::GetTxProof { txids, .. } => {
-            serde_json::to_string_pretty(&client.get_tx_proof(txids)?)?
+        Methods::GetTxOutProof { txids, blockhash } => {
+            serde_json::to_string_pretty(&client.get_txout_proof(txids, blockhash)?)?
         }
         Methods::GetTransaction { txid, .. } => {
             serde_json::to_string_pretty(&client.get_transaction(txid, Some(true))?)?
@@ -144,9 +144,9 @@ pub enum Methods {
     #[command(name = "getblockhash")]
     GetBlockHash { height: u32 },
     /// Returns the proof that one or more transactions were included in a block
-    #[command(name = "gettxproof")]
-    GetTxProof {
-        txids: Txid,
+    #[command(name = "gettxoutproof")]
+    GetTxOutProof {
+        txids: Vec<Txid>,
         blockhash: Option<BlockHash>,
     },
     /// Returns the transaction, assuming it is cached by our watch only wallet

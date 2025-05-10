@@ -48,7 +48,7 @@ pub trait FlorestaRPC {
     ///
     /// This method returns the Merkle proof, showing that a transaction was included in a block.
     /// The pooof is returned as a vector hexadecimal string.
-    fn get_tx_proof(&self, tx_id: Txid) -> Result<Vec<String>>;
+    fn get_txout_proof(&self, txids: Vec<Txid>, blockhash: Option<BlockHash>) -> Result<String>;
     /// Loads up a descriptor into the wallet
     ///
     /// This method loads up a descriptor into the wallet. If the rescan option is not None,
@@ -123,7 +123,6 @@ pub trait FlorestaRPC {
     fn get_rpc_info(&self) -> Result<GetRpcInfoRes>;
     /// Returns for how long florestad has been running, in seconds
     fn uptime(&self) -> Result<u32>;
-
     /// Returns a list of all descriptors currently loaded in the wallet
     fn list_descriptors(&self) -> Result<Vec<String>>;
 }
@@ -231,8 +230,15 @@ impl<T: JsonRPCClient> FlorestaRPC for T {
         )
     }
 
-    fn get_tx_proof(&self, tx_id: Txid) -> Result<Vec<String>> {
-        self.call("gettxoutproof", &[Value::String(tx_id.to_string())])
+    fn get_txout_proof(&self, txids: Vec<Txid>, blockhash: Option<BlockHash>) -> Result<String> {
+        let params: Vec<Value> = match blockhash {
+            Some(blockhash) => vec![
+                serde_json::to_value(txids).unwrap(),
+                Value::String(blockhash.to_string()),
+            ],
+            None => vec![serde_json::to_value(txids).unwrap()],
+        };
+        self.call("gettxoutproof", &params)
     }
 
     fn get_peer_info(&self) -> Result<Vec<PeerInfo>> {

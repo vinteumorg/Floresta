@@ -908,12 +908,14 @@ dependencies = [
  "anyhow",
  "bitcoin 0.32.5",
  "clap",
+ "floresta-watch-only",
  "jsonrpc",
  "rand",
  "rcgen",
  "serde",
  "serde_json",
  "tempfile",
+ "thiserror 2.0.12",
 ]
 
 [[package]]
@@ -955,7 +957,7 @@ dependencies = [
  "rustreexo",
  "serde",
  "serde_json",
- "thiserror",
+ "thiserror 1.0.69",
  "tokio",
  "tokio-rustls",
  "zstd",
@@ -1005,7 +1007,7 @@ dependencies = [
  "rustreexo",
  "serde",
  "serde_json",
- "thiserror",
+ "thiserror 1.0.69",
  "tokio",
  "zstd",
 ]
@@ -1025,6 +1027,7 @@ dependencies = [
  "dns-lookup 2.0.4",
  "fern",
  "floresta-chain",
+ "floresta-cli",
  "floresta-common",
  "floresta-compact-filters",
  "floresta-electrum",
@@ -1490,7 +1493,7 @@ dependencies = [
  "pin-project-lite",
  "serde",
  "sled",
- "thiserror",
+ "thiserror 1.0.69",
  "toml 0.5.11",
 ]
 
@@ -1956,7 +1959,7 @@ checksum = "ba009ff324d1fc1b900bd1fdb31564febe58a8ccc8a6fdbb93b543d33b13ca43"
 dependencies = [
  "getrandom 0.2.15",
  "libredox",
- "thiserror",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -2371,7 +2374,16 @@ version = "1.0.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6aaf5339b578ea85b50e080feb250a3e8ae8cfcdff9a461c9ec2904bc923f52"
 dependencies = [
- "thiserror-impl",
+ "thiserror-impl 1.0.69",
+]
+
+[[package]]
+name = "thiserror"
+version = "2.0.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "567b8a2dae586314f7be2a752ec7474332959c6460e02bde30d702a66d488708"
+dependencies = [
+ "thiserror-impl 2.0.12",
 ]
 
 [[package]]
@@ -2379,6 +2391,17 @@ name = "thiserror-impl"
 version = "1.0.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4fee6c4efc90059e10f81e6d42c60a18f76588c3d74cb83a0b242a2b6c7504c1"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "thiserror-impl"
+version = "2.0.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f7cf42b4507d8ea322120659672cf1b9dbb93f8f2d4ecfd6e51350ff5b17a1d"
 dependencies = [
  "proc-macro2",
  "quote",
