@@ -26,6 +26,10 @@ if [[ -z "$FLORESTA_TEMP_DIR" ]]; then
 
 fi
 
+# Clean existing data/logs directories before running the tests
+rm -rf "$FLORESTA_TEMP_DIR/data"
+
+# Run the re-freshed tests
 uv run ./tests/run_tests.py
 
 # Clean up the data dir if we succeeded and --preserve-data-dir was not passed
