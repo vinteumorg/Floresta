@@ -1,3 +1,4 @@
+//! Types that represent the response structures for rpc commands.
 use std::fmt::Display;
 
 use serde::Deserialize;
@@ -5,25 +6,133 @@ use serde::Serialize;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct GetBlockchainInfoRes {
+    /// A short string representing the chain we're in
+    pub chain: String,
+    /// How many blocks we have fully-validated so far? This number will be smaller than
+    /// height during IBD, and should be equal to height otherwise
+    pub blocks: u32,
+    /// the current number of headers we have validated
+    pub headers: u32,
     /// The best block we know about
     ///
     /// This should be the hash of the latest block in the most PoW chain we know about. We may
     /// or may not have fully-validated it yet
-    pub best_block: String,
-    /// The depth of the most-PoW chain we know about
-    pub height: u32,
+    pub bestblockhash: String,
+    /// Current network "difficulty"
+    ///
+    /// On average, miners needs to make `difficulty` hashes before finding one that
+    /// solves a block's PoW
+    pub difficulty: String,
+    /// The median time for the current best block
+    pub mediantime: u32,
+    /// The validation progress
+    ///
+    /// 0 means we didn't validate any block. 1 means we've validated all blocks.
+    pub verificationprogress: f32,
     /// Whether we are on Initial Block Download
-    pub ibd: bool,
-    /// How many blocks we have fully-validated so far? This number will be smaller than
-    /// height during IBD, and should be equal to height otherwise
-    pub validated: u32,
+    pub initialblockdownload: bool,
     /// The work performed by the last block
     ///
     /// This is the estimated amount of hashes the miner of this block had to perform
     /// before mining that block, on average
-    pub latest_work: String,
-    /// The UNIX timestamp for the latest block, as reported by the block's header
-    pub latest_block_time: u32,
+    pub chainwork: String,
+    /// The estimated size of the block and undo files on disk
+    pub size_on_disk: usize,
+    /// If the blocks are subject to pruning
+    pub pruned: bool,
+    /// Lowest-height complete block stored (only present if pruning is enabled)
+    pub pruneheight: Option<u32>,
+    /// Whether automatic pruning is enabled (only present if pruning is enabled)
+    pub automatic_pruning: bool,
+    /// The target size used by pruning (only present if automatic pruning is enabled)
+    pub prune_target_size: u32,
+    /// Status of softforks
+    pub softforks: Option<Vec<SoftForks>>,
+}
+
+/// Information about (Soft Forks)[https://github.com/bitcoin/bips/blob/master/bip-0009.mediawiki]
+#[derive(Debug, Deserialize, Serialize)]
+pub struct SoftForks {
+    /// Name of the softfork
+    pub name: String,
+    /// One of "buried" or "bip9"
+    pub tipo: SoftForkType, // We cant name a camp type, rust doesnt like it. :/
+    /// Status of bip9 softforks (only for "bip9" type)
+    pub bip9: Option<Bip9>,
+    /// Height of the first block which the rules are or will be enforced
+    /// (only for "buried" type, or "bip9" type with "active" status)
+    pub height: u32,
+    /// True if the rules are enforced for the mempool and the next block
+    pub active: bool,
+}
+
+/// Information about a (bip09)[https://github.com/bitcoin/bips/blob/master/bip-0009.mediawiki] soft fork.
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Bip9 {
+    /// One of "defined", "started", "locked_in", "active", "failed".
+    /// Defined on [`Bip9Status`]
+    status: Bip9Status,
+    /// The bit (0-28) in the block version field used to signal this softfork (only for "started" status)
+    bit: Option<u8>,
+    /// The minimum median time past of a block at which the bit gains its meaning
+    start_time: u32,
+    /// The median time past of a block at which the deployment is considered failed if not yet locked in
+    timeout: u32,
+    /// Height of the first block to which the status applies
+    since: u32,
+    /// Numeric statistics about BIP9 signalling for a softfork (only for "started" status)
+    statistics: Option<Bip9Statistics>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Bip9Statistics {
+    /// The length in blocks of the BIP9 signalling period
+    period: u32,
+    /// The number of blocks with the version bit set required to activate the feature
+    threshold: u32,
+    /// The number of blocks elapsed since the beginning of the current period
+    elapsed: u32,
+    /// The number of blocks with the version bit set in the current period
+    count: u32,
+    /// Returns false if there are not enough blocks left in this period to pass activation threshold
+    possible: bool,
+}
+
+/// States about a bip09
+#[derive(Debug, Deserialize, Serialize)]
+pub enum Bip9Status {
+    /// TODO docs
+    Defined,
+    /// TODO docs
+    Started,
+    /// TODO docs
+    LockedIn,
+    /// TODO docs
+    Active,
+    /// TODO docs
+    Failed,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub enum SoftForkType {
+    /// TODO docs
+    Buried,
+    /// TODO docs
+    Bip9,
+}
+/// TODO docs
+#[derive(Debug, Deserialize, Serialize)]
+pub struct GetBackfillState {
+    /// If the node is actively doing Backfill
+    pub backfilling: bool,
+    /// The Backfill progress
+    ///
+    /// 0 means we didn't validate any block. 1 means we've validated all blocks.
+    pub backfillprogress: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct GetUtreexoState {
     /// How many leaves we have in the utreexo accumulator so far
     ///
     /// This should be equal to the number of UTXOs returned by core's `gettxoutsetinfo`
@@ -32,18 +141,6 @@ pub struct GetBlockchainInfoRes {
     pub root_count: u32,
     /// The actual hex-encoded roots
     pub root_hashes: Vec<String>,
-    /// A short string representing the chain we're in
-    pub chain: String,
-    /// The validation progress
-    ///
-    /// 0% means we didn't validate any block. 100% means we've validated all blocks, so
-    /// validated == height
-    pub progress: Option<f32>,
-    /// Current network "difficulty"
-    ///
-    /// On average, miners needs to make `difficulty` hashes before finding one that
-    /// solves a block's PoW
-    pub difficulty: u64,
 }
 
 /// The information returned by a get_raw_tx
