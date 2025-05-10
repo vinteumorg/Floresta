@@ -28,7 +28,7 @@ log = "0.4"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 futures = "0.3.4"
-bitcoin = { version = "0.32", features = ["serde", "std", "bitcoinconsensus"] }
+bitcoin = { version = "0.32", features = ["serde", "std"] }
 thiserror = "1.0"
 core2 = { version = "0.4.0", default-features = false }
 
