@@ -140,7 +140,12 @@ pub enum AssumeValidArg {
 impl<PersistedState: ChainStore> ChainState<PersistedState> {
     fn maybe_reindex(&self, potential_tip: &DiskBlockHeader) {
         if let DiskBlockHeader::HeadersOnly(_, height) = potential_tip {
-            if *height > self.get_best_block().unwrap().0 {
+            let best_height = self
+                .get_best_block()
+                .expect("infallible: in-memory BestChain is initialized")
+                .0;
+
+            if *height > best_height {
                 let best_chain = self.reindex_chain();
                 write_lock!(self).best_block = best_chain;
             }
@@ -203,11 +208,10 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
 
     fn validate_header(&self, block_header: &BlockHeader) -> Result<BlockHash, BlockchainError> {
         let prev_block = self.get_disk_block_header(&block_header.prev_blockhash)?;
-        let prev_block_height = prev_block.height();
-        if prev_block_height.is_none() {
-            return Err(BlockValidationErrors::BlockExtendsAnOrphanChain)?;
-        }
-        let height = prev_block_height.unwrap() + 1;
+        let height = prev_block
+            .height()
+            .ok_or(BlockValidationErrors::BlockExtendsAnOrphanChain)?
+            + 1;
 
         // Check pow
         let expected_target = self.get_next_required_work(&prev_block, height, block_header);
@@ -361,8 +365,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
 
     // This method should only be called after we validate the new branch
     fn reorg(&self, new_tip: BlockHeader) -> Result<(), BlockchainError> {
-        let current_best_block = self.get_best_block().unwrap().1;
-        let current_best_block = self.get_block_header(&current_best_block)?;
+        let current_best_block = self.get_block_header(&self.get_best_block()?.1)?;
         let fork_point = self.find_fork_point(&new_tip)?;
 
         self.mark_chain_as_inactive(&current_best_block, fork_point.block_hash())?;
@@ -417,7 +420,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
     /// If we get a header that doesn't build on top of our best chain, it may cause a reorganization.
     /// We check this here.
     fn maybe_reorg(&self, branch_tip: BlockHeader) -> Result<(), BlockchainError> {
-        let current_tip = self.get_block_header(&self.get_best_block().unwrap().1)?;
+        let current_tip = self.get_block_header(&self.get_best_block()?.1)?;
         self.check_branch(&branch_tip)?;
 
         let current_work = self.get_branch_work(&current_tip)?;
@@ -430,13 +433,13 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         // If the new branch has less work, we just store it as an alternative branch
         // that might become the best chain in the future.
         self.push_alt_tip(&branch_tip)?;
-        let parent_height = self.get_ancestor(&branch_tip)?.height().unwrap();
+
+        let parent_height = self.get_ancestor(&branch_tip)?.try_height()?;
+
         read_lock!(self)
             .chainstore
-            .save_header(&super::chainstore::DiskBlockHeader::InFork(
-                branch_tip,
-                parent_height + 1,
-            ))?;
+            .save_header(&DiskBlockHeader::InFork(branch_tip, parent_height + 1))?;
+
         Ok(())
     }
     /// Stores a new tip for a branch that is not the best one
@@ -549,6 +552,8 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         }
     }
 
+    /// Fetches a `DiskBlockHeader` from the chain store given its block hash. Returns an error if
+    /// it's not present or if the database operation failed.
     fn get_disk_block_header(&self, hash: &BlockHash) -> Result<DiskBlockHeader, BlockchainError> {
         let inner = read_lock!(self);
         if let Some(header) = inner.chainstore.get_header(hash)? {
@@ -567,7 +572,11 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             };
 
         warn!("reindexing our chain");
-        let mut best_block = get_disk_block_hash(0).expect("No genesis block").unwrap();
+        let mut best_block = get_disk_block_hash(0)
+            // TODO: handle possible Err
+            .expect("TODO handle chainstore error")
+            .expect("expected genesis block, found None");
+
         let mut depth = 0;
         let mut validation_index = best_block;
         let mut next_height = depth + 1;
@@ -596,6 +605,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             assume_valid_index: 0,
         }
     }
+
     pub fn load_chain_state(
         chainstore: KvChainStore,
         network: Network,
@@ -603,20 +613,20 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
     ) -> Result<ChainState<KvChainStore>, BlockchainError> {
         let acc = Self::load_acc(&chainstore);
 
-        let best_chain = chainstore.load_height()?;
-        if best_chain.is_none() {
-            return Err(BlockchainError::ChainNotInitialized);
-        }
+        let best_block = chainstore
+            .load_height()?
+            .ok_or(BlockchainError::ChainNotInitialized)?;
+
         let inner = ChainStateInner {
             acc,
-            best_block: best_chain.unwrap(),
+            best_block,
             broadcast_queue: Vec::new(),
             chainstore,
             fee_estimation: (1_f64, 1_f64, 1_f64),
             subscribers: Vec::new(),
             ibd: true,
             consensus: Consensus {
-                // TODO: handle possile Err
+                // TODO: handle possible Err
                 parameters: network.try_into().expect("Unsupported network"),
             },
             // TODO: handle possible Err
@@ -636,7 +646,10 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
     }
 
     fn check_chain_integrity(&self) {
-        let (best_height, best_hash) = self.get_best_block().expect("should have this loaded");
+        let (best_height, best_hash) = self
+            .get_best_block()
+            .expect("infallible: in-memory BestChain is initialized");
+
         // make sure our index is right for the latest block
         let best_disk_height = self
             .get_disk_block_header(&best_hash)
@@ -649,12 +662,16 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         }
 
         // make sure our validation index is pointing to a valid block
-        let validation_index = self.get_best_block().expect("should have this loaded").1;
         let validation_index = self
+            .get_best_block()
+            .expect("infallible: in-memory BestChain is initialized")
+            .1;
+
+        let last_valid_header = self
             .get_disk_block_header(&validation_index)
             .expect("should have this loaded");
 
-        if !matches!(validation_index, DiskBlockHeader::FullyValid(_, _)) {
+        if !matches!(last_valid_header, DiskBlockHeader::FullyValid(_, _)) {
             self.reindex_chain();
         }
     }
@@ -662,16 +679,19 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
     fn load_acc<Storage: ChainStore>(data_storage: &Storage) -> Stump {
         let acc = data_storage
             .load_roots()
+            // TODO: handle possible Err
             .expect("load_acc: Could not read roots");
-        if acc.is_none() {
-            return Stump::new();
-        }
-        let mut acc = acc.unwrap();
+
+        let mut acc = match acc {
+            Some(acc) => acc,
+            None => return Stump::new(),
+        };
+
         let leaves = acc.drain(0..8).collect::<Vec<u8>>();
         let (leaves, _) =
             deserialize_partial::<u64>(&leaves).expect("load_acc: Invalid num_leaves");
         let mut roots = Vec::new();
-        // Since we only expect hashes after the num_leaves, the length of the acc have to be a multiple of 32.
+        // Since we only expect hashes after the num_leaves, the length of the acc has to be a multiple of 32.
         assert_eq!(acc.len() % 32, 0);
         while acc.len() >= 32 {
             let root = acc.drain(0..32).collect::<Vec<u8>>();
@@ -705,19 +725,19 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         inner.best_block.best_block = best_block;
         inner.best_block.depth = height;
     }
-    fn verify_script(&self, height: u32) -> bool {
+    fn verify_script(&self, height: u32) -> Result<bool, PersistedState::Error> {
         let inner = self.inner.read();
         match inner.assume_valid {
             Some(hash) => {
-                match inner.chainstore.get_header(&hash).unwrap() {
+                match inner.chainstore.get_header(&hash)? {
                     // If the assume-valid block is in the best chain, only verify scripts if we are higher
                     Some(DiskBlockHeader::HeadersOnly(_, assume_h))
-                    | Some(DiskBlockHeader::FullyValid(_, assume_h)) => height > assume_h,
+                    | Some(DiskBlockHeader::FullyValid(_, assume_h)) => Ok(height > assume_h),
                     // Assume-valid is not in the best chain, so verify all the scripts
-                    _ => true,
+                    _ => Ok(true),
                 }
             }
-            None => true,
+            None => Ok(true),
         }
     }
     pub fn acc(&self) -> Stump {
@@ -813,9 +833,9 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
 
         // Validate block transactions
         let subsidy = read_lock!(self).consensus.get_subsidy(height);
-        let verify_script = self.verify_script(height);
+        let verify_script = self.verify_script(height)?;
         #[cfg(feature = "bitcoinconsensus")]
-        let flags = self.get_validation_flags(height, block.header.block_hash());
+        let flags = self.get_validation_flags(height, block.block_hash());
         #[cfg(not(feature = "bitcoinconsensus"))]
         let flags = 0;
         Consensus::verify_block_transactions(
@@ -879,18 +899,15 @@ impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedSta
         }
 
         let height = self
-            .get_block_height(&block.block_hash())?
-            .ok_or(BlockchainError::BlockNotPresent)?;
+            .get_disk_block_header(&block.block_hash())?
+            .try_height()?;
 
         self.validate_block_no_acc(block, height, inputs)
     }
 
     fn get_block_locator_for_tip(&self, tip: BlockHash) -> Result<Vec<BlockHash>, BlockchainError> {
         let mut hashes = Vec::new();
-        let height = self
-            .get_disk_block_header(&tip)?
-            .height()
-            .ok_or(BlockchainError::BlockNotPresent)?;
+        let height = self.get_disk_block_header(&tip)?.try_height()?;
 
         let mut index = height;
         let mut current_height = height;
@@ -917,7 +934,7 @@ impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedSta
         }
 
         // genesis
-        hashes.push(self.get_block_hash(0).unwrap());
+        hashes.push(self.get_block_hash(0)?);
         Ok(hashes)
     }
 
@@ -1026,7 +1043,7 @@ impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedSta
 
     fn is_coinbase_mature(&self, height: u32, block: BlockHash) -> Result<bool, Self::Error> {
         let chain_params = self.chain_params();
-        let current_height = self.get_disk_block_header(&block)?.height().unwrap_or(0);
+        let current_height = self.get_disk_block_header(&block)?.try_height()?;
 
         Ok(height + chain_params.coinbase_maturity <= current_height)
     }
@@ -1048,7 +1065,8 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
 
     fn mark_block_as_valid(&self, block: BlockHash) -> Result<(), BlockchainError> {
         let header = self.get_disk_block_header(&block)?;
-        let height = header.height().unwrap();
+        let height = header.try_height()?;
+
         let new_header = DiskBlockHeader::FullyValid(*header, height);
         self.update_header(&new_header)
     }
@@ -1064,10 +1082,9 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
             if self.is_genesis(&header) {
                 break;
             }
-            self.update_header(&DiskBlockHeader::FullyValid(
-                *header,
-                header.height().unwrap(),
-            ))?;
+            let height = header.try_height()?;
+
+            self.update_header(&DiskBlockHeader::FullyValid(*header, height))?;
             curr_header = *self.get_ancestor(&header)?;
         }
 
@@ -1079,12 +1096,9 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
     }
 
     fn invalidate_block(&self, block: BlockHash) -> Result<(), BlockchainError> {
-        let height = self.get_disk_block_header(&block)?.height();
-        if height.is_none() {
-            return Err(BlockchainError::BlockNotPresent);
-        }
-        let height = height.unwrap();
+        let height = self.get_disk_block_header(&block)?.try_height()?;
         let current_height = self.get_height()?;
+
         // Mark all blocks after this one as invalid
         for h in height..=current_height {
             let hash = self.get_block_hash(h)?;
@@ -1173,10 +1187,10 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
         let disk_header = self.get_disk_block_header(&header.block_hash());
 
         match disk_header {
-            Err(BlockchainError::Database(_)) => {
+            Err(e @ BlockchainError::Database(_)) => {
                 // If there's a database error we don't know if we already
                 // have the header or not
-                return Err(disk_header.unwrap_err());
+                return Err(e);
             }
             Ok(found) => {
                 // Possibly reindex to recompute the best_block field

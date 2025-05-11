@@ -12,6 +12,8 @@ use kv::Bucket;
 use spin::RwLock;
 
 use crate::prelude::*;
+use crate::BlockchainError;
+
 #[derive(Debug, Clone, Copy)]
 /// This enum is used to store a block header in the database.
 /// It contains the header along with metadaba about the validation state of the block, and, if applicable, also its height.
@@ -41,16 +43,23 @@ impl DiskBlockHeader {
         self.deref().block_hash()
     }
 
-    /// Gets the height of the block and returns None if the block is orphaned or on an invalid chain.
+    /// Gets the block height or returns `None` if the block is orphaned or on an invalid chain.
     pub fn height(&self) -> Option<u32> {
         match self {
-            DiskBlockHeader::FullyValid(_, height) => Some(*height),
-            DiskBlockHeader::Orphan(_) => None,
-            DiskBlockHeader::HeadersOnly(_, height) => Some(*height),
             DiskBlockHeader::InFork(_, height) => Some(*height),
-            DiskBlockHeader::InvalidChain(_) => None,
+            DiskBlockHeader::FullyValid(_, height) => Some(*height),
+            DiskBlockHeader::HeadersOnly(_, height) => Some(*height),
             DiskBlockHeader::AssumedValid(_, height) => Some(*height),
+            // These two cases don't store the block height
+            DiskBlockHeader::Orphan(_) => None,
+            DiskBlockHeader::InvalidChain(_) => None,
         }
+    }
+
+    /// Gets the block height or returns `BlockchainError::OrphanOrInvalidBlock` if the block is
+    /// orphaned or on an invalid chain (the height is not stored).
+    pub fn try_height(&self) -> Result<u32, BlockchainError> {
+        self.height().ok_or(BlockchainError::OrphanOrInvalidBlock)
     }
 }
 

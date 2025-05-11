@@ -11,6 +11,7 @@
 //! underlying database. See the ChainStore trait for more information. For a
 //! ready-to-use implementation, see the [KvChainStore] struct.
 #![cfg_attr(not(test), no_std)]
+#![cfg_attr(not(test), deny(clippy::unwrap_used))]
 
 pub mod pruned_utreexo;
 pub(crate) use floresta_common::prelude;

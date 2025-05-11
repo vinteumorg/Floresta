@@ -24,6 +24,7 @@ pub trait DatabaseError: Debug + Send + Sync + 'static {}
 /// It represents errors encountered during blockchain validation.
 pub enum BlockchainError {
     BlockNotPresent,
+    OrphanOrInvalidBlock,
     Parsing(String),
     BlockValidation(BlockValidationErrors),
     TransactionError(TransactionError),
