@@ -204,6 +204,9 @@ pub trait ChainStore {
     fn flush(&self) -> Result<(), Self::Error>;
     /// Associates a block hash with a given height, so we can retrieve it later.
     fn update_block_index(&self, height: u32, hash: BlockHash) -> Result<(), Self::Error>;
+    /// Checks if our database didn't get corrupted, and if it has, it returns
+    /// an error.
+    fn check_integrity(&self) -> Result<(), Self::Error>;
 }
 
 #[derive(Debug, Clone)]

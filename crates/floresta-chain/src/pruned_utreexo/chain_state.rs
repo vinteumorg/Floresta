@@ -645,10 +645,25 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         Ok(chainstate)
     }
 
+    #[cfg(feature = "experimental-db")]
+    /// The [FlatChainStore] has an extra integrity check, that checks if one of the files got
+    /// corrupted by some device failure. This function is called when we load the chain
+    /// and if we find a corruption, we reindex the chain.
+    fn check_db_integrity(&self) {
+        let inner = read_lock!(self);
+        if inner.chainstore.check_integrity().is_err() {
+            warn!("We had a data corruption in our database, reindexing");
+            self.reindex_chain();
+        }
+    }
+
     fn check_chain_integrity(&self) {
         let (best_height, best_hash) = self
             .get_best_block()
             .expect("infallible: in-memory BestChain is initialized");
+
+        #[cfg(feature = "experimental-db")]
+        self.check_db_integrity();
 
         // make sure our index is right for the latest block
         let best_disk_height = self
