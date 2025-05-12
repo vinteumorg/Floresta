@@ -32,6 +32,7 @@ metrics = { path = "../../metrics", optional = true }
 serde = { version = "1.0", features = ["derive"], optional = true }
 memmap2 = { version = "0.9.5", optional = true }
 lru = { version = "0.12.5", optional = true }
+xxhash-rust = { version = "0.8.15", features = ["xxh3"] }
 
 [dev-dependencies]
 criterion = "0.5.1"
