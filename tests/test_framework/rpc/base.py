@@ -10,7 +10,8 @@ import socket
 import time
 from datetime import datetime, timezone
 from subprocess import Popen
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
+from urllib.parse import quote
 
 from requests import post
 from requests.exceptions import HTTPError
@@ -167,11 +168,43 @@ class BaseRPC(metaclass=BaseRpcMetaClass):
         """Setter for `rpcserver` property"""
         self._rpcserver = value
 
+    # pylint: disable=R0801
     def log(self, message: str):
         """Log a message to the console"""
-        print(
-            f"[{self.__class__.__name__.upper()} {datetime.now(timezone.utc)}] {message}"
+        now = (
+            datetime.now(timezone.utc)
+            .replace(microsecond=0)
+            .strftime("%Y-%m-%d %H:%M:%S")
         )
+
+        print(f"[{self.__class__.__name__.upper()} {now}] {message}")
+
+    @staticmethod
+    def build_log_message(
+        url: str,
+        method: str,
+        params: List[Any],
+        user: Optional[str] = None,
+        password: Optional[str] = None,
+    ) -> str:
+        """
+        Construct a log string for an RPC call like:
+        POST <user:password>@http://host:port/method?args[0]=val0&args[1]=val1...
+        """
+        logmsg = "POST "
+
+        if user or password:
+            logmsg += f"<{user or ''}:{password or ''}>@"
+
+        logmsg += f"{url}{method}"
+
+        if params:
+            query_string = "&".join(
+                f"args[{i}]={quote(str(val))}" for i, val in enumerate(params)
+            )
+            logmsg += f"?{query_string}"
+
+        return logmsg
 
     # pylint: disable=unused-argument,dangerous-default-value
     def perform_request(
@@ -223,7 +256,11 @@ class BaseRPC(metaclass=BaseRpcMetaClass):
             kwargs["auth"] = HTTPBasicAuth(user, password)
 
         # Now make the POST request to the RPC server
-        logmsg += f"{kwargs['url']}{method}?params={params}"
+        logmsg = BaseRPC.build_log_message(
+            kwargs["url"], method, params, user, password
+        )
+
+        self.log(logmsg)
         response = post(**kwargs)
 
         # If response isnt 200, raise an HTTPError
@@ -243,7 +280,6 @@ class BaseRPC(metaclass=BaseRpcMetaClass):
                 message=result["error"]["message"],
             )
 
-        self.log(logmsg)
         self.log(result["result"])
         return result["result"]
 

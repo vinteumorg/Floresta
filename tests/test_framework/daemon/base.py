@@ -111,9 +111,16 @@ class BaseDaemon(metaclass=BaseDaemonMetaClass):
         self._process = None
         self._settings = []
 
+    # pylint: disable=R0801
     def log(self, message: str):
         """Log a message to the console"""
-        print(f"[{str(self._name).upper()} {datetime.now(timezone.utc)}] {message}")
+        now = (
+            datetime.now(timezone.utc)
+            .replace(microsecond=0)
+            .strftime("%Y-%m-%d %H:%M:%S")
+        )
+
+        print(f"[{self.__class__.__name__.upper()} {now}] {message}")
 
     @property
     def target(self) -> str:
@@ -189,7 +196,12 @@ class BaseDaemon(metaclass=BaseDaemonMetaClass):
             )
 
         elif self.name == "florestad":
-            cmd.extend(["--network=regtest"])
+            cmd.extend(
+                [
+                    "--network=regtest",
+                    "--debug",
+                ]
+            )
 
         elif self.name == "bitcoind":
             cmd.extend(
