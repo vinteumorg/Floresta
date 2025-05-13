@@ -53,7 +53,7 @@ pub struct Consensus {
 impl Consensus {
     /// Returns the amount of block subsidy to be paid in a block, given it's height.
     ///
-    /// Bitcoin Core source [here](<https://github.com/bitcoin/bitcoin/blob/2b211b41e36f914b8d0487e698b619039cc3c8e2/src/validation.cpp#L1501-L1512>)
+    /// The Bitcoin Core source can be found [here](https://github.com/bitcoin/bitcoin/blob/2b211b41e36f914b8d0487e698b619039cc3c8e2/src/validation.cpp#L1501-L1512).
     pub fn get_subsidy(&self, height: u32) -> u64 {
         let halvings = height / self.parameters.subsidy_halving_interval as u32;
         // Force block reward to zero when right shift is undefined.
