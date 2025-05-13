@@ -87,7 +87,7 @@ class FlorestaRPC(BaseRPC):
         """
         return self.perform_request("getpeerinfo")
 
-    def addnode(self, node: str):
+    def addnode(self, node: str, command: str, v2transport: bool = False):
         """
         Adds a new node to our list of peers performing
         `perform_request('addnode', params=[str])`
@@ -112,7 +112,11 @@ class FlorestaRPC(BaseRPC):
 
         if not pattern.match(node):
             raise ValueError("Invalid ip[:port] format")
-        return self.perform_request("addnode", params=[node])
+
+        if command not in ("add", "remove", "onetry"):
+            raise ValueError(f"Invalid command '{command}'")
+
+        return self.perform_request("addnode", params=[node, command, v2transport])
 
     def get_roots(self):
         """

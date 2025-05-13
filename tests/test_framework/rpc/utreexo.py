@@ -61,3 +61,29 @@ class UtreexoRPC(BaseRPC):
         Perform the `getbalance` RPC command to utreexod
         """
         return self.perform_request("getbalance", [])
+
+    def get_peerinfo(self):
+        """
+        Perform the `getpeerinfo` RPC command to utreexod
+        """
+        return self.perform_request("getpeerinfo", [])
+
+    def addnode(
+        self, node: str, command: str, v2transport: bool = False, rpcquirk: bool = False
+    ):
+        """
+        Adds a new node to our list of peers performing
+        `perform_request('addnode', params=[str])`
+
+        This will make our node try to connect to this peer.
+
+        Args
+            node: A network address with the format ip[:port]
+
+        Returns
+            success: Whether we successfully added this node to our list of peers
+        """
+        if rpcquirk:
+            return self.perform_request("addnode", params=[node, command, v2transport])
+
+        return self.perform_request("addnode", params=[node, command])
