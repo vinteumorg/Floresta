@@ -70,6 +70,7 @@ pub enum BlockValidationErrors {
     BadBip34,
     InvalidProof,
     CoinbaseNotMatured,
+    UnspendableUTXO,
 }
 
 // Helpful macro for generating a TransactionError
@@ -141,6 +142,9 @@ impl Display for BlockValidationErrors {
             BlockValidationErrors::InvalidProof => write!(f, "Invalid proof"),
             BlockValidationErrors::CoinbaseNotMatured => {
                 write!(f, "Coinbase not matured yet")
+            }
+            BlockValidationErrors::UnspendableUTXO => {
+                write!(f, "Attempts to spend unspendable UTXO that was overwritten by the historical BIP30 violation")
             }
         }
     }
