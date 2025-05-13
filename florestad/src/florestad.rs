@@ -165,13 +165,13 @@ pub struct Config {
     pub user_agent: String,
     /// The value to use for assumeutreexo
     pub assumeutreexo_value: Option<AssumeUtreexoValue>,
-    /// Path to the SSL certificate file (defaults to <data-dir>/ssl/cert.pem).
+    /// Path to the SSL certificate file (defaults to `{data_dir}/ssl/cert.pem`).
     ///
     /// The user should create a PKCS#8 based one with openssl. For example:
     ///
     /// openssl req -x509 -new -key key.pem -out cert.pem -days 365 -subj "/CN=localhost"
     pub ssl_cert_path: Option<String>,
-    /// Path to the SSL private key file (defaults to <data-dir>/ssl/key.pem).
+    /// Path to the SSL private key file (defaults to `{data_dir}/ssl/key.pem`).
     ///
     /// The user should create a PKCS#8 based one with openssl. For example:
     ///

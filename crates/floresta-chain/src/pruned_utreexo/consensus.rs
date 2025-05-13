@@ -42,7 +42,7 @@ pub const UTREEXO_TAG_V1: [u8; 64] = [
 ];
 
 /// This struct contains all the information and methods needed to validate a block,
-/// it is used by the [ChainState] to validate blocks and transactions.
+/// it is used by the [ChainState](crate::ChainState) to validate blocks and transactions.
 #[derive(Debug, Clone)]
 pub struct Consensus {
     /// The parameters of the chain we are validating, it is usually hardcoded
@@ -52,7 +52,8 @@ pub struct Consensus {
 
 impl Consensus {
     /// Returns the amount of block subsidy to be paid in a block, given it's height.
-    /// Bitcoin Core source: https://github.com/bitcoin/bitcoin/blob/2b211b41e36f914b8d0487e698b619039cc3c8e2/src/validation.cpp#L1501-L1512
+    ///
+    /// The Bitcoin Core source can be found [here](https://github.com/bitcoin/bitcoin/blob/2b211b41e36f914b8d0487e698b619039cc3c8e2/src/validation.cpp#L1501-L1512).
     pub fn get_subsidy(&self, height: u32) -> u64 {
         let halvings = height / self.parameters.subsidy_halving_interval as u32;
         // Force block reward to zero when right shift is undefined.
