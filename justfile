@@ -67,6 +67,10 @@ bench:
 doc:
     cargo +nightly doc --workspace --no-deps
 
+# Generate and open documentation for all crates
+open-doc:
+    cargo +nightly doc --workspace --no-deps --open
+
 # Format code and run configured linters
 lint:
     @just fmt
