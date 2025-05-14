@@ -430,7 +430,7 @@ mod tests {
     #[test]
     fn test_validate_script_size() {
         use bitcoin::hashes::Hash;
-        let dummy_txid = || Txid::all_zeros();
+        let dummy_txid = Txid::all_zeros;
 
         // Generate a script larger than 10,000 bytes (e.g., 10,001 bytes)
         let large_script = ScriptBuf::from_hex(&format!("{:0>20002}", "")).unwrap();
