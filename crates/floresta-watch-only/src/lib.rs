@@ -358,7 +358,7 @@ impl<D: AddressCacheDatabase> AddressCacheInner<D> {
         if stats.transaction_count > (stats.derivation_index as usize * 100) {
             let res = self.derive_addresses();
             if res.is_err() {
-                log::error!("Error deriving addresses: {:?}", res);
+                log::error!("Error deriving addresses: {res:?}");
             }
         }
     }
