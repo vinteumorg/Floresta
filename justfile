@@ -48,7 +48,7 @@ test-functional-prepare arg="":
 test-functional-run arg="":
     bash tests/run.sh {{arg}}
 
-# format and lint functional tests 
+# format and lint functional tests
 test-functional-uv-fmt:
     uv run black --check --verbose ./tests
     uv run pylint --verbose ./tests
@@ -65,8 +65,11 @@ bench:
 
 # Generate documentation for all crates
 doc:
-    @just test-doc
-    cargo +nightly doc --no-deps
+    cargo +nightly doc --workspace --no-deps
+
+# Generate and open documentation for all crates
+open-doc:
+    cargo +nightly doc --workspace --no-deps --open
 
 # Format code and run configured linters
 lint:
