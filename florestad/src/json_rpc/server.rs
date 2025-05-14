@@ -120,10 +120,7 @@ impl RpcImpl {
             })
             .collect::<Vec<_>>();
 
-        debug!(
-            "Rescanning with block filters for addresses: {:?}",
-            addresses
-        );
+        debug!("Rescanning with block filters for addresses: {addresses:?}");
 
         let addresses = self.wallet.get_cached_addresses();
         let wallet = self.wallet.clone();
@@ -526,7 +523,7 @@ impl RpcImpl {
             )
             .unwrap();
 
-        info!("rescan filter hits: {:?}", blocks);
+        info!("rescan filter hits: {blocks:?}");
 
         for block in blocks {
             if let Ok(Some(block)) = node.get_block(block).await {
@@ -680,8 +677,7 @@ impl RpcImpl {
             Ok(listener) => listener,
             Err(_) => {
                 error!(
-                    "Failed to bind to address {}. Floresta is probably already running.",
-                    address
+                    "Failed to bind to address {address}. Floresta is probably already running.",
                 );
                 std::process::exit(-1);
             }
