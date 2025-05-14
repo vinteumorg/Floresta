@@ -41,6 +41,27 @@ pub const UTREEXO_TAG_V1: [u8; 64] = [
     0x15, 0x6e, 0xb3, 0x15, 0x1e, 0x0e, 0xd1, 0xb3, 0x09, 0x8b, 0xdc, 0x84, 0x45, 0x86, 0x18, 0x85,
 ];
 
+/// The unspendable UTXO on block 91_722 that exists because of the historical
+/// [BIP30 violation](https://bips.dev/30/). For Utreexo, this UTXO is not overwritten
+/// as we commit the block hash in the leafhash. But since non-Utreexo nodes consider
+/// this as unspendable as it's already been overwritten, we also need to make it not spendable.
+///
+/// Encoded in hex string is 84b3af0783b410b4564c5d1f361868559f7cf77cfc65ce2be951210357022fe3.
+pub const UNSPENDABLE_BIP30_UTXO_91722: [u8; 32] = [
+    0x84, 0xb3, 0xaf, 0x07, 0x83, 0xb4, 0x10, 0xb4, 0x56, 0x4c, 0x5d, 0x1f, 0x36, 0x18, 0x68, 0x55,
+    0x9f, 0x7c, 0xf7, 0x7c, 0xfc, 0x65, 0xce, 0x2b, 0xe9, 0x51, 0x21, 0x03, 0x57, 0x02, 0x2f, 0xe3,
+];
+
+/// The unspendable UTXO on block 91_812 that exists because of the historical
+/// [BIP30 violation](https://bips.dev/30/). For Utreexo, this UTXO is not overwritten
+/// as we commit the block hash in the leafhash. But since non-Utreexo nodes consider
+/// this as unspendable as it's already been overwritten, we also need to make it not spendable.
+///
+/// Encoded in hex string is bc6b4bf7cebbd33a18d6b0fe1f8ecc7aa5403083c39ee343b985d51fd0295ad8.
+pub const UNSPENDABLE_BIP30_UTXO_91812: [u8; 32] = [
+    0xbc, 0x6b, 0x4b, 0xf7, 0xce, 0xbb, 0xd3, 0x3a, 0x18, 0xd6, 0xb0, 0xfe, 0x1f, 0x8e, 0xcc, 0x7a,
+    0xa5, 0x40, 0x30, 0x83, 0xc3, 0x9e, 0xe3, 0x43, 0xb9, 0x85, 0xd5, 0x1f, 0xd0, 0x29, 0x5a, 0xd8,
+];
 /// This struct contains all the information and methods needed to validate a block,
 /// it is used by the [ChainState](crate::ChainState) to validate blocks and transactions.
 #[derive(Debug, Clone)]
@@ -278,7 +299,13 @@ impl Consensus {
         del_hashes: Vec<sha256::Hash>,
     ) -> Result<Stump, BlockchainError> {
         let block_hash = block.block_hash();
-        // Convert to BitcoinNodeHashes, from rustreexo
+
+        // Check if there is a spend of an unspendable UTXO (BIP30)
+        if Self::contains_unspendable_utxo(&del_hashes) {
+            return Err(BlockValidationErrors::UnspendableUTXO)?;
+        }
+
+        // Convert to BitcoinNodeHash, from rustreexo
         let del_hashes: Vec<_> = del_hashes.into_iter().map(Into::into).collect();
 
         let adds = udata::proof_util::get_block_adds(block, height, block_hash);
@@ -286,6 +313,13 @@ impl Consensus {
         // Update the accumulator
         let acc = acc.modify(&adds, &del_hashes, &proof)?.0;
         Ok(acc)
+    }
+
+    fn contains_unspendable_utxo(del_hashes: &[sha256::Hash]) -> bool {
+        del_hashes.iter().any(|hash| {
+            let bytes = hash.as_ref();
+            bytes == UNSPENDABLE_BIP30_UTXO_91722 || bytes == UNSPENDABLE_BIP30_UTXO_91812
+        })
     }
 }
 
