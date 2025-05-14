@@ -4,6 +4,8 @@ florestad/ssl-test.py
 This functional test tests the proper creatiion of a TLS port on florestad.
 """
 
+import json
+
 from test_framework import FlorestaTestFramework
 from test_framework.electrum.client import ElectrumClient
 from test_framework.rpc.floresta import REGTEST_RPC_TLS_SERVER
@@ -37,13 +39,16 @@ class TestSslInitialization(FlorestaTestFramework):
         TestSslInitialization.electrum = ElectrumClient(
             REGTEST_RPC_TLS_SERVER["host"],
             REGTEST_RPC_TLS_SERVER["ports"]["electrum-server-tls"],
+            ssl=True,
         )
 
         # request something to TLS port
         result = TestSslInitialization.electrum.ping()
 
-        # if pinged, we should get a response `""`
-        self.assertEqual(result, "")
+        # if pinged, we should get a "null" in response
+        self.assertIsNone(result["result"])
+        self.assertEqual(result["id"], 0)
+        self.assertEqual(result["jsonrpc"], "2.0")
 
         # stop the node
         self.stop_node(TestSslInitialization.nodes[0])
