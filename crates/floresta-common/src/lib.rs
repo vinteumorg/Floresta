@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: MIT
 
+//! # Floresta Common
+//! Provides utility functions, macros and modules to be
+//! used in other Floresta crates.
+
 #![no_std]
 
 use bitcoin::hashes::sha256;
@@ -18,11 +22,17 @@ pub mod spsc;
 use prelude::*;
 pub use spsc::Channel;
 
+/// Takes a reference to an array of bytes and returns
+/// a `sha256::Hash`.
 pub fn get_hash_from_u8(data: &[u8]) -> sha256::Hash {
     let hash = sha2::Sha256::new().chain_update(data).finalize();
     sha256::Hash::from_slice(hash.as_slice()).expect("Engines shouldn't be Err")
 }
 
+/// Takes a script and returns its hash following the Electrum protocol
+/// convention of reversing it.
+///
+/// The source to the specification can be found [here](https://electrum-protocol.readthedocs.io/en/latest/protocol-basics.html#script-hashes).
 pub fn get_spk_hash(spk: &ScriptBuf) -> sha256::Hash {
     let script_hash = spk.as_bytes();
     let mut hash = sha2::Sha256::new().chain_update(script_hash).finalize();
@@ -77,6 +87,8 @@ impl FractionAvg {
 }
 
 #[cfg(any(feature = "descriptors-std", feature = "descriptors-no-std"))]
+/// Takes an array of descriptors as `String`, performs sanity checks on each one
+/// and returns a `Vec<Descriptor<DescriptorPublicKey>>` if successful.
 pub fn parse_descriptors(
     descriptors: &[String],
 ) -> Result<Vec<Descriptor<DescriptorPublicKey>>, miniscript::Error> {
@@ -126,7 +138,10 @@ pub mod prelude {
     pub use hashbrown::HashMap;
     pub use hashbrown::HashSet;
 }
+
 #[cfg(feature = "std")]
+/// Provides commonly used items and traits in a centralized way,
+/// simplifying imports across the codebase.
 pub mod prelude {
     extern crate alloc;
     extern crate std;
