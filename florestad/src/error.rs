@@ -1,6 +1,7 @@
 use bitcoin::consensus::encode;
 use floresta_chain::BlockValidationErrors;
 use floresta_chain::BlockchainError;
+use tokio_rustls::rustls::pki_types;
 
 use crate::slip132;
 #[derive(Debug)]
@@ -18,12 +19,9 @@ pub enum Error {
     WalletInput(slip132::Error),
     AddressParsing(bitcoin::address::ParseError),
     Miniscript(miniscript::Error),
-    EmptyPrivKeySet(String),
-    InvalidPrivKey(String),
-    InvalidCert(String),
-    CouldNotOpenPrivKeyFile(String, std::io::Error),
-    CouldNotOpenCertFile(String, std::io::Error),
-    CouldNotConfigureTLS(tokio_rustls::rustls::TLSError),
+    InvalidPrivKey(pki_types::pem::Error),
+    InvalidCert(pki_types::pem::Error),
+    CouldNotConfigureTLS(tokio_rustls::rustls::Error),
     CouldNotGenerateKeypair(rcgen::Error),
     CouldNotGenerateCertParam(rcgen::Error),
     CouldNotGenerateSelfSignedCert(rcgen::Error),
@@ -46,19 +44,12 @@ impl std::fmt::Display for Error {
             Error::AddressParsing(err) => write!(f, "Invalid address {err}"),
             Error::Miniscript(err) => write!(f, "Miniscript error: {err}"),
             Error::BlockValidation(err) => write!(f, "Error while validating block: {err:?}"),
-            Error::EmptyPrivKeySet(path) => write!(f, "No private keys found in '{path:?}'"),
             Error::CouldNotConfigureTLS(err) => write!(f, "Error while configuring TLS: {err:?}"),
-            Error::InvalidPrivKey(path) => {
-                write!(f, "Error while reading PKCS#8 private key {path:?}")
+            Error::InvalidPrivKey(err) => {
+                write!(f, "Error while reading PKCS#8 private key {err:?}")
             }
-            Error::InvalidCert(path) => {
-                write!(f, "Error while reading PKCS#8 certificate {path}")
-            }
-            Error::CouldNotOpenPrivKeyFile(path, err) => {
-                write!(f, "Error while opening PKCS#8  private key {path}: {err}")
-            }
-            Error::CouldNotOpenCertFile(path, err) => {
-                write!(f, "Error while opening PKCS#8 certificate {path}: {err}")
+            Error::InvalidCert(err) => {
+                write!(f, "Error while reading PKCS#8 certificate {err:?}")
             }
             Error::CouldNotGenerateKeypair(err) => {
                 write!(f, "Error while generating PKCS#8 keypair: {err}")

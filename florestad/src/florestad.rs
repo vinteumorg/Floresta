@@ -1,7 +1,5 @@
 use std::fmt::Arguments;
 use std::fs;
-use std::fs::File;
-use std::io::BufReader;
 #[cfg(feature = "metrics")]
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
@@ -62,9 +60,9 @@ use tokio::task;
 use tokio::time::Duration;
 #[cfg(feature = "metrics")]
 use tokio::time::{self};
-use tokio_rustls::rustls::internal::pemfile::certs;
-use tokio_rustls::rustls::internal::pemfile::pkcs8_private_keys;
-use tokio_rustls::rustls::NoClientAuth;
+use tokio_rustls::rustls::pki_types::pem::PemObject;
+use tokio_rustls::rustls::pki_types::CertificateDer;
+use tokio_rustls::rustls::pki_types::PrivateKeyDer;
 use tokio_rustls::rustls::ServerConfig;
 use tokio_rustls::TlsAcceptor;
 
@@ -937,34 +935,17 @@ impl Florestad {
         let cert_path = Path::new(&cert_path);
         let key_path = Path::new(&key_path);
 
-        // Check if certificate really exists and handle error if not exists
-        let cert_file = File::open(cert_path)
-            .map_err(|e| error::Error::CouldNotOpenCertFile(cert_path.display().to_string(), e))?;
-
-        // Check if private key really exists and handle error if not exists
-        let key_file = File::open(key_path).map_err(|e| {
-            error::Error::CouldNotOpenPrivKeyFile(cert_path.display().to_string(), e)
-        })?;
-
         // Parse certificate chain and handle error if exist any
-        let cert_chain = certs(&mut BufReader::new(cert_file))
-            .map_err(|_e| error::Error::InvalidCert(cert_path.display().to_string()))?;
+        let cert_chain =
+            CertificateDer::from_pem_file(cert_path).map_err(error::Error::InvalidCert)?;
 
         // Create private key vector and handle error if exist any
-        let mut keys = pkcs8_private_keys(&mut BufReader::new(key_file))
-            .map_err(|_e| error::Error::InvalidPrivKey(key_path.display().to_string()))?;
-
-        // Check if the key's vector are empty
-        if keys.is_empty() {
-            return Err(error::Error::EmptyPrivKeySet(
-                key_path.display().to_string(),
-            ));
-        }
+        let key = PrivateKeyDer::from_pem_file(key_path).map_err(error::Error::InvalidPrivKey)?;
 
         // Check if nothing goes wrong
-        let mut config = ServerConfig::new(Arc::new(NoClientAuth));
-        config
-            .set_single_cert(cert_chain, keys.remove(0))
+        let config = ServerConfig::builder()
+            .with_no_client_auth()
+            .with_single_cert(vec![cert_chain], key)
             .map_err(error::Error::CouldNotConfigureTLS)?;
 
         Ok(Arc::new(config))
