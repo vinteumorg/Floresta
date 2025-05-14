@@ -297,7 +297,7 @@ impl<T: AsyncWrite + Unpin + Send + Sync> Peer<T> {
 
     pub async fn handle_node_request(&mut self, request: NodeRequest) -> Result<()> {
         assert_eq!(self.state, State::Connected);
-        debug!("Handling node request: {:?}", request);
+        debug!("Handling node request: {request:?}");
         match request {
             NodeRequest::GetBlock((block_hashes, proof)) => {
                 let inv = if proof {
@@ -432,7 +432,7 @@ impl<T: AsyncWrite + Unpin + Send + Sync> Peer<T> {
                     self.last_ping = None;
                 }
                 NetworkMessage::Unknown { command, payload } => {
-                    warn!("Unknown message: {} {:?}", command, payload);
+                    warn!("Unknown message: {command} {payload:?}");
                 }
                 NetworkMessage::CFilter(filter_msg) => match filter_msg.filter_type {
                     0 => {
