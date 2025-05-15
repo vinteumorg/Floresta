@@ -317,7 +317,7 @@ impl Florestad {
                 };
 
                 if ips.is_empty() {
-                    error!("No IP addresses found for hostname: {}", hostname);
+                    error!("No IP addresses found for hostname: {hostname}");
                     exit(1);
                 }
 
@@ -558,11 +558,11 @@ impl Florestad {
                 subject_alt_names,
             ) {
                 Ok(()) => {
-                    warn!("PKCS#8 private-key'{}' created", &key_path);
-                    warn!("PKCS#8 self-signed certificate '{}' created", &cert_path);
+                    warn!("PKCS#8 private-key'{key_path}' created");
+                    warn!("PKCS#8 self-signed certificate '{cert_path}' created");
                 }
                 Err(err) => {
-                    warn!("Failed to generate SSL certificate: '{}'", err);
+                    warn!("Failed to generate SSL certificate: '{err}'");
                 }
             }
         }
@@ -579,7 +579,7 @@ impl Florestad {
             match self.create_tls_config(&data_dir) {
                 Ok(config) => Some(config),
                 Err(e) => {
-                    warn!("Failed to load SSL certificates: {}", e);
+                    warn!("Failed to load SSL certificates: {e}");
                     None
                 }
             }
@@ -604,9 +604,7 @@ impl Florestad {
             Ok(listener) => Arc::new(listener),
             Err(_) => {
                 error!(
-                    "Failed to bind to address {}. An Electrum server is probably already running.",
-                    e_addr
-                );
+                    "Failed to bind to address {e_addr}. An Electrum server is probably already running.");
                 std::process::exit(1);
             }
         };
@@ -621,7 +619,7 @@ impl Florestad {
             let tls_listener = match block_on(TcpListener::bind(ssl_e_addr)) {
                 Ok(listener) => Arc::new(listener),
                 Err(_) => {
-                    error!("Failed to bind to address {}. An SSL Electrum server is probably already running.", e_addr);
+                    error!("Failed to bind to address {e_addr}. An SSL Electrum server is probably already running.");
                     std::process::exit(1);
                 }
             };
@@ -636,7 +634,7 @@ impl Florestad {
 
         // Electrum main loop
         task::spawn(electrum_server.main_loop());
-        info!("Server running on: {}", e_addr);
+        info!("Server running on: {e_addr}");
 
         // Chain provider
         let (sender, receiver) = oneshot::channel();
@@ -651,11 +649,9 @@ impl Florestad {
         {
             let metrics_server_address =
                 SocketAddr::new(std::net::IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 3333);
+
             task::spawn(metrics::metrics_server(metrics_server_address));
-            info!(
-                "Started metrics server on: {}",
-                metrics_server_address.to_string()
-            );
+            info!("Started metrics server on: {metrics_server_address}",);
 
             // Periodically update memory usage
             tokio::spawn(async {

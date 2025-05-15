@@ -885,10 +885,7 @@ where
             }
 
             PeerMessages::UtreexoState(_) => {
-                warn!(
-                    "Utreexo state received from peer {}, but we didn't ask",
-                    peer
-                );
+                warn!("Utreexo state received from peer {peer}, but we didn't ask",);
 
                 self.increase_banscore(peer, 5).await?;
             }

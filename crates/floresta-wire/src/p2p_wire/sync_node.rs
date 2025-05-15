@@ -212,7 +212,7 @@ where
         while let Some((peer, block)) = self.blocks.remove(&next_block) {
             let start = Instant::now();
             if block.udata.is_none() {
-                error!("Block without proof received from peer {}", peer);
+                error!("Block without proof received from peer {peer}");
                 self.send_to_peer(peer, NodeRequest::Shutdown).await?;
                 let next_peer = self
                     .send_to_random_peer(
@@ -337,7 +337,7 @@ where
                 match notification {
                     PeerMessages::Block(block) => {
                         if let Err(e) = self.handle_block_data(peer, block).await {
-                            error!("Error processing block: {:?}", e);
+                            error!("Error processing block: {e:?}");
                         }
                     }
 
@@ -418,10 +418,7 @@ where
                     }
 
                     PeerMessages::UtreexoState(_) => {
-                        warn!(
-                            "Utreexo state received from peer {}, but we didn't ask",
-                            peer
-                        );
+                        warn!("Utreexo state received from peer {peer}, but we didn't ask",);
                         self.increase_banscore(peer, 5).await?;
                     }
 

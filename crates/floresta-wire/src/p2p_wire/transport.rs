@@ -156,7 +156,7 @@ async fn try_connection<A: ToSocketAddrs>(
 
     match force_v1 {
         true => {
-            info!("Using V1 protocol for connection to {}", peer_addr);
+            debug!("Using V1 protocol for connection to {peer_addr}");
             Ok((
                 ReadTransport::V1(reader),
                 WriteTransport::V1(writer, network),
@@ -174,10 +174,7 @@ async fn try_connection<A: ToSocketAddrs>(
         .await
         {
             Ok(protocol) => {
-                info!(
-                    "Successfully established V2 protocol connection to {}",
-                    peer_addr
-                );
+                debug!("Successfully established V2 protocol connection to {peer_addr}",);
                 let (reader_protocol, writer_protocol) = protocol.into_split();
                 Ok((
                     ReadTransport::V2(reader, reader_protocol),
@@ -186,10 +183,7 @@ async fn try_connection<A: ToSocketAddrs>(
                 ))
             }
             Err(e) => {
-                debug!(
-                    "Failed to establish V2 protocol connection to {}: {:?}",
-                    peer_addr, e
-                );
+                debug!("Failed to establish V2 protocol connection to {peer_addr}: {e:?}",);
                 Err(TransportError::Protocol(e))
             }
         },
@@ -260,10 +254,7 @@ async fn try_proxy_connection<A: ToSocketAddrs>(
 
     match force_v1 {
         true => {
-            info!(
-                "Using V1 protocol for proxy connection to {:?}",
-                target_addr
-            );
+            info!("Using V1 protocol for proxy connection to {target_addr:?}",);
             Ok((
                 ReadTransport::V1(reader),
                 WriteTransport::V1(writer, network),
@@ -283,8 +274,7 @@ async fn try_proxy_connection<A: ToSocketAddrs>(
             {
                 Ok(protocol) => {
                     info!(
-                        "Successfully established V2 protocol proxy connection to {:?}",
-                        target_addr
+                        "Successfully established V2 protocol proxy connection to {target_addr:?}",
                     );
                     let (reader_protocol, writer_protocol) = protocol.into_split();
                     Ok((
@@ -295,8 +285,7 @@ async fn try_proxy_connection<A: ToSocketAddrs>(
                 }
                 Err(e) => {
                     debug!(
-                        "Failed to establish V2 protocol proxy connection to {:?}: {:?}",
-                        target_addr, e
+                        "Failed to establish V2 protocol proxy connection to {target_addr:?}: {e:?}",
                     );
                     Err(TransportError::Protocol(e))
                 }

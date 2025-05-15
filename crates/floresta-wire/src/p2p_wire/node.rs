@@ -334,7 +334,7 @@ where
                 continue;
             }
 
-            debug!("Request timed out: {:?}", req);
+            debug!("Request timed out: {req:?}");
             self.increase_banscore(peer, 1).await?;
             self.redo_inflight_request(req).await?;
         }
@@ -654,7 +654,7 @@ where
         if let Some(p) = self.peers.remove(&peer) {
             std::mem::drop(p.channel);
             if matches!(p.kind, ConnectionKind::Regular(_)) && p.state == PeerStatus::Ready {
-                info!("Peer disconnected: {}", peer);
+                info!("Peer disconnected: {peer}");
             }
 
             let now = SystemTime::now()
@@ -821,8 +821,7 @@ where
             if let ConnectionKind::Regular(needs) = version.kind {
                 if !Self::is_peer_good(peer_data, needs) {
                     info!(
-                        "Disconnecting peer {} for not having the required services. has={} needs={}",
-                        peer, peer_data.services.to_string(), needs.to_string()
+                        "Disconnecting peer {peer} for not having the required services. has={} needs={}", peer_data.services, needs
                     );
                     peer_data.channel.send(NodeRequest::Shutdown)?;
                     self.address_man.update_set_state(
@@ -915,13 +914,13 @@ where
         let is_extra = peer.kind == ConnectionKind::Extra;
 
         if is_missbehaving || is_extra {
-            warn!("banning peer {} for misbehaving", peer_id);
+            warn!("banning peer {peer_id} for misbehaving");
             peer.channel.send(NodeRequest::Shutdown)?;
             peer.state = PeerStatus::Banned;
             return Ok(());
         }
 
-        debug!("increasing banscore for peer {}", peer_id);
+        debug!("increasing banscore for peer {peer_id}");
 
         Ok(())
     }
@@ -1242,10 +1241,7 @@ where
                 .get_address_to_connect(required_services, matches!(kind, ConnectionKind::Feeler)),
         };
 
-        debug!(
-            "attempting connection with address={:?} kind={:?}",
-            address, kind
-        );
+        debug!("attempting connection with address={address:?} kind={kind:?}",);
 
         let (peer_id, address) = address?;
         let now = SystemTime::now()

@@ -195,10 +195,8 @@ where
                 );
 
                 let end = u32::from_le_bytes(state[(state.len() - 4)..].try_into().unwrap());
-                info!(
-                    "Recovering backfill node from state tip={}, end={}",
-                    tip, end
-                );
+                info!("Recovering backfill node from state tip={tip}, end={tip}");
+
                 (
                     self.chain
                         .get_partial_chain(tip, end, acc)
@@ -313,10 +311,7 @@ where
         self = match self.catch_up().await {
             Ok(node) => node,
             Err(e) => {
-                error!(
-                    "An error happened while trying to catch-up with the network: {:?}",
-                    e
-                );
+                error!("An error happened while trying to catch-up with the network: {e:?}",);
                 return;
             }
         };
@@ -642,7 +637,7 @@ where
                 self.chain
                     .connect_block(&block.block, proof.clone(), inputs, del_hashes.clone())
             {
-                error!("Invalid block received by peer {} reason: {:?}", peer, e);
+                error!("Invalid block received by peer {peer} reason: {e:?}");
                 if let BlockchainError::BlockValidation(e) = e {
                     // Because the proof isn't committed to the block, we can't invalidate
                     // it if the proof is invalid. Any other error should cause the block
@@ -920,7 +915,7 @@ where
                         if let Some(filters) = self.common.block_filters.as_ref() {
                             let mut current_height = filters.get_height()?;
                             let Some(this_height) = self.chain.get_block_height(&hash)? else {
-                                warn!("Filter for block {} received, but we don't have it", hash);
+                                warn!("Filter for block {hash} received, but we don't have it");
                                 return Ok(());
                             };
 
@@ -998,10 +993,7 @@ where
                     }
 
                     PeerMessages::UtreexoState(_) => {
-                        warn!(
-                            "Utreexo state received from peer {}, but we didn't ask",
-                            peer
-                        );
+                        warn!("Utreexo state received from peer {peer}, but we didn't ask",);
                         self.increase_banscore(peer, 5).await?;
                     }
                 }

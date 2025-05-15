@@ -69,7 +69,7 @@ impl<S: AsyncStream> TcpActor<S> {
                     match message {
                         SenderMessage::Write(data) => {
                             if let Err(e) = writer.write_all(&data).await {
-                                error!("Error writing to client: {:?}", e);
+                                error!("Error writing to client: {e:?}");
                                 break;
                             }
                         }
@@ -93,7 +93,7 @@ impl<S: AsyncStream> TcpActor<S> {
                             break;
                         }
                         Err(e) => {
-                            error!("Error reading from client: {:?}", e);
+                            error!("Error reading from client: {e:?}");
                             self.message_transmitter
                                 .send(Message::Disconnect(self.client_id))
                                 .expect("Main loop is broken");
@@ -584,7 +584,7 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
             return Ok(());
         };
 
-        info!("filters told us to scan blocks: {:?}", blocks);
+        info!("filters told us to scan blocks: {blocks:?}");
 
         // Tells users about the transactions we found
         for block in blocks {
@@ -650,7 +650,7 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                     .write(serde_json::to_string(&result).unwrap().as_bytes())
                     .await;
                 if res.is_err() {
-                    info!("Could not write to client {:?}", client);
+                    info!("Could not write to client {client:?}");
                 }
             }
         }
@@ -803,7 +803,7 @@ pub async fn client_accept_loop(
                         id_count += 1;
                     }
                     Err(e) => {
-                        error!("TLS accept error: {:?}", e);
+                        error!("TLS accept error: {e:?}");
                     }
                 }
             } else {
