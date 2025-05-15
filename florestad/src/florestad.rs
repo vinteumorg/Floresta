@@ -17,13 +17,18 @@ pub use bitcoin::Network;
 use fern::colors::Color;
 use fern::colors::ColoredLevelConfig;
 use fern::FormatCallback;
+#[cfg(feature = "experimental-db")]
+use floresta_chain::pruned_utreexo::flat_chain_store::FlatChainStore as ChainStore;
+#[cfg(feature = "experimental-db")]
+use floresta_chain::pruned_utreexo::flat_chain_store::FlatChainStoreConfig;
 #[cfg(feature = "zmq-server")]
 use floresta_chain::pruned_utreexo::BlockchainInterface;
 pub use floresta_chain::AssumeUtreexoValue;
 use floresta_chain::AssumeValidArg;
 use floresta_chain::BlockchainError;
 use floresta_chain::ChainState;
-use floresta_chain::KvChainStore;
+#[cfg(not(feature = "experimental-db"))]
+use floresta_chain::KvChainStore as ChainStore;
 #[cfg(feature = "compact-filters")]
 use floresta_compact_filters::flat_filters_store::FlatFiltersStore;
 #[cfg(feature = "compact-filters")]
@@ -772,22 +777,52 @@ impl Florestad {
         None
     }
 
+    #[cfg(feature = "experimental-db")]
+    fn load_chain_store(data_dir: String) -> ChainStore {
+        let config = FlatChainStoreConfig::new(data_dir + "/chaindata");
+        ChainStore::new(config).expect("failure while creating chainstate")
+    }
+
+    #[cfg(not(feature = "experimental-db"))]
     fn load_chain_state(
         data_dir: String,
         network: Network,
         assume_valid: Option<bitcoin::BlockHash>,
-    ) -> ChainState<KvChainStore<'static>> {
-        let db = KvChainStore::new(data_dir.to_string()).expect("Could not read db");
+    ) -> ChainState<ChainStore<'static>> {
+        let db = ChainStore::new(data_dir.clone()).expect("Could not read db");
         let assume_valid =
             assume_valid.map_or(AssumeValidArg::Hardcoded, AssumeValidArg::UserInput);
 
-        match ChainState::<KvChainStore>::load_chain_state(db, network, assume_valid) {
+        match ChainState::<ChainStore>::load_chain_state(db, network, assume_valid) {
             Ok(chainstate) => chainstate,
             Err(err) => match err {
                 BlockchainError::ChainNotInitialized => {
-                    let db = KvChainStore::new(data_dir.to_string()).expect("Could not read db");
+                    let db = ChainStore::new(data_dir).expect("Could not read db");
 
-                    ChainState::<KvChainStore>::new(db, network, assume_valid)
+                    ChainState::<ChainStore>::new(db, network, assume_valid)
+                }
+                _ => unreachable!(),
+            },
+        }
+    }
+
+    #[cfg(feature = "experimental-db")]
+    fn load_chain_state(
+        data_dir: String,
+        network: Network,
+        assume_valid: Option<bitcoin::BlockHash>,
+    ) -> ChainState<ChainStore> {
+        let db = Self::load_chain_store(data_dir.clone());
+        let assume_valid =
+            assume_valid.map_or(AssumeValidArg::Hardcoded, AssumeValidArg::UserInput);
+
+        match ChainState::<ChainStore>::load_chain_state(db, network, assume_valid) {
+            Ok(chainstate) => chainstate,
+            Err(err) => match err {
+                BlockchainError::ChainNotInitialized => {
+                    let db = Self::load_chain_store(data_dir);
+
+                    ChainState::<ChainStore>::new(db, network, assume_valid)
                 }
                 _ => unreachable!(),
             },

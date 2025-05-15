@@ -22,8 +22,7 @@ use bitcoin::TxIn;
 use bitcoin::TxOut;
 use bitcoin::Txid;
 use floresta_chain::pruned_utreexo::BlockchainInterface;
-use floresta_chain::ChainState;
-use floresta_chain::KvChainStore;
+use floresta_chain::pruned_utreexo::UpdatableChainstate;
 use floresta_common::parse_descriptors;
 use floresta_compact_filters::flat_filters_store::FlatFiltersStore;
 use floresta_compact_filters::network_filters::NetworkFilters;
@@ -54,10 +53,24 @@ pub(super) struct InflightRpc {
     pub when: Instant,
 }
 
-pub struct RpcImpl {
+/// Utility trait to ensure that the chain implements all the necessary traits
+///
+/// Instead of using this very complext trait bound declaration on every impl block
+/// and function, this trait makes sure everything we need is implemented.
+pub trait RpcChain:
+    BlockchainInterface + UpdatableChainstate + Send + Sync + Clone + 'static
+{
+}
+
+impl<T> RpcChain for T where
+    T: BlockchainInterface + UpdatableChainstate + Send + Sync + Clone + 'static
+{
+}
+
+pub struct RpcImpl<Blockchain: RpcChain> {
     pub(super) block_filter_storage: Option<Arc<NetworkFilters<FlatFiltersStore>>>,
     pub(super) network: Network,
-    pub(super) chain: Arc<ChainState<KvChainStore<'static>>>,
+    pub(super) chain: Blockchain,
     pub(super) wallet: Arc<AddressCache<KvDatabase>>,
     pub(super) node: NodeInterface,
     pub(super) kill_signal: Arc<RwLock<bool>>,
@@ -68,7 +81,7 @@ pub struct RpcImpl {
 
 type Result<T> = std::result::Result<T, Error>;
 
-impl RpcImpl {
+impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
     async fn add_node(&self, node: String) -> Result<bool> {
         let node = node.split(':').collect::<Vec<&str>>();
         let (ip, port) = if node.len() == 2 {
@@ -178,7 +191,10 @@ impl RpcImpl {
     }
 }
 
-async fn handle_json_rpc_request(req: Value, state: Arc<RpcImpl>) -> Result<serde_json::Value> {
+async fn handle_json_rpc_request(
+    req: Value,
+    state: Arc<RpcImpl<impl RpcChain>>,
+) -> Result<serde_json::Value> {
     let method = req["method"].as_str().ok_or(Error::MethodNotFound)?;
     let params = req["params"].as_array().ok_or(Error::MissingParams)?;
     let version = req["jsonrpc"].as_str().ok_or(Error::MissingReq)?;
@@ -439,7 +455,7 @@ fn get_json_rpc_error_code(err: &Error) -> i32 {
 }
 
 async fn json_rpc_request(
-    State(state): State<Arc<RpcImpl>>,
+    State(state): State<Arc<RpcImpl<impl RpcChain>>>,
     Json(req): Json<serde_json::Value>,
 ) -> axum::http::Response<axum::body::Body> {
     let Some(id) = req.get("id").cloned() else {
@@ -501,16 +517,16 @@ async fn json_rpc_request(
     }
 }
 
-async fn cannot_get(_state: State<Arc<RpcImpl>>) -> Json<serde_json::Value> {
+async fn cannot_get(_state: State<Arc<RpcImpl<impl RpcChain>>>) -> Json<serde_json::Value> {
     Json(json!({
         "error": "Cannot get on this route",
     }))
 }
 
-impl RpcImpl {
+impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
     async fn rescan_with_block_filters(
         addresses: Vec<ScriptBuf>,
-        chain: Arc<ChainState<KvChainStore<'static>>>,
+        chain: Blockchain,
         wallet: Arc<AddressCache<KvDatabase>>,
         cfilters: Arc<NetworkFilters<FlatFiltersStore>>,
         node: NodeInterface,
@@ -658,7 +674,7 @@ impl RpcImpl {
 
     #[allow(clippy::too_many_arguments)]
     pub async fn create(
-        chain: Arc<ChainState<KvChainStore<'static>>>,
+        chain: Blockchain,
         wallet: Arc<AddressCache<KvDatabase>>,
         node: NodeInterface,
         kill_signal: Arc<RwLock<bool>>,
