@@ -46,7 +46,7 @@ use crate::UtreexoBlock;
 /// This trait is the main interface between our blockchain backend and other services.
 /// It'll be useful for transitioning from rpc to a p2p based node
 pub trait BlockchainInterface {
-    type Error: core2::error::Error + Send + Sync + 'static;
+    type Error: Error + Send + Sync + 'static;
     /// Returns the block with a given height in our current tip.
     fn get_block_hash(&self, height: u32) -> Result<bitcoin::BlockHash, Self::Error>;
     /// Returns a bitcoin [Transaction] given it's txid.
