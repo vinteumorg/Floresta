@@ -183,6 +183,7 @@ pub enum Error {
     InvalidVout,
     InvalidHeight,
     InvalidHash,
+    InvalidBlockHash,
     InvalidRequest,
     MethodNotFound,
     Decode(String),
@@ -202,6 +203,7 @@ pub enum Error {
 impl Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Error::InvalidBlockHash => write!(f, "Inserted a invalid BlockHash"),
             Error::InvalidRequest => write!(f, "Invalid request"),
             Error::InvalidHeight => write!(f, "Invalid height"),
             Error::InvalidHash =>  write!(f, "Invalid hash"),

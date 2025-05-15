@@ -270,13 +270,26 @@ async fn handle_json_rpc_request(req: Value, state: Arc<RpcImpl>) -> Result<serd
         }
 
         "gettxoutproof" => {
-            let txid = Txid::from_str(params[0].as_str().ok_or(Error::InvalidHash)?)
-                .map_err(|_| Error::InvalidHash)?;
-            state
-                .get_tx_proof(txid)
-                .map(|v| ::serde_json::to_value(v).unwrap())
-        }
+            let txids: Vec<Txid> =
+                serde_json::from_value(params[0].clone()).map_err(|_| Error::InvalidHash)?;
 
+            let blockhash = if params.len() > 1 {
+                Some(
+                    serde_json::from_value(params[1].clone())
+                        .map_err(|_| Error::InvalidBlockHash)?,
+                )
+            } else {
+                None
+            };
+            Ok(serde_json::to_value(
+                state
+                    .get_txout_proof(&txids, blockhash)
+                    .await?
+                    .0
+                    .to_lower_hex_string(),
+            )
+            .expect("GetTxOutProof implements serde"))
+        }
         "getrawtransaction" => {
             let txid = Txid::from_str(params[0].as_str().ok_or(Error::InvalidHash)?)
                 .map_err(|_| Error::InvalidHash)?;
@@ -379,6 +392,7 @@ fn get_http_error_code(err: &Error) -> u16 {
     match err {
         // you messed up
         Error::InvalidHex
+        | Error::InvalidBlockHash
         | Error::InvalidHash
         | Error::InvalidAddress
         | Error::InvalidScript
@@ -415,6 +429,7 @@ fn get_json_rpc_error_code(err: &Error) -> i32 {
 
         // Invalid Request
         Error::InvalidHex
+        | Error::InvalidBlockHash
         | Error::InvalidHash
         | Error::InvalidAddress
         | Error::InvalidScript
