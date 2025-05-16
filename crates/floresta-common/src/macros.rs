@@ -1,4 +1,4 @@
-//! This module has usefull macros for usage on other crates.
+//! This module has useful macros for usage on other crates.
 
 #[macro_export]
 /// Implements the `From` trait for converting a specific type into an enum variant or struct field.
@@ -15,8 +15,7 @@
 /// # Example
 ///
 /// ```rust
-/// use floresta_common::impl_error_from;
-///
+/// # use floresta_common::impl_error_from;
 /// enum MyError {
 ///     Io(std::io::Error),
 ///     Parse(std::num::ParseIntError),

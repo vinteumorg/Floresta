@@ -22,8 +22,7 @@ pub mod spsc;
 use prelude::*;
 pub use spsc::Channel;
 
-/// Takes a reference to an array of bytes and returns
-/// a [Hash].
+/// Computes the SHA-256 digest of the byte slice data and returns a [Hash] from `bitcoin_hashes`.
 ///
 /// [Hash]: https://docs.rs/bitcoin_hashes/latest/bitcoin_hashes/sha256/struct.Hash.html
 pub fn get_hash_from_u8(data: &[u8]) -> sha256::Hash {
@@ -31,12 +30,14 @@ pub fn get_hash_from_u8(data: &[u8]) -> sha256::Hash {
     sha256::Hash::from_slice(hash.as_slice()).expect("Engines shouldn't be Err")
 }
 
-/// Computes the sha256 of a script and reverses the bytes.
+/// Computes the SHA-256 digest of a script, reverses its bytes, and returns a [Hash] from
+/// `bitcoin_hashes`.
 ///
 /// The source to the specification can be found in the Electrum protocol [documentation], and it is
 /// used to identify scripts in the Electrum Protocol.
 ///
 /// [documentation]: https://electrum-protocol.readthedocs.io/en/latest/protocol-basics.html#script-hashes
+/// [Hash]: https://docs.rs/bitcoin_hashes/latest/bitcoin_hashes/sha256/struct.Hash.html
 pub fn get_spk_hash(spk: &ScriptBuf) -> sha256::Hash {
     let script_hash = spk.as_bytes();
     let mut hash = sha2::Sha256::new().chain_update(script_hash).finalize();
