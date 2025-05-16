@@ -4,20 +4,62 @@ use axum::response::IntoResponse;
 use serde::Deserialize;
 use serde::Serialize;
 
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct GetBlockchainInfoRes {
-    pub best_block: String,
-    pub height: u32,
-    pub ibd: bool,
-    pub validated: u32,
-    pub latest_work: String,
-    pub latest_block_time: u32,
-    pub leaf_count: u32,
-    pub root_count: u32,
-    pub root_hashes: Vec<String>,
+    /// A short string representing the chain we're in
     pub chain: String,
-    pub progress: f32,
-    pub difficulty: u64,
+    /// How many blocks we have fully-validated so far? This number will be smaller than
+    /// height during IBD, and should be equal to height otherwise
+    pub blocks: u32,
+    /// the current number of headers we have validated
+    pub headers: u32,
+    /// The best block we know about
+    ///
+    /// This should be the hash of the latest block in the most PoW chain we know about. We may
+    /// or may not have fully-validated it yet
+    pub bestblockhash: String,
+    /// Current network "difficulty"
+    ///
+    /// On average, miners needs to make `difficulty` hashes before finding one that
+    /// solves a block's PoW
+    pub difficulty: String,
+    /// The median time for the current best block
+    pub mediantime: u32,
+    /// The validation progress
+    ///
+    /// 0% means we didn't validate any block. 100% means we've validated all blocks, so
+    /// validated == height
+    pub verificationprogress: f32,
+    /// Whether we are on Initial Block Download
+    pub initialblockdownload: bool,
+    /// The work performed by the last block
+    ///
+    /// This is the estimated amount of hashes the miner of this block had to perform
+    /// before mining that block, on average
+    pub chainwork: String,
+    /// the estimated size of the block and undo files on disk
+    pub size_on_disk: usize,
+    /// if the blocks are subject to pruning
+    pub pruned: bool,
+    /// lowest-height complete block stored (only present if pruning is enabled)
+    pub pruneheight: Option<u32>,
+    /// whether automatic pruning is enabled (only present if pruning is enabled)
+    pub automatic_pruning: bool,
+    /// the target size used by pruning (only present if automatic pruning is enabled)
+    pub prune_target_size: u32,
+    /// softforks
+    // pub softforks: Option<[SoftForks; ?]>
+
+    // Utreexo related infos
+
+    /// How many leaves we have in the utreexo accumulator so far
+    ///
+    /// This should be equal to the number of UTXOs returned by core's `gettxoutsetinfo`
+    pub leaf_count: u32,
+    /// How many roots we have in the acc
+    pub root_count: u32,
+    /// The actual hex-encoded roots
+    pub root_hashes: Vec<String>,
 }
 
 #[derive(Deserialize, Serialize)]
