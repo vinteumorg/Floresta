@@ -204,6 +204,11 @@ impl ChainStore for KvChainStore<'_> {
         self.meta.get(&"roots")
     }
 
+    fn check_integrity(&self) -> Result<(), Self::Error> {
+        // NO-OP. Sled already checks integrity.
+        Ok(())
+    }
+
     /// Saves the current utreexo roots to the metadata bucket.
     fn save_roots(&self, roots: Vec<u8>) -> Result<(), Self::Error> {
         self.meta.set(&"roots", &roots)?;

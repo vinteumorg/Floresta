@@ -165,6 +165,18 @@ impl FlatChainStoreConfig {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct DbCheckSum {
+    /// The checksum of the headers file
+    headers_checksum: u32,
+
+    /// The checksum of the index map
+    index_checksum: u32,
+
+    /// The checksum of the fork headers file
+    fork_headers_checksum: u32,
+}
+
 /// A bucket in our index map
 ///
 /// This enum indicates whether a given bucket is occupied, and if it is,
@@ -288,6 +300,10 @@ struct Metadata {
 
     /// The capacity of the index, in buckets
     index_capacity: usize,
+
+    /// The checksum of our database, as it was in the last time we've flushed our data
+    /// We can use this to check if our database is corrupted
+    checksum: DbCheckSum,
 }
 
 #[derive(Debug)]
@@ -318,6 +334,9 @@ pub enum FlatChainstoreError {
 
     /// Something wrong happened with the metadata file mmap
     InvalidMetadataPointer,
+
+    /// The database is corrupted
+    DbCorrupted,
 }
 
 /// Need this to use [FlatChainstoreError] as a [DatabaseError] in [ChainStore]
@@ -570,6 +589,11 @@ impl FlatChainStore {
         _metadata
             .alternative_tips
             .copy_from_slice(&[BlockHash::all_zeros(); 64]);
+        _metadata.checksum = DbCheckSum {
+            headers_checksum: 0,
+            index_checksum: 0,
+            fork_headers_checksum: 0,
+        };
 
         let cache_size = config.cache_size.and_then(NonZeroUsize::new).unwrap_or(
             NonZeroUsize::new(1000).expect("Infallible: Hard-coded default is always non-zero"),
@@ -670,6 +694,47 @@ impl FlatChainStore {
         }
 
         Ok(())
+    }
+
+    /// Checks the integrity of our database
+    ///
+    /// This function will check the integrity of our database, by comparing the checksum of the
+    /// headers file, index map, and fork headers file with the checksum stored in the metadata.
+    ///
+    /// As checksum, we use a simple XOR checksum for the files. This is not a cryptographic
+    /// checksum, but it's good enough for our purposes.
+    fn check_integrity(&self) -> Result<(), FlatChainstoreError> {
+        let computed_checksum = self.compute_checksum();
+        let metadata = unsafe { self.get_metadata()? };
+
+        if metadata.checksum != computed_checksum {
+            return Err(FlatChainstoreError::DbCorrupted);
+        }
+
+        Ok(())
+    }
+
+    /// Computes a checksum for our database
+    fn compute_checksum(&self) -> DbCheckSum {
+        // a simple XOR checksum for the files
+        let checksum_fn = |mmap: &MmapMut| {
+            let mut checksum = 0;
+            for i in mmap.iter() {
+                checksum ^= *i as u32;
+            }
+
+            checksum
+        };
+
+        let headers_checksum = checksum_fn(&self.headers);
+        let index_checksum = checksum_fn(&self.block_index.index_map);
+        let fork_headers_checksum = checksum_fn(&self.fork_headers);
+
+        DbCheckSum {
+            headers_checksum,
+            index_checksum,
+            fork_headers_checksum,
+        }
     }
 
     /// Truncates a number to the nearest power of 2
@@ -979,6 +1044,10 @@ impl FlatChainStore {
         self.block_index.flush()?;
         self.metadata.flush()?;
 
+        let checksum = self.compute_checksum();
+        let metadata = self.get_metadata_mut()?;
+        metadata.checksum = checksum;
+
         Ok(())
     }
 
@@ -991,6 +1060,10 @@ impl FlatChainStore {
 
 impl ChainStore for FlatChainStore {
     type Error = FlatChainstoreError;
+
+    fn check_integrity(&self) -> Result<(), Self::Error> {
+        self.check_integrity()
+    }
 
     fn flush(&self) -> Result<(), Self::Error> {
         unsafe { self.do_flush() }
