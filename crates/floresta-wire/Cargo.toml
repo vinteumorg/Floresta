@@ -40,5 +40,4 @@ hex = "0.4.3"
 
 [features]
 default = []
-pruned_utreexo_chainstate = []
 metrics = ["dep:metrics"]

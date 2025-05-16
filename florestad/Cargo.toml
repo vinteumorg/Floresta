@@ -55,13 +55,12 @@ pretty_assertions = "1"
 experimental-db = ["floresta-chain/experimental-db"]
 compact-filters = ["dep:floresta-compact-filters"]
 zmq-server = ["dep:zmq"]
-experimental-p2p = []
 json-rpc = [
     "dep:axum",
     "dep:tower-http",
     "compact-filters"
 ]
-default = ["experimental-p2p", "json-rpc"]
+default = ["json-rpc"]
 metrics = ["dep:metrics", "floresta-wire/metrics"]
 
 [build-dependencies]
