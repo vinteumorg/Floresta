@@ -27,7 +27,7 @@ pub use spsc::Channel;
 /// [Hash]: https://docs.rs/bitcoin_hashes/latest/bitcoin_hashes/sha256/struct.Hash.html
 pub fn get_hash_from_u8(data: &[u8]) -> sha256::Hash {
     let hash = sha2::Sha256::new().chain_update(data).finalize();
-    sha256::Hash::from_slice(hash.as_slice()).expect("Engines shouldn't be Err")
+    sha256::Hash::from_byte_array(hash.into())
 }
 
 /// Computes the SHA-256 digest of a script, reverses its bytes, and returns a [Hash] from
@@ -39,13 +39,13 @@ pub fn get_hash_from_u8(data: &[u8]) -> sha256::Hash {
 /// [documentation]: https://electrum-protocol.readthedocs.io/en/latest/protocol-basics.html#script-hashes
 /// [Hash]: https://docs.rs/bitcoin_hashes/latest/bitcoin_hashes/sha256/struct.Hash.html
 pub fn get_spk_hash(spk: &ScriptBuf) -> sha256::Hash {
-    let script_hash = spk.as_bytes();
-    let mut hash = sha2::Sha256::new().chain_update(script_hash).finalize();
+    let data = spk.as_bytes();
+    let mut hash = sha2::Sha256::new().chain_update(data).finalize();
     hash.reverse();
-    sha256::Hash::from_slice(hash.as_slice()).expect("Engines shouldn't be Err")
+    sha256::Hash::from_byte_array(hash.into())
 }
 
-/// Non-standard service flags that aren't in rust-bitcoin yet
+/// Non-standard service flags that aren't in rust-bitcoin yet.
 pub mod service_flags {
     /// This peer supports UTREEXO messages
     pub const UTREEXO: u64 = 1 << 24;
