@@ -23,6 +23,7 @@ pub trait DatabaseError: Debug + Send + Sync + 'static {}
 /// This is the highest level error type in floresta-chain, returned by the [crate::ChainState] methods.
 /// It represents errors encountered during blockchain validation.
 pub enum BlockchainError {
+    BlockDoesntExtendTip,
     BlockNotPresent,
     OrphanOrInvalidBlock,
     Parsing(String),
