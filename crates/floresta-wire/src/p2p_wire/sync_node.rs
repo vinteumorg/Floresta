@@ -264,7 +264,6 @@ where
                         | BlockValidationErrors::FirstTxIsNotCoinbase
                         | BlockValidationErrors::BadCoinbaseOutValue
                         | BlockValidationErrors::EmptyBlock
-                        | BlockValidationErrors::BlockExtendsAnOrphanChain
                         | BlockValidationErrors::BadBip34
                         | BlockValidationErrors::UnspendableUTXO
                         | BlockValidationErrors::CoinbaseNotMatured => {
@@ -272,6 +271,14 @@ where
                             try_and_log!(self.chain.invalidate_block(block.block.block_hash()));
                         }
                         BlockValidationErrors::InvalidProof => {}
+                        BlockValidationErrors::BlockExtendsAnOrphanChain
+                        | BlockValidationErrors::BlockDoesntExtendTip => {
+                            // We've requested and processed a block that's not the next one in our
+                            // chain. Force our last block requested to be the correct block, and
+                            // keep going.
+                            self.context.last_block_requested =
+                                self.chain.get_validation_index()?;
+                        }
                     }
                 }
 

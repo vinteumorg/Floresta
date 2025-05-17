@@ -1134,22 +1134,48 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
     ) -> Result<u32, BlockchainError> {
         let header = self.get_disk_block_header(&block.block_hash())?;
         let height = match header {
-            DiskBlockHeader::FullyValid(_, height) => return Ok(height),
-            // If it's valid or orphan, we don't validate
+            DiskBlockHeader::FullyValid(_, height) => {
+                let validation_index = self.get_validation_index()?;
+
+                // If this block is not our validation index, but the caller is trying to connect
+                // it, this is a logical error, and we will have spurious errors, specially with
+                // invalid proof. They don't mean the block is invalid, just that we are using the
+                // wrong accumulator, since we are not processing the right block.
+                if height != validation_index {
+                    return Err(BlockValidationErrors::BlockDoesntExtendTip)?;
+                }
+
+                // If this block is our validation index, but it's fully valid, this clearly means
+                // there was some corruption of our state. If we don't process this block, we will
+                // be stuck forever.
+                //
+                // Note: You may think "just kick the validation index one block further and we are
+                // good". But this is not the case, because we still need to update our
+                // accumulator. Otherwise, the next block will always have an invalid proof
+                // (because the accumulator is not updated).
+                height
+            },
+
+            // Our called tried to connect_block on a block that is not the next one in our chain
             DiskBlockHeader::Orphan(_)
             | DiskBlockHeader::AssumedValid(_, _) // this will be validated by a partial chain
             | DiskBlockHeader::InFork(_, _)
-            | DiskBlockHeader::InvalidChain(_) => return Ok(0),
-            DiskBlockHeader::HeadersOnly(_, height) => height,
-        };
+            | DiskBlockHeader::InvalidChain(_) => return Err(BlockValidationErrors::BlockExtendsAnOrphanChain)?,
 
-        // Check if this block is the next one in our chain, if we try
-        // to add them out-of-order, we'll have consensus issues with our
-        // accumulator
-        let expected_height = self.get_validation_index()? + 1;
-        if height != expected_height {
-            return Ok(height);
-        }
+            DiskBlockHeader::HeadersOnly(_, height) => {
+                let validation_index = self.get_validation_index()?;
+
+                // In case of a `HeadersOnly` block, we need to check if the height is
+                // the next one after the validation index. If not, we would be trying to
+                // connect a block where our accumulator isn't the right one. So the proof will
+                // always be invalid.
+                if height != validation_index + 1 {
+                    return Err(BlockValidationErrors::BlockDoesntExtendTip)?;
+                }
+
+                height
+            }
+        };
 
         self.validate_block_no_acc(block, height, inputs)?;
         let acc = Consensus::update_acc(&self.acc(), block, height, proof, del_hashes)?;

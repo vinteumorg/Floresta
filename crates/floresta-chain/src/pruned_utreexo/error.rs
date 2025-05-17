@@ -53,6 +53,7 @@ pub struct TransactionError {
 #[derive(Clone, Debug, PartialEq)]
 /// Represents errors encountered during block validation.
 pub enum BlockValidationErrors {
+    BlockDoesntExtendTip,
     InvalidCoinbase(String),
     UtxoNotFound(OutPoint),
     ScriptValidationError(String),
@@ -99,6 +100,9 @@ impl Display for TransactionError {
 impl Display for BlockValidationErrors {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
+            BlockValidationErrors::BlockDoesntExtendTip => {
+                write!(f, "This block doesn't build directly on the tip")
+            }
             BlockValidationErrors::ScriptValidationError(e) => {
                 write!(f, "{e}")
             }
