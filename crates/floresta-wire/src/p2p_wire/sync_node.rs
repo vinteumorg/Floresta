@@ -179,6 +179,13 @@ where
                 if self.inflight.len() > 10 {
                     continue;
                 }
+
+                // don't ask for blocks if we already have a lot of them in memory.
+                // If we don't limit it, we may end up using all the available memory
+                if self.blocks.len() > 10 {
+                    continue;
+                }
+
                 self.get_blocks_to_download().await;
             }
         }
@@ -318,6 +325,10 @@ where
 
         if self.inflight.len() < 4 {
             if *self.kill_signal.read().await {
+                return Ok(());
+            }
+
+            if self.blocks.len() > 10 {
                 return Ok(());
             }
 
