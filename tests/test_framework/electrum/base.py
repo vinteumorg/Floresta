@@ -8,6 +8,7 @@ import json
 import socket
 from datetime import datetime, timezone
 from typing import Any, List, Tuple
+from OpenSSL import SSL
 
 
 # pylint: disable=too-few-public-methods
@@ -16,9 +17,19 @@ class BaseClient:
     A little class to help connect to Floresta's electrum server
     """
 
-    def __init__(self, host, port=8080):
-        self._conn = s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    def __init__(self, host, port=8080, ssl=False):
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.connect((host, port))
+
+        if ssl:
+            context = SSL.Context(SSL.SSLv23_METHOD)
+            context.set_verify(SSL.VERIFY_NONE, lambda *args: True)
+            ssl_conn = SSL.Connection(context, s)
+            ssl_conn.set_connect_state()
+            ssl_conn.do_handshake()  # Perform the SSL handshake
+            self._conn = ssl_conn
+        else:
+            self._conn = s
 
     @property
     def conn(self) -> socket.socket:
@@ -40,7 +51,7 @@ class BaseClient:
         """
         print(f"[{self.__class__.__name__.upper()} {datetime.now(timezone.utc)}] {msg}")
 
-    def request(self, method, params) -> str:
+    def request(self, method, params) -> object:
         """
         Request something to Floresta server
         """
@@ -62,9 +73,10 @@ class BaseClient:
                 break
         response = response.decode("utf-8").strip()
         self.log(response)
-        return response
 
-    def batch_request(self, calls: List[Tuple[str, List[Any]]]) -> str:
+        return json.loads(response)
+
+    def batch_request(self, calls: List[Tuple[str, List[Any]]]) -> object:
         """
         Send batch JSON-RPC requests to electrum's server.
         """

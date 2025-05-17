@@ -53,7 +53,7 @@ class ElectrumTest(FlorestaTestFramework):
         # protocol, to test our own electrum implementation
 
         electrum = ElectrumClient("localhost", 50001)
-        rpc_response = json.loads(electrum.get_version())
+        rpc_response = electrum.get_version()
 
         # Make assertions with our framework. Avoid usage of
         # native `assert` clauses. For more information, see

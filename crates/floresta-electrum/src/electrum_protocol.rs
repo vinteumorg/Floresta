@@ -926,9 +926,8 @@ mod test {
     use tokio::sync::RwLock;
     use tokio::task;
     use tokio::time::timeout;
-    use tokio_rustls::rustls::Certificate;
-    use tokio_rustls::rustls::NoClientAuth;
-    use tokio_rustls::rustls::PrivateKey;
+    use tokio_rustls::rustls::pki_types::pem::PemObject;
+    use tokio_rustls::rustls::pki_types::PrivateKeyDer;
     use tokio_rustls::rustls::ServerConfig;
     use tokio_rustls::TlsAcceptor;
 
@@ -1100,23 +1099,21 @@ mod test {
         assigned_port
     }
 
-    fn generate_self_signed_cert() -> Result<(Certificate, PrivateKey), Box<dyn std::error::Error>>
-    {
+    /// Create a tls config thats valid for localhost with a random
+    /// created key
+    fn create_tls_config() -> Result<Arc<ServerConfig>, crate::error::Error> {
         let CertifiedKey { cert, key_pair } =
-            generate_simple_self_signed(vec!["localhost".into()])?;
-        let der_encoded_certificate = cert.der();
-        let der_bytes: &[u8] = der_encoded_certificate.as_ref();
-        Ok((
-            Certificate(der_bytes.to_vec()),
-            PrivateKey(key_pair.serialized_der().to_vec()),
-        ))
-    }
+            generate_simple_self_signed(vec!["localhost".into()]).expect("Failed to generate cert");
 
-    fn create_tls_config() -> io::Result<Arc<ServerConfig>> {
-        let (cert, key) = generate_self_signed_cert().unwrap();
+        let private_key = key_pair.serialize_pem();
 
-        let mut config = ServerConfig::new(Arc::new(NoClientAuth));
-        config.set_single_cert(vec![cert], key).unwrap();
+        let config = ServerConfig::builder()
+            .with_no_client_auth()
+            .with_single_cert(
+                vec![cert.into()],
+                PrivateKeyDer::from_pem_slice(private_key.as_ref()).expect("Failed to parse private key, this should never happen since we generated it an serialized as pem above"),
+            )
+            .expect("Failed to create server config. This should never happen since all values are hardcoded");
 
         Ok(Arc::new(config))
     }
