@@ -4,10 +4,13 @@ use thiserror::Error;
 pub enum Error {
     #[error("Invalid params passed in")]
     InvalidParams,
+
     #[error("Invalid json string {0}")]
     Parsing(#[from] serde_json::Error),
+
     #[error("Blockchain error")]
-    Blockchain(Box<dyn core2::error::Error + Send + 'static>),
+    Blockchain(Box<dyn floresta_common::prelude::Error + Send + 'static>),
+
     #[error("IO error")]
     Io(#[from] std::io::Error),
 }

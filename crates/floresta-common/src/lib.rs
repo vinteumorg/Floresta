@@ -11,6 +11,8 @@ use miniscript::Descriptor;
 use miniscript::DescriptorPublicKey;
 use sha2::Digest;
 
+#[cfg(not(feature = "std"))]
+mod error;
 pub mod macros;
 pub mod spsc;
 
@@ -119,12 +121,13 @@ pub mod prelude {
     pub use core::str;
     pub use core::str::FromStr;
 
-    pub use core2::error::Error;
-    pub use core2::io::Error as ioError;
-    pub use core2::io::Read;
-    pub use core2::io::Write;
+    pub use bitcoin::io::Error as ioError;
+    pub use bitcoin::io::Read;
+    pub use bitcoin::io::Write;
     pub use hashbrown::HashMap;
     pub use hashbrown::HashSet;
+
+    pub use crate::error::Error;
 }
 #[cfg(feature = "std")]
 pub mod prelude {
