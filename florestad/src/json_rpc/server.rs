@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::slice;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Instant;
@@ -116,7 +117,8 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
     }
 
     fn load_descriptor(&self, descriptor: String) -> Result<bool> {
-        let Ok(mut parsed) = parse_descriptors(&[descriptor.clone()]) else {
+        let desc = slice::from_ref(&descriptor);
+        let Ok(mut parsed) = parse_descriptors(desc) else {
             return Err(Error::InvalidDescriptor);
         };
 
