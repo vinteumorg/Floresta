@@ -1,4 +1,34 @@
+//! This module has useful macros for usage on other crates.
+
 #[macro_export]
+/// Implements the `From` trait for converting a specific type into an enum variant or struct field.
+///
+/// This macro is useful when building error enums or wrapper types that need to support automatic
+/// conversions from underlying error types using the `?` operator.
+///
+/// # Parameters
+///
+/// - `$thing`: The target type to implement `From` for (usually an enum or struct).
+/// - `$from_thing`: The source type that should be converted into `$thing`.
+/// - `$field`: The variant or field of `$thing` that wraps a value of type `$from_thing`.
+///
+/// # Example
+///
+/// ```rust
+/// # use floresta_common::impl_error_from;
+/// enum MyError {
+///     Io(std::io::Error),
+///     Parse(std::num::ParseIntError),
+/// }
+///
+/// impl_error_from!(MyError, std::io::Error, Io);
+/// impl_error_from!(MyError, std::num::ParseIntError, Parse);
+///
+/// fn parse_number(s: &str) -> Result<i32, MyError> {
+///     let n: i32 = s.parse()?; // Automatically converts ParseIntError into MyError
+///     Ok(n)
+/// }
+/// ```
 macro_rules! impl_error_from {
     ($thing:ty, $from_thing:ty, $field:ident) => {
         impl From<$from_thing> for $thing {
