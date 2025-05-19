@@ -9,3 +9,4 @@ You can replace `local_address_str` with the name of any other target you want t
 Available fuzz targets:
 - `local_address_str`
 - `utreexo_block_des`
+- `addrman`

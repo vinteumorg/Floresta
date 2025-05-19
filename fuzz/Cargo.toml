@@ -26,3 +26,10 @@ path = "fuzz_targets/utreexo_block_des.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "addrman"
+path = "fuzz_targets/addrman.rs"
+test = false
+doc = false
+bench = false
