@@ -8,14 +8,15 @@
 //! Each error type implements `Display` and `Debug` for error reporting.
 
 use core::fmt::Debug;
+extern crate alloc;
 
 use bitcoin::blockdata::script;
 use bitcoin::Network;
 use bitcoin::OutPoint;
 use bitcoin::Txid;
 use floresta_common::impl_error_from;
+use floresta_common::prelude::*;
 
-use crate::prelude::*;
 use crate::pruned_utreexo::chain_state_builder::BlockchainBuilderError;
 
 pub trait DatabaseError: Debug + Send + Sync + 'static {}
@@ -180,4 +181,4 @@ impl Display for BlockchainError {
 }
 
 impl DatabaseError for kv::Error {}
-impl core2::error::Error for BlockchainError {}
+impl Error for BlockchainError {}

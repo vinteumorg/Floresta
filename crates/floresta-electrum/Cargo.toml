@@ -30,7 +30,6 @@ serde_json = "1.0"
 futures = "0.3.4"
 bitcoin = { version = "0.32", features = ["serde", "std", "bitcoinconsensus"] }
 thiserror = "1.0"
-core2 = { version = "0.4.0", default-features = false }
 
 [dev-dependencies]
 rand = "0.8.5"

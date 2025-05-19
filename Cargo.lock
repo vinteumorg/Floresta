@@ -885,7 +885,6 @@ version = "0.3.0"
 dependencies = [
  "bitcoin 0.32.5",
  "bitcoinconsensus 0.106.0+26.0",
- "core2",
  "criterion",
  "floresta-common",
  "hex",
@@ -944,7 +943,6 @@ name = "floresta-electrum"
 version = "0.3.0"
 dependencies = [
  "bitcoin 0.32.5",
- "core2",
  "floresta-chain",
  "floresta-common",
  "floresta-compact-filters",
