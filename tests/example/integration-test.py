@@ -6,8 +6,9 @@ see `tests/test_framework/test_framework.py` for more info.
 """
 
 from test_framework import FlorestaTestFramework
-from test_framework.rpc.floresta import REGTEST_RPC_SERVER as FLORESTA_RPC_SERVER
-from test_framework.rpc.utreexo import REGTEST_RPC_SERVER as UTREEXO_RPC_SERVER
+from test_framework.rpc.bitcoin import REGTEST_RPC_SERVER as bitcoind_rpc
+from test_framework.rpc.floresta import REGTEST_RPC_SERVER as florestad_rpc
+from test_framework.rpc.utreexo import REGTEST_RPC_SERVER as utreexod_rpc
 
 
 class IntegrationTest(FlorestaTestFramework):
@@ -18,7 +19,7 @@ class IntegrationTest(FlorestaTestFramework):
     the test do and the expected result in the docstrings
     """
 
-    index = [-1, -1]
+    index = [-1, -1, -1]
     expected_chain = "regtest"
 
     def set_test_params(self):
@@ -26,10 +27,23 @@ class IntegrationTest(FlorestaTestFramework):
         Here we define setup for test adding a node definition
         """
         IntegrationTest.index[0] = self.add_node(
-            variant="florestad", rpcserver=FLORESTA_RPC_SERVER
+            variant="florestad", rpcserver=florestad_rpc
         )
+
+        # since utreexod and bitcoind
+        # uses the same RPC server, we need to
+        # select a different port for utreexod
+        utreexod_rpc["ports"]["server"] = 18446
+        utreexod_rpc["ports"]["rpc"] = 18447
         IntegrationTest.index[1] = self.add_node(
-            variant="utreexod", rpcserver=UTREEXO_RPC_SERVER
+            variant="utreexod",
+            rpcserver=utreexod_rpc,
+            extra_args=["--listen=127.0.0.1:18446", "--rpclisten=127.0.0.1:18447"],
+        )
+
+        IntegrationTest.index[2] = self.add_node(
+            variant="bitcoind",
+            rpcserver=bitcoind_rpc,
         )
 
     # All tests should override the run_test method
@@ -60,17 +74,29 @@ class IntegrationTest(FlorestaTestFramework):
         # RPC port to be available
         self.run_node(IntegrationTest.index[1])
 
+        # Start a new node (the bitcoin-core binary)
+        # This method start a defined daemon,
+        # in this case, `bitcoind`, and wait for
+        # all ports opened by it, including the
+        # RPC port to be available
+        self.run_node(IntegrationTest.index[2])
+
         # get both nodes
         floresta_node = self.get_node(IntegrationTest.index[0])
         utreexo_node = self.get_node(IntegrationTest.index[1])
+        bitcoin_node = self.get_node(IntegrationTest.index[2])
 
         # Perform for some defined requests to FlorestaRPC
-        # that should be the same for UtreexoRPC
+        # that should be the same for UtreexoRPC and BitcoinRPC
         floresta_response = floresta_node.rpc.get_blockchain_info()
         utreexo_response = utreexo_node.rpc.get_blockchain_info()
+        bitcoin_response = bitcoin_node.rpc.get_blockchain_info()
 
+        # the chain should be the same (regtest)
         self.assertEqual(floresta_response["chain"], IntegrationTest.expected_chain)
         self.assertEqual(utreexo_response["chain"], IntegrationTest.expected_chain)
+        self.assertEqual(bitcoin_response["chain"], IntegrationTest.expected_chain)
+
         # stop all nodes
         self.stop()
 
