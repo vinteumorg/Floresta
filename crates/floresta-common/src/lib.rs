@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: MIT
 
+//! # Floresta Common
+//! Provides utility functions, macros and modules to be
+//! used in other Floresta crates.
+
 #![no_std]
 
 use bitcoin::hashes::sha256;
@@ -20,19 +24,30 @@ pub mod spsc;
 use prelude::*;
 pub use spsc::Channel;
 
+/// Computes the SHA-256 digest of the byte slice data and returns a [Hash] from `bitcoin_hashes`.
+///
+/// [Hash]: https://docs.rs/bitcoin_hashes/latest/bitcoin_hashes/sha256/struct.Hash.html
 pub fn get_hash_from_u8(data: &[u8]) -> sha256::Hash {
     let hash = sha2::Sha256::new().chain_update(data).finalize();
-    sha256::Hash::from_slice(hash.as_slice()).expect("Engines shouldn't be Err")
+    sha256::Hash::from_byte_array(hash.into())
 }
 
+/// Computes the SHA-256 digest of a script, reverses its bytes, and returns a [Hash] from
+/// `bitcoin_hashes`.
+///
+/// The source to the specification can be found in the Electrum protocol [documentation], and it is
+/// used to identify scripts in the Electrum Protocol.
+///
+/// [documentation]: https://electrum-protocol.readthedocs.io/en/latest/protocol-basics.html#script-hashes
+/// [Hash]: https://docs.rs/bitcoin_hashes/latest/bitcoin_hashes/sha256/struct.Hash.html
 pub fn get_spk_hash(spk: &ScriptBuf) -> sha256::Hash {
-    let script_hash = spk.as_bytes();
-    let mut hash = sha2::Sha256::new().chain_update(script_hash).finalize();
+    let data = spk.as_bytes();
+    let mut hash = sha2::Sha256::new().chain_update(data).finalize();
     hash.reverse();
-    sha256::Hash::from_slice(hash.as_slice()).expect("Engines shouldn't be Err")
+    sha256::Hash::from_byte_array(hash.into())
 }
 
-/// Non-standard service flags that aren't in rust-bitcoin yet
+/// Non-standard service flags that aren't in rust-bitcoin yet.
 pub mod service_flags {
     /// This peer supports UTREEXO messages
     pub const UTREEXO: u64 = 1 << 24;
@@ -79,6 +94,8 @@ impl FractionAvg {
 }
 
 #[cfg(any(feature = "descriptors-std", feature = "descriptors-no-std"))]
+/// Takes an array of descriptors as `String`, performs sanity checks on each one
+/// and returns list of parsed descriptors.
 pub fn parse_descriptors(
     descriptors: &[String],
 ) -> Result<Vec<Descriptor<DescriptorPublicKey>>, miniscript::Error> {
@@ -129,7 +146,14 @@ pub mod prelude {
 
     pub use crate::error::Error;
 }
+
 #[cfg(feature = "std")]
+/// Provides implementation for basic `std` types, without assuming we have a `std` library.
+///
+/// This module is used to avoid having `#[cfg(feature = "no-std")]` sprinkled
+/// around all crates that support `no-std`. It imports all types we would use
+/// from the `stdlib`, either from the lib itself, or from other sources in case
+/// `stdlib` isn't available.
 pub mod prelude {
     extern crate alloc;
     extern crate std;
