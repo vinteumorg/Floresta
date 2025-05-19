@@ -273,8 +273,11 @@ class BaseRPC(metaclass=BaseRpcMetaClass):
         state = "open" if opened else "closed"
         raise TimeoutError(f"{host}:{port} not {state} after {timeout} seconds")
 
-    def wait_for_connections(self, opened: bool = True):
+    def wait_for_connections(self, opened: bool = True, timeout: int = 10):
         """Wait for all port connections in the host reach the desired state."""
         host = getattr(self.rpcserver, "host")
         for _, port in getattr(self.rpcserver, "ports").items():
-            self.wait_for_connection(host, port, opened)
+            self.log(
+                f"Waiting for {host}:{port} to be {'open' if opened else 'closed'}"
+            )
+            self.wait_for_connection(host, port, opened, timeout)

@@ -19,8 +19,10 @@ from test_framework.crypto.pkcs8 import (
     create_pkcs8_private_key,
     create_pkcs8_self_signed_certificate,
 )
+from test_framework.daemon.bitcoin import BitcoinDaemon
 from test_framework.daemon.floresta import FlorestaDaemon
 from test_framework.daemon.utreexo import UtreexoDaemon
+from test_framework.rpc.bitcoin import BitcoinRPC
 from test_framework.rpc.floresta import FlorestaRPC
 from test_framework.rpc.utreexo import UtreexoRPC
 
@@ -277,7 +279,7 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
 
         # Daemon can be a variant of Floresta or Utreexo
         daemon = None
-        testname = self.__class__.__name__
+        testname = self.__class__.__name__.lower()
 
         if variant == "florestad":
             daemon = FlorestaDaemon()
@@ -313,6 +315,20 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
                 (key, cert) = self.create_ssl_keys()
                 daemon.add_daemon_settings([f"--rpckey={key}", f"--rpccert={cert}"])
 
+        elif variant == "bitcoind":
+            daemon = BitcoinDaemon()
+            daemon.create(target=targetdir)
+            daemon.add_daemon_settings(extra_args)
+
+            # Add a default datadir if not set
+            if not self.is_option_set(extra_args, "-datadir"):
+                daemon.add_daemon_settings([f"-datadir={tempdir}/data/{testname}"])
+
+                # we need to create the datadir
+                datadir = os.path.join(tempdir, "data", testname)
+                if not os.path.exists(datadir):
+                    os.makedirs(os.path.join(tempdir, "data", testname), exist_ok=True)
+
         else:
             raise ValueError(f"'{variant}' not supported")
 
@@ -331,7 +347,7 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
             )
         return self._nodes[index]
 
-    def run_node(self, index: int):
+    def run_node(self, index: int, timeout: int = 10):
         """
         Run a node given an index on self._tests.
 
@@ -347,7 +363,10 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
         if node.variant == "utreexod":
             node.rpc = UtreexoRPC(node.daemon.process, node.rpc_config)
 
-        node.rpc.wait_for_connections(opened=True)
+        if node.variant == "bitcoind":
+            node.rpc = BitcoinRPC(node.daemon.process, node.rpc_config)
+
+        node.rpc.wait_for_connections(opened=True, timeout=timeout)
         self.log(f"Node {index} ({node.variant}) started")
 
     def stop_node(self, index: int):
