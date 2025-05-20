@@ -182,11 +182,12 @@ pub trait UpdatableChainstate {
 /// See the documentation of [DatabaseError] for more info.
 pub trait ChainStore {
     type Error: DatabaseError;
-    /// Saves the current state of our accumulator.
-    fn save_roots(&self, roots: Vec<u8>) -> Result<(), Self::Error>;
 
-    /// Loads the state of our accumulator.
-    fn load_roots(&self) -> Result<Option<Vec<u8>>, Self::Error>;
+    /// Saves the accumulator state for a given block height.
+    fn save_roots_for_block(&mut self, roots: Vec<u8>, height: u32) -> Result<(), Self::Error>;
+
+    /// Loads the state of our accumulator for a given block height.
+    fn load_roots_for_block(&mut self, height: u32) -> Result<Option<Vec<u8>>, Self::Error>;
 
     /// Loads the blockchain height
     fn load_height(&self) -> Result<Option<BestChain>, Self::Error>;

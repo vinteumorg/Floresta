@@ -60,8 +60,11 @@ extern crate std;
 use core::mem::size_of;
 use core::num::NonZeroUsize;
 use std::fs::DirBuilder;
+use std::fs::File;
 use std::fs::OpenOptions;
 use std::fs::Permissions;
+use std::io::Seek;
+use std::io::SeekFrom;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::sync::Mutex;
@@ -258,6 +261,12 @@ pub struct HashedDiskHeader {
 
     /// The hash of the header
     hash: BlockHash,
+
+    /// Where in the accumulator file this block's accumulator is
+    acc_pos: u32,
+
+    /// The length of the block's accumulator
+    acc_len: u32,
 }
 
 #[repr(C)]
@@ -291,12 +300,6 @@ struct Metadata {
 
     /// How many blocks we have that are not in our main chain
     fork_count: u32,
-
-    /// How many bytes we have in our accumulator
-    acc_size: u32,
-
-    /// Our latest accumulator of the Utreexo forest
-    acc: [u8; UTREEXO_ACC_SIZE],
 
     /// The size of the headers file map, in headers
     headers_file_size: usize,
@@ -536,6 +539,9 @@ pub struct FlatChainStore {
     /// The memory map for our fork files
     fork_headers: MmapMut,
 
+    /// The file containing the accumulators for each blocks
+    accumulator_file: File,
+
     /// A LRU cache for the last n blocks we've touched
     cache: Mutex<LruCache<BlockHash, DiskBlockHeader>>,
 }
@@ -569,6 +575,7 @@ impl FlatChainStore {
         let headers_path = format!("{dir}/headers.bin");
         let metadata_path = format!("{dir}/metadata.bin");
         let fork_headers_path = format!("{dir}/fork_headers.bin");
+        let accumulator_file_path = format!("{dir}/accumulators.bin");
 
         let index_map_file_size = index_size * size_of::<u32>();
         let index_map = unsafe { Self::init_file(&index_path, index_map_file_size, file_mode)? };
@@ -593,8 +600,6 @@ impl FlatChainStore {
         _metadata.fork_file_size = fork_size;
         _metadata.index_capacity = index_size;
         _metadata.block_index_occupancy = 0;
-        _metadata.acc_size = 0;
-        _metadata.acc = [0; UTREEXO_ACC_SIZE];
         _metadata.assume_valid_index = 0;
         _metadata.best_block = BlockHash::all_zeros();
         _metadata.depth = 0;
@@ -614,8 +619,16 @@ impl FlatChainStore {
             NonZeroUsize::new(1000).expect("Infallible: Hard-coded default is always non-zero"),
         );
 
+        let accumulator_file = File::options()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&accumulator_file_path)?;
+
         Ok(Self {
             headers,
+            accumulator_file,
             metadata,
             block_index: BlockIndex::new(index_map, index_size),
             fork_headers,
@@ -659,6 +672,7 @@ impl FlatChainStore {
         let index_path = format!("{}/blocks_index.bin", config.path);
         let headers_file_path = format!("{}/headers.bin", config.path);
         let fork_file_path = format!("{}/fork_headers.bin", config.path);
+        let accumulator_file_path = format!("{}/accumulators.bin", config.path);
 
         let index_file_size = metadata.index_capacity * size_of::<u32>();
         let headers_file_size = metadata.headers_file_size * size_of::<HashedDiskHeader>();
@@ -671,8 +685,16 @@ impl FlatChainStore {
             NonZeroUsize::new(1000).expect("Infallible: Hard-coded default is always non-zero"),
         );
 
+        let accumulator_file = File::options()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&accumulator_file_path)?;
+
         Ok(Self {
             headers,
+            accumulator_file,
             metadata: metadata_file,
             block_index: BlockIndex::new(index_map, metadata.index_capacity),
             fork_headers,
@@ -879,17 +901,6 @@ impl FlatChainStore {
         }
     }
 
-    unsafe fn get_acc_inner(&self) -> Result<Vec<u8>, FlatChainstoreError> {
-        let metadata = self.get_metadata()?;
-        let size = metadata.acc_size as usize;
-
-        if size == 0 {
-            return Err(FlatChainstoreError::NotFound);
-        }
-
-        Ok(metadata.acc[0..size].to_vec())
-    }
-
     unsafe fn do_save_height(&self, best_block: BestChain) -> Result<(), FlatChainstoreError> {
         let metadata = self.get_metadata_mut()?;
 
@@ -975,25 +986,9 @@ impl FlatChainStore {
         *pos = HashedDiskHeader {
             header,
             hash: header.block_hash(),
+            acc_pos: 0,
+            acc_len: 0,
         };
-
-        Ok(())
-    }
-
-    unsafe fn do_save_roots(&self, roots: Vec<u8>) -> Result<(), FlatChainstoreError> {
-        let metadata = self.get_metadata_mut()?;
-        let size = roots.len();
-
-        if size > UTREEXO_ACC_SIZE {
-            return Err(FlatChainstoreError::AccumulatorTooBig);
-        }
-
-        metadata.acc_size = size as u32;
-        metadata
-            .acc
-            .iter_mut()
-            .zip(roots.iter())
-            .for_each(|(x, y)| *x = *y);
 
         Ok(())
     }
@@ -1044,6 +1039,8 @@ impl FlatChainStore {
         *pos = HashedDiskHeader {
             header,
             hash: block_hash,
+            acc_len: 0,
+            acc_pos: 0,
         };
 
         let mut index = Index::new(fork_blocks);
@@ -1086,17 +1083,52 @@ impl ChainStore for FlatChainStore {
         unsafe { self.do_flush() }
     }
 
-    fn save_roots(&self, roots: Vec<u8>) -> Result<(), Self::Error> {
-        unsafe { self.do_save_roots(roots) }
+    fn save_roots_for_block(&mut self, roots: Vec<u8>, height: u32) -> Result<(), Self::Error> {
+        let metadata = unsafe { self.get_metadata()? };
+        if height < metadata.assume_valid_index {
+            // this is probably a reorg, truncate the file up to the previous block height
+            let header = unsafe { self.get_header_by_height(height)? };
+
+            // this is where the new acc starts, truncating the file to this position
+            let pos = header.acc_pos as u64;
+
+            self.accumulator_file
+                .set_len(pos)
+                .map_err(FlatChainstoreError::Io)?;
+        }
+
+        let pos = self.accumulator_file.seek(SeekFrom::End(0))?;
+        let size = roots.len();
+
+        if size > UTREEXO_ACC_SIZE {
+            return Err(FlatChainstoreError::AccumulatorTooBig);
+        }
+
+        self.accumulator_file.write_all(&roots)?;
+        self.accumulator_file.flush()?;
+
+        let header = unsafe { self.get_disk_header_mut(height, true)? };
+        header.acc_pos = pos as u32;
+        header.acc_len = size as u32;
+
+        Ok(())
     }
 
-    fn load_roots(&self) -> Result<Option<Vec<u8>>, Self::Error> {
-        let acc = unsafe { self.get_acc_inner() };
-        match acc {
-            Ok(acc) => Ok(Some(acc)),
-            Err(FlatChainstoreError::NotFound) => Ok(None),
-            Err(e) => Err(e),
+    fn load_roots_for_block(&mut self, height: u32) -> Result<Option<Vec<u8>>, Self::Error> {
+        let header = unsafe { self.get_disk_header(height, true)? };
+        let size = header.acc_len as usize;
+
+        if size == 0 {
+            return Ok(None);
         }
+
+        let mut roots = vec![0; size];
+        self.accumulator_file
+            .seek(SeekFrom::Start(header.acc_pos as u64))?;
+
+        self.accumulator_file.read_exact(&mut roots)?;
+
+        Ok(Some(roots))
     }
 
     fn get_header(&self, block_hash: &BlockHash) -> Result<Option<DiskBlockHeader>, Self::Error> {
@@ -1472,14 +1504,14 @@ mod tests {
             path: format!("./tmp-db/{test_id}/"),
         };
 
-        let store = FlatChainStore::new(config).unwrap();
+        let mut store = FlatChainStore::new(config).unwrap();
 
         let acc = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
-        store.save_roots(acc.clone()).unwrap();
+        store.save_roots_for_block(acc.clone(), 10).unwrap();
         store.flush().unwrap();
 
-        let recovered = store.load_roots().unwrap().unwrap();
+        let recovered = store.load_roots_for_block(10).unwrap().unwrap();
 
         assert_eq!(recovered, acc);
 
@@ -1494,8 +1526,8 @@ mod tests {
             path: format!("./tmp-db/{test_id}/"),
         };
 
-        let store = FlatChainStore::new(config).unwrap();
-        let recovered = store.load_roots().unwrap().unwrap();
+        let mut store = FlatChainStore::new(config).unwrap();
+        let recovered = store.load_roots_for_block(10).unwrap().unwrap();
 
         assert_eq!(recovered, acc);
     }

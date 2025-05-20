@@ -38,6 +38,7 @@ pub enum BlockchainError {
     ScriptValidationFailed(script::Error),
     Io(ioError),
     UnsupportedNetwork(Network),
+    BadValidationIndex,
 }
 
 #[derive(Clone, Debug, PartialEq)]
