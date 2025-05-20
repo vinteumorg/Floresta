@@ -22,11 +22,12 @@
 //!
 //! We want to keep the load factor for the hash map as low as possible, while also avoiding
 //! re-hashing. So we pick a fairly big initial space to it, say 10 million buckets. Each bucket is
-//! 4 bytes long, so we have 40 MiB of map. Each [HashedDiskHeader] is 116 bytes long (80 bytes for
-//! header + 4 for height + 32 for hash), so the maximum size for it, assuming 2.5 million headers
-//! (good for the next ~30 years), is 330 MiB. The smallest device I know that can run floresta
-//! has ~250 MiB of RAM, so we could  fit almost everything in memory. Given that newer blocks are
-//! more likely to be accessed, the OS will keep those in RAM.
+//! 4 bytes long, so we have 40 MiB of map. Each [HashedDiskHeader] is 124 bytes long (80 bytes for
+//! header + 4 for height + 32 for hash + 8 for the accumulator size and pos), so the maximum size
+//! for it, assuming 2.5 million headers (good for the next ~30 years), is 310 MiB.
+//! The smallest device I know that can run floresta has ~250 MiB of RAM, so we could
+//! fit almost everything in memory. Given that newer blocks are more likely to be accessed,
+//! the OS will keep those in RAM.
 //!
 //! The longest chain we have right now is testnet, with about 3 million blocks. That yields a load
 //! factor of 0.3. With that load factor, there's a ~1/3 probability of collision, we are expected
@@ -34,6 +35,16 @@
 //! each node is a u32, most of the time we'll pull the second node too (64 bits machines can't
 //! pull 32 bits values from memory). But to avoid going into the map every time, we keep a LRU
 //! cache of the last n blocks we've touched.
+//!
+//! We also keep the accumulators for every block in a separate file, so we can load them in case
+//! of a reorg. They are stored in a regular file, and we keep the position and length of each one.
+//! The forest for mainnet has about 2^31 leaves, if we assume a Hamming weight of 1/2, we have
+//! 16 hashes per block, plus a 8-bytes leaves count. At the time of writing, we are approaching
+//! 900k blocks on mainnet. So we would have 32 * 16 + 8 = 520 bytes per accumulator.
+//! 520 * 900k = 468 MiB. This is the absolute worst case for the almost two decades that Bitcoin
+//! existed. However, although this is a pretty manageable number, we can safely get rid of some
+//! older roots, only storing the latest ones, and a few old ones for very deep reorgs. This is,
+//! however, a TODO.
 //!
 //! # Good to know
 //!
@@ -60,9 +71,12 @@ extern crate std;
 use core::mem::size_of;
 use core::num::NonZeroUsize;
 use std::fs::DirBuilder;
+use std::fs::File;
 use std::fs::OpenOptions;
 #[cfg(unix)]
 use std::fs::Permissions;
+use std::io::Seek;
+use std::io::SeekFrom;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::sync::Mutex;
@@ -266,6 +280,12 @@ struct HashedDiskHeader {
 
     /// The hash of the header
     hash: BlockHash,
+
+    /// Where in the accumulator file this block's accumulator is
+    acc_pos: u32,
+
+    /// The length of the block's accumulator
+    acc_len: u32,
 }
 
 #[repr(C)]
@@ -300,12 +320,6 @@ struct Metadata {
     /// How many blocks we have that are not in our main chain
     fork_count: u32,
 
-    /// How many bytes we have in our accumulator
-    acc_size: u32,
-
-    /// Our latest accumulator of the Utreexo forest
-    acc: [u8; UTREEXO_ACC_SIZE],
-
     /// The size of the headers file map, in headers
     headers_file_size: usize,
 
@@ -332,7 +346,7 @@ pub enum FlatChainstoreError {
     Io(std::io::Error),
 
     /// We couldn't find the block we were looking for
-    NotFound,
+    BlockNotFound,
 
     /// The index is full, we can't add more blocks to it
     IndexIsFull,
@@ -357,6 +371,10 @@ pub enum FlatChainstoreError {
 
     /// The database is corrupted
     DbCorrupted,
+
+    /// The validation index doesn't have a height. This probably means it is in
+    /// a fork or invalid chain
+    InvalidValidationIndex,
 }
 
 /// Need this to use [FlatChainstoreError] as a [DatabaseError] in [ChainStore]
@@ -544,6 +562,9 @@ pub struct FlatChainStore {
     /// The memory map for our fork files
     fork_headers: MmapMut,
 
+    /// The file containing the accumulators for each blocks
+    accumulator_file: File,
+
     /// A LRU cache for the last n blocks we've touched
     cache: Mutex<LruCache<BlockHash, DiskBlockHeader>>,
 }
@@ -577,6 +598,7 @@ impl FlatChainStore {
         let headers_path = format!("{dir}/headers.bin");
         let metadata_path = format!("{dir}/metadata.bin");
         let fork_headers_path = format!("{dir}/fork_headers.bin");
+        let accumulator_file_path = format!("{dir}/accumulators.bin");
 
         let index_map_file_size = index_size * size_of::<u32>();
         let index_map = unsafe { Self::init_file(&index_path, index_map_file_size, file_mode)? };
@@ -601,8 +623,6 @@ impl FlatChainStore {
         _metadata.fork_file_size = fork_size;
         _metadata.index_capacity = index_size;
         _metadata.block_index_occupancy = 0;
-        _metadata.acc_size = 0;
-        _metadata.acc = [0; UTREEXO_ACC_SIZE];
         _metadata.assume_valid_index = 0;
         _metadata.best_block = BlockHash::all_zeros();
         _metadata.depth = 0;
@@ -622,8 +642,16 @@ impl FlatChainStore {
             NonZeroUsize::new(1000).expect("Infallible: Hard-coded default is always non-zero"),
         );
 
+        let accumulator_file = File::options()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&accumulator_file_path)?;
+
         Ok(Self {
             headers,
+            accumulator_file,
             metadata,
             block_index: BlockIndex::new(index_map, index_size),
             fork_headers,
@@ -667,6 +695,7 @@ impl FlatChainStore {
         let index_path = format!("{}/blocks_index.bin", config.path);
         let headers_file_path = format!("{}/headers.bin", config.path);
         let fork_file_path = format!("{}/fork_headers.bin", config.path);
+        let accumulator_file_path = format!("{}/accumulators.bin", config.path);
 
         let index_file_size = metadata.index_capacity * size_of::<u32>();
         let headers_file_size = metadata.headers_file_size * size_of::<HashedDiskHeader>();
@@ -679,8 +708,16 @@ impl FlatChainStore {
             NonZeroUsize::new(1000).expect("Infallible: Hard-coded default is always non-zero"),
         );
 
+        let accumulator_file = File::options()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&accumulator_file_path)?;
+
         Ok(Self {
             headers,
+            accumulator_file,
             metadata: metadata_file,
             block_index: BlockIndex::new(index_map, metadata.index_capacity),
             fork_headers,
@@ -805,7 +842,7 @@ impl FlatChainStore {
     }
 
     /// Returns a [HashedDiskHeader] given a block height. This height must be less than or equal to
-    /// the total headers inside our storage, or we return the `NotFound` error.
+    /// the total headers inside our storage, or we return the `BlockNotFound` error.
     unsafe fn get_header_by_height(
         &self,
         height: u32,
@@ -814,7 +851,7 @@ impl FlatChainStore {
 
         // Uninitialized memory means we haven't written anything there yet
         if header.hash == BlockHash::all_zeros() {
-            return Err(FlatChainstoreError::NotFound);
+            return Err(FlatChainstoreError::BlockNotFound);
         }
 
         Ok(*header)
@@ -864,7 +901,7 @@ impl FlatChainStore {
         Ok(&mut *ptr)
     }
 
-    /// Returns a [HashedDiskHeader] or the `NotFound` error if there's no value at the given index.
+    /// Returns a [HashedDiskHeader] or the `BlockNotFound` error if there's no value at the given index.
     unsafe fn get_block_header_by_index(
         &self,
         index: Index,
@@ -876,23 +913,12 @@ impl FlatChainStore {
 
                 // Uninitialized memory means we haven't written anything there yet
                 if header.hash == BlockHash::all_zeros() {
-                    return Err(FlatChainstoreError::NotFound);
+                    return Err(FlatChainstoreError::BlockNotFound);
                 }
 
                 Ok(*header)
             }
         }
-    }
-
-    unsafe fn get_acc_inner(&self) -> Result<Vec<u8>, FlatChainstoreError> {
-        let metadata = self.get_metadata()?;
-        let size = metadata.acc_size as usize;
-
-        if size == 0 {
-            return Err(FlatChainstoreError::NotFound);
-        }
-
-        Ok(metadata.acc[0..size].to_vec())
     }
 
     unsafe fn do_save_height(&mut self, best_block: BestChain) -> Result<(), FlatChainstoreError> {
@@ -979,25 +1005,10 @@ impl FlatChainStore {
         *pos = HashedDiskHeader {
             header,
             hash: header.block_hash(),
+            // We write the actual values after calling `save_roots_for_block`
+            acc_pos: 0,
+            acc_len: 0,
         };
-
-        Ok(())
-    }
-
-    unsafe fn do_save_roots(&mut self, roots: Vec<u8>) -> Result<(), FlatChainstoreError> {
-        let metadata = self.get_metadata_mut()?;
-        let size = roots.len();
-
-        if size > UTREEXO_ACC_SIZE {
-            return Err(FlatChainstoreError::AccumulatorTooBig);
-        }
-
-        metadata.acc_size = size as u32;
-        metadata
-            .acc
-            .iter_mut()
-            .zip(roots.iter())
-            .for_each(|(x, y)| *x = *y);
 
         Ok(())
     }
@@ -1050,6 +1061,9 @@ impl FlatChainStore {
         *pos = HashedDiskHeader {
             header,
             hash: block_hash,
+            // Fork blocks don't have accumulators, so we set them to 0
+            acc_len: 0,
+            acc_pos: 0,
         };
 
         let index = Index::new_fork(fork_blocks)?;
@@ -1093,17 +1107,64 @@ impl ChainStore for FlatChainStore {
         unsafe { self.do_flush() }
     }
 
-    fn save_roots(&mut self, roots: Vec<u8>) -> Result<(), Self::Error> {
-        unsafe { self.do_save_roots(roots) }
+    fn save_roots_for_block(&mut self, roots: Vec<u8>, height: u32) -> Result<(), Self::Error> {
+        let metadata = unsafe { self.get_metadata()? };
+        let validation_index = self
+            .get_header(&metadata.validation_index)?
+            .map(|h| {
+                h.try_height()
+                    .map_err(|_| FlatChainstoreError::InvalidValidationIndex)
+            })
+            .transpose()?
+            .unwrap_or(0);
+
+        if height <= validation_index {
+            // this is probably a reorg, truncate the file up to the previous block height
+            let header = unsafe { self.get_header_by_height(height)? };
+
+            // this is where the new acc starts, truncating the file to this position
+            let pos = header.acc_pos as u64;
+
+            self.accumulator_file
+                .set_len(pos)
+                .map_err(FlatChainstoreError::Io)?;
+        }
+
+        let pos = self.accumulator_file.seek(SeekFrom::End(0))?;
+        let size = roots.len();
+
+        if size > UTREEXO_ACC_SIZE {
+            return Err(FlatChainstoreError::AccumulatorTooBig);
+        }
+
+        self.accumulator_file.write_all(&roots)?;
+        self.accumulator_file.flush()?;
+
+        let header = unsafe { self.get_disk_header_mut(height, true)? };
+        header.acc_pos = pos as u32;
+        header.acc_len = size as u32;
+
+        Ok(())
     }
 
-    fn load_roots(&self) -> Result<Option<Vec<u8>>, Self::Error> {
-        let acc = unsafe { self.get_acc_inner() };
-        match acc {
-            Ok(acc) => Ok(Some(acc)),
-            Err(FlatChainstoreError::NotFound) => Ok(None),
-            Err(e) => Err(e),
+    fn load_roots_for_block(&mut self, height: u32) -> Result<Option<Vec<u8>>, Self::Error> {
+        let header = unsafe { self.get_disk_header(height, true)? };
+        let size = header.acc_len as usize;
+
+        if size == 0 {
+            return Ok(None);
         }
+
+        let mut roots = vec![0; size];
+
+        // move the reading position to a specific position in the file, where
+        // that block's accumulator roots are stored
+        self.accumulator_file
+            .seek(SeekFrom::Start(header.acc_pos as u64))?;
+
+        self.accumulator_file.read_exact(&mut roots)?;
+
+        Ok(Some(roots))
     }
 
     fn get_header(&self, block_hash: &BlockHash) -> Result<Option<DiskBlockHeader>, Self::Error> {
@@ -1152,7 +1213,7 @@ impl ChainStore for FlatChainStore {
         unsafe {
             match Self::get_header_by_height(self, height) {
                 Ok(header) => Ok(Some(header.hash)),
-                Err(FlatChainstoreError::NotFound) => Ok(None),
+                Err(FlatChainstoreError::BlockNotFound) => Ok(None),
                 Err(e) => Err(e),
             }
         }
@@ -1310,13 +1371,13 @@ mod tests {
         // Test that the inner header-fetching function returns the proper error for mainnet indices
         unsafe {
             match store.get_block_header_by_index(Index(151)) {
-                Err(FlatChainstoreError::NotFound) => (),
+                Err(FlatChainstoreError::BlockNotFound) => (),
                 Err(e) => panic!("Unexpected err: {e:?}"),
                 Ok(val) => panic!("Should not have found a header at height 151: {val:?}"),
             }
             // Last available position
             match store.get_block_header_by_index(Index(32_767)) {
-                Err(FlatChainstoreError::NotFound) => (),
+                Err(FlatChainstoreError::BlockNotFound) => (),
                 Err(e) => panic!("Unexpected err: {e:?}"),
                 Ok(val) => panic!("Should not have found a header at height 32767: {val:?}"),
             }
@@ -1334,14 +1395,14 @@ mod tests {
         let mut fork_index = Index::new_fork(0).unwrap();
         unsafe {
             match store.get_block_header_by_index(fork_index) {
-                Err(FlatChainstoreError::NotFound) => (),
+                Err(FlatChainstoreError::BlockNotFound) => (),
                 Err(e) => panic!("Unexpected err: {e:?}"),
                 Ok(val) => panic!("Should not have found any fork header: {val:?}"),
             }
             // Last available position
             fork_index.0 += 16_383;
             match store.get_block_header_by_index(fork_index) {
-                Err(FlatChainstoreError::NotFound) => (),
+                Err(FlatChainstoreError::BlockNotFound) => (),
                 Err(e) => panic!("Unexpected err: {e:?}"),
                 Ok(val) => panic!("Should not have found any fork header: {val:?}"),
             }
@@ -1487,12 +1548,29 @@ mod tests {
 
         let mut store = FlatChainStore::new(config).unwrap();
 
+        // save a header for the genesis block
+        let genesis = genesis_block(Network::Regtest);
+        store
+            .save_header(&DiskBlockHeader::FullyValid(genesis.header, 0))
+            .unwrap();
+        store.update_block_index(0, genesis.block_hash()).unwrap();
+
+        store
+            .save_height(&BestChain {
+                best_block: genesis.block_hash(),
+                depth: 0,
+                validation_index: genesis.block_hash(),
+                alternative_tips: vec![],
+                assume_valid_index: 0,
+            })
+            .unwrap();
+
         let acc = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
-        store.save_roots(acc.clone()).unwrap();
+        store.save_roots_for_block(acc.clone(), 10).unwrap();
         store.flush().unwrap();
 
-        let recovered = store.load_roots().unwrap().unwrap();
+        let recovered = store.load_roots_for_block(10).unwrap().unwrap();
 
         assert_eq!(recovered, acc);
 
@@ -1507,8 +1585,8 @@ mod tests {
             path: format!("./tmp-db/{test_id}/"),
         };
 
-        let store = FlatChainStore::new(config).unwrap();
-        let recovered = store.load_roots().unwrap().unwrap();
+        let mut store = FlatChainStore::new(config).unwrap();
+        let recovered = store.load_roots_for_block(10).unwrap().unwrap();
 
         assert_eq!(recovered, acc);
     }

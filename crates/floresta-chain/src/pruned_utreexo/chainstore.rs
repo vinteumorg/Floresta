@@ -173,6 +173,7 @@ pub struct KvChainStore<'a> {
     headers: Bucket<'a, Vec<u8>, Vec<u8>>,
     index: Bucket<'a, Integer, Vec<u8>>,
     meta: Bucket<'a, &'a str, Vec<u8>>,
+    roots: Bucket<'a, &'a str, Vec<u8>>,
     headers_cache: RwLock<HashMap<BlockHash, DiskBlockHeader>>,
     index_cache: RwLock<HashMap<u32, BlockHash>>,
 }
@@ -189,6 +190,7 @@ impl<'a> KvChainStore<'a> {
         Ok(KvChainStore {
             headers: store.bucket(Some("headers"))?,
             index: store.bucket(Some("index"))?,
+            roots: store.bucket(Some("roots"))?,
             meta: store.bucket(None)?,
             _store: store,
             headers_cache: RwLock::new(HashMap::new()),
@@ -200,11 +202,6 @@ impl<'a> KvChainStore<'a> {
 impl ChainStore for KvChainStore<'_> {
     type Error = kv::Error;
 
-    /// Loads the utreexo roots from the metadata bucket.
-    fn load_roots(&self) -> Result<Option<Vec<u8>>, Self::Error> {
-        self.meta.get(&"roots")
-    }
-
     /// For this [ChainStore], since [sled] already checks integrity implicitly, this is a no-op.
     ///
     /// [sled]: https://docs.rs/sled/latest/sled/enum.Error.html#variant.Corruption
@@ -212,9 +209,21 @@ impl ChainStore for KvChainStore<'_> {
         Ok(())
     }
 
-    /// Saves the current utreexo roots to the metadata bucket.
-    fn save_roots(&mut self, roots: Vec<u8>) -> Result<(), Self::Error> {
-        self.meta.set(&"roots", &roots)?;
+    /// Loads the utreexo roots for a given block.
+    fn load_roots_for_block(&mut self, height: u32) -> Result<Option<Vec<u8>>, Self::Error> {
+        let key = format!("roots_{height}");
+        if let Some(roots) = self.roots.get(&key.as_str())? {
+            return Ok(Some(roots));
+        }
+
+        Ok(None)
+    }
+
+    /// Saves the utreexo roots for a given block.
+    fn save_roots_for_block(&mut self, roots: Vec<u8>, height: u32) -> Result<(), Self::Error> {
+        let key = format!("roots_{height}");
+        self.roots.set(&key.as_str(), &roots)?;
+
         Ok(())
     }
 
@@ -275,6 +284,8 @@ impl ChainStore for KvChainStore<'_> {
         self.headers.flush()?;
         // Flush the block index
         self.index.flush()?;
+        // Flush the roots bucket
+        self.roots.flush()?;
         // Flush the default bucket with meta-info
         self.meta.flush()?;
         Ok(())
