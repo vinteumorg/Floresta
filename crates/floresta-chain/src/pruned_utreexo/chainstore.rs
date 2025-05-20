@@ -14,7 +14,7 @@ use spin::RwLock;
 use crate::prelude::*;
 use crate::BlockchainError;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 /// This enum is used to store a block header in the database.
 /// It contains the header along with metadaba about the validation state of the block, and, if applicable, also its height.
 pub enum DiskBlockHeader {
