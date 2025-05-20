@@ -1,3 +1,6 @@
+//! node_interface, which holds [`NodeInterface`] and related methods
+//! that define the API to interact with the floresta node
+
 use std::net::IpAddr;
 use std::time::Instant;
 
@@ -96,9 +99,7 @@ impl NodeInterface {
 
         rx.await
     }
-}
 
-impl NodeInterface {
     /// Connects to a specified address and port.
     ///
     /// This function will return a boolean indicating whether the connection was successful. It
