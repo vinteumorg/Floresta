@@ -78,46 +78,60 @@ fn accept_mainnet_headers_benchmark(c: &mut Criterion) {
         headers.push(header);
     }
 
-    let chain = setup_test_chain(Network::Bitcoin, AssumeValidArg::Hardcoded);
-
     c.bench_function("accept_10k_mainnet_headers", |b| {
-        b.iter(|| {
-            headers
-                .iter()
-                .for_each(|header| chain.accept_header(*header).unwrap())
-        })
+        b.iter_batched(
+            || setup_test_chain(Network::Bitcoin, AssumeValidArg::Hardcoded),
+            |chain| {
+                headers
+                    .iter()
+                    .for_each(|header| chain.accept_header(*header).unwrap())
+            },
+            BatchSize::SmallInput,
+        )
     });
 }
 
 fn accept_headers_benchmark(c: &mut Criterion) {
-    let chain = setup_test_chain(Network::Regtest, AssumeValidArg::Disabled);
     let blocks = read_blocks_txt();
 
     c.bench_function("accept_150_headers", |b| {
-        b.iter(|| {
-            blocks
-                .iter()
-                .for_each(|block| chain.accept_header(block.header).unwrap());
-        })
+        b.iter_batched(
+            || setup_test_chain(Network::Regtest, AssumeValidArg::Disabled),
+            |chain| {
+                blocks
+                    .iter()
+                    .for_each(|block| chain.accept_header(block.header).unwrap());
+            },
+            BatchSize::SmallInput,
+        )
     });
 }
 
 fn connect_blocks_benchmark(c: &mut Criterion) {
-    let chain = setup_test_chain(Network::Regtest, AssumeValidArg::Disabled);
     let blocks = read_blocks_txt();
 
-    blocks
-        .iter()
-        .for_each(|block| chain.accept_header(block.header).unwrap());
+    let setup_test_chain = || {
+        let chain = setup_test_chain(Network::Regtest, AssumeValidArg::Disabled);
+        // We need to accept the headers before connecting blocks
+        blocks
+            .iter()
+            .for_each(|block| chain.accept_header(block.header).unwrap());
+
+        chain
+    };
 
     c.bench_function("connect_150_blocks", |b| {
-        b.iter(|| {
-            blocks.iter().for_each(|block| {
-                chain
-                    .connect_block(block, Proof::default(), HashMap::new(), Vec::new())
-                    .unwrap();
-            })
-        })
+        b.iter_batched(
+            setup_test_chain,
+            |chain| {
+                blocks.iter().for_each(|block| {
+                    chain
+                        .connect_block(block, Proof::default(), HashMap::new(), Vec::new())
+                        .unwrap();
+                })
+            },
+            BatchSize::SmallInput,
+        )
     });
 }
 
