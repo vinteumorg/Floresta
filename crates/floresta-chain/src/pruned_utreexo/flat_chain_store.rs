@@ -165,18 +165,21 @@ impl FlatChainStoreConfig {
     }
 }
 
-/// A bucket in our index map
+/// A bucket in our index map, holding a pointer to the index.
 ///
-/// This enum indicates whether a given bucket is occupied, and if it is,
-/// holds a pointer to the block height stored there.
+/// This enum indicates whether a given bucket is occupied, and if it is, it holds the respective
+/// block header as well.
 pub enum IndexBucket {
     /// This bucket is empty
     ///
     /// If this is a search, this means the entry isn't in the map, and this is where it would be
-    Empty(*mut Index),
+    Empty { ptr: *mut Index },
 
-    /// This bucket is occupied. We can read the value from here
-    Occupied(*mut Index),
+    /// This bucket is occupied. We can read or overwrite the index value from the pointer.
+    Occupied {
+        ptr: *mut Index,
+        header: DiskBlockHeader,
+    },
 }
 
 #[repr(transparent)]
@@ -382,30 +385,30 @@ impl BlockIndex {
         let pos = self.hash_map_find_pos(hash, get_header_by_index)?;
 
         match pos {
-            IndexBucket::Empty(pos) => {
-                pos.write(index);
+            IndexBucket::Empty { ptr } => {
+                ptr.write(index);
                 Ok(true)
             }
 
             // A position may be re-written if we happen to have a reorg.
             // If this is the case, we should update the fork block to make it into the main chain,
             // and mark the old main chain block as a fork.
-            IndexBucket::Occupied(pos) => {
-                pos.write(index);
+            IndexBucket::Occupied { ptr, .. } => {
+                ptr.write(index);
                 Ok(false)
             }
         }
     }
 
-    /// Return the block height of a given block hash
+    /// Returns the block index for a given block hash and its fetched header, if present
     unsafe fn get_index_for_hash(
         &self,
         hash: BlockHash,
         get_header_by_index: impl Fn(Index) -> Result<HashedDiskHeader, FlatChainstoreError>,
-    ) -> Result<Option<Index>, FlatChainstoreError> {
+    ) -> Result<Option<(Index, DiskBlockHeader)>, FlatChainstoreError> {
         match self.hash_map_find_pos(hash, get_header_by_index)? {
-            IndexBucket::Empty(_) => Ok(None),
-            IndexBucket::Occupied(ptr) => Ok(Some(*ptr)),
+            IndexBucket::Empty { .. } => Ok(None),
+            IndexBucket::Occupied { ptr, header } => Ok(Some((*ptr, header))),
         }
     }
 
@@ -433,18 +436,23 @@ impl BlockIndex {
             // Obtain the bucket's address by adding the masked hash to the base pointer
             // SAFETY: the masked hash is lower than the `index_size`
             let entry_ptr = base_ptr.add(hash & mask);
+
+            // If this is the first time we've accessed this pointer, this candidate index is 0
             let candidate_index = *entry_ptr;
 
             // If the header at `candidate_index` matches `block_hash`, this is the target bucket
-            let header = get_header_by_index(candidate_index)?;
-            if header.hash == block_hash {
-                return Ok(IndexBucket::Occupied(entry_ptr));
+            let file_header = get_header_by_index(candidate_index)?;
+            if file_header.hash == block_hash {
+                return Ok(IndexBucket::Occupied {
+                    ptr: entry_ptr,
+                    header: file_header.header,
+                });
             }
 
             // If we find an empty index, this bucket is where the entry would be added
             // Note: The genesis block doesn't reach this point, as its header hash is matched
             if candidate_index.index() == 0 {
-                return Ok(IndexBucket::Empty(entry_ptr));
+                return Ok(IndexBucket::Empty { ptr: entry_ptr });
             }
 
             // If no match and bucket is occupied, continue probing the next bucket
@@ -717,16 +725,15 @@ impl FlatChainStore {
         Ok(MmapOptions::default().len(size).map_mut(&file)?)
     }
 
-    /// Returns a [DiskBlockHeader] given a block height. This height must be less than or equal to
-    /// the total headers inside our storage. It is UB to call this function with a height >
-    /// total_headers
+    /// Returns a [HashedDiskHeader] given a block height. This height must be less than or equal to
+    /// the total headers inside our storage, or we return the `NotFound` error.
     unsafe fn get_header_by_height(
         &self,
         height: u32,
     ) -> Result<HashedDiskHeader, FlatChainstoreError> {
         let header = self.get_disk_header(height, true)?;
 
-        // uninitialized memory means we haven't written anything there yet
+        // Uninitialized memory means we haven't written anything there yet
         if header.hash == BlockHash::all_zeros() {
             return Err(FlatChainstoreError::NotFound);
         }
@@ -779,6 +786,7 @@ impl FlatChainStore {
         Ok(&mut *ptr)
     }
 
+    /// Returns a [HashedDiskHeader] or the `NotFound` error if there's no value at the given index.
     unsafe fn get_block_header_by_index(
         &self,
         index: Index,
@@ -853,12 +861,12 @@ impl FlatChainStore {
         &self,
         hash: BlockHash,
     ) -> Result<Option<DiskBlockHeader>, FlatChainstoreError> {
-        let header = self
+        let result = self
             .block_index
             .get_index_for_hash(hash, |height| self.get_block_header_by_index(height))?
-            .map(|height| self.get_block_header_by_index(height));
+            .map(|idx_and_header| idx_and_header.1);
 
-        Ok(header.transpose()?.map(|x| x.header))
+        Ok(result)
     }
 
     unsafe fn get_metadata(&self) -> Result<&Metadata, FlatChainstoreError> {
@@ -1052,9 +1060,13 @@ impl ChainStore for FlatChainStore {
     }
 
     fn get_block_hash(&self, height: u32) -> Result<Option<BlockHash>, Self::Error> {
-        let header = unsafe { Self::get_header_by_height(self, height)? };
-
-        Ok(Some(header.hash))
+        unsafe {
+            match Self::get_header_by_height(self, height) {
+                Ok(header) => Ok(Some(header.hash)),
+                Err(FlatChainstoreError::NotFound) => Ok(None),
+                Err(e) => Err(e),
+            }
+        }
     }
 
     fn update_block_index(&self, height: u32, hash: BlockHash) -> Result<(), Self::Error> {
@@ -1066,15 +1078,18 @@ impl ChainStore for FlatChainStore {
 
 #[cfg(test)]
 mod tests {
-
     use bitcoin::block::Header;
     use bitcoin::consensus::deserialize;
     use bitcoin::consensus::Decodable;
     use bitcoin::constants::genesis_block;
+    use bitcoin::hashes::Hash;
     use bitcoin::Block;
+    use bitcoin::BlockHash;
     use bitcoin::Network;
 
     use super::FlatChainStore;
+    use super::FlatChainstoreError;
+    use super::Index;
     use crate::pruned_utreexo::ChainStore;
     use crate::pruned_utreexo::UpdatableChainstate;
     use crate::AssumeValidArg;
@@ -1084,36 +1099,29 @@ mod tests {
 
     #[test]
     fn test_truncate_pow2() {
-        assert_eq!(super::FlatChainStore::truncate_to_pow2(1), 1);
-        assert_eq!(super::FlatChainStore::truncate_to_pow2(2), 2);
-        assert_eq!(super::FlatChainStore::truncate_to_pow2(3), 4);
-        assert_eq!(super::FlatChainStore::truncate_to_pow2(4), 4);
-        assert_eq!(super::FlatChainStore::truncate_to_pow2(5), 8);
-        assert_eq!(super::FlatChainStore::truncate_to_pow2(1023), 1024);
-        assert_eq!(super::FlatChainStore::truncate_to_pow2(1024), 1024);
-        assert_eq!(super::FlatChainStore::truncate_to_pow2(1025), 2048);
+        assert_eq!(FlatChainStore::truncate_to_pow2(1), 1);
+        assert_eq!(FlatChainStore::truncate_to_pow2(2), 2);
+        assert_eq!(FlatChainStore::truncate_to_pow2(3), 4);
+        assert_eq!(FlatChainStore::truncate_to_pow2(4), 4);
+        assert_eq!(FlatChainStore::truncate_to_pow2(5), 8);
+        assert_eq!(FlatChainStore::truncate_to_pow2(1023), 1024);
+        assert_eq!(FlatChainStore::truncate_to_pow2(1024), 1024);
+        assert_eq!(FlatChainStore::truncate_to_pow2(1025), 2048);
+        assert_eq!(FlatChainStore::truncate_to_pow2(10_000), 16_384);
+        assert_eq!(FlatChainStore::truncate_to_pow2(1_000_000), 1_048_576);
+        assert_eq!(FlatChainStore::truncate_to_pow2(1_048_576), 1_048_576);
+        assert_eq!(FlatChainStore::truncate_to_pow2(1_048_577), 2_097_152);
+        assert_eq!(FlatChainStore::truncate_to_pow2(10_000_000), 16_777_216);
         assert_eq!(
-            super::FlatChainStore::truncate_to_pow2(1_000_000),
-            1_048_576
-        );
-        assert_eq!(
-            super::FlatChainStore::truncate_to_pow2(1_048_576),
-            1_048_576
-        );
-        assert_eq!(
-            super::FlatChainStore::truncate_to_pow2(1_048_577),
-            2_097_152
-        );
-        assert_eq!(
-            super::FlatChainStore::truncate_to_pow2(1_000_000_000),
+            FlatChainStore::truncate_to_pow2(1_000_000_000),
             1_073_741_824
         );
         assert_eq!(
-            super::FlatChainStore::truncate_to_pow2(1_073_741_824),
+            FlatChainStore::truncate_to_pow2(1_073_741_824),
             1_073_741_824
         );
         assert_eq!(
-            super::FlatChainStore::truncate_to_pow2(1_073_741_825),
+            FlatChainStore::truncate_to_pow2(1_073_741_825),
             2_147_483_648
         );
     }
@@ -1123,7 +1131,7 @@ mod tests {
         let config = super::FlatChainStoreConfig {
             block_index_size: Some(32_768),
             headers_file_size: Some(32_768),
-            fork_file_size: Some(10_000),
+            fork_file_size: Some(10_000), // Will be rounded up to 16,384
             cache_size: Some(10),
             file_permission: Some(0o660),
             path: format!("./tmp-db/{test_id}/"),
@@ -1148,7 +1156,7 @@ mod tests {
     }
 
     #[test]
-    fn test_save_headers() {
+    fn test_save_and_retrieve_headers() {
         let store = get_test_chainstore();
         let blocks = include_str!("../../testdata/blocks.txt");
 
@@ -1159,6 +1167,98 @@ mod tests {
             store
                 .save_header(&DiskBlockHeader::FullyValid(block.header, i as u32))
                 .unwrap();
+            // Map hashes to block indices such that we can later fetch headers from hashes
+            // (hash -> index -> header)
+            store
+                .update_block_index(i as u32, block.block_hash())
+                .unwrap();
+        }
+
+        for i in 0..151 {
+            // Gets the hash by fetching the hashed header
+            let hash = store.get_block_hash(i).unwrap().unwrap();
+            // Gets the header via the LRU cache, or else via hash -> index -> header
+            let header = store.get_header(&hash).unwrap().unwrap();
+            // Gets the header via hash -> index -> header
+            let header_not_cached = unsafe { store.get_header_by_hash(hash).unwrap().unwrap() };
+            assert_eq!(header, header_not_cached);
+            assert_eq!(
+                header.block_hash(),
+                hash,
+                "Returned header matches the hash"
+            );
+            assert_eq!(
+                i,
+                header.try_height().unwrap(),
+                "Returned header has the correct height"
+            );
+
+            if i == 0 {
+                // Must be the regtest genesis header
+                let regtest_genesis = genesis_block(Network::Regtest);
+                assert_eq!(regtest_genesis.block_hash(), hash);
+                assert_eq!(regtest_genesis.header, *header);
+            }
+        }
+        match store.get_block_hash(151).unwrap() {
+            None => (),
+            Some(hash) => panic!("Should not have found a block at height 151, hash: {hash}"),
+        }
+        match store.get_header(&BlockHash::all_zeros()).unwrap() {
+            None => (),
+            Some(header) => {
+                panic!("Should not have found a header with hash all_zeros: {header:?}")
+            }
+        }
+
+        // Test that the inner header-fetching function returns the proper error for mainnet indices
+        unsafe {
+            match store.get_block_header_by_index(Index(151)) {
+                Err(FlatChainstoreError::NotFound) => (),
+                Err(e) => panic!("Unexpected err: {e:?}"),
+                Ok(val) => panic!("Should not have found a header at height 151: {val:?}"),
+            }
+            // Last available position
+            match store.get_block_header_by_index(Index(32_767)) {
+                Err(FlatChainstoreError::NotFound) => (),
+                Err(e) => panic!("Unexpected err: {e:?}"),
+                Ok(val) => panic!("Should not have found a header at height 32767: {val:?}"),
+            }
+            // Exceeds header file capacity
+            match store.get_block_header_by_index(Index(32_768)) {
+                Err(FlatChainstoreError::IndexIsFull) => (),
+                Err(e) => panic!("Unexpected err: {e:?}"),
+                Ok(val) => {
+                    panic!("Should not have found a header exceeding file capacity: {val:?}")
+                }
+            }
+        }
+
+        // Test that the inner header-fetching function returns the proper error for fork indices
+        let mut fork_index = Index::new(0);
+        fork_index.set_fork();
+        unsafe {
+            match store.get_block_header_by_index(fork_index) {
+                Err(FlatChainstoreError::NotFound) => (),
+                Err(e) => panic!("Unexpected err: {e:?}"),
+                Ok(val) => panic!("Should not have found any fork header: {val:?}"),
+            }
+            // Last available position
+            fork_index.0 += 16_383;
+            match store.get_block_header_by_index(fork_index) {
+                Err(FlatChainstoreError::NotFound) => (),
+                Err(e) => panic!("Unexpected err: {e:?}"),
+                Ok(val) => panic!("Should not have found any fork header: {val:?}"),
+            }
+            // Exceeds fork file capacity
+            fork_index.0 += 1;
+            match store.get_block_header_by_index(fork_index) {
+                Err(FlatChainstoreError::IndexIsFull) => (),
+                Err(e) => panic!("Unexpected err: {e:?}"),
+                Ok(val) => {
+                    panic!("Should not have found a header exceeding file capacity: {val:?}")
+                }
+            }
         }
     }
 
@@ -1168,9 +1268,9 @@ mod tests {
         let height = BestChain {
             alternative_tips: Vec::new(),
             assume_valid_index: 0,
-            validation_index: genesis_block(bitcoin::Network::Signet).block_hash(),
+            validation_index: genesis_block(Network::Signet).block_hash(),
             depth: 1,
-            best_block: genesis_block(bitcoin::Network::Signet).block_hash(),
+            best_block: genesis_block(Network::Signet).block_hash(),
         };
 
         store.save_height(&height).unwrap();
@@ -1200,10 +1300,9 @@ mod tests {
         }
 
         for hash in hashes {
-            if hash == genesis_block(bitcoin::Network::Regtest).block_hash() {
+            if hash == genesis_block(Network::Regtest).block_hash() {
                 continue;
             }
-
             let header = store.get_header(&hash).unwrap().unwrap();
 
             assert_eq!(header.block_hash(), hash);
