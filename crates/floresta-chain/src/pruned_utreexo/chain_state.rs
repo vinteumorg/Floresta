@@ -775,7 +775,23 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
 
             return params.params.max_attainable_target;
         }
+
         last_block.target()
+    }
+
+    fn check_bip94_block(&self, block: &Block, height: u32) -> Result<(), BlockchainError> {
+        let params = self.chain_params();
+        if !params.enforce_bip94 {
+            return Ok(());
+        }
+
+        if height % params.params.miner_confirmation_window != 0 {
+            return Ok(());
+        }
+
+        let prev_block = self.get_block_header_by_height(height - 1);
+
+        Ok(Consensus::check_bip94_time(&block.header, &prev_block)?)
     }
 
     pub fn get_bip34_height(&self, block: &Block) -> Option<u32> {
@@ -830,6 +846,8 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         if block.weight().to_wu() > 4_000_000 {
             return Err(BlockValidationErrors::BlockTooBig)?;
         }
+
+        self.check_bip94_block(block, height)?;
 
         // Validate block transactions
         let subsidy = read_lock!(self).consensus.get_subsidy(height);

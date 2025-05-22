@@ -266,6 +266,7 @@ where
                         | BlockValidationErrors::EmptyBlock
                         | BlockValidationErrors::BlockExtendsAnOrphanChain
                         | BlockValidationErrors::BadBip34
+                        | BlockValidationErrors::BIP94TimeWarp
                         | BlockValidationErrors::UnspendableUTXO
                         | BlockValidationErrors::CoinbaseNotMatured => {
                             self.send_to_peer(peer, NodeRequest::Shutdown).await?;
