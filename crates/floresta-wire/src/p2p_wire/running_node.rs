@@ -657,7 +657,6 @@ where
                         | BlockValidationErrors::FirstTxIsNotCoinbase
                         | BlockValidationErrors::BadCoinbaseOutValue
                         | BlockValidationErrors::EmptyBlock
-                        | BlockValidationErrors::BlockExtendsAnOrphanChain
                         | BlockValidationErrors::BadBip34
                         | BlockValidationErrors::UnspendableUTXO
                         | BlockValidationErrors::CoinbaseNotMatured => {
@@ -665,6 +664,13 @@ where
                             try_and_log!(self.chain.invalidate_block(block.block.block_hash()));
                         }
                         BlockValidationErrors::InvalidProof => {}
+                        BlockValidationErrors::BlockDoesntExtendTip
+                        | BlockValidationErrors::BlockExtendsAnOrphanChain => {
+                            // We've requested a block that doesn't extend our tip, so we should
+                            // check force our node to download the correct block.
+                            self.last_block_request = self.chain.get_validation_index()?;
+                            self.ask_missed_block().await?;
+                        }
                     }
                 }
 

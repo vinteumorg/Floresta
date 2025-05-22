@@ -179,6 +179,13 @@ where
                 if self.inflight.len() > 10 {
                     continue;
                 }
+
+                // don't ask for blocks if we already have a lot of them in memory.
+                // If we don't limit it, we may end up using all the available memory
+                if self.blocks.len() > 10 {
+                    continue;
+                }
+
                 self.get_blocks_to_download().await;
             }
         }
@@ -264,7 +271,6 @@ where
                         | BlockValidationErrors::FirstTxIsNotCoinbase
                         | BlockValidationErrors::BadCoinbaseOutValue
                         | BlockValidationErrors::EmptyBlock
-                        | BlockValidationErrors::BlockExtendsAnOrphanChain
                         | BlockValidationErrors::BadBip34
                         | BlockValidationErrors::UnspendableUTXO
                         | BlockValidationErrors::CoinbaseNotMatured => {
@@ -272,6 +278,14 @@ where
                             try_and_log!(self.chain.invalidate_block(block.block.block_hash()));
                         }
                         BlockValidationErrors::InvalidProof => {}
+                        BlockValidationErrors::BlockExtendsAnOrphanChain
+                        | BlockValidationErrors::BlockDoesntExtendTip => {
+                            // We've requested and processed a block that's not the next one in our
+                            // chain. Force our last block requested to be the correct block, and
+                            // keep going.
+                            self.context.last_block_requested =
+                                self.chain.get_validation_index()?;
+                        }
                     }
                 }
 
@@ -311,6 +325,10 @@ where
 
         if self.inflight.len() < 4 {
             if *self.kill_signal.read().await {
+                return Ok(());
+            }
+
+            if self.blocks.len() > 10 {
                 return Ok(());
             }
 
