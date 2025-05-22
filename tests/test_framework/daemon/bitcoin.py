@@ -1,0 +1,150 @@
+"""
+test_framework.daemon.bitcoin.py
+
+A test framework for testing bitcoind daemon in regtest mode.
+"""
+
+from typing import List
+
+from test_framework.daemon.base import BaseDaemon
+
+
+class BitcoinDaemon(BaseDaemon):
+    """
+    Spawn a new Bitcoind process on background and run it on
+    regtest mode for tests.
+    """
+
+    def create(self, target: str):
+        """
+        Create a new instance of Florestad.
+        Args:
+            target: The path to the executable.
+        """
+        self.name = "bitcoind"
+        self.target = target
+
+    def valid_daemon_args(self) -> List[str]:
+        return [
+            "-allowignoredconf",
+            "-assumevalid",
+            "-blockfilterindex",
+            "-blocknotify",
+            "-blockreconstructionextratxn",
+            "-blocksdir",
+            "-blocksonly",
+            "-blocksxor",
+            "-coinstatsindex",
+            "-datadir",
+            "-dbcache",
+            "-debuglogfile",
+            "-includeconf",
+            "-loadblock",
+            "-maxmempool",
+            "-maxorphantx",
+            "-mempoolexpiry",
+            "-par",
+            "-persistmempool",
+            "-persistmempoolv1",
+            "-prune",
+            "-reindex",
+            "-chainstate",
+            "-settings",
+            "-shutdownnotify",
+            "-startupnotify",
+            "-txindex",
+            "-version",
+            "-addnode",
+            "-asmap",
+            "-bantime",
+            "-bind",
+            "-cjdnsreachable",
+            "-connect",
+            "-discover",
+            "-dns",
+            "-dnsseed",
+            "-externalip",
+            "-fixedseeds",
+            "-forcednsseed",
+            "-maxconnections",
+            "-maxreceivebuffer",
+            "-maxsendbuffer",
+            "-maxuploadtarget",
+            "-natpmp",
+            "-networkactive",
+            "-peerblockfilters",
+            "-peerbloomfilters",
+            "-port",
+            "-proxyrandomize",
+            "-seednode",
+            "-timeout",
+            "-v2transport",
+            "-whitebind",
+            "-whitelist",
+            "-addresstype",
+            "-avoidpartialspends",
+            "-changetype",
+            "-consolidatefeerate",
+            "-disablewallet",
+            "-discardfee",
+            "-fallbackfee",
+            "-keypool",
+            "-maxapsfee",
+            "-mintxfee",
+            "-paytxfee",
+            "-signer",
+            "-spendzeroconfchange",
+            "-txconfirmtarget",
+            "-wallet",
+            "-walletbroadcast",
+            "-walletdir",
+            "-walletnotify",
+            "-walletrbf",
+            "-zmqpubhashblock",
+            "-zmqpubhashblockhwm",
+            "-zmqpubhashtx",
+            "-zmqpubhashtxhwm",
+            "-zmqpubrawblock",
+            "-zmqpubrawblockhwm",
+            "-zmqpubrawtx",
+            "-zmqpubrawtxhwm",
+            "-zmqpubsequence",
+            "-zmqpubsequencehwm",
+            "-debug",
+            "-debugexclude",
+            "-help",
+            "-debug",
+            "-logips",
+            "-loglevelalways",
+            "-logsourcelocations",
+            "-logthreadnames",
+            "-logtimestamps",
+            "-maxtxfee",
+            "-printtoconsole",
+            "-shrinkdebugfile",
+            "-uacomment",
+            "-chain",
+            "-bytespersigop",
+            "-datacarrier",
+            "-datacarriersize",
+            "-minrelaytxfee",
+            "-permitbaremultisig",
+            "-whitelistforcerelay",
+            "-whitelistrelay",
+            "-blockmaxweight",
+            "-blockmintxfee",
+            "-blockreservedweight",
+            "-rest",
+            "-rpcallowip",
+            "-rpcauth",
+            "-rpcbind",
+            "-rpccookiefile",
+            "-rpccookieperms",
+            "-rpcpassword",
+            "-rpcport",
+            "-rpcthreads",
+            "-rpcuser",
+            "-rpcwhitelist",
+            "-rpcwhitelistdefault",
+            "-server",
+        ]

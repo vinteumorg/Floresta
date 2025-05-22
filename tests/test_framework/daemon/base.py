@@ -139,8 +139,8 @@ class BaseDaemon(metaclass=BaseDaemonMetaClass):
     @name.setter
     def name(self, value: str):
         """Setter for `name` property"""
-        if value not in ("florestad", "utreexod"):
-            raise ValueError("name should be 'floresta' or 'utreexod'")
+        if value not in ("florestad", "utreexod", "bitcoind"):
+            raise ValueError("name should be 'floresta', 'utreexod' or 'bitcoind'")
         self._name = value
 
     @property
@@ -189,7 +189,16 @@ class BaseDaemon(metaclass=BaseDaemonMetaClass):
             )
 
         elif self.name == "florestad":
-            cmd.extend(["--daemon", "--network=regtest"])
+            cmd.extend(["--network=regtest"])
+
+        elif self.name == "bitcoind":
+            cmd.extend(
+                [
+                    "-chain=regtest",
+                    "-rpcuser=bitcoin",
+                    "-rpcpassword=bitcoin",
+                ]
+            )
 
         if len(self._settings) >= 1:
             cmd.extend(self._settings)
@@ -203,17 +212,17 @@ class BaseDaemon(metaclass=BaseDaemonMetaClass):
         Add node settings to the list of settings.
 
         settings are the CLI arguments to be passed to the node and
-        are based on the VALID_UTREEXOD_EXTRA_ARGS.
+        are based on the `valid_deamon_args` method.
 
         Not all possible arguments are valid for tests
-        (for example, "--version",
+        (for example, "--version" or "--help" are not valid).
         """
 
         if len(settings) >= 1:
             for extra in settings:
                 option = extra.split("=") if "=" in extra else extra.split(" ")
                 if option[0] in self.valid_daemon_args():
-                    self.settings.extend(option)
+                    self.settings.append(extra)
                 else:
                     raise ValueError(f"Invalid extra_arg '{option}'")
 
