@@ -382,10 +382,11 @@ where
         user_req: UserRequest,
         responder: tokio::sync::oneshot::Sender<NodeResponse>,
     ) {
-        debug!("Performing user request {user_req:?}");
         if self.inflight.len() >= RunningNode::MAX_INFLIGHT_REQUESTS {
             return;
         }
+
+        debug!("Performing user request {user_req:?}");
 
         let req = match user_req {
             UserRequest::Block(block) => NodeRequest::GetBlock((vec![block], false)),

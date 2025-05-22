@@ -457,11 +457,11 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                 let tx_id = get_arg!(request, Txid, 0);
                 let proof = self.address_cache.get_merkle_proof(&tx_id);
                 let height = self.address_cache.get_height(&tx_id);
-                if let Some((proof, position)) = proof {
+                if let Some(proof) = proof {
                     let result = json!({
-                        "merkle": proof,
+                        "merkle": proof.hashes,
                         "block_height": height.unwrap_or(0),
-                        "pos": position
+                        "pos": proof.pos
                     });
                     return json_rpc_res!(request, result);
                 }

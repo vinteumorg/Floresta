@@ -11,6 +11,7 @@
 #[cfg(feature = "with-jsonrpc")]
 pub mod jsonrpc_client;
 
+pub mod parsers;
 pub mod rpc;
 pub mod rpc_types;
 

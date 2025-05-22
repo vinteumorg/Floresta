@@ -85,6 +85,12 @@ pub struct RpcError {
     pub data: Option<String>,
 }
 
+/// Return type for the `gettxoutproof` rpc command, the internal is
+/// just the hex representation of the Merkle Block, which was defined
+/// by btc core.
+#[derive(Debug, Deserialize, Serialize)]
+pub struct GetTxOutProof(pub Vec<u8>);
+
 /// A full bitcoin block, returned by get_block
 #[derive(Debug, Deserialize, Serialize)]
 pub struct GetBlockResVerbose {
@@ -183,6 +189,7 @@ pub enum Error {
     InvalidVout,
     InvalidHeight,
     InvalidHash,
+    InvalidBlockHash,
     InvalidRequest,
     MethodNotFound,
     Decode(String),
@@ -202,6 +209,7 @@ pub enum Error {
 impl Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Error::InvalidBlockHash => write!(f, "Provided a invalid BlockHash"),
             Error::InvalidRequest => write!(f, "Invalid request"),
             Error::InvalidHeight => write!(f, "Invalid height"),
             Error::InvalidHash =>  write!(f, "Invalid hash"),

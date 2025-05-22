@@ -7,7 +7,6 @@ use bitcoin::ScriptBuf;
 use floresta_chain::BlockConsumer;
 use floresta_common::get_spk_hash;
 use floresta_common::parse_descriptors;
-use floresta_common::prelude::ToString;
 
 pub mod kv_database;
 #[cfg(any(test, feature = "memory-database"))]
@@ -293,17 +292,15 @@ impl<D: AddressCacheDatabase> AddressCacheInner<D> {
         Some(transactions)
     }
 
-    /// Returns the Merkle Proof for a given address
-    fn get_merkle_proof(&self, txid: &Txid) -> Option<(Vec<String>, u32)> {
-        let mut hashes = Vec::new();
-        let tx = self.get_transaction(txid)?;
+    /// Get [Merkle Proof]
+    ///
+    /// Returns none if a given Txid is an unconfirmed transaction or unrelated with your wallet, defined by the xpubs, descriptors and addresses in your `config.toml`.
+    ///
+    /// [Merkle Proof]: https://developer.bitcoin.org/devguide/block_chain.html#merkle-trees
+    fn get_merkle_proof(&self, txid: &Txid) -> Option<MerkleProof> {
         // If a given transaction is cached, but the merkle tree doesn't exist, that means
         // it is an unconfirmed transaction.
-        tx.merkle_block.as_ref()?;
-        for hash in tx.merkle_block?.hashes() {
-            hashes.push(hash.to_string());
-        }
-        Some((hashes, tx.position))
+        self.get_transaction(txid)?.clone().merkle_block
     }
 
     /// Adds a new address to track, should be called at wallet setup and every once in a while
@@ -667,7 +664,10 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
         inner.get_address_history(script_hash)
     }
 
-    pub fn get_merkle_proof(&self, txid: &Txid) -> Option<(Vec<String>, u32)> {
+    /// Returns the Merkle Proof for a given txid.
+    ///
+    /// Fails if a given Txid is an unconfirmed transaction.
+    pub fn get_merkle_proof(&self, txid: &Txid) -> Option<MerkleProof> {
         let inner = self.inner.read().expect("poisoned lock");
         inner.get_merkle_proof(txid)
     }
@@ -864,7 +864,9 @@ mod test {
         let expected_hashes = Vec::from([String::from(
             "e7d6e69230db7dd074cc2610c32be013468f1c224172b347eccdef98f36e0834",
         )]);
-        assert_eq!(cached_merkle_block, (expected_hashes, 1));
+
+        assert_eq!(cached_merkle_block.pos, 1u64);
+        assert_eq!(cached_merkle_block.to_string_array(), expected_hashes);
 
         // TESTS FOR SMALL, HELPER FUNCTIONS
 
@@ -940,7 +942,9 @@ mod test {
         let expected_hashes = Vec::from([String::from(
             "e7d6e69230db7dd074cc2610c32be013468f1c224172b347eccdef98f36e0834",
         )]);
-        assert_eq!(cached_merkle_block, (expected_hashes, 1));
+
+        assert_eq!(cached_merkle_block.pos, 1u64);
+        assert_eq!(cached_merkle_block.to_string_array(), expected_hashes);
 
         // TESTS FOR SMALL HELPER FUNCTIONS
 
