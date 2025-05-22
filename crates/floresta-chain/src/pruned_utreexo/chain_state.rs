@@ -645,10 +645,23 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         Ok(chainstate)
     }
 
+    /// Checks whether our database got a file-level corruption, and if so, reindex.
+    ///
+    /// This protects us from fs corruption, like random bit-flips or power loss.
+    fn check_db_integrity(&self) {
+        let inner = read_lock!(self);
+        if inner.chainstore.check_integrity().is_err() {
+            warn!("We had a data corruption in our database, reindexing");
+            self.reindex_chain();
+        }
+    }
+
     fn check_chain_integrity(&self) {
         let (best_height, best_hash) = self
             .get_best_block()
             .expect("infallible: in-memory BestChain is initialized");
+
+        self.check_db_integrity();
 
         // make sure our index is right for the latest block
         let best_disk_height = self
