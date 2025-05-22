@@ -7,7 +7,6 @@ use bitcoin::p2p::message_blockdata::Inventory;
 use bitcoin::p2p::ServiceFlags;
 use floresta_chain::pruned_utreexo::udata;
 use floresta_chain::pruned_utreexo::BlockchainInterface;
-use floresta_chain::pruned_utreexo::UpdatableChainstate;
 use floresta_chain::BlockValidationErrors;
 use floresta_chain::BlockchainError;
 use floresta_chain::UtreexoBlock;
@@ -61,9 +60,9 @@ impl NodeContext for SyncNode {
 /// See [node](crates/floresta-wire/src/p2p_wire/node.rs) for more information.
 impl<Chain> UtreexoNode<Chain, SyncNode>
 where
-    Chain: BlockchainInterface + UpdatableChainstate + 'static + Send + Sync,
-    WireError: From<Chain::Error>,
-    Chain::Error: From<udata::proof_util::Error>,
+    Chain: floresta_chain::SharedChain,
+    WireError: From<<Chain as BlockchainInterface>::Error>,
+    <Chain as BlockchainInterface>::Error: From<udata::proof_util::Error>,
 {
     /// Checks if we have the next 10 missing blocks until the tip, and request missing ones for a peer.
     async fn get_blocks_to_download(&mut self) {
