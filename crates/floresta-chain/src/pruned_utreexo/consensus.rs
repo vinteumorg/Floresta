@@ -273,17 +273,40 @@ impl Consensus {
         Ok(())
     }
 
+    /// Checks if a testnet4 block is compliant with the anti-timewarp rules of BIP94.
+    ///
+    /// a. The block's nTime field MUST be greater than or equal to the nTime
+    /// field of the immediately prior block minus 600 seconds
+    pub fn check_bip94_time(
+        block: &BlockHeader,
+        prev_block: &BlockHeader,
+    ) -> Result<(), BlockValidationErrors> {
+        if block.time < (prev_block.time - 600) {
+            return Err(BlockValidationErrors::BIP94TimeWarp);
+        }
+
+        Ok(())
+    }
+
     /// Calculates the next target for the proof of work algorithm, given the
-    /// current target and the time it took to mine the last 2016 blocks.
+    /// first and last block headers inside a difficulty adjustment period.
     pub fn calc_next_work_required(
         last_block: &BlockHeader,
         first_block: &BlockHeader,
         params: ChainParams,
     ) -> Target {
         let actual_timespan = last_block.time - first_block.time;
+        // from bip 94:
+        //  a. The base difficulty value MUST be taken from the first block of the previous
+        //     difficulty period
+        //
+        //  b. NOT from the last block as in previous implementations
+        let bits = match params.enforce_bip94 {
+            true => first_block.bits,
+            false => last_block.bits,
+        };
 
-        CompactTarget::from_next_work_required(first_block.bits, actual_timespan as u64, params)
-            .into()
+        CompactTarget::from_next_work_required(bits, actual_timespan as u64, params).into()
     }
 
     /// Updates our accumulator with the new block. This is done by calculating the new
