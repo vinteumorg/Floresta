@@ -22,8 +22,7 @@ use bitcoin::ScriptBuf;
 use bitcoin::TxIn;
 use bitcoin::TxOut;
 use bitcoin::Txid;
-use floresta_chain::pruned_utreexo::BlockchainInterface;
-use floresta_chain::pruned_utreexo::UpdatableChainstate;
+use floresta_chain::ThreadSafeChain;
 use floresta_common::parse_descriptors;
 use floresta_compact_filters::flat_filters_store::FlatFiltersStore;
 use floresta_compact_filters::network_filters::NetworkFilters;
@@ -58,15 +57,9 @@ pub(super) struct InflightRpc {
 ///
 /// Instead of using this very complext trait bound declaration on every impl block
 /// and function, this trait makes sure everything we need is implemented.
-pub trait RpcChain:
-    BlockchainInterface + UpdatableChainstate + Send + Sync + Clone + 'static
-{
-}
+pub trait RpcChain: ThreadSafeChain + Clone {}
 
-impl<T> RpcChain for T where
-    T: BlockchainInterface + UpdatableChainstate + Send + Sync + Clone + 'static
-{
-}
+impl<T> RpcChain for T where T: ThreadSafeChain + Clone {}
 
 pub struct RpcImpl<Blockchain: RpcChain> {
     pub(super) block_filter_storage: Option<Arc<NetworkFilters<FlatFiltersStore>>>,
