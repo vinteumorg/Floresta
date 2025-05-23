@@ -3,6 +3,9 @@ use std::fmt::Debug;
 use bitcoin::block::Header as BlockHeader;
 use bitcoin::BlockHash;
 use bitcoin::Txid;
+use floresta_common::desc_types::DeleteDescriptorRes;
+use floresta_common::desc_types::DescriptorId;
+use floresta_common::desc_types::DescriptorRequest;
 use serde_json::Number;
 use serde_json::Value;
 
@@ -49,14 +52,14 @@ pub trait FlorestaRPC {
     /// This method returns the Merkle proof, showing that a transaction was included in a block.
     /// The pooof is returned as a vector hexadecimal string.
     fn get_txout_proof(&self, txids: Vec<Txid>, blockhash: Option<BlockHash>) -> Option<String>;
-    /// Loads up a descriptor into the wallet
+    /// Import descriptors into the watch only wallet from descriptors requests.
     ///
     /// This method loads up a descriptor into the wallet. If the rescan option is not None,
     /// the wallet will be rescanned for transactions matching the descriptor. If you have
     /// compact block filters enabled, this process will be much faster and use less bandwidth.
     /// The rescan parameter is the height at which to start the rescan, and should be at least
     /// as old as the oldest transaction this descriptor could have been used in.
-    fn load_descriptor(&self, descriptor: String) -> Result<bool>;
+    fn import_descriptors(&self, requests: Vec<DescriptorRequest>) -> Result<bool>;
     /// Trigger a rescan of the wallet
     ///
     /// This method triggers a rescan of the wallet. If you have compact block filters enabled,
@@ -125,6 +128,14 @@ pub trait FlorestaRPC {
     fn uptime(&self) -> Result<u32>;
     /// Returns a list of all descriptors currently loaded in the wallet
     fn list_descriptors(&self) -> Result<Vec<String>>;
+
+    /// todo: explain what this shit does.
+    fn delete_descriptors(
+        &self,
+        id: Vec<DescriptorId>,
+        pull: bool,
+        strict: bool,
+    ) -> Result<DeleteDescriptorRes>;
 }
 
 /// Since the workflow for jsonrpc is the same for all methods, we can implement a trait
@@ -269,8 +280,8 @@ impl<T: JsonRPCClient> FlorestaRPC for T {
         )
     }
 
-    fn load_descriptor(&self, descriptor: String) -> Result<bool> {
-        self.call("loaddescriptor", &[Value::String(descriptor)])
+    fn import_descriptors(&self, requests: Vec<DescriptorRequest>) -> Result<bool> {
+        self.call("importdescriptors", &[serde_json::to_value(requests)?])
     }
 
     fn get_block_filter(&self, height: u32) -> Result<String> {
@@ -291,5 +302,21 @@ impl<T: JsonRPCClient> FlorestaRPC for T {
 
     fn list_descriptors(&self) -> Result<Vec<String>> {
         self.call("listdescriptors", &[])
+    }
+
+    fn delete_descriptors(
+        &self,
+        ids: Vec<DescriptorId>,
+        pull: bool,
+        strict: bool,
+    ) -> Result<DeleteDescriptorRes> {
+        self.call(
+            "delete_descriptors",
+            &[
+                serde_json::to_value(ids)?,
+                Value::Bool(pull),
+                Value::Bool(strict),
+            ],
+        )
     }
 }

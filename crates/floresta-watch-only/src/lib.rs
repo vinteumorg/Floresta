@@ -5,8 +5,12 @@ use core::fmt::Debug;
 use bitcoin::hashes::sha256;
 use bitcoin::ScriptBuf;
 use floresta_chain::BlockConsumer;
+use floresta_chain::DatabaseError;
+use floresta_common::desc_types::BlownDescriptor;
+use floresta_common::desc_types::DescriptorError;
+use floresta_common::desc_types::DescriptorId;
+use floresta_common::desc_types::DescriptorRequest;
 use floresta_common::get_spk_hash;
-use floresta_common::parse_descriptors;
 
 pub mod kv_database;
 #[cfg(any(test, feature = "memory-database"))]
@@ -23,20 +27,42 @@ use bitcoin::Block;
 use bitcoin::OutPoint;
 use bitcoin::Transaction;
 use bitcoin::TxOut;
+use floresta_common::impl_error_from;
 use floresta_common::prelude::*;
+use kv_database::KvDatabaseError;
+use memory_database::MemoryDatabaseError;
 use merkle::MerkleProof;
 use serde::Deserialize;
 use serde::Serialize;
 use sync::RwLock;
 
+use crate::kv_database::KvDatabase;
+use crate::memory_database::MemoryDatabase;
+
 #[derive(Debug)]
-pub enum WatchOnlyError<DatabaseError: fmt::Debug> {
+pub enum WatchOnlyError {
     WalletNotInitialized,
     TransactionNotFound,
-    DatabaseError(DatabaseError),
+    MemoryDatabaseError(MemoryDatabaseError),
+    KvDatabaseError(KvDatabaseError),
+    DatabaseError(Box<dyn DatabaseError>),
+    DescriptorError(DescriptorError),
 }
 
-impl<DatabaseError: fmt::Debug> Display for WatchOnlyError<DatabaseError> {
+impl_error_from!(WatchOnlyError, DescriptorError, DescriptorError);
+impl_error_from!(WatchOnlyError, Box<dyn DatabaseError>, DatabaseError);
+impl_error_from!(
+    WatchOnlyError,
+    <MemoryDatabase as AddressCacheDatabase>::Error,
+    MemoryDatabaseError
+);
+impl_error_from!(
+    WatchOnlyError,
+    <KvDatabase as AddressCacheDatabase>::Error,
+    KvDatabaseError
+);
+
+impl Display for WatchOnlyError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             WatchOnlyError::WalletNotInitialized => {
@@ -48,17 +74,18 @@ impl<DatabaseError: fmt::Debug> Display for WatchOnlyError<DatabaseError> {
             WatchOnlyError::DatabaseError(e) => {
                 write!(f, "Database error: {e:?}")
             }
+            WatchOnlyError::DescriptorError(e) => {
+                write!(f, "Descriptor error: {e:?}")
+            }
+            WatchOnlyError::MemoryDatabaseError(e) => {
+                write!(f, "MDb ${e:?}")
+            }
+            WatchOnlyError::KvDatabaseError(e) => {
+                write!(f, "KvDb Error ${e:?}")
+            }
         }
     }
 }
-
-impl<DatabaseError: fmt::Debug> From<DatabaseError> for WatchOnlyError<DatabaseError> {
-    fn from(e: DatabaseError) -> Self {
-        WatchOnlyError::DatabaseError(e)
-    }
-}
-
-impl<T: Debug> floresta_common::prelude::Error for WatchOnlyError<T> {}
 
 /// Every address contains zero or more associated transactions, this struct defines what
 /// data we store for those.
@@ -102,7 +129,6 @@ impl Default for CachedTransaction {
         }
     }
 }
-
 /// An address inside our cache, contains all information we need to satisfy electrum's requests
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CachedAddress {
@@ -145,10 +171,27 @@ pub trait AddressCacheDatabase {
     fn get_cache_height(&self) -> Result<u32, Self::Error>;
     /// Saves the height of the last block we filtered
     fn set_cache_height(&self, height: u32) -> Result<(), Self::Error>;
-    /// Saves the descriptor of associated cache
-    fn desc_save(&self, descriptor: &str) -> Result<(), Self::Error>;
-    /// Get associated descriptors
-    fn descs_get(&self) -> Result<Vec<String>, Self::Error>;
+    // Descriptors crud.
+    /// Insert a descriptor into the database
+    fn desc_insert(&self, one: BlownDescriptor) -> Result<(), Self::Error>;
+    /// Batch Insert a descriptor into the database
+    fn desc_insert_batch(&self, batch: Vec<BlownDescriptor>) -> Result<(), Self::Error>;
+    /// Search for a descriptor by a matching [`DescriptorId`]
+    fn desc_get(&self, one: &DescriptorId) -> Result<BlownDescriptor, Self::Error>;
+    /// Bacth search for a descriptor by matching [`DescriptorId`]s.
+    ///
+    /// An empty batch will return everything. Like a "list" function.
+    ///
+    /// The return may not be complete since not founding certain descriptors is not
+    /// an error itself but returning none is.
+    fn desc_get_batch(&self, batch: &[DescriptorId]) -> Result<Vec<BlownDescriptor>, Self::Error>;
+    /// Delete a descriptor from the database by a matching [`DescriptorId`]
+    fn desc_delete(&self, one: &DescriptorId) -> Result<BlownDescriptor, Self::Error>;
+    /// Batch delete descriptors from the database by matching [`DescriptorId`]s
+    fn desc_delete_batch(
+        &self,
+        batch: &[DescriptorId],
+    ) -> Result<Vec<BlownDescriptor>, Self::Error>;
     /// Get a transaction from the database
     fn get_transaction(&self, txid: &Txid) -> Result<CachedTransaction, Self::Error>;
     /// Saves a transaction to the database
@@ -166,11 +209,16 @@ struct AddressCacheInner<D: AddressCacheDatabase> {
     address_map: HashMap<Hash, CachedAddress>,
     /// Holds all scripts we are interested in
     script_set: HashSet<sha256::Hash>,
+    /// Holds all descriptors we are interested in
+    descriptor_set: HashSet<BlownDescriptor>,
     /// Keeps track of all utxos we own, and the script hash they belong to
     utxo_index: HashMap<OutPoint, Hash>,
 }
 
-impl<D: AddressCacheDatabase> AddressCacheInner<D> {
+impl<D: AddressCacheDatabase> AddressCacheInner<D>
+where
+    WatchOnlyError: From<<D as AddressCacheDatabase>::Error>,
+{
     /// Iterates through a block, finds transactions destined to ourselves.
     /// Returns all transactions we found.
     fn block_process(&mut self, block: &Block, height: u32) -> Vec<(Transaction, TxOut)> {
@@ -241,6 +289,7 @@ impl<D: AddressCacheDatabase> AddressCacheInner<D> {
         }
         let mut address_map = HashMap::new();
         let mut script_set = HashSet::new();
+        let mut descriptor_set = HashSet::new();
         let mut utxo_index = HashMap::new();
         for address in scripts {
             for utxo in address.utxos.iter() {
@@ -249,11 +298,18 @@ impl<D: AddressCacheDatabase> AddressCacheInner<D> {
             script_set.insert(address.script_hash);
             address_map.insert(address.script_hash, address);
         }
+        for descriptor in database
+            .desc_get_batch(&[])
+            .expect("Could not load descriptors")
+        {
+            descriptor_set.insert(descriptor);
+        }
 
         AddressCacheInner {
             database,
             address_map,
             script_set,
+            descriptor_set,
             utxo_index,
         }
     }
@@ -325,24 +381,20 @@ impl<D: AddressCacheDatabase> AddressCacheInner<D> {
 
     /// Setup is the first command that should be executed. In a new cache. It sets our wallet's
     /// state, like the height we should start scanning and the wallet's descriptor.
-    fn setup(&self) -> Result<(), WatchOnlyError<D::Error>> {
-        if self.database.descs_get().is_err() {
+    fn setup(&self) -> Result<(), WatchOnlyError> {
+        if self.database.desc_get_batch(&[]).is_err() {
             self.database.set_cache_height(0)?;
         }
         Ok(())
     }
 
-    fn derive_addresses(&mut self) -> Result<(), WatchOnlyError<D::Error>> {
+    fn derive_addresses(&mut self) -> Result<(), WatchOnlyError> {
         let mut stats = self.database.get_stats()?;
-        let descriptors = self.database.descs_get()?;
-        let descriptors = parse_descriptors(&descriptors).expect("We validate those descriptors");
+        let descriptors = self.database.desc_get_batch(&[])?;
         for desc in descriptors {
             let index = stats.derivation_index;
             for idx in index..(index + 100) {
-                let script = desc
-                    .at_derivation_index(idx)
-                    .expect("We validate those descriptors before saving")
-                    .script_pubkey();
+                let script = desc.descriptor.script_pubkey();
                 self.cache_address(script);
             }
         }
@@ -360,7 +412,7 @@ impl<D: AddressCacheDatabase> AddressCacheInner<D> {
         }
     }
 
-    fn find_unconfirmed(&self) -> Result<Vec<Transaction>, WatchOnlyError<D::Error>> {
+    fn find_unconfirmed(&self) -> Result<Vec<Transaction>, WatchOnlyError> {
         let transactions = self.database.list_transactions()?;
         let mut unconfirmed = Vec::new();
 
@@ -549,13 +601,19 @@ pub struct AddressCache<D: AddressCacheDatabase> {
     inner: RwLock<AddressCacheInner<D>>,
 }
 
-impl<D: AddressCacheDatabase + Sync + Send + 'static> BlockConsumer for AddressCache<D> {
+impl<D: AddressCacheDatabase + Sync + Send + 'static> BlockConsumer for AddressCache<D>
+where
+    WatchOnlyError: From<<D as AddressCacheDatabase>::Error>,
+{
     fn consume_block(&self, block: &Block, height: u32) {
         self.block_process(block, height);
     }
 }
 
-impl<D: AddressCacheDatabase> AddressCache<D> {
+impl<D: AddressCacheDatabase> AddressCache<D>
+where
+    WatchOnlyError: From<<D as AddressCacheDatabase>::Error>,
+{
     pub fn new(database: D) -> AddressCache<D> {
         AddressCache {
             inner: RwLock::new(AddressCacheInner::new(database)),
@@ -606,21 +664,15 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
     }
 
     /// Tells whether or not a descriptor is already cached
-    pub fn is_cached(&self, desc: &String) -> Result<bool, WatchOnlyError<D::Error>> {
+    pub fn is_cached(&self, desc: &DescriptorId) -> Result<bool, WatchOnlyError> {
         let inner = self.inner.read().expect("poisoned lock");
-        let known_descs = inner.database.descs_get()?;
-        Ok(known_descs.contains(desc))
+        Ok(inner.database.desc_get(desc).is_ok())
     }
 
     /// Tells whether an address is already cached
     pub fn is_address_cached(&self, script_hash: &Hash) -> bool {
         let inner = self.inner.read().expect("poisoned lock");
         inner.address_map.contains_key(script_hash)
-    }
-
-    pub fn push_descriptor(&self, descriptor: &str) -> Result<(), WatchOnlyError<D::Error>> {
-        let inner = self.inner.write().expect("poisoned lock");
-        Ok(inner.database.desc_save(descriptor)?)
     }
 
     pub fn get_position(&self, txid: &Txid) -> Option<u32> {
@@ -639,7 +691,7 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
         Some(serialize_hex(&tx.tx))
     }
 
-    pub fn setup(&self) -> Result<(), WatchOnlyError<D::Error>> {
+    pub fn setup(&self) -> Result<(), WatchOnlyError> {
         let inner = self.inner.read().expect("poisoned lock");
         inner.setup()
     }
@@ -672,17 +724,14 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
         inner.get_merkle_proof(txid)
     }
 
-    pub fn derive_addresses(&self) -> Result<(), WatchOnlyError<D::Error>> {
+    pub fn derive_addresses(&self) -> Result<(), WatchOnlyError> {
         let mut inner = self.inner.write().expect("poisoned lock");
         inner.derive_addresses()
     }
 
-    pub fn get_stats(&self) -> Result<Stats, WatchOnlyError<D::Error>> {
+    pub fn get_stats(&self) -> Result<Stats, WatchOnlyError> {
         let inner = self.inner.read().expect("poisoned lock");
-        inner
-            .database
-            .get_stats()
-            .map_err(WatchOnlyError::DatabaseError)
+        Ok(inner.database.get_stats()?)
     }
 
     pub fn maybe_derive_addresses(&self) {
@@ -690,7 +739,7 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
         inner.maybe_derive_addresses()
     }
 
-    pub fn find_unconfirmed(&self) -> Result<Vec<Transaction>, WatchOnlyError<D::Error>> {
+    pub fn find_unconfirmed(&self) -> Result<Vec<Transaction>, WatchOnlyError> {
         let inner = self.inner.read().expect("poisoned lock");
         inner.find_unconfirmed()
     }
@@ -730,12 +779,92 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
         )
     }
 
-    pub fn get_descriptors(&self) -> Result<Vec<String>, WatchOnlyError<D::Error>> {
+    /// Return the [`BlownDescriptor`]s that we have.
+    pub fn get_descriptors(&self) -> Result<Vec<BlownDescriptor>, WatchOnlyError> {
         let inner = self.inner.read().expect("poisoned lock");
-        inner
+        Ok(inner.database.desc_get_batch(&[])?)
+    }
+
+    /// Inserts a Descriptor into the wallet by its miniscript string.
+    ///
+    /// the function convert the given using [`DescriptorRequest::from_str`] which
+    /// sets the label and the internal string descriptor as the given
+    /// and all the other data are extracted from [`DescriptorRequest::default`].
+    pub fn push_descriptor_by_string(&self, descriptor: &str) -> Result<(), WatchOnlyError> {
+        let inner = self.inner.write().expect("poisoned lock");
+        let blown = DescriptorRequest::from_str(descriptor)
+            .map_err(|e| WatchOnlyError::DescriptorError(e))?;
+
+        Ok(inner
             .database
-            .descs_get()
-            .map_err(WatchOnlyError::DatabaseError)
+            .desc_insert_batch(blown.get_blown_descriptors()?)?)
+    }
+
+    /// Inserts a [`BlownDescriptor`] into the wallet
+    pub fn push_descriptor_blown(&self, request: &BlownDescriptor) -> Result<(), WatchOnlyError> {
+        let inner = self.inner.write().expect("poisoned lock");
+        inner.database.desc_insert(request.clone())?;
+        Ok(())
+    }
+
+    /// Delete descriptors from the wallet returning the deleted ones and the indexes of the
+    /// [`DescriptorId`] that wasn't found.
+    pub fn delete_descriptors(
+        &self,
+        ids: &[DescriptorId],
+    ) -> Result<(Vec<BlownDescriptor>, Vec<usize>), WatchOnlyError> {
+        let inner = self.inner.write().expect("poisoned lock");
+
+        let deleted = inner.database.desc_delete_batch(ids)?;
+
+        let missed_ones = ids
+            .iter()
+            .enumerate()
+            .filter_map(|(index, one)| {
+                for descriptor in &deleted {
+                    if descriptor.match_id(one) {
+                        return Some(index);
+                    }
+                }
+                None
+            })
+            .collect();
+        Ok((deleted, missed_ones))
+    }
+
+    /// Delete descriptors from the wallet returning the deleted ones.
+    ///
+    /// This version of [`AddressCache::delete_descriptors`] doesn't delete the descriptors if one of
+    /// the ids doesn't match a stored descriptor. This is the preferred one since it should be more
+    /// efficient if the ids are strictly correct. That is, every single given [`DescriptorId`]
+    /// should match a Descriptor that the wallet is holding.
+    pub fn delete_descriptors_strict(
+        &self,
+        ids: &[DescriptorId],
+    ) -> Result<Vec<BlownDescriptor>, WatchOnlyError> {
+        let inner = self.inner.write().expect("poisoned lock");
+
+        let deleted = inner.database.desc_delete_batch(ids)?;
+
+        if deleted.len() != ids.len() {
+            let missed_ones = ids
+                .iter()
+                .filter_map(|one| {
+                    for descriptor in &deleted {
+                        if descriptor.match_id(one) {
+                            return None;
+                        }
+                    }
+                    Some(one.clone())
+                })
+                .collect();
+
+            return Err(WatchOnlyError::DescriptorError(
+                DescriptorError::StrictDeletion(missed_ones),
+            ));
+        }
+
+        Ok(deleted)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -775,6 +904,7 @@ mod test {
     use bitcoin::OutPoint;
     use bitcoin::ScriptBuf;
     use bitcoin::Txid;
+    use floresta_common::desc_types::DescriptorId;
     use floresta_common::get_spk_hash;
     use floresta_common::prelude::*;
 
@@ -954,8 +1084,10 @@ mod test {
 
         // [is_cached], [push_descriptor]
         let desc = "wsh(sortedmulti(1,[54ff5a12/48h/1h/0h/2h]tpubDDw6pwZA3hYxcSN32q7a5ynsKmWr4BbkBNHydHPKkM4BZwUfiK7tQ26h7USm8kA1E2FvCy7f7Er7QXKF8RNptATywydARtzgrxuPDwyYv4x/<0;1>/*,[bcf969c0/48h/1h/0h/2h]tpubDEFdgZdCPgQBTNtGj4h6AehK79Jm4LH54JrYBJjAtHMLEAth7LuY87awx9ZMiCURFzFWhxToRJK6xp39aqeJWrG5nuW3eBnXeMJcvDeDxfp/<0;1>/*))#fuw35j0q";
-        cache.push_descriptor(desc).unwrap();
-        assert!(cache.is_cached(&desc.to_string()).unwrap());
+        cache.push_descriptor_by_string(desc).unwrap();
+        assert!(cache
+            .is_cached(&DescriptorId::from_str(desc).unwrap())
+            .unwrap());
 
         // [derive_addresses]
         cache.derive_addresses().unwrap();

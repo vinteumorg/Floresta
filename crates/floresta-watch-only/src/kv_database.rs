@@ -1,8 +1,16 @@
+use std::mem::uninitialized;
+
 use bitcoin::consensus::deserialize;
 use bitcoin::consensus::encode::Error;
 use bitcoin::consensus::serialize;
 use bitcoin::hashes::Hash;
 use bitcoin::Txid;
+use floresta_common::desc_types::extract_matching_one;
+use floresta_common::desc_types::BlownDescriptor;
+use floresta_common::desc_types::DescriptorError;
+use floresta_common::desc_types::DescriptorId;
+use floresta_common::desc_types::DescriptorIdSelector;
+use floresta_common::desc_types::DESCRIPTOR_STRING_KEY;
 use floresta_common::impl_error_from;
 use floresta_common::prelude::*;
 use kv::Bucket;
@@ -11,6 +19,7 @@ use kv::Store;
 
 use super::AddressCacheDatabase;
 use super::Stats;
+use crate::memory_database::MemoryDatabaseError;
 
 pub struct KvDatabase(Store, Bucket<'static, String, Vec<u8>>);
 impl KvDatabase {
@@ -23,6 +32,12 @@ impl KvDatabase {
         let bucket = store.bucket::<String, Vec<u8>>(Some("addresses"))?;
         Ok(KvDatabase(store, bucket))
     }
+    /// Returns the bucket used for storing descriptors.
+    fn get_descriptor_bucket(&self) -> Result<Bucket<'static, String, Vec<u8>>> {
+        self.0
+            .bucket(Some("descriptors"))
+            .map_err(KvDatabaseError::KvError)
+    }
 }
 #[derive(Debug)]
 pub enum KvDatabaseError {
@@ -30,8 +45,12 @@ pub enum KvDatabaseError {
     SerdeJsonError(serde_json::Error),
     WalletNotInitialized,
     DeserializeError(Error),
+    DescriptorError(DescriptorError),
     TransactionNotFound,
 }
+
+impl std::error::Error for KvDatabaseError {}
+
 impl_error_from!(KvDatabaseError, serde_json::Error, SerdeJsonError);
 impl_error_from!(KvDatabaseError, kv::Error, KvError);
 impl_error_from!(KvDatabaseError, Error, DeserializeError);
@@ -44,11 +63,10 @@ impl Display for KvDatabaseError {
             KvDatabaseError::WalletNotInitialized => write!(f, "WalletNotInitialized"),
             KvDatabaseError::DeserializeError(e) => write!(f, "DeserializeError: {e}"),
             KvDatabaseError::TransactionNotFound => write!(f, "TransactionNotFound"),
+            KvDatabaseError::DescriptorError(e) => write!(f, "DescriptorError: {e:?}"),
         }
     }
 }
-
-impl floresta_common::prelude::Error for KvDatabaseError {}
 
 type Result<T> = floresta_common::prelude::Result<T, KvDatabaseError>;
 
@@ -62,7 +80,7 @@ impl AddressCacheDatabase for KvDatabase {
             if *"height" == key || *"desc" == key {
                 continue;
             }
-            let value: Vec<u8> = item.value().unwrap();
+            let value: Vec<u8> = item.value()?;
             let value = serde_json::from_slice(&value)?;
             addresses.push(value);
         }
@@ -93,22 +111,75 @@ impl AddressCacheDatabase for KvDatabase {
         Ok(())
     }
 
-    fn desc_save(&self, descriptor: &str) -> Result<()> {
-        let mut descs = self.descs_get()?;
-        descs.push(String::from(descriptor));
-        self.1
-            .set(&String::from("desc"), &serde_json::to_vec(&descs).unwrap())?;
-        self.1.flush()?;
+    fn desc_delete(&self, one: &DescriptorId) -> Result<BlownDescriptor> {
+        let bucket = self.get_descriptor_bucket()?;
 
+        if let Some(raw) = bucket.remove(&one.get_hash().to_string())? {
+            Ok(serde_json::from_slice(&raw)?)
+        } else {
+            Err(KvDatabaseError::DescriptorError(
+                DescriptorError::DescriptorNotFound,
+            ))
+        }
+    }
+    fn desc_delete_batch(&self, batch: &[DescriptorId]) -> Result<Vec<BlownDescriptor>> {
+        let bucket = self.get_descriptor_bucket()?;
+        let mut ret: Vec<BlownDescriptor> = vec![];
+        for id in batch {
+            let desc = match bucket.remove(&id.get_hash().to_string())? {
+                Some(desc) => desc,
+                None => continue,
+            };
+            ret.push(serde_json::from_slice(desc.as_ref())?);
+        }
+        Ok(ret)
+    }
+    fn desc_get(&self, one: &DescriptorId) -> Result<BlownDescriptor> {
+        let bucket = self.get_descriptor_bucket()?;
+
+        if let Some(raw) = bucket.get(&one.get_hash().to_string())? {
+            Ok(serde_json::from_slice(&raw)?)
+        } else {
+            Err(KvDatabaseError::DescriptorError(
+                DescriptorError::DescriptorNotFound,
+            ))
+        }
+    }
+    fn desc_get_batch(&self, batch: &[DescriptorId]) -> Result<Vec<BlownDescriptor>> {
+        let bucket = self.get_descriptor_bucket()?;
+        let mut ret: Vec<BlownDescriptor> = vec![];
+
+        for id in batch {
+            let get = bucket.get(&id.get_hash().to_string())?;
+            if let Some(raw) = get {
+                ret.push(serde_json::from_slice(&raw)?);
+            }
+        }
+
+        Ok(ret)
+    }
+    fn desc_insert(&self, one: BlownDescriptor) -> Result<()> {
+        let bucket = self.get_descriptor_bucket()?;
+
+        let id = one
+            .get_id(DescriptorIdSelector::Hash)
+            .get_hash()
+            .to_string();
+
+        let _ = bucket.set(&id, &serde_json::to_vec(&one)?);
         Ok(())
     }
 
-    fn descs_get(&self) -> Result<Vec<String>> {
-        let res = self.1.get(&String::from("desc"))?;
-        if let Some(res) = res {
-            return Ok(serde_json::de::from_slice(&res)?);
+    fn desc_insert_batch(&self, batch: Vec<BlownDescriptor>) -> Result<()> {
+        let bucket = self.get_descriptor_bucket()?;
+        for descriptor in batch {
+            let key = descriptor.get_hash().to_string();
+            let value = serde_json::to_vec(&descriptor)?;
+
+            bucket.set(&key, &value)?;
         }
-        Ok(Vec::new())
+        bucket.flush()?;
+        Ok(())
     }
 
     fn get_transaction(&self, txid: &bitcoin::Txid) -> Result<super::CachedTransaction> {
@@ -173,6 +244,7 @@ mod test {
     use bitcoin::hashes::sha256;
     use bitcoin::Address;
     use bitcoin::Transaction;
+    use floresta_common::desc_types::DescriptorRequest;
     use floresta_common::get_spk_hash;
 
     use super::KvDatabase;
@@ -244,8 +316,13 @@ mod test {
         db.set_cache_height(test_height).unwrap();
         assert_eq!(db.get_cache_height().unwrap(), test_height);
 
-        db.desc_save(desc).unwrap();
-        assert_eq!(db.descs_get().unwrap(), vec![desc]);
+        // Create a descriptor request from the string.
+        let blown = DescriptorRequest::from_str(desc).unwrap();
+        // turn into blown descriptors which is just a
+        // casted and parsed one.
+        let descs = blown.get_blown_descriptors().unwrap();
+        db.desc_insert_batch(descs.clone()).unwrap();
+        assert_eq!(db.desc_get_batch(&[]).unwrap(), descs);
 
         db.update(&cache_address);
         assert_eq!(db.load().unwrap()[0].script_hash, cache_address.script_hash);
