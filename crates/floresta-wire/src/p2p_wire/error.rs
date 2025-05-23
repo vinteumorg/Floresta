@@ -2,6 +2,7 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::fmt::{self};
 use std::io;
+use std::net::IpAddr;
 
 use floresta_chain::BlockchainError;
 use floresta_common::impl_error_from;
@@ -30,6 +31,8 @@ pub enum WireError {
     PeerMisbehaving,
     #[error("Failed to init Utreexo peers: anchors.json does not exist yet")]
     AnchorFileNotFound,
+    #[error("Addnode error: {0}")]
+    InvalidAddnode(AddnodeError),
     #[error("Generic io error: {0}")]
     Io(std::io::Error),
     #[error("{0}")]
@@ -111,6 +114,21 @@ impl Display for AddrParseError {
             AddrParseError::InvalidHostname => write!(f, "Invalid hostname"),
             AddrParseError::InvalidPort => write!(f, "Invalid port"),
             AddrParseError::Inconclusive => write!(f, "Inconclusive"),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum AddnodeError {
+    AlreadyExists(IpAddr, u16),
+    NotFound(IpAddr, u16),
+}
+
+impl Display for AddnodeError {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            AddnodeError::AlreadyExists(ip, port) => write!(f, "Peer {ip}:{port} already exists"),
+            AddnodeError::NotFound(ip, port) => write!(f, "Peer {ip}:{port} not found"),
         }
     }
 }
