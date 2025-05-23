@@ -339,7 +339,22 @@ where
                 // if they disagree on this current block, we need to look in the previous one
                 height -= 1;
             }
+            hash = self.chain.get_block_hash(height)?;
         }
+        hash = self.chain.get_block_hash(fork)?;
+
+        let acc = self
+            .grab_both_peers_version(peer1, peer2, hash, fork)
+            .await?;
+
+        let agreed = match acc {
+            (Some(acc1), Some(_acc2)) => Self::parse_acc(acc1)?,
+            (Some(acc1), None) => Self::parse_acc(acc1)?,
+            (None, Some(acc2)) => Self::parse_acc(acc2)?,
+            (None, None) => return Ok(None),
+        };
+
+        hash = self.chain.get_block_hash(fork + 1)?;
 
         // now we know where the fork is, we need to check who is lying
         let (Some(peer1_acc), Some(peer2_acc)) = self
@@ -347,15 +362,6 @@ where
             .await?
         else {
             return Ok(None);
-        };
-
-        let (agreed, _) = self
-            .grab_both_peers_version(peer1, peer2, hash, fork)
-            .await?;
-
-        let agreed = match agreed {
-            Some(acc) => Self::parse_acc(acc)?,
-            None => return Ok(None),
         };
 
         let block = self.chain.get_block_hash(fork + 1).unwrap();
@@ -438,6 +444,13 @@ where
                 } else {
                     invalid_accs.insert(peer[1].1.clone());
                 }
+            } else {
+                // Both peers were lying
+                self.send_to_peer(peer1, NodeRequest::Shutdown).await?;
+                self.send_to_peer(peer2, NodeRequest::Shutdown).await?;
+
+                invalid_accs.insert(peer[0].1.clone());
+                invalid_accs.insert(peer[1].1.clone());
             }
         }
         //filter out the invalid accs
