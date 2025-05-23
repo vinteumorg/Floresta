@@ -21,7 +21,6 @@ use bitcoin::BlockHash;
 use bitcoin::Network;
 use bitcoin::Txid;
 use floresta_chain::pruned_utreexo::BlockchainInterface;
-use floresta_chain::pruned_utreexo::UpdatableChainstate;
 use floresta_chain::UtreexoBlock;
 use floresta_common::service_flags;
 use floresta_common::service_flags::UTREEXO;
@@ -162,7 +161,7 @@ impl Default for RunningNode {
     }
 }
 
-pub struct NodeCommon<Chain: BlockchainInterface + UpdatableChainstate> {
+pub struct NodeCommon<Chain: floresta_chain::ChainBackend> {
     // 1. Core Blockchain and Transient Data
     pub(crate) chain: Chain,
     pub(crate) blocks: HashMap<BlockHash, (PeerId, UtreexoBlock)>,
@@ -220,19 +219,20 @@ pub struct NodeCommon<Chain: BlockchainInterface + UpdatableChainstate> {
 ///
 /// [`SyncNode`]: super::sync_node::SyncNode
 /// [`ChainSelector`]: super::chain_selector::ChainSelector
-pub struct UtreexoNode<Chain: BlockchainInterface + UpdatableChainstate, Context = RunningNode> {
+
+pub struct UtreexoNode<Chain: floresta_chain::ChainBackend, Context = RunningNode> {
     pub(crate) common: NodeCommon<Chain>,
     pub(crate) context: Context,
 }
 
-impl<Chain: BlockchainInterface + UpdatableChainstate, T> Deref for UtreexoNode<Chain, T> {
+impl<Chain: floresta_chain::ChainBackend, T> Deref for UtreexoNode<Chain, T> {
     fn deref(&self) -> &Self::Target {
         &self.common
     }
     type Target = NodeCommon<Chain>;
 }
 
-impl<T, Chain: BlockchainInterface + UpdatableChainstate> DerefMut for UtreexoNode<Chain, T> {
+impl<T, Chain: floresta_chain::ChainBackend> DerefMut for UtreexoNode<Chain, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.common
     }
@@ -249,7 +249,7 @@ impl<T, Chain> UtreexoNode<Chain, T>
 where
     T: 'static + Default + NodeContext,
     WireError: From<<Chain as BlockchainInterface>::Error>,
-    Chain: BlockchainInterface + UpdatableChainstate + 'static,
+    Chain: floresta_chain::ChainBackend + 'static, 
 {
     pub fn new(
         config: UtreexoNodeConfig,

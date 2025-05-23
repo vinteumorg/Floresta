@@ -403,3 +403,17 @@ pub mod utxo_data {
         pub creation_time: u32,
     }
 }
+
+/// ChainBackend is a trait alias for the [`BlockchainInterface`] and [`UpdatableChainstate`] combo meant to be used
+/// to specify a generic blockchain backend.
+///
+/// Usefull to avoid trait bounds verbosity.
+pub trait ChainBackend: BlockchainInterface + UpdatableChainstate {}
+impl<T: BlockchainInterface + UpdatableChainstate> ChainBackend for T {}
+
+/// SharedChain is a trait alias for the [`BlockchainInterface`], [`UpdatableChainstate`], [`Sync`] and [`Send`] combo
+/// who has a static lifetime meant to be used to specify blockchain backends who are thread safe.
+///
+/// Usefull to avoid code verbosity.
+pub trait SharedChain: ChainBackend + Sync + Send + 'static {}
+impl<T: ChainBackend + Sync + Send + 'static> SharedChain for T {}

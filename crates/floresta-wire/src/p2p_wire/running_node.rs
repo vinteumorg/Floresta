@@ -72,9 +72,9 @@ impl NodeContext for RunningNode {
 
 impl<Chain> UtreexoNode<Chain, RunningNode>
 where
-    Chain: BlockchainInterface + UpdatableChainstate + Sync + Send + Clone + 'static,
-    WireError: From<Chain::Error>,
-    Chain::Error: From<udata::proof_util::Error>,
+    Chain: floresta_chain::SharedChain + Clone,
+    WireError: From<<Chain as BlockchainInterface>::Error>,
+    <Chain as BlockchainInterface>::Error: From<udata::proof_util::Error>,
 {
     async fn send_addresses(&mut self) -> Result<(), WireError> {
         let addresses = self
