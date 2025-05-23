@@ -8,6 +8,7 @@ use clap::Parser;
 use clap::Subcommand;
 use floresta_cli::jsonrpc_client::Client;
 use floresta_cli::rpc::FlorestaRPC;
+use floresta_cli::rpc_types::DescriptorRequest;
 use floresta_cli::rpc_types::GetBlockRes;
 
 // Main function that runs the CLI application
@@ -71,8 +72,8 @@ fn do_request(cmd: &Cli, client: Client) -> anyhow::Result<String> {
         Methods::GetBlockHeader { hash } => {
             serde_json::to_string_pretty(&client.get_block_header(hash)?)?
         }
-        Methods::LoadDescriptor { desc } => {
-            serde_json::to_string_pretty(&client.load_descriptor(desc)?)?
+        Methods::ImportDescriptors { request } => {
+            serde_json::to_string_pretty(&client.import_descriptors(request)?)?
         }
         Methods::GetRoots => serde_json::to_string_pretty(&client.get_roots()?)?,
         Methods::GetBlock { hash, verbosity } => {
@@ -166,9 +167,12 @@ pub enum Methods {
     /// Returns the block header for the given block hash
     #[command(name = "getblockheader")]
     GetBlockHeader { hash: BlockHash },
-    /// Loads a new descriptor to the watch only wallet
-    #[command(name = "loaddescriptor")]
-    LoadDescriptor { desc: String },
+    /// Imports a new descriptor to the watch only wallet
+    #[command(name = "importdescriptors")]
+    ImportDescriptors {
+        #[arg( required = true, value_parser = floresta_cli::parsers::parse_json_array::<DescriptorRequest>)]
+        request: Vec<DescriptorRequest>,
+    },
     /// Returns the roots of the current utreexo forest
     #[command(name = "getroots")]
     GetRoots,

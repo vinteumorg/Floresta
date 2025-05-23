@@ -3,6 +3,8 @@ use std::error::Error;
 use std::fmt::Display;
 use std::str::FromStr;
 
+use crate::rpc_types::{DescriptorRange, DescriptorRequest, DescriptorTimestamp};
+
 #[derive(Debug)]
 /// Collection of errors to deal with parsing.
 pub enum ParseError {
@@ -59,4 +61,28 @@ where
                 .map_err(|_| ParseError::InvalidTarget(type_name::<Target>().to_string()))
         })
         .collect()
+}
+
+// These below are the impls that our internal types need
+// to be parsed correctly
+
+impl FromStr for DescriptorRange {
+    type Err = ParseError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        unimplemented!()
+    }
+}
+
+impl FromStr for DescriptorTimestamp {
+    type Err = ParseError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        unimplemented!()
+    }
+}
+
+impl FromStr for DescriptorRequest {
+    type Err = ParseError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        unimplemented!()
+    }
 }
