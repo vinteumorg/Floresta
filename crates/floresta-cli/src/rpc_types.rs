@@ -3,6 +3,45 @@ use std::fmt::Display;
 use serde::Deserialize;
 use serde::Serialize;
 
+/// A struct who represents the json object "request" mentioned in "importdescriptors"
+/// from bitcoin core rpc api. The internals directly derive cores documentation to
+/// better understand they expected behavior.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct DescriptorRequest {
+    /// (string, required) Descriptor to import.
+    pub desc: String,
+    /// (boolean, optional, default=false) Set this descriptor to be the active descriptor for the corresponding output type/externality
+    pub active: bool,
+    /// (numeric or array) If a ranged descriptor is used, this specifies the end or the range (in the form [begin,end]) to import
+    pub range: DescriptorRange,
+    /// (numeric) If a ranged descriptor is set to active, this specifies the next index to generate addresses from
+    pub next_index: Option<u32>,
+    /// (integer / string, required) Time from which to start rescanning the blockchain for this descriptor, in UNIX epoch time
+    /// Use the string "now" to substitute the current synced blockchain time.
+    /// "now" can be specified to bypass scanning, for outputs which are known to never have been used, and
+    /// 0 can be specified to scan the entire blockchain. Blocks up to 2 hours before the earliest timestamp
+    /// of all descriptors being imported will be scanned.
+    pub timestamp: DescriptorTimestamp,
+    /// (boolean, optional, default=false) Whether matching outputs should be treated as not incoming payments (e.g. change)
+    pub internal: bool,
+    ///(string, optional, default='') Label to assign to the address, only allowed with internal=false
+    pub label: String,
+}
+
+/// Time from which to start rescanning the blockchain for a descriptor request from "importdescriptors"
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub enum DescriptorTimestamp {
+    SpecifiedTime(u32),
+    Now,
+}
+
+/// Represents a descriptor range, which can define the end of a range or a entire one.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub enum DescriptorRange {
+    End(u32),
+    Range([u32; 2]),
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 /// Return type for the `gettxoutproof` rpc command, the internal is
 /// just the hex representation of the Merkle Block, which was defined

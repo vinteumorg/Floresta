@@ -1,8 +1,82 @@
 use std::fmt::Display;
+use std::ops::Range;
+use std::str::FromStr;
 
 use axum::response::IntoResponse;
+use bitcoin::secp256k1::Secp256k1;
+use miniscript::DefiniteDescriptorKey;
+use miniscript::Descriptor;
+use miniscript::DescriptorPublicKey;
 use serde::Deserialize;
 use serde::Serialize;
+
+/// A struct who represents the json object "request" mentioned in "importdescriptors"
+/// from bitcoin core rpc api. The internals directly derive cores documentation to
+/// better understand they expected behavior.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct DescriptorRequest {
+    /// (string, required) Descriptor to import.
+    pub desc: String,
+    /// (boolean, optional, default=false) Set this descriptor to be the active descriptor for the corresponding output type/externality
+    pub active: bool,
+    /// (numeric or array) If a ranged descriptor is used, this specifies the end or the range (in the form [begin,end]) to import
+    pub range: DescriptorRange,
+    /// (numeric) If a ranged descriptor is set to active, this specifies the next index to generate addresses from
+    pub next_index: Option<u32>,
+    /// (integer / string, required) Time from which to start rescanning the blockchain for this descriptor, in UNIX epoch time
+    /// Use the string "now" to substitute the current synced blockchain time.
+    /// "now" can be specified to bypass scanning, for outputs which are known to never have been used, and
+    /// 0 can be specified to scan the entire blockchain. Blocks up to 2 hours before the earliest timestamp
+    /// of all descriptors being imported will be scanned.
+    pub timestamp: DescriptorTimestamp,
+    /// (boolean, optional, default=false) Whether matching outputs should be treated as not incoming payments (e.g. change)
+    pub internal: bool,
+    ///(string, optional, default='') Label to assign to the address, only allowed with internal=false
+    pub label: String,
+}
+
+impl DescriptorRequest {
+    /// Consume the [`DescriptoRequest`] into a derived [`Descriptor<DescriptorPublickKey>`].
+    /// The returning is a Vec of it because a Descriptor request may yield more than one
+    /// decriptor while being a ranged one.
+    pub fn into_descriptor(self) -> Result<Vec<Descriptor<DefiniteDescriptorKey>>, Error> {
+        self.range
+            .into_range()
+            .map(|index| {
+                // Since the wallet is a watch-only, no need to keep secrets.
+                let (parsed, _) = Descriptor::parse_descriptor(&Secp256k1::default(), &self.desc)
+                    .map_err(|e| Error::MiniscriptError(e))?;
+                parsed
+                    .at_derivation_index(index)
+                    .map_err(|_| Error::InvalidDescriptor)
+            })
+            .collect::<Result<Vec<Descriptor<DefiniteDescriptorKey>>, Error>>()
+    }
+}
+
+/// Time from which to start rescanning the blockchain for a descriptor request from "importdescriptors"
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub enum DescriptorTimestamp {
+    SpecifiedTime(u32),
+    Now,
+}
+
+/// Represents a descriptor range, which can define the end of a range or a entire one.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub enum DescriptorRange {
+    End(u32),
+    Range([u32; 2]),
+}
+
+impl DescriptorRange {
+    /// Consumes the [`DescriptorRange`] in favor of a iterable [`Range<u32>`]
+    fn into_range(self) -> Range<u32> {
+        match self {
+            Self::End(e) => 0..e,
+            Self::Range([r, e]) => r..e,
+        }
+    }
+}
 
 #[derive(Deserialize, Serialize)]
 pub struct GetBlockchainInfoRes {
@@ -183,12 +257,13 @@ pub enum Error {
     InvalidVerbosityLevel,
     TxNotFound,
     InvalidScript,
-    InvalidDescriptor,
     BlockNotFound,
     Chain,
     InvalidVout,
     InvalidHeight,
     InvalidHash,
+    InvalidDescriptor,
+    MiniscriptError(miniscript::Error),
     InvalidBlockHash,
     InvalidRequest,
     MethodNotFound,
@@ -204,6 +279,7 @@ pub enum Error {
     InvalidMemInfoMode,
     Wallet(String),
     Filters(String),
+    DecodeDescRequest(serde_json::Error, String),
 }
 
 impl Display for Error {
@@ -218,12 +294,13 @@ impl Display for Error {
             Error::MethodNotFound =>  write!(f, "Method not found"),
             Error::Decode(e) =>  write!(f, "error decoding request: {e}"),
             Error::TxNotFound =>  write!(f, "Transaction not found"),
-            Error::InvalidDescriptor =>  write!(f, "Invalid descriptor"),
+            Error::DecodeDescRequest(e, one) =>  write!(f, "Couldn't parse {one} into a Descriptor request; {e}"),
             Error::BlockNotFound =>  write!(f, "Block not found"),
             Error::Chain => write!(f, "Chain error"),
             Error::InvalidPort => write!(f, "Invalid port"),
             Error::InvalidAddress => write!(f, "Invalid address"),
             Error::Node(e) => write!(f, "Node error: {e}"),
+            Error::InvalidDescriptor => write!(f, "Received a invalid Descriptor "),
             Error::NoBlockFilters => write!(f, "You don't have block filters enabled, please start florestad with --cfilters to run this RPC"),
             Error::InvalidNetwork => write!(f, "Invalid network"),
             Error::InInitialBlockDownload => write!(f, "Node is in initial block download, wait until it's finished"),

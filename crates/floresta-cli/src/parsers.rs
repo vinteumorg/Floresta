@@ -3,6 +3,10 @@ use std::error::Error;
 use std::fmt::Display;
 use std::str::FromStr;
 
+use crate::rpc_types::DescriptorRange;
+use crate::rpc_types::DescriptorRequest;
+use crate::rpc_types::DescriptorTimestamp;
+
 #[derive(Debug)]
 /// Collection of errors to deal with parsing.
 pub enum ParseError {
@@ -60,3 +64,28 @@ where
         })
         .collect()
 }
+
+/// Implements [`FromStr`] for a type using [`serde_json::from_str`]
+/// for a easy and quick implementation of FromStr for any type that
+/// derives [`serde_json::Serialize`] and [`serde_json::Deserialize`].
+macro_rules! from_str_by_json {
+    ($t:ty) => {
+        impl std::str::FromStr for $t {
+            type Err = ParseError;
+
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
+                serde_json::from_str::<Self>(s)
+                    .map_err(|_| ParseError::InvalidTarget(s.to_string()))
+            }
+        }
+    };
+}
+
+// These below are the impls that our internal types need
+// to be parsed correctly
+
+from_str_by_json!(DescriptorRange);
+
+from_str_by_json!(DescriptorTimestamp);
+
+from_str_by_json!(DescriptorRequest);

@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::slice;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Instant;
@@ -24,7 +23,6 @@ use bitcoin::TxOut;
 use bitcoin::Txid;
 use floresta_chain::pruned_utreexo::BlockchainInterface;
 use floresta_chain::pruned_utreexo::UpdatableChainstate;
-use floresta_common::parse_descriptors;
 use floresta_compact_filters::flat_filters_store::FlatFiltersStore;
 use floresta_compact_filters::network_filters::NetworkFilters;
 use floresta_watch_only::kv_database::KvDatabase;
@@ -32,14 +30,17 @@ use floresta_watch_only::AddressCache;
 use floresta_watch_only::CachedTransaction;
 use floresta_wire::node_interface::NodeInterface;
 use floresta_wire::node_interface::PeerInfo;
-use log::debug;
 use log::error;
 use log::info;
+use miniscript::DefiniteDescriptorKey;
+use miniscript::Descriptor;
 use serde_json::json;
 use serde_json::Value;
 use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
 
+use super::res::DescriptorRequest;
+use super::res::DescriptorTimestamp;
 use super::res::Error;
 use super::res::GetBlockRes;
 use super::res::RawTxJson;
@@ -116,26 +117,19 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
             .ok_or(Error::TxNotFound)
     }
 
-    fn load_descriptor(&self, descriptor: String) -> Result<bool> {
-        let desc = slice::from_ref(&descriptor);
-        let Ok(mut parsed) = parse_descriptors(desc) else {
-            return Err(Error::InvalidDescriptor);
-        };
+    /// "importdescriptors", which handles [`DescriptorRequest`]s, adding scripts to
+    /// the watch only wallet and triggering rescan if asked.
+    fn import_descriptors(&self, requests: Vec<DescriptorRequest>) -> Result<bool> {
+        info!("Importing {requests:?} and Rescanning");
 
-        // It's ok to unwrap because we know there is at least one element in the vector
-        let addresses = parsed.pop().unwrap();
-        let addresses = (0..100)
-            .map(|index| {
-                let address = addresses
-                    .at_derivation_index(index)
-                    .unwrap()
-                    .script_pubkey();
-                self.wallet.cache_address(address.clone());
-                address
-            })
-            .collect::<Vec<_>>();
+        // Extracts the BlownDescriptors and the earliest timestamp rescan requested.
+        let (descs, rescan_timestamp) = handle_descriptors_requests(requests)?;
 
-        debug!("Rescanning with block filters for addresses: {addresses:?}");
+        for desc in descs {
+            let script = desc.script_pubkey();
+            info!("Importing {script} to the wallet cache.");
+            self.wallet.cache_address(script);
+        }
 
         let addresses = self.wallet.get_cached_addresses();
         let wallet = self.wallet.clone();
@@ -147,9 +141,12 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
         let node = self.node.clone();
         let chain = self.chain.clone();
 
-        tokio::task::spawn(Self::rescan_with_block_filters(
-            addresses, chain, wallet, cfilters, node,
-        ));
+        if rescan_timestamp > 0 {
+            // TODO: Add the precise rescan height from timestamp
+            tokio::task::spawn(Self::rescan_with_block_filters(
+                addresses, chain, wallet, cfilters, node,
+            ));
+        }
 
         Ok(true)
     }
@@ -371,10 +368,11 @@ async fn handle_json_rpc_request(
         }
 
         // wallet
-        "loaddescriptor" => {
-            let descriptor = params[0].as_str().ok_or(Error::InvalidDescriptor)?;
+        "importdescriptors" => {
+            let requests: Vec<DescriptorRequest> = serde_json::from_value(params[0].clone())
+                .map_err(|e| Error::DecodeDescRequest(e, params[0].to_string()))?;
             state
-                .load_descriptor(descriptor.to_string())
+                .import_descriptors(requests)
                 .map(|v| ::serde_json::to_value(v).unwrap())
         }
 
@@ -423,6 +421,7 @@ fn get_http_error_code(err: &Error) -> u16 {
         | Error::MissingReq
         | Error::NoBlockFilters
         | Error::InvalidMemInfoMode
+        | Error::DecodeDescRequest(_, _)
         | Error::Wallet(_) => 400,
 
         // idunnolol
@@ -459,6 +458,7 @@ fn get_json_rpc_error_code(err: &Error) -> i32 {
         | Error::TxNotFound
         | Error::BlockNotFound
         | Error::InvalidMemInfoMode
+        | Error::DecodeDescRequest(_, _)
         | Error::Wallet(_) => -32600,
 
         // server error
@@ -469,6 +469,38 @@ fn get_json_rpc_error_code(err: &Error) -> i32 {
         | Error::NoBlockFilters
         | Error::Filters(_) => -32603,
     }
+}
+
+/// Interpret [`DescriptorRequest`]s, returning its ScriptPubkeys and the highest timestamp that
+/// was requested for a rescan after addresses. The timestamp returned may be a 0u32 indicating
+/// that rescanning should be skipped.
+fn handle_descriptors_requests(
+    requests: Vec<DescriptorRequest>,
+) -> Result<(Vec<Descriptor<DefiniteDescriptorKey>>, u32)> {
+    let mut highes_time = 0u32;
+    let descs: Vec<_> = requests
+        .iter()
+        .flat_map(|d| {
+            if let DescriptorTimestamp::SpecifiedTime(time) = d.timestamp {
+                if highes_time >= time {
+                    highes_time = time;
+                }
+            } else {
+                // This is the case one wants to bypass
+                // blockchain rescaning.
+
+                // Simple putting zero avoids the time being changed
+                // by the above condition since 0 will be allways
+                // less than any correct u32 timestamp and will serve
+                // to identify a request to skip blockchain rescaning.
+                highes_time = 0;
+            }
+            d.clone()
+                .into_descriptor()
+                .expect("The descriptors did well")
+        })
+        .collect();
+    Ok((descs, highes_time))
 }
 
 async fn json_rpc_request(
