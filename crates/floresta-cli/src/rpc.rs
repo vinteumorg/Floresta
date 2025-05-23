@@ -49,14 +49,14 @@ pub trait FlorestaRPC {
     /// This method returns the Merkle proof, showing that a transaction was included in a block.
     /// The pooof is returned as a vector hexadecimal string.
     fn get_txout_proof(&self, txids: Vec<Txid>, blockhash: Option<BlockHash>) -> Option<String>;
-    /// Loads up a descriptor into the wallet
+    /// Import descriptors into the watch only wallet from descriptors requests.
     ///
     /// This method loads up a descriptor into the wallet. If the rescan option is not None,
     /// the wallet will be rescanned for transactions matching the descriptor. If you have
     /// compact block filters enabled, this process will be much faster and use less bandwidth.
     /// The rescan parameter is the height at which to start the rescan, and should be at least
     /// as old as the oldest transaction this descriptor could have been used in.
-    fn load_descriptor(&self, descriptor: String) -> Result<bool>;
+    fn import_descriptors(&self, descriptor: String) -> Result<bool>;
     /// Trigger a rescan of the wallet
     ///
     /// This method triggers a rescan of the wallet. If you have compact block filters enabled,
