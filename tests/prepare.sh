@@ -32,6 +32,56 @@ check_installed() {
     fi
 }
 
+build_core() {
+    # Download and build bitcoind only
+    mkdir -p "$FLORESTA_TEMP_DIR/binaries/build"
+    cd "$FLORESTA_TEMP_DIR/binaries/build" || exit 1
+
+    echo "Downloading and Building Bitcoin Core..."
+    git clone https://github.com/bitcoin/bitcoin
+    cd bitcoin || exit 1
+
+    # If BITCOIN_REVISION is set, check it out
+    # if not, set the default to 29 (the last one)
+    bitcoin_rev="${BITCOIN_REVISION:-29.0}"
+    if [ -n "$bitcoin_rev" ]; then
+        # Check if the revision exists as a tag only
+        if git --no-pager tag -l | grep -q "^v$bitcoin_rev$"; then
+            git checkout "v$bitcoin_rev"
+        else
+            echo "bitcoin 'v$bitcoin_rev' is not a valid tag."
+            exit 1
+        fi
+    fi
+
+    # Check compatibility with cmake arguments with those used with make
+    # See https://gist.github.com/hebasto/2ef97d3a726bfce08ded9df07f7dab5e and
+    # https://github.com/bitcoin-core/bitcoin-devwiki/wiki/Autotools-to-CMake-Options-Mapping
+    major_version="${bitcoin_rev%%.*}"
+    if [ "$major_version" -ge 29 ]; then
+        cmake -S . -B build \
+            -DBUILD_CLI=OFF \
+            -DBUILD_TESTS=OFF \
+            -DENABLE_WALLET=OFF \
+            -DCMAKE_BUILD_TYPE=MinSizeRel \
+            -DENABLE_EXTERNAL_SIGNER=OFF \
+            -DINSTALL_MAN=OFF
+        cmake --build build --target bitcoind -j"$(nproc)"
+        mv $FLORESTA_TEMP_DIR/binaries/build/bitcoin/build/bin/bitcoind $FLORESTA_TEMP_DIR/binaries/bitcoind
+    else
+        ./autogen.sh
+        ./configure \
+            --without-gui \
+            --disable-tests \
+            --disable-bench \
+            --disable-wallet
+        make -j"$(nproc)"
+        mv $FLORESTA_TEMP_DIR/binaries/build/bitcoin/src/bitcoind $FLORESTA_TEMP_DIR/binaries/bitcoind
+    fi
+
+    rm -rf $FLORESTA_TEMP_DIR/binaries/build
+}
+
 build_utreexod() {
 	# Download and build utreexod
 	mkdir -p $FLORESTA_TEMP_DIR/binaries/build
@@ -67,6 +117,10 @@ build_floresta() {
 	ln -fs $(pwd)/target/release/florestad $FLORESTA_TEMP_DIR/binaries/florestad
 }
 
+check_installed git
+check_installed gcc
+check_installed make
+check_installed cmake
 check_installed go
 check_installed cargo
 check_installed uv
@@ -85,6 +139,14 @@ then
 	build_utreexod
 else
 	echo "Utreexod already built, skipping..."
+fi
+
+# Check if utreexod is already built or if --build is passed
+if [ ! -f $FLORESTA_TEMP_DIR/binaries/bitcoind ] || [ "$1" == "--build" ]
+then
+	build_core
+else
+	echo "Bitcoind already built, skipping..."
 fi
 
 echo "All done!"
