@@ -165,7 +165,7 @@ where
 
             if assume_stale {
                 self.context.last_block_requested = self.chain.get_validation_index().unwrap();
-                self.create_connection(ConnectionKind::Extra).await;
+                try_and_log!(self.create_connection(ConnectionKind::Extra).await);
                 self.last_tip_update = Instant::now();
                 continue;
             }
