@@ -184,26 +184,41 @@ pub trait ChainStore {
     type Error: DatabaseError;
     /// Saves the current state of our accumulator.
     fn save_roots(&self, roots: Vec<u8>) -> Result<(), Self::Error>;
+
     /// Loads the state of our accumulator.
     fn load_roots(&self) -> Result<Option<Vec<u8>>, Self::Error>;
+
     /// Loads the blockchain height
     fn load_height(&self) -> Result<Option<BestChain>, Self::Error>;
+
     /// Saves the blockchain height.
     fn save_height(&self, height: &BestChain) -> Result<(), Self::Error>;
+
     /// Get a block header from our database. See [DiskBlockHeader] for more info about
     /// the data we save.
     fn get_header(&self, block_hash: &BlockHash) -> Result<Option<DiskBlockHeader>, Self::Error>;
+
     /// Saves a block header to our database. See [DiskBlockHeader] for more info about
     /// the data we save.
     fn save_header(&self, header: &DiskBlockHeader) -> Result<(), Self::Error>;
+
     /// Returns the block hash for a given height.
     fn get_block_hash(&self, height: u32) -> Result<Option<BlockHash>, Self::Error>;
+
     /// Flushes write buffers to disk, this is called periodically by the [ChainState](crate::ChainState),
     /// so in case of a crash, we don't lose too much data. If the database doesn't support
     /// write buffers, this method can be a no-op.
     fn flush(&self) -> Result<(), Self::Error>;
+
     /// Associates a block hash with a given height, so we can retrieve it later.
     fn update_block_index(&self, height: u32, hash: BlockHash) -> Result<(), Self::Error>;
+
+    /// Checks if our database didn't get corrupted, and if it has, it returns
+    /// an error.
+    ///
+    /// If you're using a database that already checks for integrity by itself,
+    /// this can safely be a no-op.
+    fn check_integrity(&self) -> Result<(), Self::Error>;
 }
 
 #[derive(Debug, Clone)]

@@ -199,9 +199,17 @@ impl<'a> KvChainStore<'a> {
 
 impl ChainStore for KvChainStore<'_> {
     type Error = kv::Error;
+
     /// Loads the utreexo roots from the metadata bucket.
     fn load_roots(&self) -> Result<Option<Vec<u8>>, Self::Error> {
         self.meta.get(&"roots")
+    }
+
+    /// For this [ChainStore], since [sled] already checks integrity implicitly, this is a no-op.
+    ///
+    /// [sled]: https://docs.rs/sled/latest/sled/enum.Error.html#variant.Corruption
+    fn check_integrity(&self) -> Result<(), Self::Error> {
+        Ok(())
     }
 
     /// Saves the current utreexo roots to the metadata bucket.

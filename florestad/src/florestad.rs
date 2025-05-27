@@ -811,6 +811,7 @@ impl Florestad {
         assume_valid: Option<bitcoin::BlockHash>,
     ) -> ChainState<ChainStore> {
         let db = Self::load_chain_store(data_dir.clone());
+
         let assume_valid =
             assume_valid.map_or(AssumeValidArg::Hardcoded, AssumeValidArg::UserInput);
 

@@ -75,6 +75,7 @@ use floresta_common::prelude::*;
 use lru::LruCache;
 use memmap2::MmapMut;
 use memmap2::MmapOptions;
+use xxhash_rust::xxh3;
 
 use super::ChainStore;
 use crate::BestChain;
@@ -163,6 +164,23 @@ impl FlatChainStoreConfig {
             cache_size: Some(10_000),
         }
     }
+}
+
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct FileChecksum(u64);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// The current checksum of our database
+struct DbCheckSum {
+    /// The checksum of the headers file
+    headers_checksum: FileChecksum,
+
+    /// The checksum of the index map
+    index_checksum: FileChecksum,
+
+    /// The checksum of the fork headers file
+    fork_headers_checksum: FileChecksum,
 }
 
 /// A bucket in our index map, holding a pointer to the index.
@@ -291,6 +309,10 @@ struct Metadata {
 
     /// The capacity of the index, in buckets
     index_capacity: usize,
+
+    /// The checksum of our database, as it was in the last time we've flushed our data
+    /// We can use this to check if our database is corrupted
+    checksum: DbCheckSum,
 }
 
 #[derive(Debug)]
@@ -321,6 +343,9 @@ pub enum FlatChainstoreError {
 
     /// Something wrong happened with the metadata file mmap
     InvalidMetadataPointer,
+
+    /// The database is corrupted
+    DbCorrupted,
 }
 
 /// Need this to use [FlatChainstoreError] as a [DatabaseError] in [ChainStore]
@@ -579,6 +604,12 @@ impl FlatChainStore {
             .alternative_tips
             .copy_from_slice(&[BlockHash::all_zeros(); 64]);
 
+        _metadata.checksum = DbCheckSum {
+            headers_checksum: FileChecksum(0),
+            index_checksum: FileChecksum(0),
+            fork_headers_checksum: FileChecksum(0),
+        };
+
         let cache_size = config.cache_size.and_then(NonZeroUsize::new).unwrap_or(
             NonZeroUsize::new(1000).expect("Infallible: Hard-coded default is always non-zero"),
         );
@@ -678,6 +709,48 @@ impl FlatChainStore {
         }
 
         Ok(())
+    }
+
+    /// Checks the integrity of our database
+    ///
+    /// This function will check the integrity of our database by comparing the checksum of the
+    /// headers file, index map, and fork headers file with the checksum stored in the metadata.
+    ///
+    /// As checksum, the [xxHash] of the memory-maped region is used. This is a fast hash function that
+    /// is very good at detecting errors in memory. It is not cryptographically secure, but it is
+    /// enough for random errors in a file.
+    ///
+    /// [xxHash]: https://github.com/Cyan4973/xxHash
+    fn check_integrity(&self) -> Result<(), FlatChainstoreError> {
+        let computed_checksum = self.compute_checksum();
+        let metadata = unsafe { self.get_metadata()? };
+
+        if metadata.checksum != computed_checksum {
+            return Err(FlatChainstoreError::DbCorrupted);
+        }
+
+        Ok(())
+    }
+
+    /// Computes a checksum for our database
+    fn compute_checksum(&self) -> DbCheckSum {
+        // a function that computes the xxHash of a memory map
+        let checksum_fn = |mmap: &MmapMut| {
+            let map_as_slice = mmap.iter().as_slice();
+            let hash = xxh3::xxh3_64(map_as_slice);
+
+            FileChecksum(hash)
+        };
+
+        let headers_checksum = checksum_fn(&self.headers);
+        let index_checksum = checksum_fn(&self.block_index.index_map);
+        let fork_headers_checksum = checksum_fn(&self.fork_headers);
+
+        DbCheckSum {
+            headers_checksum,
+            index_checksum,
+            fork_headers_checksum,
+        }
     }
 
     /// Truncates a number to the nearest power of 2
@@ -985,8 +1058,13 @@ impl FlatChainStore {
     unsafe fn do_flush(&self) -> Result<(), FlatChainstoreError> {
         self.headers.flush()?;
         self.block_index.flush()?;
-        self.metadata.flush()?;
+        self.fork_headers.flush()?;
 
+        let checksum = self.compute_checksum();
+        let metadata = self.get_metadata_mut()?;
+
+        metadata.checksum = checksum;
+        self.metadata.flush()?;
         Ok(())
     }
 
@@ -999,6 +1077,10 @@ impl FlatChainStore {
 
 impl ChainStore for FlatChainStore {
     type Error = FlatChainstoreError;
+
+    fn check_integrity(&self) -> Result<(), Self::Error> {
+        self.check_integrity()
+    }
 
     fn flush(&self) -> Result<(), Self::Error> {
         unsafe { self.do_flush() }
