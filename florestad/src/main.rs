@@ -32,6 +32,12 @@ use tokio::sync::RwLock;
 use tokio::time::sleep;
 
 fn main() {
+    #[cfg(feature = "tokio-console")]
+    {
+        // Initialize tokio-console for debugging
+        console_subscriber::init();
+    }
+
     let params = Cli::parse();
 
     let config = Config {
