@@ -34,11 +34,13 @@ use floresta_wire::node_interface::PeerInfo;
 use log::debug;
 use log::error;
 use log::info;
+use serde_json::from_value;
 use serde_json::json;
 use serde_json::Value;
 use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
 
+use super::res::DescriptorRequest;
 use super::res::Error;
 use super::res::GetBlockRes;
 use super::res::RawTxJson;
@@ -109,7 +111,7 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
             .ok_or(Error::TxNotFound)
     }
 
-    fn load_descriptor(&self, descriptor: String) -> Result<bool> {
+    fn load_descriptor(&self, requests: Vec<DescriptorRequest>) -> Result<bool> {
         let desc = slice::from_ref(&descriptor);
         let Ok(mut parsed) = parse_descriptors(desc) else {
             return Err(Error::InvalidDescriptor);
@@ -364,10 +366,11 @@ async fn handle_json_rpc_request(
         }
 
         // wallet
-        "loaddescriptor" => {
-            let descriptor = params[0].as_str().ok_or(Error::InvalidDescriptor)?;
+        "importdescriptors" => {
+            let requests: Vec<DescriptorRequest> = serde_json::from_value(params[0])
+                .map_err(|e| Error::DecodeDescRequest(e, params[0].to_string()))?;
             state
-                .load_descriptor(descriptor.to_string())
+                .load_descriptor(requests)
                 .map(|v| ::serde_json::to_value(v).unwrap())
         }
 
