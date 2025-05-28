@@ -20,8 +20,7 @@ use bitcoin::p2p::ServiceFlags;
 use bitcoin::BlockHash;
 use bitcoin::Network;
 use bitcoin::Txid;
-use floresta_chain::pruned_utreexo::BlockchainInterface;
-use floresta_chain::pruned_utreexo::UpdatableChainstate;
+use floresta_chain::ChainBackend;
 use floresta_chain::UtreexoBlock;
 use floresta_common::service_flags;
 use floresta_common::service_flags::UTREEXO;
@@ -162,7 +161,7 @@ impl Default for RunningNode {
     }
 }
 
-pub struct NodeCommon<Chain: BlockchainInterface + UpdatableChainstate> {
+pub struct NodeCommon<Chain: ChainBackend> {
     // 1. Core Blockchain and Transient Data
     pub(crate) chain: Chain,
     pub(crate) blocks: HashMap<BlockHash, (PeerId, UtreexoBlock)>,
@@ -212,7 +211,7 @@ pub struct NodeCommon<Chain: BlockchainInterface + UpdatableChainstate> {
 /// The main node that operates while florestad is up.
 ///
 /// [`UtreexoNode`] aims to be modular where `Chain` can be any implementation
-/// of a [`BlockchainInterface`] and [`UpdatableChainstate`].
+/// of a [`ChainBackend`].
 ///
 /// `Context` refers to which state the [`UtreexoNode`] is on, being
 /// [`RunningNode`], [`SyncNode`], and [`ChainSelector`]. Defaults to
@@ -220,19 +219,19 @@ pub struct NodeCommon<Chain: BlockchainInterface + UpdatableChainstate> {
 ///
 /// [`SyncNode`]: super::sync_node::SyncNode
 /// [`ChainSelector`]: super::chain_selector::ChainSelector
-pub struct UtreexoNode<Chain: BlockchainInterface + UpdatableChainstate, Context = RunningNode> {
+pub struct UtreexoNode<Chain: ChainBackend, Context = RunningNode> {
     pub(crate) common: NodeCommon<Chain>,
     pub(crate) context: Context,
 }
 
-impl<Chain: BlockchainInterface + UpdatableChainstate, T> Deref for UtreexoNode<Chain, T> {
+impl<Chain: ChainBackend, T> Deref for UtreexoNode<Chain, T> {
     fn deref(&self) -> &Self::Target {
         &self.common
     }
     type Target = NodeCommon<Chain>;
 }
 
-impl<T, Chain: BlockchainInterface + UpdatableChainstate> DerefMut for UtreexoNode<Chain, T> {
+impl<T, Chain: ChainBackend> DerefMut for UtreexoNode<Chain, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.common
     }
@@ -248,8 +247,8 @@ pub enum PeerStatus {
 impl<T, Chain> UtreexoNode<Chain, T>
 where
     T: 'static + Default + NodeContext,
-    WireError: From<<Chain as BlockchainInterface>::Error>,
-    Chain: BlockchainInterface + UpdatableChainstate + 'static,
+    Chain: ChainBackend + 'static,
+    WireError: From<Chain::Error>,
 {
     pub fn new(
         config: UtreexoNodeConfig,

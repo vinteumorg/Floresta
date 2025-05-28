@@ -53,9 +53,8 @@ use bitcoin::consensus::deserialize;
 use bitcoin::p2p::message_blockdata::Inventory;
 use bitcoin::p2p::ServiceFlags;
 use bitcoin::BlockHash;
-use floresta_chain::pruned_utreexo::udata;
-use floresta_chain::pruned_utreexo::BlockchainInterface;
-use floresta_chain::pruned_utreexo::UpdatableChainstate;
+use floresta_chain::proof_util;
+use floresta_chain::ChainBackend;
 use floresta_chain::UtreexoBlock;
 use floresta_common::service_flags;
 use log::debug;
@@ -127,9 +126,9 @@ impl NodeContext for ChainSelector {
 
 impl<Chain> UtreexoNode<Chain, ChainSelector>
 where
-    Chain: BlockchainInterface + UpdatableChainstate + 'static,
+    Chain: ChainBackend + 'static,
     WireError: From<Chain::Error>,
-    Chain::Error: From<udata::proof_util::Error>,
+    Chain::Error: From<proof_util::Error>,
 {
     /// This function is called every time we get a `Headers` message from a peer.
     /// It will validate the headers and add them to our chain, if they are valid.

@@ -6,10 +6,9 @@ use std::time::Instant;
 use bitcoin::p2p::message_blockdata::Inventory;
 use bitcoin::p2p::ServiceFlags;
 use floresta_chain::pruned_utreexo::udata;
-use floresta_chain::pruned_utreexo::BlockchainInterface;
-use floresta_chain::pruned_utreexo::UpdatableChainstate;
 use floresta_chain::BlockValidationErrors;
 use floresta_chain::BlockchainError;
+use floresta_chain::ThreadSafeChain;
 use floresta_chain::UtreexoBlock;
 use floresta_common::service_flags;
 use floresta_common::service_flags::UTREEXO;
@@ -61,7 +60,7 @@ impl NodeContext for SyncNode {
 /// See [node](crates/floresta-wire/src/p2p_wire/node.rs) for more information.
 impl<Chain> UtreexoNode<Chain, SyncNode>
 where
-    Chain: BlockchainInterface + UpdatableChainstate + 'static + Send + Sync,
+    Chain: ThreadSafeChain,
     WireError: From<Chain::Error>,
     Chain::Error: From<udata::proof_util::Error>,
 {

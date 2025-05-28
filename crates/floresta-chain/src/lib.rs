@@ -20,4 +20,6 @@ pub use pruned_utreexo::chainparams::*;
 pub use pruned_utreexo::chainstore::*;
 pub use pruned_utreexo::error::*;
 pub use pruned_utreexo::udata::*;
+pub use pruned_utreexo::ChainBackend;
 pub use pruned_utreexo::Notification;
+pub use pruned_utreexo::ThreadSafeChain;
