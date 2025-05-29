@@ -12,7 +12,7 @@ will run withing a `cargo run` subprocess, defined at `add_node_settings`.
 
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Pattern
 
 from test_framework.crypto.pkcs8 import (
@@ -180,9 +180,16 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
         """
         self._nodes = []
 
+    # pylint: disable=R0801
     def log(self, msg: str):
         """Log a message with the class caller"""
-        print(f"[{self.__class__.__name__} {datetime.utcnow()}] {msg}")
+
+        now = (
+            datetime.now(timezone.utc)
+            .replace(microsecond=0)
+            .strftime("%Y-%m-%d %H:%M:%S")
+        )
+        print(f"[{self.__class__.__name__} {now}] {msg}")
 
     def main(self):
         """
@@ -393,6 +400,16 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
         if not condition:
             self.stop()
             raise AssertionError(f"Actual: {condition}\nExpected: True")
+
+    def assertFalse(self, condition: bool):
+        """
+        Assert if the condition is False, otherwise
+        all nodes will be stopped and an AssertionError will
+        be raised.
+        """
+        if condition:
+            self.stop()
+            raise AssertionError(f"Actual: {condition}\nExpected: False")
 
     # pylint: disable=invalid-name
     def assertIsNone(self, thing: Any):

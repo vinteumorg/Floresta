@@ -1,5 +1,6 @@
 use std::fmt::Display;
 
+use clap::ValueEnum;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -355,6 +356,34 @@ pub struct ActiveCommand {
 pub struct GetRpcInfoRes {
     active_commands: Vec<ActiveCommand>,
     logpath: String,
+}
+
+#[derive(Debug, Clone, ValueEnum, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+/// Enum to represent the different subcommands for the addnode command
+pub enum AddNodeCommand {
+    /// Add a node to the addnode list (but not connect to it)
+    Add,
+
+    /// Remove a node from the addnode list (but not necessarily disconnect from it)
+    Remove,
+
+    /// Connect to a node once, but don't add it to the addnode list
+    Onetry,
+}
+
+/// A simple implementation to convert the enum to a string.
+/// Useful for get the subcommand name of addnode with
+/// command.to_string()
+impl Display for AddNodeCommand {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let cmd = match self {
+            AddNodeCommand::Add => "add",
+            AddNodeCommand::Remove => "remove",
+            AddNodeCommand::Onetry => "onetry",
+        };
+        write!(f, "{cmd}")
+    }
 }
 
 impl std::error::Error for Error {}

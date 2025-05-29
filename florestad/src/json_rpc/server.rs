@@ -76,7 +76,7 @@ pub struct RpcImpl<Blockchain: RpcChain> {
 type Result<T> = std::result::Result<T, Error>;
 
 impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
-    async fn add_node(&self, node: String) -> Result<bool> {
+    async fn add_node(&self, node: String, command: String, v2transport: bool) -> Result<Value> {
         let node = node.split(':').collect::<Vec<&str>>();
         let (ip, port) = if node.len() == 2 {
             (node[0], node[1].parse().map_err(|_| Error::InvalidPort)?)
@@ -91,10 +91,15 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
         };
 
         let peer = ip.parse().map_err(|_| Error::InvalidAddress)?;
-        self.node
-            .connect(peer, port)
-            .await
-            .map_err(|_| Error::Node("Failed to connect".to_string()))
+
+        let _ = match command.as_str() {
+            "add" => self.node.add_peer(peer, port, v2transport).await,
+            "remove" => self.node.remove_peer(peer, port).await,
+            "onetry" => self.node.onetry_peer(peer, port, v2transport).await,
+            _ => return Err(Error::InvalidAddnodeCommand),
+        };
+
+        Ok(json!(null))
     }
 
     fn get_transaction(&self, tx_id: Txid, verbosity: Option<bool>) -> Result<Value> {
@@ -357,8 +362,11 @@ async fn handle_json_rpc_request(
 
         "addnode" => {
             let node = params[0].as_str().ok_or(Error::InvalidAddress)?;
+            let command = params[1].as_str().ok_or(Error::InvalidAddnodeCommand)?;
+            let v2transport = params[2].as_bool().unwrap_or(false);
+
             state
-                .add_node(node.to_string())
+                .add_node(node.to_string(), command.to_string(), v2transport)
                 .await
                 .map(|v| ::serde_json::to_value(v).unwrap())
         }
@@ -416,6 +424,7 @@ fn get_http_error_code(err: &Error) -> u16 {
         | Error::MissingReq
         | Error::NoBlockFilters
         | Error::InvalidMemInfoMode
+        | Error::InvalidAddnodeCommand
         | Error::Wallet(_) => 400,
 
         // idunnolol
@@ -452,6 +461,7 @@ fn get_json_rpc_error_code(err: &Error) -> i32 {
         | Error::TxNotFound
         | Error::BlockNotFound
         | Error::InvalidMemInfoMode
+        | Error::InvalidAddnodeCommand
         | Error::Wallet(_) => -32600,
 
         // server error

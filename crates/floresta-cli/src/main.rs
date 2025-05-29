@@ -8,6 +8,7 @@ use clap::Parser;
 use clap::Subcommand;
 use floresta_cli::jsonrpc_client::Client;
 use floresta_cli::rpc::FlorestaRPC;
+use floresta_cli::rpc_types::AddNodeCommand;
 use floresta_cli::rpc_types::GetBlockRes;
 
 // Main function that runs the CLI application
@@ -85,7 +86,15 @@ fn do_request(cmd: &Cli, client: Client) -> anyhow::Result<String> {
         }
         Methods::GetPeerInfo => serde_json::to_string_pretty(&client.get_peer_info()?)?,
         Methods::Stop => serde_json::to_string_pretty(&client.stop()?)?,
-        Methods::AddNode { node } => serde_json::to_string_pretty(&client.add_node(node)?)?,
+        Methods::AddNode {
+            node,
+            command,
+            v2transport,
+        } => {
+            let transport = v2transport.unwrap_or(false);
+            serde_json::to_string_pretty(&client.add_node(node, command, transport)?)?
+        }
+
         Methods::FindTxOut {
             txid,
             vout,
@@ -189,10 +198,30 @@ pub enum Methods {
     /// Stops the node
     #[command(name = "stop")]
     Stop,
-    /// Connects with a peer, given its address and port
-    /// Usage: addnode <ip:[port]>
+    /// Attempts to add or remove a node from the addnode list.
+    /// Or try a connection to a node once.
+    ///
+    /// Arguments:
+    /// 1. node (string, required):
+    ///     - The address of the peer to connect to;
+    ///
+    /// 2. command (string, required):
+    ///     - 'add' to add a node to the list;
+    ///     - 'remove' to remove a node from the list;
+    ///     - 'onetry' to try a connection to the node once.
+    ///
+    /// 3. v2transport (boolean, optional, default=false):
+    ///     - Attempt to connect using BIP324 v2 transport protocol (ignored for 'remove' command)
+    ///
+    /// Result: json null
+    ///
+    /// Usage: addnode <ip:[port]> <add|remove|onetry> [true|false]
     #[command(name = "addnode")]
-    AddNode { node: String },
+    AddNode {
+        node: String,
+        command: AddNodeCommand,
+        v2transport: Option<bool>,
+    },
     #[command(name = "findtxout")]
     FindTxOut {
         txid: Txid,

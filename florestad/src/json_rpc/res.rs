@@ -204,6 +204,7 @@ pub enum Error {
     InvalidMemInfoMode,
     Wallet(String),
     Filters(String),
+    InvalidAddnodeCommand,
 }
 
 impl Display for Error {
@@ -235,6 +236,7 @@ impl Display for Error {
             Error::InvalidMemInfoMode => write!(f, "Invalid meminfo mode, should be stats or mallocinfo"),
             Error::Wallet(e) => write!(f, "Wallet error: {e}"),
             Error::Filters(e) => write!(f, "Error with filters: {e}"),
+            Error::InvalidAddnodeCommand => write!(f, "Invalid addnode command"),
         }
     }
 }
