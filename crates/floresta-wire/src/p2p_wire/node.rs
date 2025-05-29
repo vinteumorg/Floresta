@@ -246,9 +246,6 @@ pub struct AddedPeerInfo {
 
     /// The port of the peer
     pub(crate) port: u16,
-
-    /// The transport protocol used to connect to the peer (either [`TransportProtocol::V1`] or [`TransportProtocol::V2`])
-    pub(crate) transport_protocol: TransportProtocol,
 }
 
 #[derive(Debug, PartialEq, Clone, Copy, Deserialize, Serialize)]
@@ -420,11 +417,8 @@ where
         }
 
         // Add a simple reference to the peer
-        self.added_peers.push(AddedPeerInfo {
-            address,
-            port,
-            transport_protocol,
-        });
+        self.added_peers.push(AddedPeerInfo { address, port });
+
         Ok(())
     }
 
@@ -487,7 +481,7 @@ where
         );
 
         // Return true if exists or false if anything fails during connection
-        self.open_connection(kind, peer_id as usize, address, transport_protocol)
+        self.open_connection(kind, peer_id as usize, address, true)
             .await
     }
 
@@ -1189,7 +1183,7 @@ where
                 ConnectionKind::Regular(UTREEXO.into()),
                 address.id,
                 address,
-                TransportProtocol::V1, // Default to V1, will be updated when peer is ready,
+                true,
             )
             .await?;
         }
@@ -1377,7 +1371,7 @@ where
                     ConnectionKind::Regular(ServiceFlags::NONE),
                     peers_count as usize,
                     address,
-                    added_peer.transport_protocol,
+                    true,
                 )
                 .await?
             }
@@ -1482,8 +1476,18 @@ where
             return None;
         }
 
+        let allow_v1 = match self.config.allow_v1_fallback {
+            // only allow v1 fallback on utreexo connections, since utreexod
+            // doesn't support v1 protocol yet.
+            true if kind == ConnectionKind::Regular(UTREEXO.into()) => true,
+
+            // if we've received a init-time config that doesn't allow v1 fallback,
+            // or this is a non-utreexo peeer, use v2 connection we don't allow it
+            _ => false,
+        };
+
         // Default to V1, will be updated when peer is ready.)
-        self.open_connection(kind, peer_id, address, TransportProtocol::V1)
+        self.open_connection(kind, peer_id, address, allow_v1)
             .await
             .ok()?;
 
@@ -1590,7 +1594,7 @@ where
         kind: ConnectionKind,
         peer_id: usize,
         address: LocalAddress,
-        transport_protocol: TransportProtocol,
+        allow_v1_fallback: bool,
     ) -> Result<(), WireError> {
         let (requests_tx, requests_rx) = unbounded_channel();
         if let Some(ref proxy) = self.socks5 {
@@ -1607,7 +1611,7 @@ where
                     requests_rx,
                     self.peer_id_count,
                     self.config.user_agent.clone(),
-                    self.config.allow_v1_fallback,
+                    allow_v1_fallback,
                 ),
             ));
         } else {
@@ -1623,7 +1627,7 @@ where
                     self.network,
                     self.node_tx.clone(),
                     self.config.user_agent.clone(),
-                    self.config.allow_v1_fallback,
+                    allow_v1_fallback,
                 ),
             ));
         }
@@ -1649,7 +1653,8 @@ where
                 address_id: peer_id as u32,
                 height: 0,
                 banscore: 0,
-                transport_protocol,
+                transport_protocol: TransportProtocol::V2, // will be updated when the peer is
+                                                           // ready
             },
         );
 
