@@ -92,6 +92,8 @@ impl AddressCacheDatabase for KvDatabase {
         self.1.flush()?;
         Ok(())
     }
+    
+    // Descriptors CRUD
 
     fn desc_save(&self, descriptor: &str) -> Result<()> {
         let mut descs = self.descs_get()?;

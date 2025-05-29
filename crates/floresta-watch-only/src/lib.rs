@@ -5,8 +5,8 @@ use core::fmt::Debug;
 use bitcoin::hashes::sha256;
 use bitcoin::ScriptBuf;
 use floresta_chain::BlockConsumer;
+use floresta_common::desc_types::parse_descriptors;
 use floresta_common::get_spk_hash;
-use floresta_common::parse_descriptors;
 
 pub mod kv_database;
 #[cfg(any(test, feature = "memory-database"))]
@@ -102,7 +102,6 @@ impl Default for CachedTransaction {
         }
     }
 }
-
 /// An address inside our cache, contains all information we need to satisfy electrum's requests
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CachedAddress {

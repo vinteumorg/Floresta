@@ -8,8 +8,8 @@ use clap::Parser;
 use clap::Subcommand;
 use floresta_cli::jsonrpc_client::Client;
 use floresta_cli::rpc::FlorestaRPC;
-use floresta_cli::rpc_types::DescriptorRequest;
 use floresta_cli::rpc_types::GetBlockRes;
+use floresta_common::desc_types::DescriptorRequest;
 
 // Main function that runs the CLI application
 fn main() -> anyhow::Result<()> {

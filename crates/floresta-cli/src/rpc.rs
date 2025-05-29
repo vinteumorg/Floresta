@@ -3,6 +3,7 @@ use std::fmt::Debug;
 use bitcoin::block::Header as BlockHeader;
 use bitcoin::BlockHash;
 use bitcoin::Txid;
+use floresta_common::desc_types::DescriptorRequest;
 use serde_json::Number;
 use serde_json::Value;
 

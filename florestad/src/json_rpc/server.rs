@@ -23,6 +23,8 @@ use bitcoin::TxOut;
 use bitcoin::Txid;
 use floresta_chain::pruned_utreexo::BlockchainInterface;
 use floresta_chain::pruned_utreexo::UpdatableChainstate;
+use floresta_common::desc_types::DescriptorRequest;
+
 use floresta_compact_filters::flat_filters_store::FlatFiltersStore;
 use floresta_compact_filters::network_filters::NetworkFilters;
 use floresta_watch_only::kv_database::KvDatabase;
@@ -32,15 +34,12 @@ use floresta_wire::node_interface::NodeInterface;
 use floresta_wire::node_interface::PeerInfo;
 use log::error;
 use log::info;
-use miniscript::DefiniteDescriptorKey;
-use miniscript::Descriptor;
+
 use serde_json::json;
 use serde_json::Value;
 use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
 
-use super::res::DescriptorRequest;
-use super::res::DescriptorTimestamp;
 use super::res::Error;
 use super::res::GetBlockRes;
 use super::res::RawTxJson;
@@ -123,7 +122,9 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
         info!("Importing {requests:?} and Rescanning");
 
         // Extracts the BlownDescriptors and the earliest timestamp rescan requested.
-        let (descs, rescan_timestamp) = handle_descriptors_requests(requests)?;
+        let (descs, rescan_timestamp) =
+            floresta_common::desc_types::handle_descriptors_requests(requests)
+                .map_err(|e| Error::DescriptorError(e))?;
 
         for desc in descs {
             let script = desc.script_pubkey();
@@ -413,8 +414,8 @@ fn get_http_error_code(err: &Error) -> u16 {
         | Error::InvalidVout
         | Error::InvalidPort
         | Error::InvalidHeight
-        | Error::InvalidDescriptor
         | Error::InvalidNetwork
+        | Error::DescriptorError(_)
         | Error::InvalidVerbosityLevel
         | Error::Decode(_)
         | Error::MissingParams
@@ -452,12 +453,12 @@ fn get_json_rpc_error_code(err: &Error) -> i32 {
         | Error::InvalidVout
         | Error::InvalidPort
         | Error::InvalidHeight
-        | Error::InvalidDescriptor
         | Error::InvalidNetwork
         | Error::InvalidVerbosityLevel
         | Error::TxNotFound
         | Error::BlockNotFound
         | Error::InvalidMemInfoMode
+        | Error::DescriptorError(_)
         | Error::DecodeDescRequest(_, _)
         | Error::Wallet(_) => -32600,
 
@@ -469,38 +470,6 @@ fn get_json_rpc_error_code(err: &Error) -> i32 {
         | Error::NoBlockFilters
         | Error::Filters(_) => -32603,
     }
-}
-
-/// Interpret [`DescriptorRequest`]s, returning its ScriptPubkeys and the highest timestamp that
-/// was requested for a rescan after addresses. The timestamp returned may be a 0u32 indicating
-/// that rescanning should be skipped.
-fn handle_descriptors_requests(
-    requests: Vec<DescriptorRequest>,
-) -> Result<(Vec<Descriptor<DefiniteDescriptorKey>>, u32)> {
-    let mut highes_time = 0u32;
-    let descs: Vec<_> = requests
-        .iter()
-        .flat_map(|d| {
-            if let DescriptorTimestamp::SpecifiedTime(time) = d.timestamp {
-                if highes_time >= time {
-                    highes_time = time;
-                }
-            } else {
-                // This is the case one wants to bypass
-                // blockchain rescaning.
-
-                // Simple putting zero avoids the time being changed
-                // by the above condition since 0 will be allways
-                // less than any correct u32 timestamp and will serve
-                // to identify a request to skip blockchain rescaning.
-                highes_time = 0;
-            }
-            d.clone()
-                .into_descriptor()
-                .expect("The descriptors did well")
-        })
-        .collect();
-    Ok((descs, highes_time))
 }
 
 async fn json_rpc_request(

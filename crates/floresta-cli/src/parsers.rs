@@ -1,11 +1,8 @@
-use std::any::type_name;
+
 use std::error::Error;
 use std::fmt::Display;
-use std::str::FromStr;
 
-use crate::rpc_types::DescriptorRange;
-use crate::rpc_types::DescriptorRequest;
-use crate::rpc_types::DescriptorTimestamp;
+use serde::Deserialize;
 
 #[derive(Debug)]
 /// Collection of errors to deal with parsing.
@@ -52,40 +49,7 @@ impl Error for ParseError {}
 /// ```
 pub fn parse_json_array<Target>(s: &str) -> Result<Vec<Target>, ParseError>
 where
-    Target: FromStr,
+    Target: for<'a> Deserialize<'a>, // Works with any lifetime
 {
-    let string_vec: Vec<String> = serde_json::from_str(s).map_err(|_| ParseError::InvalidArray)?;
-
-    string_vec
-        .into_iter()
-        .map(|s| {
-            Target::from_str(&s)
-                .map_err(|_| ParseError::InvalidTarget(type_name::<Target>().to_string()))
-        })
-        .collect()
+    serde_json::from_str(s).map_err(|_| ParseError::InvalidArray)
 }
-
-/// Implements [`FromStr`] for a type using [`serde_json::from_str`]
-/// for a easy and quick implementation of FromStr for any type that
-/// derives [`serde_json::Serialize`] and [`serde_json::Deserialize`].
-macro_rules! from_str_by_json {
-    ($t:ty) => {
-        impl std::str::FromStr for $t {
-            type Err = ParseError;
-
-            fn from_str(s: &str) -> Result<Self, Self::Err> {
-                serde_json::from_str::<Self>(s)
-                    .map_err(|_| ParseError::InvalidTarget(s.to_string()))
-            }
-        }
-    };
-}
-
-// These below are the impls that our internal types need
-// to be parsed correctly
-
-from_str_by_json!(DescriptorRange);
-
-from_str_by_json!(DescriptorTimestamp);
-
-from_str_by_json!(DescriptorRequest);

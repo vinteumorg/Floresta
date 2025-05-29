@@ -9,19 +9,15 @@
 use bitcoin::hashes::sha256;
 use bitcoin::hashes::Hash;
 use bitcoin::ScriptBuf;
-#[cfg(any(feature = "descriptors-std", feature = "descriptors-no-std"))]
-use miniscript::Descriptor;
-#[cfg(any(feature = "descriptors-std", feature = "descriptors-no-std"))]
-use miniscript::DescriptorPublicKey;
 use sha2::Digest;
 
+#[cfg(any(feature = "descriptors-std", feature = "descriptors-no-std"))]
+pub mod desc_types;
 #[cfg(not(feature = "std"))]
 mod error;
 pub mod macros;
 pub mod spsc;
 
-#[cfg(any(feature = "descriptors-std", feature = "descriptors-no-std"))]
-use prelude::*;
 pub use spsc::Channel;
 
 /// Computes the SHA-256 digest of the byte slice data and returns a [Hash] from `bitcoin_hashes`.
@@ -93,25 +89,7 @@ impl FractionAvg {
     }
 }
 
-#[cfg(any(feature = "descriptors-std", feature = "descriptors-no-std"))]
-/// Takes an array of descriptors as `String`, performs sanity checks on each one
-/// and returns list of parsed descriptors.
-pub fn parse_descriptors(
-    descriptors: &[String],
-) -> Result<Vec<Descriptor<DescriptorPublicKey>>, miniscript::Error> {
-    let descriptors = descriptors
-        .iter()
-        .map(|descriptor| {
-            let descriptor = Descriptor::<DescriptorPublicKey>::from_str(descriptor.as_str())?;
-            descriptor.sanity_check()?;
-            descriptor.into_single_descriptors()
-        })
-        .collect::<Result<Vec<Vec<_>>, _>>()?
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>();
-    Ok(descriptors)
-}
+
 
 #[cfg(not(feature = "std"))]
 pub mod prelude {
