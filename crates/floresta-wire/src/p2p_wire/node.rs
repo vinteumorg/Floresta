@@ -628,6 +628,7 @@ where
             Network::Signet => 38333,
             Network::Testnet => 18333,
             Network::Regtest => 18444,
+            Network::Testnet4 => 48333,
             // TODO: handle possible Err
             _ => panic!("Unsupported network"),
         }
@@ -1158,13 +1159,26 @@ where
 
             let default_port = Self::get_port(network);
             for seed in dns_seeds {
-                let _addresses = AddressMan::get_seeds_from_dns(&seed, default_port);
+                match AddressMan::get_seeds_from_dns(&seed, default_port) {
+                    Ok(_addresses) => {
+                        info!(
+                            "Found {} addresses from DNS seed {}",
+                            addresses.len(),
+                            seed.seed
+                        );
+                        addresses.extend(_addresses);
+                    }
 
-                if let Ok(_addresses) = _addresses {
-                    addresses.extend(_addresses);
+                    Err(e) => {
+                        warn!(
+                            "Error getting addresses from DNS seed {}: {:?}",
+                            seed.seed, e
+                        );
+                        continue;
+                    }
                 }
             }
-
+            info!("Found {} DNS seeds", addresses.len());
             node_sender
                 .send(NodeNotification::DnsSeedAddresses(addresses))
                 .unwrap();
@@ -1304,7 +1318,7 @@ where
     ///
     /// If the last DNS lookup was more than 5 minutes ago, and we still
     /// don't have any connected peers, we retry another DNS lookup.
-    fn maybe_ask_for_dns_peers(&self) {
+    fn maybe_ask_for_dns_peers(&mut self) {
         if self.config.disable_dns_seeds {
             return;
         }
@@ -1318,6 +1332,8 @@ where
         if last_dns_request < DNS_SEED_RETRY_PERIOD {
             return;
         }
+
+        self.last_dns_seed_call = Instant::now();
 
         info!("We've been running for a while and we don't have any peers, asking for DNS peers");
         try_and_log!(self.get_peers_from_dns());

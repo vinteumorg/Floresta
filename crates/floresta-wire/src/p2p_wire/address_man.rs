@@ -324,6 +324,17 @@ impl AddressMan {
             addresses.extend(_addresses);
         }
 
+        // ask for any peer (if filtering isn't available)
+        if seed.filters == ServiceFlags::NONE {
+            let _addresses = Self::do_lookup(seed.seed, default_port).unwrap_or_default();
+            let _addresses = _addresses.into_iter().map(|mut x| {
+                x.services = ServiceFlags::NETWORK | ServiceFlags::WITNESS;
+                x
+            });
+
+            addresses.extend(_addresses);
+        }
+
         Ok(addresses)
     }
 
@@ -438,12 +449,13 @@ impl AddressMan {
         }
 
         let anchors = std::fs::read_to_string(format!("{datadir}/anchors.json"))
-            .map_err(|_| WireError::AnchorFileNotFound)?;
-        let anchors = serde_json::from_str::<Vec<DiskLocalAddress>>(&anchors)?;
-        let anchors = anchors
+            .map(|anchors| {
+                serde_json::from_str::<Vec<DiskLocalAddress>>(&anchors).unwrap_or_default()
+            })
+            .unwrap_or_default()
             .into_iter()
             .map(Into::<LocalAddress>::into)
-            .collect::<Vec<_>>();
+            .collect();
 
         Ok(anchors)
     }
@@ -659,6 +671,7 @@ impl AddressMan {
             Network::Testnet => include_str!("seeds/testnet_seeds.json"),
             Network::Signet => include_str!("seeds/signet_seeds.json"),
             Network::Regtest => include_str!("seeds/regtest_seeds.json"),
+            Network::Testnet4 => include_str!("seeds/testnet4_seeds.json"),
             // TODO: handle possible Err
             _ => panic!("Unsupported network"),
         }

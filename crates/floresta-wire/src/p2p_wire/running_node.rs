@@ -660,6 +660,7 @@ where
                         | BlockValidationErrors::EmptyBlock
                         | BlockValidationErrors::BadBip34
                         | BlockValidationErrors::UnspendableUTXO
+                        | BlockValidationErrors::BIP94TimeWarp
                         | BlockValidationErrors::CoinbaseNotMatured => {
                             self.send_to_peer(peer, NodeRequest::Shutdown).await?;
                             try_and_log!(self.chain.invalidate_block(block.block.block_hash()));
