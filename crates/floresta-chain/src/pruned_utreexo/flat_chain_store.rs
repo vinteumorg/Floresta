@@ -634,7 +634,7 @@ impl FlatChainStore {
         let Ok(metadata_file) = metadata else {
             // if we can't get the metadata file, assume it doesn't exist and create
             // a new one
-            let store = Self::create_chain_store(config)?;
+            let mut store = Self::create_chain_store(config)?;
             store.flush()?;
 
             return Ok(store);
@@ -1082,11 +1082,11 @@ impl ChainStore for FlatChainStore {
         self.check_integrity()
     }
 
-    fn flush(&self) -> Result<(), Self::Error> {
+    fn flush(&mut self) -> Result<(), Self::Error> {
         unsafe { self.do_flush() }
     }
 
-    fn save_roots(&self, roots: Vec<u8>) -> Result<(), Self::Error> {
+    fn save_roots(&mut self, roots: Vec<u8>) -> Result<(), Self::Error> {
         unsafe { self.do_save_roots(roots) }
     }
 
@@ -1121,11 +1121,11 @@ impl ChainStore for FlatChainStore {
         }
     }
 
-    fn save_height(&self, height: &crate::BestChain) -> Result<(), Self::Error> {
+    fn save_height(&mut self, height: &crate::BestChain) -> Result<(), Self::Error> {
         unsafe { self.do_save_height(height.clone()) }
     }
 
-    fn save_header(&self, header: &DiskBlockHeader) -> Result<(), Self::Error> {
+    fn save_header(&mut self, header: &DiskBlockHeader) -> Result<(), Self::Error> {
         let cache = self.get_cache_mut();
         cache?.put(header.block_hash(), *header);
 
@@ -1151,7 +1151,7 @@ impl ChainStore for FlatChainStore {
         }
     }
 
-    fn update_block_index(&self, height: u32, hash: BlockHash) -> Result<(), Self::Error> {
+    fn update_block_index(&mut self, height: u32, hash: BlockHash) -> Result<(), Self::Error> {
         let index = Index::new(height);
 
         unsafe { self.add_index_entry(hash, index) }
@@ -1239,7 +1239,7 @@ mod tests {
 
     #[test]
     fn test_save_and_retrieve_headers() {
-        let store = get_test_chainstore();
+        let mut store = get_test_chainstore();
         let blocks = include_str!("../../testdata/blocks.txt");
 
         for (i, line) in blocks.lines().enumerate() {
@@ -1346,7 +1346,7 @@ mod tests {
 
     #[test]
     fn test_save_height() {
-        let store = get_test_chainstore();
+        let mut store = get_test_chainstore();
         let height = BestChain {
             alternative_tips: Vec::new(),
             assume_valid_index: 0,
@@ -1363,7 +1363,7 @@ mod tests {
 
     #[test]
     fn test_index() {
-        let store = get_test_chainstore();
+        let mut store = get_test_chainstore();
         let mut hashes = Vec::new();
         let blocks = include_str!("../../testdata/blocks.txt");
 
@@ -1421,7 +1421,7 @@ mod tests {
 
     #[test]
     fn test_fork_blocks() {
-        let store = get_test_chainstore();
+        let mut store = get_test_chainstore();
         let file = include_str!("../../testdata/blocks.txt");
         let headers = file
             .lines()
@@ -1472,7 +1472,7 @@ mod tests {
             path: format!("./tmp-db/{test_id}/"),
         };
 
-        let store = FlatChainStore::new(config).unwrap();
+        let mut store = FlatChainStore::new(config).unwrap();
 
         let acc = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 

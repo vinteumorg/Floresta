@@ -15,8 +15,8 @@ use crate::prelude::*;
 use crate::BlockchainError;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-/// This enum is used to store a block header in the database.
-/// It contains the header along with metadaba about the validation state of the block, and, if applicable, also its height.
+/// This enum is used to store a block header in the database. It contains the header along with
+/// metadata about the validation state of the block, and, if applicable, also its height.
 pub enum DiskBlockHeader {
     /// Represents a fully validated block header in the current best chain.
     FullyValid(BlockHeader, u32),
@@ -213,7 +213,7 @@ impl ChainStore for KvChainStore<'_> {
     }
 
     /// Saves the current utreexo roots to the metadata bucket.
-    fn save_roots(&self, roots: Vec<u8>) -> Result<(), Self::Error> {
+    fn save_roots(&mut self, roots: Vec<u8>) -> Result<(), Self::Error> {
         self.meta.set(&"roots", &roots)?;
         Ok(())
     }
@@ -229,7 +229,7 @@ impl ChainStore for KvChainStore<'_> {
     }
 
     /// Saves the best chain data to the metadata bucket.
-    fn save_height(&self, height: &BestChain) -> Result<(), Self::Error> {
+    fn save_height(&mut self, height: &BestChain) -> Result<(), Self::Error> {
         let height = serialize(height);
         self.meta.set(&"height", &height)?;
         Ok(())
@@ -251,7 +251,7 @@ impl ChainStore for KvChainStore<'_> {
     }
 
     /// Flushes the cache to the database.
-    fn flush(&self) -> Result<(), Self::Error> {
+    fn flush(&mut self) -> Result<(), Self::Error> {
         // save all headers in batch
         let mut batch = Batch::new();
         for header in self.headers_cache.read().iter() {
@@ -281,7 +281,7 @@ impl ChainStore for KvChainStore<'_> {
     }
 
     /// Saves a header to the database.
-    fn save_header(&self, header: &DiskBlockHeader) -> Result<(), Self::Error> {
+    fn save_header(&mut self, header: &DiskBlockHeader) -> Result<(), Self::Error> {
         self.headers_cache
             .write()
             .insert(header.block_hash(), *header);
@@ -301,7 +301,7 @@ impl ChainStore for KvChainStore<'_> {
     }
 
     /// Updates the block index with the provided height and hash.
-    fn update_block_index(&self, height: u32, hash: BlockHash) -> Result<(), Self::Error> {
+    fn update_block_index(&mut self, height: u32, hash: BlockHash) -> Result<(), Self::Error> {
         self.index_cache.write().insert(height, hash);
         Ok(())
     }

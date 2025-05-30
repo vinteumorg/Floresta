@@ -182,8 +182,9 @@ pub trait UpdatableChainstate {
 /// See the documentation of [DatabaseError] for more info.
 pub trait ChainStore {
     type Error: DatabaseError;
+
     /// Saves the current state of our accumulator.
-    fn save_roots(&self, roots: Vec<u8>) -> Result<(), Self::Error>;
+    fn save_roots(&mut self, roots: Vec<u8>) -> Result<(), Self::Error>;
 
     /// Loads the state of our accumulator.
     fn load_roots(&self) -> Result<Option<Vec<u8>>, Self::Error>;
@@ -192,7 +193,7 @@ pub trait ChainStore {
     fn load_height(&self) -> Result<Option<BestChain>, Self::Error>;
 
     /// Saves the blockchain height.
-    fn save_height(&self, height: &BestChain) -> Result<(), Self::Error>;
+    fn save_height(&mut self, height: &BestChain) -> Result<(), Self::Error>;
 
     /// Get a block header from our database. See [DiskBlockHeader] for more info about
     /// the data we save.
@@ -200,7 +201,7 @@ pub trait ChainStore {
 
     /// Saves a block header to our database. See [DiskBlockHeader] for more info about
     /// the data we save.
-    fn save_header(&self, header: &DiskBlockHeader) -> Result<(), Self::Error>;
+    fn save_header(&mut self, header: &DiskBlockHeader) -> Result<(), Self::Error>;
 
     /// Returns the block hash for a given height.
     fn get_block_hash(&self, height: u32) -> Result<Option<BlockHash>, Self::Error>;
@@ -208,10 +209,10 @@ pub trait ChainStore {
     /// Flushes write buffers to disk, this is called periodically by the [ChainState](crate::ChainState),
     /// so in case of a crash, we don't lose too much data. If the database doesn't support
     /// write buffers, this method can be a no-op.
-    fn flush(&self) -> Result<(), Self::Error>;
+    fn flush(&mut self) -> Result<(), Self::Error>;
 
     /// Associates a block hash with a given height, so we can retrieve it later.
-    fn update_block_index(&self, height: u32, hash: BlockHash) -> Result<(), Self::Error>;
+    fn update_block_index(&mut self, height: u32, hash: BlockHash) -> Result<(), Self::Error>;
 
     /// Checks if our database didn't get corrupted, and if it has, it returns
     /// an error.
