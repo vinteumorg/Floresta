@@ -20,6 +20,11 @@ FLORESTA_PROJ_DIR=$(git rev-parse --show-toplevel)
 # This helps us to keep track of the actual version being tested without conflicting with any already installed binaries.
 GIT_DESCRIBE=$(git describe --tags --always)
 
+# Floresta can't talk the new, experimental p2p messages for utreexo. This is the last version of utreexod that
+# implements the old p2p messages, and is used for testing by default. It can be overridden by setting the
+# UTREEXO_REVISION environment variable.
+export DEFAULT_UTREEXO_REV="0.4.1"
+
 export FLORESTA_TEMP_DIR="/tmp/floresta-func-tests.${GIT_DESCRIBE}"
 
 # Dont use mktemp so we can have deterministic results for each version of floresta.

@@ -268,15 +268,14 @@ class BaseRPC(metaclass=BaseRpcMetaClass):
             raise HTTPError
 
         result = response.json()
-
         # Error could be None or a str
         # If in the future this change,
         # cast the resulted error to str
         if "error" in result and result["error"] is not None:
             raise JSONRPCError(
+                data=result["error"] if isinstance(result["error"], str) else None,
                 rpc_id=result["id"],
                 code=result["error"]["code"],
-                data=result["error"]["data"],
                 message=result["error"]["message"],
             )
 
