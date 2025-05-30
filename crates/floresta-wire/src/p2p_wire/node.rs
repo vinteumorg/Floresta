@@ -1406,7 +1406,7 @@ where
 
         let connection_kind = ConnectionKind::Regular(required_service);
         if self.peers.len() < T::MAX_OUTGOING_PEERS {
-            self.create_connection(connection_kind).await;
+            self.create_connection(connection_kind).await?;
         }
 
         Ok(())
@@ -1417,7 +1417,7 @@ where
         if self.fixed_peer.is_some() {
             return Ok(());
         }
-        self.create_connection(ConnectionKind::Feeler).await;
+        self.create_connection(ConnectionKind::Feeler).await?;
         Ok(())
     }
 
@@ -1446,23 +1446,30 @@ where
         Ok(())
     }
 
-    pub(crate) async fn create_connection(&mut self, kind: ConnectionKind) -> Option<()> {
+    pub(crate) async fn create_connection(
+        &mut self,
+        kind: ConnectionKind,
+    ) -> Result<(), WireError> {
         let required_services = match kind {
             ConnectionKind::Feeler => ServiceFlags::NONE,
             ConnectionKind::Regular(services) => services,
             ConnectionKind::Extra => ServiceFlags::NONE,
         };
 
-        let address = match &self.fixed_peer {
-            Some(address) => Some((0, address.clone())),
-            None => self
-                .address_man
-                .get_address_to_connect(required_services, matches!(kind, ConnectionKind::Feeler)),
-        };
+        let (peer_id, address) = self
+            .fixed_peer
+            .as_ref()
+            .map(|addr| (0, addr.clone()))
+            .or_else(|| {
+                self.address_man.get_address_to_connect(
+                    required_services,
+                    matches!(kind, ConnectionKind::Feeler),
+                )
+            })
+            .ok_or(WireError::NoAddressesAvailable)?;
 
         debug!("attempting connection with address={address:?} kind={kind:?}",);
 
-        let (peer_id, address) = address?;
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -1473,21 +1480,21 @@ where
             .update_set_state(peer_id, AddressState::Failed(now));
 
         // Don't connect to the same peer twice
-        if self
-            .common
-            .peers
-            .iter()
-            .any(|peers| peers.1.address == address.get_net_address())
-        {
-            return None;
+        let is_connected = |(_, peer_addr): (_, &LocalPeerView)| {
+            peer_addr.address == address.get_net_address() && peer_addr.port == address.get_port()
+        };
+        if self.common.peers.iter().any(is_connected) {
+            return Err(WireError::PeerAlreadyExists(
+                address.get_net_address(),
+                address.get_port(),
+            ));
         }
 
         // Default to V1, will be updated when peer is ready.)
         self.open_connection(kind, peer_id, address, TransportProtocol::V1)
-            .await
-            .ok()?;
+            .await?;
 
-        Some(())
+        Ok(())
     }
 
     /// Opens a new connection that doesn't require a proxy and includes the functionalities of create_outbound_connection.

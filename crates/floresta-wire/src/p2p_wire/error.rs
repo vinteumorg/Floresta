@@ -55,6 +55,8 @@ pub enum WireError {
     Transport(TransportError),
     #[error("Can't send back response for user request")]
     ResponseSendError,
+    #[error("No addresses available")]
+    NoAddressesAvailable,
 }
 
 impl_error_from!(WireError, PeerError, PeerError);
