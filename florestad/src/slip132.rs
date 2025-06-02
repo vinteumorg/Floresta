@@ -134,19 +134,6 @@ impl From<base58::Error> for Error {
     }
 }
 
-/// Structure holding 4 version bytes with magical numbers representing
-/// different versions of extended public and private keys according to BIP-32.
-/// Key version stores raw bytes without their check, interpretation or
-/// verification; for these purposes special helpers structures implementing
-/// [`VersionResolver`] are used.
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-pub struct KeyVersion([u8; 4]);
-
-/// Default resolver knowing native [`bitcoin::network::constants::Network`]
-/// and BIP 32 and SLIP 132-defined key applications with [`KeyApplication`]
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-pub struct DefaultResolver;
-
 /// SLIP 132-defined key applications defining types of scriptPubKey descriptors
 /// in which they can be used
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Serialize, Deserialize)]
