@@ -82,10 +82,10 @@ impl<T: ChainStore> ChainStateBuilder<T> {
 
     /// Builds the chain state. Returns error if the `chainstore` or `chain_params` are missing, or
     /// if only one of `tip_header` and `tip` is set (either set both or none).
-    pub fn build(self) -> Result<ChainState<T>, BlockchainBuilderError> {
+    pub fn build(mut self) -> Result<ChainState<T>, BlockchainBuilderError> {
         let chainstore = self
             .chainstore
-            .as_ref()
+            .as_mut()
             .ok_or(BlockchainBuilderError::MissingChainstore)?;
 
         // Tip header and tip tuple must come as a pair (both Some or both None)

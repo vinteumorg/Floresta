@@ -157,15 +157,17 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         headers: Vec<BlockHeader>,
         height: u32,
     ) -> Result<(), BlockchainError> {
-        let chainstore = &read_lock!(self).chainstore;
         for (offset, &header) in headers.iter().enumerate() {
-            let block_hash = header.block_hash();
-            let disk_header = DiskBlockHeader::FullyValid(header, height + offset as u32);
-            chainstore.save_header(&disk_header)?;
-            chainstore.update_block_index(height + offset as u32, block_hash)?;
+            let disk_height = height + offset as u32;
+            let disk_header = DiskBlockHeader::FullyValid(header, disk_height);
+            let hash = disk_header.block_hash();
+
+            self.update_header_and_index(&disk_header, hash, disk_height)?;
         }
+
         Ok(())
     }
+
     #[cfg(feature = "bitcoinconsensus")]
     /// Returns the validation flags, given the current block height
     fn get_validation_flags(&self, height: u32, hash: BlockHash) -> c_uint {
@@ -202,7 +204,21 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
     }
 
     fn update_header(&self, header: &DiskBlockHeader) -> Result<(), BlockchainError> {
-        Ok(read_lock!(self).chainstore.save_header(header)?)
+        Ok(write_lock!(self).chainstore.save_header(header)?)
+    }
+
+    fn update_header_and_index(
+        &self,
+        header: &DiskBlockHeader,
+        hash: BlockHash,
+        height: u32,
+    ) -> Result<(), BlockchainError> {
+        let mut inner = write_lock!(self);
+
+        inner.chainstore.save_header(header)?;
+        inner.chainstore.update_block_index(height, hash)?;
+
+        Ok(())
     }
 
     fn validate_header(&self, block_header: &BlockHeader) -> Result<BlockHash, BlockchainError> {
@@ -231,11 +247,13 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
     fn is_genesis(&self, header: &BlockHeader) -> bool {
         header.block_hash() == self.chain_params().genesis.block_hash()
     }
+
     #[inline]
     /// Returns the ancestor of a given block
     fn get_ancestor(&self, header: &BlockHeader) -> Result<DiskBlockHeader, BlockchainError> {
         self.get_disk_block_header(&header.prev_blockhash)
     }
+
     /// Returns the cumulative work in this branch
     fn get_branch_work(&self, header: &BlockHeader) -> Result<Work, BlockchainError> {
         let mut header = *header;
@@ -247,6 +265,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
 
         Ok(work)
     }
+
     /// Checks if a branch is valid (i.e. all ancestors are known)
     fn check_branch(&self, branch_tip: &BlockHeader) -> Result<(), BlockchainError> {
         let mut header = *branch_tip;
@@ -264,6 +283,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
 
         Ok(())
     }
+
     /// Returns the depth of a branch (i.e. how many blocks are in the branch)
     fn get_chain_depth(&self, branch_tip: &BlockHeader) -> Result<u32, BlockchainError> {
         let mut header = *branch_tip;
@@ -276,6 +296,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
 
         Ok(counter)
     }
+
     /// Mark the current index as active, because we are in the middle of a reorg
     fn mark_chain_as_active(
         &self,
@@ -285,17 +306,16 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         let mut height = self.get_chain_depth(new_tip)?;
         let mut header = DiskBlockHeader::HeadersOnly(*new_tip, height);
 
-        let inner = read_lock!(self);
-
         while !self.is_genesis(&header) || header.block_hash() == fork_point {
-            inner
-                .chainstore
-                .update_block_index(height, header.block_hash())?;
-            let new_header = DiskBlockHeader::HeadersOnly(*header, height);
-            inner.chainstore.save_header(&new_header)?;
+            let disk_header = DiskBlockHeader::HeadersOnly(*header, height);
+            let hash = disk_header.block_hash();
+
+            self.update_header_and_index(&disk_header, hash, height)?;
+
             header = self.get_ancestor(&header)?;
             height -= 1;
         }
+
         Ok(())
     }
 
@@ -309,16 +329,16 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         let mut header = *old_tip;
         let mut height = self.get_chain_depth(old_tip)?;
 
-        let inner = read_lock!(self);
         while !self.is_genesis(&header) || header.block_hash() == fork_point {
-            let new_header = DiskBlockHeader::InFork(header, height);
-            inner.chainstore.save_header(&new_header)?;
+            self.update_header(&DiskBlockHeader::InFork(header, height))?;
+
             header = *self.get_ancestor(&header)?;
             height -= 1;
         }
 
         Ok(())
     }
+
     /// Finds where in the current index, a given branch forks out.
     fn find_fork_point(&self, header: &BlockHeader) -> Result<BlockHeader, BlockchainError> {
         let mut header = *self.get_ancestor(header)?;
@@ -386,6 +406,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         inner.best_block.depth = depth;
         inner.acc = Stump::new();
     }
+
     /// Grabs the last block we validated in this branch. We don't validate a fork, unless it
     /// becomes the best chain. This function technically finds out what is the last common block
     /// between two branches.
@@ -417,6 +438,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         }
         Ok(header.block_hash())
     }
+
     /// If we get a header that doesn't build on top of our best chain, it may cause a reorganization.
     /// We check this here.
     fn maybe_reorg(&self, branch_tip: BlockHeader) -> Result<(), BlockchainError> {
@@ -436,12 +458,11 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
 
         let parent_height = self.get_ancestor(&branch_tip)?.try_height()?;
 
-        read_lock!(self)
-            .chainstore
-            .save_header(&DiskBlockHeader::InFork(branch_tip, parent_height + 1))?;
+        self.update_header(&DiskBlockHeader::InFork(branch_tip, parent_height + 1))?;
 
         Ok(())
     }
+
     /// Stores a new tip for a branch that is not the best one
     fn push_alt_tip(&self, branch_tip: &BlockHeader) -> Result<(), BlockchainError> {
         let ancestor = self.get_ancestor(branch_tip);
@@ -475,6 +496,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         // We clone the parameters here, because we don't want to hold the lock for too long
         inner.consensus.parameters.clone()
     }
+
     // This function should be only called if a block is guaranteed to be on chain
     fn get_block_header_by_height(&self, height: u32) -> BlockHeader {
         let block = self
@@ -483,23 +505,24 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         self.get_block_header(&block)
             .expect("This block should also be present")
     }
-    fn save_acc(&self) -> Result<(), bitcoin::consensus::encode::Error> {
-        let inner = read_lock!(self);
-        let mut ser_acc: Vec<u8> = Vec::new();
-        inner.acc.leaves.consensus_encode(&mut ser_acc)?;
 
-        for root in inner.acc.roots.iter() {
-            ser_acc
-                .write_all(&**root)
-                .expect("String formatting should not err");
+    fn save_acc(&self) -> Result<(), bitcoin::consensus::encode::Error> {
+        let mut inner = write_lock!(self);
+        let mut ser_acc = Vec::new();
+
+        inner.acc.leaves.consensus_encode(&mut ser_acc)?;
+        for root in &inner.acc.roots {
+            ser_acc.extend_from_slice(&**root);
         }
 
         inner
             .chainstore
             .save_roots(ser_acc)
             .expect("Chain store is not working");
+
         Ok(())
     }
+
     fn notify(&self, block: &Block, height: u32) {
         let inner = self.inner.read();
         let subs = inner.subscribers.iter();
@@ -509,7 +532,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
     }
 
     pub fn new(
-        chainstore: PersistedState,
+        mut chainstore: PersistedState,
         network: Network,
         assume_valid: AssumeValidArg,
     ) -> ChainState<PersistedState> {
@@ -518,10 +541,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         let genesis = genesis_block(&parameters);
 
         chainstore
-            .save_header(&super::chainstore::DiskBlockHeader::FullyValid(
-                genesis.header,
-                0,
-            ))
+            .save_header(&DiskBlockHeader::FullyValid(genesis.header, 0))
             .expect("Error while saving genesis");
 
         chainstore
@@ -720,17 +740,18 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         acc: Stump,
     ) -> Result<(), BlockchainError> {
         let mut inner = write_lock!(self);
+
         inner
             .chainstore
-            .save_header(&super::chainstore::DiskBlockHeader::FullyValid(
-                *block, height,
-            ))?;
+            .save_header(&DiskBlockHeader::FullyValid(*block, height))?;
         inner
             .chainstore
             .update_block_index(height, block.block_hash())?;
+
         // Updates our local view of the network
         inner.acc = acc;
         inner.best_block.valid_block(block.block_hash());
+
         Ok(())
     }
     fn update_tip(&self, best_block: BlockHash, height: u32) {
@@ -1219,9 +1240,12 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
 
     fn flush(&self) -> Result<(), BlockchainError> {
         self.save_acc()?;
-        let inner = read_lock!(self);
-        inner.chainstore.save_height(&inner.best_block)?;
+        let mut inner = write_lock!(self);
+
+        let best_block = inner.best_block.clone();
+        inner.chainstore.save_height(&best_block)?;
         inner.chainstore.flush()?;
+
         Ok(())
     }
 
@@ -1254,17 +1278,13 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
             let height = best_block.0 + 1;
             debug!("Header builds on top of our best chain");
 
-            let mut inner = write_lock!(self);
-            inner.best_block.new_block(block_hash, height);
-            inner
-                .chainstore
-                .save_header(&super::chainstore::DiskBlockHeader::HeadersOnly(
-                    header, height,
-                ))?;
+            write_lock!(self).best_block.new_block(block_hash, height);
+            let disk_header = DiskBlockHeader::HeadersOnly(header, height);
 
-            inner.chainstore.update_block_index(height, block_hash)?;
+            self.update_header_and_index(&disk_header, block_hash, height)?;
         } else {
             debug!("Header not in the best chain");
+
             self.maybe_reorg(header)?;
         }
 
@@ -1434,6 +1454,7 @@ mod test {
     use bitcoin::consensus::deserialize;
     use bitcoin::consensus::encode::deserialize_hex;
     use bitcoin::consensus::Decodable;
+    use bitcoin::constants::genesis_block;
     use bitcoin::Block;
     use bitcoin::BlockHash;
     use bitcoin::Network;
@@ -1571,9 +1592,30 @@ mod test {
         let json_blocks = include_str!("../../testdata/test_reorg.json");
         let blocks: Vec<Vec<&str>> = serde_json::from_str(json_blocks).unwrap();
 
-        // Connect first 10 blocks
-        for block in blocks[0].iter() {
-            let block: Block = deserialize_hex(block).unwrap();
+        let parse_blocks = |blocks: &[&str]| {
+            blocks
+                .iter()
+                .map(|s| deserialize_hex(s).unwrap())
+                .collect::<Vec<Block>>()
+        };
+
+        let short_chain = parse_blocks(&blocks[0]);
+        let long_chain = parse_blocks(&blocks[1]);
+
+        assert_eq!(
+            short_chain[0].header.prev_blockhash,
+            genesis_block(Network::Regtest).block_hash(),
+            "The first block we have is the next after genesis",
+        );
+        assert_eq!(short_chain.len(), 10, "First 10 blocks");
+        assert_eq!(long_chain.len(), 11, "Next 11 fork blocks after the fifth");
+        assert_eq!(
+            long_chain[0].header.prev_blockhash,
+            short_chain[4].block_hash(),
+        );
+
+        // Connect the first 10 blocks after genesis
+        for block in short_chain {
             chain.accept_header(block.header).unwrap();
             chain
                 .connect_block(&block, Proof::default(), HashMap::new(), Vec::new())
@@ -1586,10 +1628,9 @@ mod test {
         );
         assert_eq!(chain.get_best_block().unwrap(), expected);
 
-        // Then accept a fork chain with 16 blocks
-        for fork in blocks[1].iter() {
-            let block: Block = deserialize_hex(fork).unwrap();
-            chain.accept_header(block.header).unwrap();
+        // Then accept a fork chain with 11 new blocks, building on the previous height 5 block
+        for fork_block in long_chain {
+            chain.accept_header(fork_block.header).unwrap();
         }
 
         let expected = (
