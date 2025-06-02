@@ -236,6 +236,8 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             return Err(BlockValidationErrors::NotEnoughPow)?;
         }
 
+        self.check_bip94_block(block_header, height)?;
+
         let block_hash = block_header
             .validate_pow(actual_target)
             .map_err(|_| BlockValidationErrors::NotEnoughPow)?;
@@ -809,7 +811,23 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
 
             return params.params.max_attainable_target;
         }
+
         last_block.target()
+    }
+
+    /// Check timestamp against prev for difficulty-adjustment blocks to prevent timewarp attacks.
+    /// Must only be called for non-genesis block headers.
+    fn check_bip94_block(&self, block: &BlockHeader, height: u32) -> Result<(), BlockchainError> {
+        let params = self.chain_params();
+        // Difficulty adjustment window
+        let window = params.params.miner_confirmation_window;
+
+        if !params.enforce_bip94 || height % window != 0 {
+            return Ok(());
+        }
+
+        let prev_header = self.get_block_header_by_height(height - 1);
+        Ok(Consensus::check_bip94_time(block, &prev_header)?)
     }
 
     pub fn get_bip34_height(&self, block: &Block) -> Option<u32> {

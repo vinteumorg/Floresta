@@ -3,6 +3,7 @@
 //! attacks, like eclipse attacks.
 
 use std::collections::HashMap;
+use std::fs::read_to_string;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::Ipv6Addr;
@@ -16,11 +17,10 @@ use bitcoin::p2p::ServiceFlags;
 use bitcoin::Network;
 use floresta_chain::DnsSeed;
 use floresta_common::service_flags;
+use log::warn;
 use serde::Deserialize;
 use serde::Serialize;
 use thiserror::Error;
-
-use super::error::WireError;
 
 /// How long we'll wait before trying to connect to a peer that failed
 const RETRY_TIME: u64 = 10 * 60; // 10 minutes
@@ -324,6 +324,17 @@ impl AddressMan {
             addresses.extend(_addresses);
         }
 
+        // ask for any peer (if filtering isn't available)
+        if seed.filters == ServiceFlags::NONE {
+            let _addresses = Self::do_lookup(seed.seed, default_port).unwrap_or_default();
+            let _addresses = _addresses.into_iter().map(|mut x| {
+                x.services = ServiceFlags::NETWORK | ServiceFlags::WITNESS;
+                x
+            });
+
+            addresses.extend(_addresses);
+        }
+
         Ok(addresses)
     }
 
@@ -424,8 +435,8 @@ impl AddressMan {
         Some((*utreexo_peer, self.addresses.get(utreexo_peer)?.to_owned()))
     }
 
-    pub fn start_addr_man(&mut self, datadir: String) -> Result<Vec<LocalAddress>, WireError> {
-        let persisted_peers = std::fs::read_to_string(format!("{datadir}/peers.json"))
+    pub fn start_addr_man(&mut self, datadir: String) -> Vec<LocalAddress> {
+        let persisted_peers = read_to_string(format!("{datadir}/peers.json"))
             .map(|seeds| serde_json::from_str::<Vec<DiskLocalAddress>>(&seeds));
 
         if let Ok(Ok(peers)) = persisted_peers {
@@ -437,15 +448,19 @@ impl AddressMan {
             self.push_addresses(&peers);
         }
 
-        let anchors = std::fs::read_to_string(format!("{datadir}/anchors.json"))
-            .map_err(|_| WireError::AnchorFileNotFound)?;
-        let anchors = serde_json::from_str::<Vec<DiskLocalAddress>>(&anchors)?;
-        let anchors = anchors
-            .into_iter()
-            .map(Into::<LocalAddress>::into)
-            .collect::<Vec<_>>();
+        let anchors = read_to_string(format!("{datadir}/anchors.json")).and_then(|anchors| {
+            let anchors = serde_json::from_str::<Vec<DiskLocalAddress>>(&anchors)?;
+            Ok(anchors
+                .into_iter()
+                .map(Into::<LocalAddress>::into)
+                .collect::<Vec<_>>())
+        });
 
-        Ok(anchors)
+        if anchors.is_err() {
+            warn!("Failed to init Utreexo peers: anchors.json does not exist yet, or is invalid");
+        }
+
+        anchors.unwrap_or_default()
     }
 
     /// This function moves addresses between buckets, like if the ban time of a peer expired,
@@ -659,6 +674,7 @@ impl AddressMan {
             Network::Testnet => include_str!("seeds/testnet_seeds.json"),
             Network::Signet => include_str!("seeds/signet_seeds.json"),
             Network::Regtest => include_str!("seeds/regtest_seeds.json"),
+            Network::Testnet4 => include_str!("seeds/testnet4_seeds.json"),
             // TODO: handle possible Err
             _ => panic!("Unsupported network"),
         }
