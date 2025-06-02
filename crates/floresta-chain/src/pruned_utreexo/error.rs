@@ -73,6 +73,7 @@ pub enum BlockValidationErrors {
     InvalidProof,
     CoinbaseNotMatured,
     UnspendableUTXO,
+    BIP94TimeWarp,
 }
 
 // Helpful macro for generating a TransactionError
@@ -150,6 +151,9 @@ impl Display for BlockValidationErrors {
             }
             BlockValidationErrors::UnspendableUTXO => {
                 write!(f, "Attempts to spend unspendable UTXO that was overwritten by the historical BIP30 violation")
+            }
+            BlockValidationErrors::BIP94TimeWarp => {
+                write!(f, "BIP94 time warp detected")
             }
         }
     }
