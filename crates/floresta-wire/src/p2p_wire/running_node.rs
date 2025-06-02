@@ -139,7 +139,7 @@ where
             }
 
             self.create_connection(ConnectionKind::Regular(UTREEXO.into()))
-                .await;
+                .await?;
         }
 
         if self.block_filters.is_none() {
@@ -157,12 +157,12 @@ where
             }
 
             self.create_connection(ConnectionKind::Regular(ServiceFlags::COMPACT_FILTERS))
-                .await;
+                .await?;
         }
 
         if self.peers.len() < 10 {
             self.create_connection(ConnectionKind::Regular(ServiceFlags::NONE))
-                .await;
+                .await?;
         }
 
         Ok(())
@@ -565,8 +565,7 @@ where
         // update this or we'll get this warning every second after 15 minutes without a block,
         // until we get a new block.
         self.last_tip_update = Instant::now();
-        self.create_connection(ConnectionKind::Extra).await;
-
+        self.create_connection(ConnectionKind::Extra).await?;
         self.send_to_random_peer(
             NodeRequest::GetHeaders(self.chain.get_block_locator().unwrap()),
             ServiceFlags::NONE,
