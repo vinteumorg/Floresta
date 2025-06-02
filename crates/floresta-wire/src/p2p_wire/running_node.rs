@@ -126,6 +126,9 @@ where
     /// If we are missing the speciall peers but have 10 connections, we should disconnect one
     /// random peer and try to connect to a utreexo and a compact filters peer.
     async fn check_connections(&mut self) -> Result<(), WireError> {
+        // retry the added peers connections
+        self.maybe_open_connection_with_added_peers().await?;
+
         // if we have 10 connections, but not a single utreexo or CBF one, disconnect one random
         // peer and create a utreexo and CBS connection
         if !self.has_utreexo_peers() {
