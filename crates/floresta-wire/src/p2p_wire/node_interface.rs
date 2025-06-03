@@ -51,6 +51,7 @@ pub enum UserRequest {
     Add((IpAddr, u16, bool)),
     Remove((IpAddr, u16)),
     Onetry((IpAddr, u16, bool)),
+    Ping,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -82,6 +83,7 @@ pub enum NodeResponse {
     Add(bool),
     Remove(bool),
     Onetry(bool),
+    Ping(bool),
 }
 
 #[derive(Debug, Clone)]
@@ -217,6 +219,13 @@ impl NodeInterface {
         let val = self.send_request(UserRequest::GetPeerInfo).await?;
 
         extract_variant!(GetPeerInfo, val);
+    }
+
+    /// Pings all connected peers to check if they are alive.
+    pub async fn ping(&self) -> Result<bool, oneshot::error::RecvError> {
+        let val = self.send_request(UserRequest::Ping).await?;
+
+        extract_variant!(Ping, val)
     }
 }
 

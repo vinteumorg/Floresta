@@ -364,6 +364,11 @@ impl<T: AsyncWrite + Unpin + Send + Sync> Peer<T> {
 
                 self.write(NetworkMessage::GetCFilters(get_filter)).await?;
             }
+            NodeRequest::Ping => {
+                let nonce = rand::random();
+                self.last_ping = Some(Instant::now());
+                self.write(NetworkMessage::Ping(nonce)).await?;
+            }
         }
         Ok(())
     }
