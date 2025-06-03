@@ -113,6 +113,7 @@ fn do_request(cmd: &Cli, client: Client) -> anyhow::Result<String> {
         Methods::GetRpcInfo => serde_json::to_string_pretty(&client.get_rpc_info()?)?,
         Methods::Uptime => serde_json::to_string_pretty(&client.uptime()?)?,
         Methods::ListDescriptors => serde_json::to_string_pretty(&client.list_descriptors()?)?,
+        Methods::Ping => serde_json::to_string_pretty(&client.ping()?)?,
     })
 }
 
@@ -149,9 +150,11 @@ pub enum Methods {
     /// Returns information about the current state of the blockchain
     #[command(name = "getblockchaininfo")]
     GetBlockchainInfo,
+
     /// Returns the hash of the block associated with height
     #[command(name = "getblockhash")]
     GetBlockHash { height: u32 },
+
     /// Returns the proof that one or more transactions were included in a block
     #[command(name = "gettxoutproof")]
     GetTxOutProof {
@@ -163,41 +166,52 @@ pub enum Methods {
         #[arg(required = false)]
         blockhash: Option<BlockHash>,
     },
+
     /// Returns the transaction, assuming it is cached by our watch only wallet
     #[command(name = "gettransaction")]
     GetTransaction { txid: Txid, verbose: Option<bool> },
+
     /// Ask the node to rescan the blockchain for transactions
     #[command(name = "rescan")]
     RescanBlockchain { start_height: u32 },
+
     /// Submits a raw transaction to the network
     #[command(name = "sendrawtransaction")]
     SendRawTransaction { tx: String },
+
     /// Returns the block header for the given block hash
     #[command(name = "getblockheader")]
     GetBlockHeader { hash: BlockHash },
+
     /// Loads a new descriptor to the watch only wallet
     #[command(name = "loaddescriptor")]
     LoadDescriptor { desc: String },
+
     /// Returns the roots of the current utreexo forest
     #[command(name = "getroots")]
     GetRoots,
+
     /// Returns a block
     #[command(name = "getblock")]
     GetBlock {
         hash: BlockHash,
         verbosity: Option<u32>,
     },
+
     /// Returns information about the peers we are connected to
     #[command(name = "getpeerinfo")]
     GetPeerInfo,
+
     /// Returns the value associated with a UTXO, if it's still not spent.
     /// This function only works properly if we have the compact block filters
     /// feature enabled
     #[command(name = "gettxout")]
     GetTxOut { txid: Txid, vout: u32 },
+
     /// Stops the node
     #[command(name = "stop")]
     Stop,
+
     /// Attempts to add or remove a node from the addnode list.
     /// Or try a connection to a node once.
     ///
@@ -222,6 +236,7 @@ pub enum Methods {
         command: AddNodeCommand,
         v2transport: Option<bool>,
     },
+
     #[command(name = "findtxout")]
     FindTxOut {
         txid: Txid,
@@ -229,16 +244,26 @@ pub enum Methods {
         script: String,
         height_hint: Option<u32>,
     },
+
     /// Returns stats about our memory usage
     #[command(name = "getmemoryinfo")]
     GetMemoryInfo { mode: Option<String> },
+
     /// Returns information about the RPC server
     #[command(name = "getrpcinfo")]
     GetRpcInfo,
+
     /// Returns for how long the node has been running, in seconds
     #[command(name = "uptime")]
     Uptime,
+
     /// Returns a list of all descriptors currently loaded in the wallet
     #[command(name = "listdescriptors")]
     ListDescriptors,
+
+    /// Sends a ping to all peers, checking if they are still alive
+    ///
+    /// Result: json null
+    #[command(name = "ping")]
+    Ping,
 }

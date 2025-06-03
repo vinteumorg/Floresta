@@ -125,6 +125,8 @@ pub trait FlorestaRPC {
     fn uptime(&self) -> Result<u32>;
     /// Returns a list of all descriptors currently loaded in the wallet
     fn list_descriptors(&self) -> Result<Vec<String>>;
+    /// Sends a ping to all peers, checking if they are still alive
+    fn ping(&self) -> Result<()>;
 }
 
 /// Since the workflow for jsonrpc is the same for all methods, we can implement a trait
@@ -291,5 +293,9 @@ impl<T: JsonRPCClient> FlorestaRPC for T {
 
     fn list_descriptors(&self) -> Result<Vec<String>> {
         self.call("listdescriptors", &[])
+    }
+
+    fn ping(&self) -> Result<()> {
+        self.call("ping", &[])
     }
 }
