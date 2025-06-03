@@ -40,3 +40,9 @@ class BitcoinRPC(BaseRPC):
         Get the peer information by performing `perform_request('getpeerinfo')`
         """
         return self.perform_request("getpeerinfo")
+
+    def ping(self) -> None:
+        """
+        Perform the `ping` RPC that checks if our peers are alive.
+        """
+        self.perform_request("ping")
