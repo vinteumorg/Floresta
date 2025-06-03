@@ -1146,10 +1146,17 @@ where
         Ok(peer)
     }
 
-    /// Fetch peers from DNS seeds, sending a `NodeNotification` with found ones.
+    /// Fetch peers from DNS seeds, sending a `NodeNotification` with found ones. Returns
+    /// immediately after spawning a background blocking task that performs the work.
     pub(crate) fn get_peers_from_dns(&self) -> Result<(), WireError> {
         let node_sender = self.node_tx.clone();
         let network = self.network;
+
+        let proxy_addr = self.socks5.as_ref().map(|proxy| {
+            let addr = proxy.address;
+            info!("Asking for DNS peers via the SOCKS5 proxy: {addr}");
+            addr
+        });
 
         tokio::task::spawn_blocking(move || {
             // TODO: handle possible Err
@@ -1159,7 +1166,8 @@ where
 
             let default_port = Self::get_port(network);
             for seed in dns_seeds {
-                let _addresses = AddressMan::get_seeds_from_dns(&seed, default_port);
+                let _addresses = AddressMan::get_seeds_from_dns(&seed, default_port, proxy_addr);
+
                 if let Ok(_addresses) = _addresses {
                     addresses.extend(_addresses);
                 }
