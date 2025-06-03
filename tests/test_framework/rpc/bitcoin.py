@@ -34,3 +34,9 @@ class BitcoinRPC(BaseRPC):
         result = self.perform_request("stop")
         self.wait_for_connections(opened=False)
         return result
+
+    def get_peerinfo(self) -> dict:
+        """
+        Get the peer information by performing `perform_request('getpeerinfo')`
+        """
+        return self.perform_request("getpeerinfo")
