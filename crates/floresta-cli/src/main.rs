@@ -225,7 +225,7 @@ pub enum Methods {
     ///     - 'onetry' to try a connection to the node once.
     ///
     /// 3. v2transport (boolean, optional, default=false):
-    ///     - Attempt to connect using BIP324 v2 transport protocol (ignored for 'remove' command)
+    ///     - Only tries to connect with this address using BIP0324 P2P V2 protocol (ignored for 'remove' command)
     ///
     /// Result: json null
     ///
