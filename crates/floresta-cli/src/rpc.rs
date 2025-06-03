@@ -104,6 +104,8 @@ pub trait FlorestaRPC {
     /// Tells florestad to connect with a peer
     ///
     /// You can use this to connect with a given node, providing it's IP address and port.
+    /// If the `v2transport` option is set, we won't retry connecting using the old, unencrypted
+    /// P2P protocol.
     fn add_node(&self, node: String, command: AddNodeCommand, v2transport: bool) -> Result<Value>;
     /// Finds an specific utxo in the chain
     ///
