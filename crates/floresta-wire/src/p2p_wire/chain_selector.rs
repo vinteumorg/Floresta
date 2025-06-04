@@ -242,6 +242,9 @@ where
     /// fork point. Once we find the fork point, we ask for the block that comes after the fork
     /// download the block and proof, update the acc they agreed on, update the stump and see
     /// who is lying.
+    ///
+    /// This method should return the peer that is lying `Ok(Some(PeerId))` or `Ok(None)` if
+    /// both are lying or are unresponsive during the process.
     async fn find_who_is_lying(
         &mut self,
         peer1: PeerId,
