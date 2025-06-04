@@ -43,6 +43,8 @@ class Node:
         """
         Start the node.
         """
+        if self.daemon.is_running:
+            raise RuntimeError(f"Node '{self.variant}' is already running.")
         self.daemon.start()
         self.rpc.wait_for_connections(opened=True)
 
@@ -50,10 +52,12 @@ class Node:
         """
         Stop the node.
         """
-        response = self.rpc.stop()
-        self.rpc.wait_for_connections(opened=False)
-        self.daemon.process.wait()
-        return response
+        if self.daemon.is_running:
+            response = self.rpc.stop()
+            self.rpc.wait_for_connections(opened=False)
+            self.daemon.process.wait()
+            return response
+        return None
 
 
 class FlorestaTestMetaClass(type):

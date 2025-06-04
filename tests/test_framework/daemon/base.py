@@ -172,6 +172,11 @@ class BaseDaemon(metaclass=BaseDaemonMetaClass):
         """Setter for `settings` property"""
         self._settings = value
 
+    @property
+    def is_running(self) -> bool:
+        """Check if the daemon process is running"""
+        return self.process is not None and self.process.poll() is None
+
     def start(self):
         """
         Start the daemon process in regtest mode. If any extra-arg is needed,
