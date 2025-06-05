@@ -20,6 +20,7 @@ Available commands:
  - [getroots](#getroots)
  - [stop](#stop)
  - [addnode](#addnode)
+ - [ping](#ping)
 
 ## getblockchaininfo
 
@@ -310,3 +311,10 @@ Adds a new node to our list of peers. This will make our node try to connect to 
 **Return**
 
 `success`: Whether we successfully added this node to our list of peers
+
+## ping
+
+Sends a ping message to all our peers, to check if they are still alive.
+
+**Args**: None
+**Return**: `null`

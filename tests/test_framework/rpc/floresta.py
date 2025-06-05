@@ -118,6 +118,12 @@ class FlorestaRPC(BaseRPC):
 
         return self.perform_request("addnode", params=[node, command, v2transport])
 
+    def ping(self):
+        """
+        Tells our node to send a ping to all its peers
+        """
+        return self.perform_request("ping")
+
     def get_roots(self):
         """
         Returns the roots of our current floresta state performing

@@ -83,20 +83,34 @@ pub enum NodeNotification {
 pub enum NodeRequest {
     /// Get this block's data
     GetBlock((Vec<BlockHash>, bool)),
+
     /// Asks peer for headers
     GetHeaders(Vec<BlockHash>),
+
     /// Ask for other peers addresses
     GetAddresses,
+
     /// Asks this peer to shutdown
     Shutdown,
+
     /// Sends a transaction to peers
     BroadcastTransaction(Txid),
+
     /// Ask for an unconfirmed transaction
     MempoolTransaction(Txid),
+
     /// Sends know addresses to our peers
     SendAddresses(Vec<AddrV2Message>),
+
+    /// Requests the peer to send us the utreexo state for a given block
     GetUtreexoState((BlockHash, u32)),
+
+    /// Requests the peer to send us the compact block filters for blocks,
+    /// starting at a given block hash and height.
     GetFilter((BlockHash, u32)),
+
+    /// Sends a ping to the peer to check if it's alive
+    Ping,
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone)]
@@ -384,7 +398,7 @@ where
         }
 
         let peers = peers.into_iter().flatten().collect();
-        responder.send(NodeResponse::GetPeerInfo(peers)).unwrap();
+        try_and_log!(responder.send(NodeResponse::GetPeerInfo(peers)));
     }
 
     // Helper function to resolve an IpAddr to AddrV2
@@ -491,6 +505,21 @@ where
             .await
     }
 
+    /// Sends the same request to all connected peers
+    ///
+    /// This function is best-effort, meaning that some peers may not receive the request if they
+    /// are disconnected or if there is an error sending the request. We intentionally won't
+    /// propagate the error to the caller, as this would request an early return from the function,
+    /// which would prevent us from sending the request to the peers the comes after the first
+    /// erroing one.
+    async fn broadcast_to_peers(&mut self, request: NodeRequest) {
+        for peer in self.peers.values() {
+            if let Err(err) = peer.channel.send(request.clone()) {
+                warn!("Failed to send request to peer {}: {err}", peer.address);
+            }
+        }
+    }
+
     /// Actually perform the user request
     ///
     /// These are requests made by some consumer of `floresta-wire` using the [`NodeInterface`], and may
@@ -507,6 +536,12 @@ where
         debug!("Performing user request {user_req:?}");
 
         let req = match user_req {
+            UserRequest::Ping => {
+                self.broadcast_to_peers(NodeRequest::Ping).await;
+                try_and_log!(responder.send(NodeResponse::Ping(true)));
+
+                return;
+            }
             UserRequest::Block(block) => NodeRequest::GetBlock((vec![block], false)),
             UserRequest::UtreexoBlock(block) => NodeRequest::GetBlock((vec![block], true)),
             UserRequest::MempoolTransaction(txid) => NodeRequest::MempoolTransaction(txid),

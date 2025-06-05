@@ -371,6 +371,12 @@ async fn handle_json_rpc_request(
                 .map(|v| ::serde_json::to_value(v).unwrap())
         }
 
+        "ping" => {
+            state.ping().await?;
+
+            Ok(serde_json::json!(null))
+        }
+
         // wallet
         "loaddescriptor" => {
             let descriptor = params[0].as_str().ok_or(Error::InvalidDescriptor)?;
