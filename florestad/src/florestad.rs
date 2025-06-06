@@ -292,7 +292,7 @@ impl Florestad {
     /// it will be resolved using the system's DNS resolver. This function will
     /// exit the program if it fails to resolve the hostname or the provided
     /// address is invalid.
-    fn get_ip_address(hostname: &str, default_port: u16) -> SocketAddr {
+    fn resolve_hostname(hostname: &str, default_port: u16) -> SocketAddr {
         if !hostname.contains(':') {
             let Ok(ip) = hostname.parse() else {
                 error!("Invalid IP address: {hostname}");
@@ -453,15 +453,20 @@ impl Florestad {
             _ => None,
         };
 
+        let proxy = self
+            .config
+            .proxy
+            .as_ref()
+            .map(|host| match host.parse::<SocketAddr>() {
+                Ok(parsed) => parsed,
+                Err(_) => Self::resolve_hostname(host, 9050),
+            });
+
         let config = UtreexoNodeConfig {
             disable_dns_seeds: self.config.disable_dns_seeds,
             network: self.config.network,
             pow_fraud_proofs,
-            proxy: self
-                .config
-                .proxy
-                .as_ref()
-                .map(|host| Self::get_ip_address(host, 9050)),
+            proxy,
             datadir: data_dir.clone(),
             fixed_peer: self.config.connect.clone(),
             max_banscore: 50,
@@ -522,7 +527,7 @@ impl Florestad {
                 self.config
                     .json_rpc_address
                     .as_ref()
-                    .map(|x| Self::get_ip_address(x, 8332)),
+                    .map(|x| Self::resolve_hostname(x, 8332)),
                 data_dir.clone() + "output.log",
             ));
 
@@ -536,7 +541,7 @@ impl Florestad {
             .config
             .electrum_address
             .clone()
-            .map(|addr| Self::get_ip_address(&addr, 50001))
+            .map(|addr| Self::resolve_hostname(&addr, 50001))
             .unwrap_or("0.0.0.0:50001".parse().expect("Hardcoded address"));
 
         // generate self-signed certificate if provided
@@ -574,7 +579,7 @@ impl Florestad {
             .config
             .ssl_electrum_address
             .clone()
-            .map(|addr| Self::get_ip_address(&addr, 50002))
+            .map(|addr| Self::resolve_hostname(&addr, 50002))
             .unwrap_or("0.0.0.0:50002".parse().expect("Hardcoded address"));
 
         // Load TLS configuration if needed

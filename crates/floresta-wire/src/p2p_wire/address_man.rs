@@ -7,6 +7,7 @@ use std::fs::read_to_string;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::Ipv6Addr;
+use std::net::SocketAddr;
 use std::str::FromStr;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
@@ -17,6 +18,9 @@ use bitcoin::p2p::ServiceFlags;
 use bitcoin::Network;
 use floresta_chain::DnsSeed;
 use floresta_common::service_flags;
+use log::debug;
+use log::error;
+use log::info;
 use log::warn;
 use serde::Deserialize;
 use serde::Serialize;
@@ -266,30 +270,53 @@ impl AddressMan {
         addresses
     }
 
-    fn do_lookup(
-        address: &str,
-        default_port: u16,
-    ) -> Result<Vec<LocalAddress>, dns_lookup::LookupError> {
+    fn do_lookup(host: &str, default_port: u16, socks5: Option<SocketAddr>) -> Vec<LocalAddress> {
+        let ips = match socks5 {
+            Some(proxy) => {
+                debug!("Performing DNS lookup for host: {host}, using SOCKS5 proxy: {proxy}");
+                // SOCKS5 proxy lookup (proxied DNS-over-HTTPS).
+                dns_proxy::lookup_host_via_proxy(host, proxy).unwrap_or_else(|e| {
+                    error!("DNS lookup via SOCKS5 proxy failed: {e}");
+                    Vec::new()
+                })
+            }
+            None => {
+                debug!("Performing DNS lookup for host: {host}, using the system resolver");
+                // System lookup (usually unencrypted, resolver sees both query and our IP).
+                dns_lookup::lookup_host(host).unwrap_or_else(|e| {
+                    error!("DNS lookup failed: {e}");
+                    Vec::new()
+                })
+            }
+        };
+
+        if ips.is_empty() {
+            warn!("No peer addresses read from DNS host: {host}");
+        } else {
+            info!("Fetched {} peer addresses from DNS host: {host}", ips.len());
+        }
+
         let mut addresses = Vec::new();
-        for ip in dns_lookup::lookup_host(address)? {
+        for ip in ips {
             if let Ok(ip) = LocalAddress::try_from(format!("{ip}:{default_port}").as_str()) {
                 addresses.push(ip);
             }
         }
 
-        Ok(addresses)
+        addresses
     }
 
     pub fn get_seeds_from_dns(
         seed: &DnsSeed,
         default_port: u16,
+        socks5: Option<SocketAddr>,
     ) -> Result<Vec<LocalAddress>, std::io::Error> {
         let mut addresses = Vec::new();
 
         // ask for utreexo peers (if filtering is available)
         if seed.filters.has(service_flags::UTREEXO.into()) {
-            let address = format!("x1000000.{}", seed.seed);
-            let _addresses = Self::do_lookup(&address, default_port).unwrap_or_default();
+            let host = format!("x1000000.{}", seed.seed);
+            let _addresses = Self::do_lookup(&host, default_port, socks5);
             let _addresses = _addresses.into_iter().map(|mut x| {
                 x.services =
                     ServiceFlags::NETWORK | service_flags::UTREEXO.into() | ServiceFlags::WITNESS;
@@ -301,8 +328,8 @@ impl AddressMan {
 
         // ask for compact filter peers (if filtering is available)
         if seed.filters.has(ServiceFlags::COMPACT_FILTERS) {
-            let address = format!("x49.{}", seed.seed);
-            let _addresses = Self::do_lookup(&address, default_port).unwrap_or_default();
+            let host = format!("x49.{}", seed.seed);
+            let _addresses = Self::do_lookup(&host, default_port, socks5);
             let _addresses = _addresses.into_iter().map(|mut x| {
                 x.services =
                     ServiceFlags::COMPACT_FILTERS | ServiceFlags::NETWORK | ServiceFlags::WITNESS;
@@ -314,8 +341,8 @@ impl AddressMan {
 
         // ask for any peer (if filtering is available)
         if seed.filters.has(ServiceFlags::WITNESS) {
-            let address = format!("x9.{}", seed.seed);
-            let _addresses = Self::do_lookup(&address, default_port).unwrap_or_default();
+            let host = format!("x9.{}", seed.seed);
+            let _addresses = Self::do_lookup(&host, default_port, socks5);
             let _addresses = _addresses.into_iter().map(|mut x| {
                 x.services = ServiceFlags::NETWORK | ServiceFlags::WITNESS;
                 x
@@ -326,7 +353,7 @@ impl AddressMan {
 
         // ask for any peer (if filtering isn't available)
         if seed.filters == ServiceFlags::NONE {
-            let _addresses = Self::do_lookup(seed.seed, default_port).unwrap_or_default();
+            let _addresses = Self::do_lookup(seed.seed, default_port, socks5);
             let _addresses = _addresses.into_iter().map(|mut x| {
                 x.services = ServiceFlags::NETWORK | ServiceFlags::WITNESS;
                 x
@@ -782,6 +809,95 @@ pub enum Address {
     I2p([u8; 32]),
 }
 
+/// Simple implementation of a DNS-over-HTTPS (DoH) lookup routed through the SOCKS5 proxy
+pub mod dns_proxy {
+    use std::net::IpAddr;
+    use std::net::SocketAddr;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use rustls::crypto;
+    use serde::Deserialize;
+    use ureq::tls::TlsConfig;
+    use ureq::tls::TlsProvider;
+    use ureq::Agent;
+    use ureq::Proxy;
+
+    #[derive(Deserialize)]
+    /// JSON format from [Google's DoH API](https://developers.google.com/speed/public-dns/docs/doh/json#dns_response_in_json)
+    struct DnsResponse {
+        /// We only care about the "Answer" array
+        #[serde(rename = "Answer")]
+        answers: Option<Vec<AnswerEntry>>,
+    }
+
+    #[derive(Deserialize)]
+    struct AnswerEntry {
+        /// The IP address as a string
+        data: String,
+
+        /// Record type; 1=A, 28=AAAA
+        #[serde(rename = "type")]
+        record_type: u8,
+    }
+
+    /// Lookup `host` by DNS-over-HTTPS (DoH) through a SOCKS5 proxy. Returns both A (IPv4)
+    /// and AAAA (IPv6) records. Only Google sees the actual DNS query but doesn't learn our IP.
+    pub fn lookup_host_via_proxy(
+        host: &str,
+        proxy_addr: SocketAddr,
+    ) -> Result<Vec<IpAddr>, ureq::Error> {
+        // Note: ureq does not implement "socks5h://", so this will resolve "dns.google" locally,
+        // but the Bitcoin DNS query remains encrypted. Only Google can see the query contents.
+        let proxy = Proxy::new(&format!("socks5://{proxy_addr}"))?;
+
+        let crypto = Arc::new(crypto::aws_lc_rs::default_provider());
+        let tls_config = TlsConfig::builder()
+            .provider(TlsProvider::Rustls)
+            .unversioned_rustls_crypto_provider(crypto)
+            .build();
+
+        let agent: Agent = Agent::config_builder()
+            .tls_config(tls_config)
+            .timeout_global(Some(Duration::from_secs(30)))
+            .proxy(Some(proxy))
+            .build()
+            .into();
+
+        // We will perform two queries in sequence: type=1 (A) and type=28 (AAAA).
+        let mut all_ips = Vec::new();
+        for record_type in [1u8, 28u8] {
+            let mut ips = query(&agent, host, record_type)?;
+            all_ips.append(&mut ips);
+        }
+
+        Ok(all_ips)
+    }
+
+    // Helper function that performs a single DoH query for the given record_type.
+    fn query(agent: &Agent, host: &str, record_type: u8) -> Result<Vec<IpAddr>, ureq::Error> {
+        // Construct the DoH URL for the JSON API:
+        // https://developers.google.com/speed/public-dns/docs/secure-transports
+        let url = format!("https://dns.google/resolve?name={host}&type={record_type}");
+
+        // Send a GET over HTTPS. The proxy will only see Google's address and the TLS handshake.
+        let mut response = agent.get(&url).call()?;
+        let dns_response: DnsResponse = response.body_mut().read_json()?;
+
+        let answers = dns_response.answers.unwrap_or_default();
+
+        // Filter by record_type (sanity) and parse each "data" field into an IpAddr.
+        let mut result = Vec::new();
+        for entry in answers.into_iter().filter(|e| e.record_type == record_type) {
+            if let Ok(ip) = entry.data.parse() {
+                result.push(ip);
+            }
+        }
+
+        Ok(result)
+    }
+}
+
 #[cfg(test)]
 mod test {
     use std::fs::File;
@@ -911,7 +1027,8 @@ mod test {
 
         assert_ok!(AddressMan::get_seeds_from_dns(
             &get_chain_dns_seeds(Network::Signet).unwrap()[0],
-            8333
+            8333,
+            None, // No proxy
         ));
 
         address_man.rearrange_buckets();

@@ -33,6 +33,8 @@ oneshot = "0.1.5"
 ahash = "0.8.11"
 metrics = { path = "../../metrics", optional = true }
 bip324 = { version = "0.7.0", features = [ "tokio" ] }
+ureq = { version = "3.0.11", features = ["socks-proxy", "json", "rustls-no-provider"], default-features = false }
+rustls = "0.23.27"
 
 [dev-dependencies]
 zstd = "0.13.3"
