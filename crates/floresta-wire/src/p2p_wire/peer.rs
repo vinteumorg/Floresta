@@ -218,7 +218,7 @@ impl<T: AsyncWrite + Unpin + Send + Sync> Peer<T> {
         self.state = State::SentVersion(Instant::now());
         loop {
             futures::select! {
-                request = tokio::time::timeout(Duration::from_secs(10), self.node_requests.recv()).fuse() => {
+                request = tokio::time::timeout(Duration::from_secs(2), self.node_requests.recv()).fuse() => {
                     match request {
                         Ok(None) => {
                             return Err(PeerError::Channel);
