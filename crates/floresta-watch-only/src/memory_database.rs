@@ -33,12 +33,12 @@ pub struct MemoryDatabase {
 type Result<T> = floresta_common::prelude::Result<T, MemoryDatabaseError>;
 
 impl MemoryDatabase {
-    fn get_inner(&self) -> Result<sync::RwLockReadGuard<Inner>> {
+    fn get_inner(&self) -> Result<sync::RwLockReadGuard<'_, Inner>> {
         self.inner
             .read()
             .map_err(|_| MemoryDatabaseError::PoisonedLock)
     }
-    fn get_inner_mut(&self) -> Result<sync::RwLockWriteGuard<Inner>> {
+    fn get_inner_mut(&self) -> Result<sync::RwLockWriteGuard<'_, Inner>> {
         self.inner
             .write()
             .map_err(|_| MemoryDatabaseError::PoisonedLock)

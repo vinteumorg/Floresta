@@ -1070,7 +1070,9 @@ impl FlatChainStore {
 
     #[inline(always)]
     #[doc(hidden)]
-    fn get_cache_mut(&self) -> Result<MutexGuard<CacheType>, PoisonError<MutexGuard<CacheType>>> {
+    fn get_cache_mut(
+        &self,
+    ) -> Result<MutexGuard<'_, CacheType>, PoisonError<MutexGuard<'_, CacheType>>> {
         self.cache.lock()
     }
 }

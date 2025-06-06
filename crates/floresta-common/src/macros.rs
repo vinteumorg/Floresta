@@ -89,7 +89,7 @@ macro_rules! assert_ok {
 /// ```rust,compile_fail
 /// # use floresta_common::assert_err;
 /// // Compile error: `assert_err!` requires a `Result` value
-/// assert_err!(Some(42));
+/// assert_err!(Ok::<u32, &str>Some(42));
 /// ```
 macro_rules! assert_err {
     ($expr:expr $(,)?) => {
