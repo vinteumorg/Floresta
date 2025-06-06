@@ -17,7 +17,7 @@ from test_framework.rpc.floresta import REGTEST_RPC_SERVER as floresta_config
 from test_framework.rpc.utreexo import REGTEST_RPC_SERVER as utreexod_config
 
 DATA_DIR = FlorestaTestFramework.get_integration_test_dir()
-TIMEOUT = 25
+TIMEOUT = 5
 
 
 def create_data_dirs(
@@ -122,26 +122,14 @@ class AddnodeTestWrapper:
         # should return a null json object
         test.assertIsNone(result)
 
-        # For now the node will be in awaiting state
-        # and will not be available in `get_peerinfo`
-        # (an empty list). The `addnode` just add the
-        # node to the added_peers list but the connection
-        # and handshake is not established yet (it's managed
-        # in `UtreexoNode::maybe_open_connections` method) that
-        # will be called in subsequent iterations on
-        # `Peer::run_inner_loop` method
+        # Floresta should be able to connect almost immediately
+        # to the utreexod node after adding it.
         peer_info = nodes[0].rpc.get_peerinfo()
-        test.assertEqual(len(peer_info), 0)
-
-        # add some time to guarantee
-        # the handshake establishment
-        time.sleep(TIMEOUT)
+        test.assertEqual(len(peer_info), 1)
 
         # now we expect the node to be in Ready state
         # with some expressive information. The node
         # should be in the `getpeerinfo` list.
-        peer_info = nodes[0].rpc.get_peerinfo()
-        test.assertEqual(len(peer_info), 1)
         test.assertEqual(peer_info[0]["address"], "127.0.0.1:18444")
         test.assertEqual(peer_info[0]["initial_height"], 0)
         test.assertEqual(peer_info[0]["kind"], "regular")
@@ -324,7 +312,7 @@ class AddnodeTestWrapper:
         test.assertIsNone(result)
 
         # add some time to establish the handshake
-        time.sleep(5)
+        time.sleep(TIMEOUT)
 
         # Check if the added node was added
         # to the peers list with the `getpeerinfo` command

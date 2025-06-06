@@ -411,10 +411,9 @@ where
         }
     }
 
-    /// Handles addnode add requests, adding a new peer to the node and add a node to the added_node list.
-    /// This means the node is marked as a "manually added node" for future connection attempts does not directly establish a connection to the node.
-    /// Instead, the connection management process will attempt to connect to the manually added nodes in the background
-    pub fn handle_addnode_add_peer(
+    /// Handles addnode-RPC `Add` requests, adding a new peer to the `added_peers` list. This means
+    /// the peer is marked as a "manually added peer". We then try to connect to it, or retry later.
+    pub async fn handle_addnode_add_peer(
         &mut self,
         addr: IpAddr,
         port: u16,
@@ -439,7 +438,11 @@ where
             port,
             transport_protocol,
         });
-        Ok(())
+
+        // Implementation detail for `addnode`: on bitcoin-core, the node doesn't connect immediately
+        // after adding a peer, it just adds it to the `added_peers` list. Here we do almost the same,
+        // but we do an early connection attempt to the peer, so we can start communicating with.
+        self.maybe_open_connection_with_added_peers().await
     }
 
     /// Handles remove node requests, removing a peer from the node.
@@ -556,17 +559,19 @@ where
                     TransportProtocol::V1
                 };
 
-                let node_response =
-                    match self.handle_addnode_add_peer(addr, port, transport_protocol) {
-                        Ok(_) => {
-                            info!("Added peer {addr}:{port}");
-                            NodeResponse::Add(true)
-                        }
-                        Err(err) => {
-                            warn!("{err:?}");
-                            NodeResponse::Add(false)
-                        }
-                    };
+                let node_response = match self
+                    .handle_addnode_add_peer(addr, port, transport_protocol)
+                    .await
+                {
+                    Ok(_) => {
+                        info!("Added peer {addr}:{port}");
+                        NodeResponse::Add(true)
+                    }
+                    Err(err) => {
+                        warn!("{err:?}");
+                        NodeResponse::Add(false)
+                    }
+                };
 
                 let _ = responder.send(node_response);
                 return;
@@ -1428,7 +1433,6 @@ where
                 .await?
             }
         }
-
         Ok(())
     }
 
