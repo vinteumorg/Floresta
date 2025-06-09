@@ -61,6 +61,7 @@ use core::mem::size_of;
 use core::num::NonZeroUsize;
 use std::fs::DirBuilder;
 use std::fs::OpenOptions;
+#[cfg(unix)]
 use std::fs::Permissions;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
@@ -359,15 +360,14 @@ impl From<PoisonError<MutexGuard<'_, CacheType>>> for FlatChainstoreError {
     }
 }
 
-/// The block index is implemented as a separate struct, to keep the code clean
-/// and easy to read. It holds the memory map for the index, and the size of the index
-/// in buckets. We keep track of how many buckets are occupied in the metadata file,
-/// so we can re-hash the map when it gets full.
+/// A hash map implementation that maps block hashes to u32 indexes. Indexes are stored scattered
+/// across the memory-mapped file and accessed via `hash_map_find_pos`. We keep track of how many
+/// buckets are occupied in the metadata file (so we can re-hash the map when needed).
 struct BlockIndex {
-    /// The actual memory map for the index
+    /// The memory map for the block indexes
     index_map: MmapMut,
 
-    /// The maximum size of the index, in buckets
+    /// The maximum size of the index map, in buckets
     index_size: usize,
 }
 
@@ -375,8 +375,8 @@ impl BlockIndex {
     /// Creates a new block index
     ///
     /// This function should only be called by [FlatChainStore::new], and it should never be called
-    /// directly. It creates a new block index, given a memory map for the index map and
-    /// its maximum size in buckets.
+    /// directly. It creates a new block index, given a mutable memory-mapped buffer for the index
+    /// map and its maximum size in buckets.
     fn new(index_map: MmapMut, index_size: usize) -> Self {
         Self {
             index_map,
@@ -386,21 +386,19 @@ impl BlockIndex {
 
     /// Flushes the index map to disk
     ///
-    /// If we have enough changes that we don't want to lose, we should flush the index map to
-    /// disk. This will make sure that the index map is persisted, and we can recover it in case
-    /// of a crash.
+    /// If we have enough changes that we don't want to lose, we should flush the index map to disk.
+    /// This makes sure the indexes are persisted, and we can recover them in case of a crash.
     fn flush(&self) -> Result<(), FlatChainstoreError> {
         self.index_map.flush()?;
 
         Ok(())
     }
 
-    /// Updates our index to map a block hash to a block height
+    /// Updates our index to map a block hash to an index
     ///
-    /// After accepting a new block, this should be updated to tell us in what position in the
-    /// chain that block is.
-    /// This function returns true if the position was empty, and false if it was occupied, meaning
-    /// we are updating an existing entry.
+    /// After accepting a new block, this should be updated to record its position in the chain.
+    /// Returns true if the position was empty, and false if it was occupied (meaning we are
+    /// rewriting an existing entry).
     unsafe fn set_index_for_hash(
         &self,
         hash: BlockHash,
@@ -439,11 +437,11 @@ impl BlockIndex {
 
     /// Returns the position inside the hash map where a given hash should be
     ///
-    /// This function will compute the short hash for this header, look up the position inside the
-    /// hash map, and if the position is occupied, return. Keep incrementing the count, until we
-    /// either find the record or find a vacant position. If we can't find the original thing, we
-    /// return where it would be added in the index. So if you're adding a new record, call this
-    /// function (it will return a vacant position) and just write the height there.
+    /// This function computes the short hash for the block hash and looks up the position inside
+    /// the index map. If the found index fetches the header we are looking for, return this bucket.
+    /// Otherwise, we continue incrementing the short hash until we either find the record or a
+    /// vacant position. If you're adding a new entry, call this function (it will return a vacant
+    /// position) and write the height there.
     unsafe fn hash_map_find_pos(
         &self,
         block_hash: BlockHash,
@@ -488,12 +486,12 @@ impl BlockIndex {
         Err(FlatChainstoreError::IndexIsFull)
     }
 
-    /// The (short) hash function we use to compute where in the map a given block height should be
+    /// The (short) hash function we use to compute where in the map a given index should be
     ///
     /// In our normal operation, we sometime need to retrieve a header based on a block hash,
     /// rather than height. Block hashes are 256 bits long, so we can't really use them to index
-    /// here. Truncating the sha256 is one option, this short hash function will give us a better
-    /// randomization over the data, and it's super easy to compute anyways.
+    /// here. Truncating the sha256 is one option, but this short hash function will give us better
+    /// randomization over the data, and it's super easy to compute anyway.
     ///
     /// This hash function is based on the Jenkins hash function with non-zero seed.
     fn index_hash_fn(block_hash: BlockHash) -> u32 {
@@ -680,32 +678,30 @@ impl FlatChainStore {
         })
     }
 
-    /// Adds a new entry into the index
+    /// Adds a new entry into the block index, given a block hash and its `Index`
     ///
-    /// This function will add a new entry into the index, given a block hash and a block height.
-    /// It returns an error if the index is full. This function will increment the index
-    /// occupancy only if we add a new entry.    
+    /// This is the only place where we should call `BlockIndex.set_index_for_hash`. Increments
+    /// occupancy only if the entry is new; errors if the index map is full.
     unsafe fn add_index_entry(
-        &self,
+        &mut self,
         hash: BlockHash,
         index: Index,
     ) -> Result<(), FlatChainstoreError> {
-        let metadata = self.get_metadata_mut()?;
+        let metadata = self.get_metadata()?;
         let next_occupancy = metadata.block_index_occupancy + 1;
 
         if next_occupancy >= metadata.index_capacity {
             return Err(FlatChainstoreError::IndexIsFull);
         }
 
-        let new = self
+        let is_new = self
             .block_index
             .set_index_for_hash(hash, index, |index| self.get_block_header_by_index(index))?;
 
-        // If this function gets called after a reorg, we may be adding a new index for a block
-        // hash we already have in the index. This will override the old index, but not increase
-        // the index size. This makes sure we won't increase the index size if we don't need to.
-        if new {
-            metadata.block_index_occupancy = next_occupancy;
+        // Only increment the index occupancy if this is a new entry, i.e., a new block. Otherwise,
+        // if this is a reorg, the occupancy is kept the same as we just overwrite indexes.
+        if is_new {
+            self.get_metadata_mut()?.block_index_occupancy = next_occupancy;
         }
 
         Ok(())
@@ -775,7 +771,7 @@ impl FlatChainStore {
     unsafe fn init_file(
         path: &str,
         size: usize,
-        mode: u32,
+        _mode: u32,
     ) -> Result<MmapMut, FlatChainstoreError> {
         let file = OpenOptions::new()
             // Set read and write access
@@ -788,7 +784,7 @@ impl FlatChainStore {
 
         #[cfg(unix)]
         {
-            let perm = Permissions::from_mode(mode);
+            let perm = Permissions::from_mode(_mode);
             file.set_permissions(perm)?;
         }
 
@@ -836,9 +832,8 @@ impl FlatChainStore {
         Ok(&*ptr)
     }
 
-    #[allow(clippy::mut_from_ref)]
     unsafe fn get_disk_header_mut(
-        &self,
+        &mut self,
         index: u32,
         mainchain: bool,
     ) -> Result<&mut HashedDiskHeader, FlatChainstoreError> {
@@ -890,7 +885,7 @@ impl FlatChainStore {
         Ok(metadata.acc[0..size].to_vec())
     }
 
-    unsafe fn do_save_height(&self, best_block: BestChain) -> Result<(), FlatChainstoreError> {
+    unsafe fn do_save_height(&mut self, best_block: BestChain) -> Result<(), FlatChainstoreError> {
         let metadata = self.get_metadata_mut()?;
 
         metadata.assume_valid_index = best_block.assume_valid_index;
@@ -950,8 +945,7 @@ impl FlatChainStore {
             .expect("Infallible: we already validated this pointer"))
     }
 
-    #[allow(clippy::mut_from_ref)]
-    unsafe fn get_metadata_mut(&self) -> Result<&mut Metadata, FlatChainstoreError> {
+    unsafe fn get_metadata_mut(&mut self) -> Result<&mut Metadata, FlatChainstoreError> {
         let ptr = self.metadata.as_ptr() as *mut Metadata;
 
         Ok(ptr
@@ -964,7 +958,7 @@ impl FlatChainStore {
     /// This function will allocate size_of(DiskBlockHeader) bytes in our file and write the raw
     /// header there. May return an error if we can't grow the file
     unsafe fn write_header_to_storage(
-        &self,
+        &mut self,
         header: DiskBlockHeader,
     ) -> Result<(), FlatChainstoreError> {
         let height = header
@@ -980,7 +974,7 @@ impl FlatChainStore {
         Ok(())
     }
 
-    unsafe fn do_save_roots(&self, roots: Vec<u8>) -> Result<(), FlatChainstoreError> {
+    unsafe fn do_save_roots(&mut self, roots: Vec<u8>) -> Result<(), FlatChainstoreError> {
         let metadata = self.get_metadata_mut()?;
         let size = roots.len();
 
@@ -1035,9 +1029,11 @@ impl FlatChainStore {
     /// We will write 3 in a new position, and it should work fine. However, we now have a stale 3
     /// that points to the main chain position where it originally was. This will never be used
     /// again, but will occupy a position in the index. Increasing the load factor for no reason.
-    unsafe fn save_fork_block(&self, header: DiskBlockHeader) -> Result<(), FlatChainstoreError> {
-        let metadata = self.get_metadata_mut()?;
-        let fork_blocks = metadata.fork_count;
+    unsafe fn save_fork_block(
+        &mut self,
+        header: DiskBlockHeader,
+    ) -> Result<(), FlatChainstoreError> {
+        let fork_blocks = self.get_metadata()?.fork_count;
         let pos = self.get_disk_header_mut(fork_blocks, false)?;
         let block_hash = header.block_hash();
 
@@ -1050,12 +1046,12 @@ impl FlatChainStore {
         index.set_fork();
         self.add_index_entry(block_hash, index)?;
 
-        metadata.fork_count += 1;
+        self.get_metadata_mut()?.fork_count += 1;
 
         Ok(())
     }
 
-    unsafe fn do_flush(&self) -> Result<(), FlatChainstoreError> {
+    unsafe fn do_flush(&mut self) -> Result<(), FlatChainstoreError> {
         self.headers.flush()?;
         self.block_index.flush()?;
         self.fork_headers.flush()?;
