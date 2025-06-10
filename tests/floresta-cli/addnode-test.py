@@ -14,10 +14,11 @@ import time
 
 from test_framework import FlorestaTestFramework
 from test_framework.rpc.floresta import REGTEST_RPC_SERVER as floresta_config
-from test_framework.rpc.utreexo import REGTEST_RPC_SERVER as utreexod_config
+from test_framework.rpc.bitcoin import REGTEST_RPC_SERVER as bitcoind_config
 
 DATA_DIR = FlorestaTestFramework.get_integration_test_dir()
-TIMEOUT = 5
+TIMEOUT = 15
+PING_TIMEOUT = 40
 
 
 def create_data_dirs(
@@ -68,7 +69,7 @@ class AddnodeTestWrapper:
     @staticmethod
     def set_test_params(test: FlorestaTestFramework):
         """
-        Setup the two nodes (florestad and utreexod)
+        Setup the two nodes (florestad and bitcoind)
         in the same regtest network.
         """
         test.nodes[0] = test.add_node(
@@ -78,15 +79,13 @@ class AddnodeTestWrapper:
             ssl=False,
         )
 
-        # --rpcquirks is used to make the utreexod node
-        # to be compliant with the bitcoin-core
         test.nodes[1] = test.add_node(
-            variant="utreexod",
+            variant="bitcoind",
             extra_args=[
-                "--rpcquirks",
-                f"--datadir={test.data_dirs[1]}",
+                f"-datadir={test.data_dirs[1]}",
+                f"-v2transport={1 if test.v2transport else 0}",
             ],
-            rpcserver=utreexod_config,
+            rpcserver=bitcoind_config,
             ssl=False,
         )
 
@@ -103,17 +102,17 @@ class AddnodeTestWrapper:
         return [test.get_node(i) for i in test.nodes]
 
     @staticmethod
-    def test_should_floresta_add_utreexod(test, nodes, v2transport=False):
+    def test_should_floresta_add_bitcoind(test, nodes, v2transport=False):
         """
         The test follows:
 
-        - Call `addnode <utreexod ip:port> add false`;
+        - Call `addnode <bitcoind ip:port> add false`;
         - the result should be a null json compliant to bitcoin-core;
         - call `getpeerinfo` on floresta. That should return a list
-          with the utreexod peer in Ready state.
+          with the bitcoind peer in Ready state.
         """
-        test.log("=========== Testing should_floresta_add_utreexod...")
-        # Floresta adds the utreexod node
+        test.log("=========== Testing should_floresta_add_bitcoind...")
+        # Floresta adds the bitcoind node
         result = nodes[0].rpc.addnode(
             node="127.0.0.1:18444", command="add", v2transport=v2transport
         )
@@ -133,31 +132,42 @@ class AddnodeTestWrapper:
         test.assertEqual(peer_info[0]["address"], "127.0.0.1:18444")
         test.assertEqual(peer_info[0]["initial_height"], 0)
         test.assertEqual(peer_info[0]["kind"], "regular")
-        test.assertEqual(
-            peer_info[0]["services"], "ServiceFlags(BLOOM|WITNESS|0x1000000)"
-        )
+
+        if test.v2transport is True:
+            test.assertEqual(
+                peer_info[0]["services"],
+                "ServiceFlags(NETWORK|WITNESS|NETWORK_LIMITED|P2P_V2)",
+            )
+            test.assertEqual(peer_info[0]["transport_protocol"], "V2")
+        else:
+            # if v2transport is False, we expect all but P2P_V2
+            test.assertEqual(
+                peer_info[0]["services"],
+                "ServiceFlags(NETWORK|WITNESS|NETWORK_LIMITED)",
+            )
+            test.assertEqual(peer_info[0]["transport_protocol"], "V1")
+
         test.assertEqual(peer_info[0]["state"], "Ready")
-        test.assertEqual(peer_info[0]["transport_protocol"], "V1")
         test.assertMatch(
             peer_info[0]["user_agent"],
-            re.compile(r"\/btcwire:\d.\d.\d\/utreexod:\d.\d.\d\/"),
+            re.compile(r"\/Satoshi:\d*\.\d*\.\d*\/"),
         )
 
     @staticmethod
-    def test_should_utreexod_see_floresta(test, nodes):
+    def test_should_bitcoind_see_floresta(test, nodes):
         """
         The test follows:
 
-        - Call `getpeerinfo` on utreexod. That should return a list
+        - Call `getpeerinfo` on bitcoind. That should return a list
         with the floresta peer.
         """
-        # now see how utreexod see floresta
-        test.log("=========== Testing should utreexod_see_floresta...")
+        # now see how bitcoind see floresta
+        test.log("=========== Testing should bitcoind_see_floresta...")
         peer_info = nodes[1].rpc.get_peerinfo()
         test.assertEqual(len(peer_info), 1)
-        test.assertEqual(peer_info[0]["addrlocal"], "127.0.0.1:18444")
+        test.assertEqual(peer_info[0]["addrlocal"], "127.0.0.1:38332")
         test.assertEqual(peer_info[0]["startingheight"], 0)
-        test.assertEqual(peer_info[0]["services"], "16777225")
+        test.assertEqual(peer_info[0]["services"], "0000000001000009")
         test.assertMatch(
             peer_info[0]["subver"],
             re.compile(r"\/Floresta:.*\/"),
@@ -165,22 +175,23 @@ class AddnodeTestWrapper:
         test.assertEqual(peer_info[0]["inbound"], True)
 
     @staticmethod
-    def test_should_utreexod_disconnect(test, nodes):
+    def test_should_bitcoind_disconnect(test, nodes):
         """
         The test follows:
 
-        - call `stop` on utreexod;
-        - call `getpeerinfo` on floresta. That should return a list
-        with the utreexod peer in Awaiting state;
+        - call `stop` on bitcoind;
+        - call `getpeerinfo` on floresta. That should return an empty list
         """
         test.log(
-            "=========== Testing should utreexod disconnect and floresta not see anymore..."
+            "=========== Testing should bitcoind disconnect and floresta not see anymore..."
         )
         # lets try to disconnect the node
         # and wait for disconnection to proceed
         # with the test
         test.stop_node(1)
-        time.sleep(TIMEOUT)
+        nodes[0].rpc.ping()
+
+        time.sleep(PING_TIMEOUT)
 
         # now we expect the node to be in the
         # awaiting state. It will be in that state
@@ -189,36 +200,36 @@ class AddnodeTestWrapper:
         test.assertEqual(len(peer_info), 0)
 
     @staticmethod
-    def test_should_utreexod_reconnect(test, nodes):
+    def test_should_florestad_reconnect(test, nodes, v2transport=False):
         """
         The test follows:
-        - call `run_node` on utreexod;
+        - call `run_node` on bitcoind;
         - call `getpeerinfo` on floresta. That should return a list
-        with the utreexod peer in Ready state;
+        with the bitcoind peer in Ready state;
         """
         test.log(
-            "=========== Testing should utreexod reconnect and floresta await for it be ready..."
+            "=========== Testing should bitcoind restart and floresta await for it be ready..."
         )
-        # reconnect the utreexod node
+        # reconnect the bitcoind node
         test.run_node(1)
         nodes[1].rpc.wait_for_connections(opened=True)
-        time.sleep(TIMEOUT)
+        time.sleep(PING_TIMEOUT)
 
         peer_info = nodes[0].rpc.get_peerinfo()
         test.assertEqual(len(peer_info), 1)
         test.assertEqual(peer_info[0]["state"], "Ready")
 
     @staticmethod
-    def test_should_floresta_not_add_utreexod_again(test, nodes, v2transport=False):
+    def test_should_floresta_not_add_bitcoind_again(test, nodes, v2transport=False):
         """
         The test follows:
 
-        - Call `addnode <utreexod ip:port> false`;
+        - Call `addnode <bitcoind ip:port> false`;
         - the result should be a null json compliant to bitcoin-core;
         - call `getpeerinfo` on floresta. That should the same
-        list as before, meaning that the utreexod peer was not added again.
+        list as before, meaning that the bitcoind peer was not added again.
         """
-        test.log("=========== Testing should floresta not add utreexod again...")
+        test.log("=========== Testing should floresta not add bitcoind again...")
         result = nodes[0].rpc.addnode(
             node="127.0.0.1:18444", command="add", v2transport=v2transport
         )
@@ -234,16 +245,16 @@ class AddnodeTestWrapper:
         test.assertEqual(len(peer_info), 1)
 
     @staticmethod
-    def test_should_floresta_remove_utreexod(test, nodes):
+    def test_should_floresta_remove_bitcoind(test, nodes):
         """
         The test follows:
 
-        - Call `addnode <utreexod ip:port> remove false`;
+        - Call `addnode <bitcoind ip:port> remove false`;
         - the result should be a null json compliant to bitcoin-core;
         - call `getpeerinfo` on floresta. That should return a list
         with zero peers.
         """
-        test.log("=========== Testing should floresta remove utreexod...")
+        test.log("=========== Testing should floresta remove bitcoind...")
         result = nodes[0].rpc.addnode(
             node="127.0.0.1:18444",
             command="remove",
@@ -262,14 +273,17 @@ class AddnodeTestWrapper:
         test.assertEqual(len(peer_info), 1)
         test.assertEqual(peer_info[0]["state"], "Ready")
 
-        # to check if removed, let's stop the utreexod
+        # to check if removed, let's stop the bitcoind
         # restart it and check the `getpeerinfo` again
         test.stop_node(1)
+        nodes[1].rpc.wait_for_connections(opened=False)
+
         test.run_node(1)
+        nodes[0].rpc.ping()
 
         # wait some time to guarantee
         # that it will not be in the peers list again
-        time.sleep(TIMEOUT)
+        time.sleep(PING_TIMEOUT)
 
         # now we expect the node to be in the
         # awaiting state. It will be in that state
@@ -278,30 +292,31 @@ class AddnodeTestWrapper:
         test.assertEqual(len(peer_info), 0)
 
     @staticmethod
-    def test_should_utreexod_not_see_floresta(test, nodes):
+    def test_should_bitcoind_not_see_floresta(test, nodes):
         """
         The test follows:
-        - Call `getpeerinfo` on utreexod. That should return a list
+        - Call `getpeerinfo` on bitcoind. That should return a list
         with zero peers.
         """
-        test.log("=========== Testing should utreexod not see floresta...")
+        test.log("=========== Testing should bitcoind not see floresta...")
+
         peer_info = nodes[1].rpc.get_peerinfo()
         test.assertEqual(len(peer_info), 0)
 
     @staticmethod
-    def test_should_floresta_onetry_connection_with_utreexod(
+    def test_should_floresta_onetry_connection_with_bitcoind(
         test, nodes, v2transport=False
     ):
         """
         The test follows:
 
-        - Call `addnode <utreexod ip:port> onetry false` in the floresta node;
+        - Call `addnode <bitcoind ip:port> onetry false` in the floresta node;
         - the result should be a null json compliant to bitcoin-core;
         - call `getpeerinfo` on floresta. That should return a list
-        with the utreexod peer in Ready state;
+        with the bitcoind peer in Ready state;
         """
         test.log(
-            "=========== Testing should floresta onetry connection with utreexod..."
+            "=========== Testing should floresta onetry connection with bitcoind..."
         )
         result = nodes[0].rpc.addnode(
             node="127.0.0.1:18444", command="onetry", v2transport=v2transport
@@ -322,24 +337,36 @@ class AddnodeTestWrapper:
         test.assertEqual(peer_info[0]["address"], "127.0.0.1:18444")
         test.assertEqual(peer_info[0]["initial_height"], 0)
         test.assertEqual(peer_info[0]["kind"], "regular")
-        test.assertEqual(
-            peer_info[0]["services"], "ServiceFlags(BLOOM|WITNESS|0x1000000)"
-        )
+
+        if test.v2transport is True:
+            test.assertEqual(
+                peer_info[0]["services"],
+                "ServiceFlags(NETWORK|WITNESS|NETWORK_LIMITED|P2P_V2)",
+            )
+            test.assertEqual(peer_info[0]["transport_protocol"], "V2")
+        else:
+            # if v2transport is False, we expect all but P2P_V2
+            test.assertEqual(
+                peer_info[0]["services"],
+                "ServiceFlags(NETWORK|WITNESS|NETWORK_LIMITED)",
+            )
+            test.assertEqual(peer_info[0]["transport_protocol"], "V1")
+
         test.assertEqual(peer_info[0]["state"], "Ready")
-        test.assertEqual(peer_info[0]["transport_protocol"], "V1")
         test.assertMatch(
             peer_info[0]["user_agent"],
-            re.compile(r"\/btcwire:\d.\d.\d\/utreexod:\d.\d.\d\/"),
+            re.compile(r"\/Satoshi:\d*\.\d*\.\d*\/"),
         )
 
-        # now we need to force a disconnection by shutdown utreexod
-        # and see if, when utreexod restart, it will not be reconnected
+        # now we need to force a disconnection by shutdown bitcoind
+        # and see if, when bitcoind restart, it will not be reconnected
         test.stop_node(1)
         test.run_node(1)
 
         # wait some time to guarantee
         # that it will not be in the peers list again
-        time.sleep(TIMEOUT)
+        nodes[0].rpc.ping()
+        time.sleep(PING_TIMEOUT)
 
         peer_info = nodes[0].rpc.get_peerinfo()
         test.assertEqual(len(peer_info), 0)
@@ -350,26 +377,26 @@ class AddnodeTestWrapper:
         First initialize both nodes. Then run above tests
         in the following order:
 
-        - should floresta add utreexod;
-        - should utreexod see floresta;
-        - should floresta not add utreexod again;
-        - should floresta remove utreexod;
-        - should utreexod not see floresta;
-        - should floresta onetry connection with utreexod;
-        - should floresta remove onetry connection with utreexod;
+        - should floresta add bitcoind;
+        - should bitcoind see floresta;
+        - should floresta not add bitcoind again;
+        - should floresta remove bitcoind;
+        - should bitcoind not see floresta;
+        - should floresta onetry connection with bitcoind;
+        - should floresta remove onetry connection with bitcoind;
         """
-        AddnodeTestWrapper.test_should_floresta_add_utreexod(
+        AddnodeTestWrapper.test_should_floresta_add_bitcoind(
             test, nodes, test.v2transport
         )
-        AddnodeTestWrapper.test_should_utreexod_see_floresta(test, nodes)
-        AddnodeTestWrapper.test_should_utreexod_disconnect(test, nodes)
-        AddnodeTestWrapper.test_should_utreexod_reconnect(test, nodes)
-        AddnodeTestWrapper.test_should_floresta_not_add_utreexod_again(
+        AddnodeTestWrapper.test_should_bitcoind_see_floresta(test, nodes)
+        AddnodeTestWrapper.test_should_bitcoind_disconnect(test, nodes)
+        AddnodeTestWrapper.test_should_florestad_reconnect(test, nodes)
+        AddnodeTestWrapper.test_should_floresta_not_add_bitcoind_again(
             test, nodes, test.v2transport
         )
-        AddnodeTestWrapper.test_should_floresta_remove_utreexod(test, nodes)
-        AddnodeTestWrapper.test_should_utreexod_not_see_floresta(test, nodes)
-        AddnodeTestWrapper.test_should_floresta_onetry_connection_with_utreexod(
+        AddnodeTestWrapper.test_should_floresta_remove_bitcoind(test, nodes)
+        AddnodeTestWrapper.test_should_bitcoind_not_see_floresta(test, nodes)
+        AddnodeTestWrapper.test_should_floresta_onetry_connection_with_bitcoind(
             test, nodes, test.v2transport
         )
         test.stop()

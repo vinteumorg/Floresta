@@ -153,8 +153,12 @@ pub struct Cli {
     pub gen_selfsigned_cert: bool,
 
     #[arg(long, default_value_t = false)]
-    /// Whether to disable fallback to v1 transport if v2 connection fails
-    pub no_v1_fallback: bool,
+    /// Whether we should try to connect with peers using the old, unencrypted V1 P2P protocol,
+    /// if we can't make a V2 connection.
+    ///
+    /// Note that for utreexod, we will still use V1, because it doesn't have V2 yet.
+    /// (TODO: Update when they implement this)
+    pub allow_v1_fallback: bool,
 
     #[cfg(unix)]
     #[arg(long, default_value = "false")]

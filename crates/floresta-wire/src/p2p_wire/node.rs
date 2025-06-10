@@ -261,8 +261,8 @@ pub struct AddedPeerInfo {
     /// The port of the peer
     pub(crate) port: u16,
 
-    /// The transport protocol used to connect to the peer (either [`TransportProtocol::V1`] or [`TransportProtocol::V2`])
-    pub(crate) transport_protocol: TransportProtocol,
+    /// Whether we should allow V1 fallback for this connection
+    pub(crate) v1_fallback: bool,
 }
 
 #[derive(Debug, PartialEq, Clone, Copy, Deserialize, Serialize)]
@@ -417,10 +417,10 @@ where
         &mut self,
         addr: IpAddr,
         port: u16,
-        transport_protocol: TransportProtocol,
+        v2_transport: bool,
     ) -> Result<(), WireError> {
         // See https://github.com/bitcoin/bitcoin/blob/8309a9747a8df96517970841b3648937d05939a3/src/net.cpp#L3558
-        debug!("Trying to add peer {addr}:{port} with transport_protocol={transport_protocol:?}");
+        debug!("Adding node {addr}:{port}");
         let address = self.to_addr_v2(addr);
 
         // Check if the peer already exists
@@ -436,7 +436,7 @@ where
         self.added_peers.push(AddedPeerInfo {
             address,
             port,
-            transport_protocol,
+            v1_fallback: !v2_transport,
         });
 
         // Implementation detail for `addnode`: on bitcoin-core, the node doesn't connect immediately
@@ -479,9 +479,9 @@ where
         &mut self,
         addr: IpAddr,
         port: u16,
-        transport_protocol: TransportProtocol,
+        v2_transport: bool,
     ) -> Result<(), WireError> {
-        debug!("Trying to connect to peer {addr}:{port} with transport_protocol={transport_protocol:?}");
+        debug!("Creating an one-try connection with {addr}:{port}");
 
         // Check if the peer already exists
         if self
@@ -504,7 +504,8 @@ where
         );
 
         // Return true if exists or false if anything fails during connection
-        self.open_connection(kind, peer_id as usize, address, transport_protocol)
+        // We allow V1 fallback iff the `v2` flag is not set
+        self.open_connection(kind, peer_id as usize, address, !v2_transport)
             .await
     }
 
@@ -553,25 +554,17 @@ where
                 return;
             }
             UserRequest::Add((addr, port, v2transport)) => {
-                let transport_protocol = if v2transport {
-                    TransportProtocol::V2
-                } else {
-                    TransportProtocol::V1
-                };
-
-                let node_response = match self
-                    .handle_addnode_add_peer(addr, port, transport_protocol)
-                    .await
-                {
-                    Ok(_) => {
-                        info!("Added peer {addr}:{port}");
-                        NodeResponse::Add(true)
-                    }
-                    Err(err) => {
-                        warn!("{err:?}");
-                        NodeResponse::Add(false)
-                    }
-                };
+                let node_response =
+                    match self.handle_addnode_add_peer(addr, port, v2transport).await {
+                        Ok(_) => {
+                            info!("Added peer {addr}:{port}");
+                            NodeResponse::Add(true)
+                        }
+                        Err(err) => {
+                            warn!("{err:?}");
+                            NodeResponse::Add(false)
+                        }
+                    };
 
                 let _ = responder.send(node_response);
                 return;
@@ -592,14 +585,8 @@ where
                 return;
             }
             UserRequest::Onetry((addr, port, v2transport)) => {
-                let transport_protocol = if v2transport {
-                    TransportProtocol::V2
-                } else {
-                    TransportProtocol::V1
-                };
-
                 let node_response = match self
-                    .handle_addnode_onetry_peer(addr, port, transport_protocol)
+                    .handle_addnode_onetry_peer(addr, port, v2transport)
                     .await
                 {
                     Ok(_) => {
@@ -1238,7 +1225,8 @@ where
                 ConnectionKind::Regular(UTREEXO.into()),
                 address.id,
                 address,
-                TransportProtocol::V1, // Default to V1, will be updated when peer is ready,
+                // Using V1 transport fallback as utreexo nodes have limited support
+                true,
             )
             .await?;
         }
@@ -1428,7 +1416,7 @@ where
                     ConnectionKind::Regular(ServiceFlags::NONE),
                     peers_count as usize,
                     address,
-                    added_peer.transport_protocol,
+                    added_peer.v1_fallback,
                 )
                 .await?
             }
@@ -1451,7 +1439,7 @@ where
         self.maybe_ask_for_dns_peers();
         self.maybe_use_hadcoded_addresses();
 
-        // try to connect with mannually added peers
+        // try to connect with manually added peers
         self.maybe_open_connection_with_added_peers().await?;
 
         let connection_kind = ConnectionKind::Regular(required_service);
@@ -1533,6 +1521,7 @@ where
         let is_connected = |(_, peer_addr): (_, &LocalPeerView)| {
             peer_addr.address == address.get_net_address() && peer_addr.port == address.get_port()
         };
+
         if self.common.peers.iter().any(is_connected) {
             return Err(WireError::PeerAlreadyExists(
                 address.get_net_address(),
@@ -1540,8 +1529,12 @@ where
             ));
         }
 
-        // Default to V1, will be updated when peer is ready.)
-        self.open_connection(kind, peer_id, address, TransportProtocol::V1)
+        // We allow V1 fallback only if the cli option was set, or if we are connecting to a
+        // utreexo peer, since utreexod doesn't support V2 yet.
+        let allow_v1 =
+            self.config.allow_v1_fallback || kind == ConnectionKind::Regular(UTREEXO.into());
+
+        self.open_connection(kind, peer_id, address, allow_v1)
             .await?;
 
         Ok(())
@@ -1566,7 +1559,7 @@ where
         let (transport_reader, transport_writer, transport_protocol) =
             transport::connect(address, network, allow_v1_fallback).await?;
 
-        let (cancellation_sender, cancellation_receiver) = tokio::sync::oneshot::channel();
+        let (cancellation_sender, cancellation_receiver) = oneshot::channel();
         let (actor_receiver, actor) = create_actors(transport_reader);
         tokio::spawn(async move {
             tokio::select! {
@@ -1593,6 +1586,7 @@ where
 
         Ok(())
     }
+
     /// Opens a connection through a socks5 interface
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn open_proxy_connection(
@@ -1611,7 +1605,7 @@ where
         let (transport_reader, transport_writer, transport_protocol) =
             transport::connect_proxy(proxy, address, network, allow_v1_fallback).await?;
 
-        let (cancellation_sender, cancellation_receiver) = tokio::sync::oneshot::channel();
+        let (cancellation_sender, cancellation_receiver) = oneshot::channel();
         let (actor_receiver, actor) = create_actors(transport_reader);
         tokio::spawn(async move {
             tokio::select! {
@@ -1637,17 +1631,23 @@ where
         Ok(())
     }
 
-    /// Creates a new outgoing connection with `address`. The [`kind`] may or may not  be a
-    /// a [`ConnectionKind::Feeler`], a special connection type that is used to learn about
-    /// good peers, but are not kept after handshake (others are [`ConnectionKind::Regular`] and
-    /// [`ConnectionKind::Extra`]). The `transport_protocol` identify the version of the
-    /// transport protocol used, either [`TransportProtocol::V1`] or [`TransportProtocol::V2`].
+    /// Creates a new outgoing connection with `address`.
+    ///
+    /// [`kind`] may or may not be a [`ConnectionKind::Feeler`], a special connection type
+    /// that is used to learn about good peers, but are not kept after handshake
+    /// (others are [`ConnectionKind::Regular`] and [`ConnectionKind::Extra`]).
+    ///
+    /// We will always try to open a V2 connection first. If the `allow_v1_fallback` is set,
+    /// we may retry the connection with the old V1 protocol if the V2 connection fails.
+    /// We don't open the connection here, we create a [`Peer`] actor that will try to open
+    /// a connection with the given address and kind. If it succeeds, it will send a
+    /// [`NodeNotification::Ready`] to the node after handshaking.
     pub(crate) async fn open_connection(
         &mut self,
         kind: ConnectionKind,
         peer_id: usize,
         address: LocalAddress,
-        transport_protocol: TransportProtocol,
+        allow_v1_fallback: bool,
     ) -> Result<(), WireError> {
         let (requests_tx, requests_rx) = unbounded_channel();
         if let Some(ref proxy) = self.socks5 {
@@ -1664,7 +1664,7 @@ where
                     requests_rx,
                     self.peer_id_count,
                     self.config.user_agent.clone(),
-                    self.config.allow_v1_fallback,
+                    allow_v1_fallback,
                 ),
             ));
         } else {
@@ -1680,7 +1680,7 @@ where
                     self.network,
                     self.node_tx.clone(),
                     self.config.user_agent.clone(),
-                    self.config.allow_v1_fallback,
+                    allow_v1_fallback,
                 ),
             ));
         }
@@ -1706,7 +1706,8 @@ where
                 address_id: peer_id as u32,
                 height: 0,
                 banscore: 0,
-                transport_protocol,
+                // Will be downgraded to V1 if the V2 handshake fails, and we allow fallback
+                transport_protocol: TransportProtocol::V2,
             },
         );
 
