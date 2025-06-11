@@ -187,7 +187,7 @@ struct DbCheckSum {
 ///
 /// This enum indicates whether a given bucket is occupied, and if it is, it holds the respective
 /// block header as well.
-pub enum IndexBucket {
+enum IndexBucket {
     /// This bucket is empty
     ///
     /// If this is a search, this means the entry isn't in the map, and this is where it would be
@@ -209,42 +209,49 @@ pub enum IndexBucket {
 /// as the index in the headers file. For forks, we store them in a separate file, in the order
 /// they were received. Therefore, for fork blocks, the LSB for this index has nothing to do with
 /// the block height, it's just its position in the fork file.
-pub struct Index(u32);
+struct Index(u32);
 
 impl Index {
-    /// Create a new, non-tagged entry
-    pub fn new(index: u32) -> Self {
-        Self(index)
+    /// Mask for the MSB
+    const FORK_BIT: u32 = 0x8000_0000;
+
+    /// Mask for the 31 lower bits
+    const INDEX_MASK: u32 = 0x7FFF_FFFF;
+
+    /// Create a new mainchain entry (MSB is zero)
+    fn new(index: u32) -> Result<Self, FlatChainstoreError> {
+        if index >= Self::FORK_BIT {
+            // Index value is out of bounds for our 31 bit indexes
+            return Err(FlatChainstoreError::IndexTooBig);
+        }
+
+        Ok(Index(index))
+    }
+
+    /// Create a new fork entry (MSB is set)
+    fn new_fork(index: u32) -> Result<Self, FlatChainstoreError> {
+        if index >= Self::FORK_BIT {
+            // Index value is out of bounds for our 31 bit indexes
+            return Err(FlatChainstoreError::IndexTooBig);
+        }
+
+        Ok(Index(index | Self::FORK_BIT))
     }
 
     /// Tells if this is a block in our main chain
-    pub fn is_main_chain(&self) -> bool {
-        self.0 & 0x8000_0000 == 0
+    fn is_main_chain(&self) -> bool {
+        self.0 & Self::FORK_BIT == 0
     }
 
     /// Takes only the integer height of the block, without the tag
-    pub fn index(&self) -> u32 {
-        self.0 & 0x7FFF_FFFF
+    fn index(&self) -> u32 {
+        self.0 & Self::INDEX_MASK
     }
 
-    /// Sets the tag to mean this is a block in our main chain
-    pub fn set_main_chain(&mut self) {
-        self.0 &= 0x7FFF_FFFF;
-    }
-
-    /// Sets the tag to mean this is a block in a fork
-    pub fn set_fork(&mut self) {
-        self.0 |= 0x8000_0000;
-    }
-
-    /// Tells if this is an empty position (i.e., we haven't written anything here yet)
-    pub fn is_empty(&self) -> bool {
+    /// Tells if this is an empty position (i.e., we haven't written anything here yet, or this is
+    /// the mainchain genesis index)
+    fn is_empty(&self) -> bool {
         self.0 == 0
-    }
-
-    /// Tells if this position is occupied
-    pub fn is_occupied(&self) -> bool {
-        self.0 != 0
     }
 }
 
@@ -252,7 +259,7 @@ impl Index {
 #[derive(Debug, Copy, Clone)]
 /// To avoid having to sha256 headers every time we retrieve them, we store the hash along with
 /// the header, so we just need to compare the hash to know if we have the right header
-pub struct HashedDiskHeader {
+struct HashedDiskHeader {
     /// The actual header with contextually relevant information
     header: DiskBlockHeader,
 
@@ -340,6 +347,9 @@ pub enum FlatChainstoreError {
 
     /// The provided accumulator is too big
     AccumulatorTooBig,
+
+    /// Tried to create an index more than 31 bits long
+    IndexTooBig,
 
     /// Something wrong happened with the metadata file mmap
     InvalidMetadataPointer,
@@ -476,7 +486,7 @@ impl BlockIndex {
 
             // If we find an empty index, this bucket is where the entry would be added
             // Note: The genesis block doesn't reach this point, as its header hash is matched
-            if candidate_index.index() == 0 {
+            if candidate_index.is_empty() {
                 return Ok(IndexBucket::Empty { ptr: entry_ptr });
             }
 
@@ -736,8 +746,8 @@ impl FlatChainStore {
     fn compute_checksum(&self) -> DbCheckSum {
         // a function that computes the xxHash of a memory map
         let checksum_fn = |mmap: &MmapMut| {
-            let map_as_slice = mmap.iter().as_slice();
-            let hash = xxh3::xxh3_64(map_as_slice);
+            let mmap_as_slice = mmap.iter().as_slice();
+            let hash = xxh3::xxh3_64(mmap_as_slice);
 
             FileChecksum(hash)
         };
@@ -1046,8 +1056,7 @@ impl FlatChainStore {
             hash: block_hash,
         };
 
-        let mut index = Index::new(fork_blocks);
-        index.set_fork();
+        let index = Index::new_fork(fork_blocks)?;
         self.add_index_entry(block_hash, index)?;
 
         metadata.fork_count += 1;
@@ -1154,7 +1163,7 @@ impl ChainStore for FlatChainStore {
     }
 
     fn update_block_index(&mut self, height: u32, hash: BlockHash) -> Result<(), Self::Error> {
-        let index = Index::new(height);
+        let index = Index::new(height)?;
 
         unsafe { self.add_index_entry(hash, index) }
     }
@@ -1170,6 +1179,7 @@ mod tests {
     use bitcoin::Block;
     use bitcoin::BlockHash;
     use bitcoin::Network;
+    use xxhash_rust::xxh3;
 
     use super::FlatChainStore;
     use super::FlatChainstoreError;
@@ -1226,17 +1236,23 @@ mod tests {
 
     #[test]
     fn test_create_chainstore() {
-        let test_id = rand::random::<u64>();
-        let config = super::FlatChainStoreConfig {
-            block_index_size: Some(32_768),
-            headers_file_size: Some(32_768),
-            fork_file_size: Some(10_000),
-            cache_size: Some(10),
-            file_permission: Some(0o660),
-            path: format!("./tmp-db/{test_id}/"),
-        };
+        let store = get_test_chainstore();
 
-        let _store = FlatChainStore::new(config).unwrap();
+        store.check_integrity().unwrap();
+    }
+
+    #[test]
+    // Sanity check
+    fn test_checksum() {
+        assert_eq!(xxh3::xxh3_64("a".as_bytes()), 0xe6c632b61e964e1f);
+        assert_eq!(xxh3::xxh3_64("abc1".as_bytes()), 0xec035b7226cacedf);
+        assert_eq!(xxh3::xxh3_64("abc 1".as_bytes()), 0x5740573263e9d84d);
+        assert_eq!(xxh3::xxh3_64("Floresta".as_bytes()), 0x066d384879d98e84);
+        assert_eq!(xxh3::xxh3_64("floresta".as_bytes()), 0x58d9f8aa416ed680);
+        assert_eq!(
+            xxh3::xxh3_64("floresta-chain".as_bytes()),
+            0x066540290fdae363
+        );
     }
 
     #[test]
@@ -1319,8 +1335,7 @@ mod tests {
         }
 
         // Test that the inner header-fetching function returns the proper error for fork indices
-        let mut fork_index = Index::new(0);
-        fork_index.set_fork();
+        let mut fork_index = Index::new_fork(0).unwrap();
         unsafe {
             match store.get_block_header_by_index(fork_index) {
                 Err(FlatChainstoreError::NotFound) => (),

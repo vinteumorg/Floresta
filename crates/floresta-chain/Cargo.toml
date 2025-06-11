@@ -52,4 +52,4 @@ experimental-db = ["dep:memmap2", "dep:lru"]
 [[bench]]
 name = "chain_state_bench"
 harness = false
-required-features = ["test-utils"]
+required-features = ["test-utils", "experimental-db"]

@@ -9,7 +9,7 @@ just bench
 Under the hood this runs:
 
 ```bash
-cargo bench --features test-utils
+cargo bench --features test-utils,experimental-db
 ```
 
 By default, benchmarks that are resource-intensive are excluded to allow for quicker testing. If you'd like to include all benchmarks, use the following command:
@@ -19,7 +19,7 @@ By default, benchmarks that are resource-intensive are excluded to allow for qui
 EXPENSIVE_BENCHES=1 just bench
 
 # or, without Just:
-EXPENSIVE_BENCHES=1 cargo bench --features test-utils
+EXPENSIVE_BENCHES=1 cargo bench --features test-utils,experimental-db
 ```
 
 > **Note**: Running with `EXPENSIVE_BENCHES=1` enables the full benchmark suite, which will take several minutes to complete.
