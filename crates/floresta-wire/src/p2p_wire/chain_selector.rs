@@ -847,7 +847,11 @@ where
             }
 
             PeerMessages::Block(block) => {
-                if self.check_is_user_block_and_reply(block).await?.is_some() {
+                if self
+                    .check_is_user_block_and_reply(block.block, block.udata)
+                    .await?
+                    .is_some()
+                {
                     log::error!("peer {peer} sent us a block we didn't request");
                     self.increase_banscore(peer, 5).await?;
                 }
