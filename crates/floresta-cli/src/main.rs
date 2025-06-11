@@ -253,6 +253,17 @@ pub enum Methods {
     GetMemoryInfo { mode: Option<String> },
 
     /// Returns information about the RPC server
+    ///
+    /// Result: {                  (json object)
+    ///   "active_commands" : [    (json array) All active commands
+    ///     {                      (json object) Information about an active command
+    ///       "method" : "str",    (string) The name of the RPC command
+    ///       "duration" : n       (numeric) The running time in microseconds
+    ///     },
+    ///     ...
+    ///   ],
+    ///   "logpath" : "str"        (string) The complete file path to the output log
+    /// }
     #[command(name = "getrpcinfo")]
     GetRpcInfo,
 
