@@ -17,10 +17,15 @@ use std::time::UNIX_EPOCH;
 use bitcoin::p2p::address::AddrV2;
 use bitcoin::p2p::address::AddrV2Message;
 use bitcoin::p2p::ServiceFlags;
+use bitcoin::Block;
 use bitcoin::BlockHash;
 use bitcoin::Network;
 use bitcoin::Txid;
+use floresta_chain::proof_util;
+use floresta_chain::BlockValidationErrors;
+use floresta_chain::BlockchainError;
 use floresta_chain::ChainBackend;
+use floresta_chain::UData;
 use floresta_chain::UtreexoBlock;
 use floresta_common::service_flags;
 use floresta_common::service_flags::UTREEXO;
@@ -28,6 +33,7 @@ use floresta_common::FractionAvg;
 use floresta_compact_filters::flat_filters_store::FlatFiltersStore;
 use floresta_compact_filters::network_filters::NetworkFilters;
 use log::debug;
+use log::error;
 use log::info;
 use log::warn;
 use serde::Deserialize;
@@ -618,39 +624,120 @@ where
     /// Check if this block request is made by a user through the user interface and answer it
     /// back to the user if so.
     ///
-    /// This function will return the given block if isn't a user request. This is to avoid cloning
+    /// This function will return the given block if it isn't a user request. This is to avoid cloning
     /// the block.
     pub(crate) async fn check_is_user_block_and_reply(
         &mut self,
-        block: UtreexoBlock,
-    ) -> Result<Option<UtreexoBlock>, WireError> {
+        block: Block,
+        udata: Option<UData>,
+    ) -> Result<Option<(Block, Option<UData>)>, WireError> {
         // If this block is a request made through the user interface, send it back to the
         // user.
         if let Some(request) = self
             .inflight_user_requests
-            .remove(&UserRequest::Block(block.block.block_hash()))
+            .remove(&UserRequest::Block(block.block_hash()))
         {
-            debug!(
-                "answering user request for block {}",
-                block.block.block_hash()
-            );
+            debug!("answering user request for block {}", block.block_hash());
 
-            if block.udata.is_some() {
+            if udata.is_some() {
                 request
                     .2
-                    .send(NodeResponse::UtreexoBlock(Some(block)))
+                    .send(NodeResponse::UtreexoBlock(Some(UtreexoBlock {
+                        block,
+                        udata,
+                    })))
                     .map_err(|_| WireError::ResponseSendError)?;
+
                 return Ok(None);
             }
 
             request
                 .2
-                .send(NodeResponse::Block(Some(block.block)))
+                .send(NodeResponse::Block(Some(block)))
                 .map_err(|_| WireError::ResponseSendError)?;
             return Ok(None);
         }
 
-        Ok(Some(block))
+        Ok(Some((block, udata)))
+    }
+
+    pub(crate) async fn process_block(
+        &mut self,
+        block: &Block,
+        udata: &UData,
+        block_height: u32,
+        peer: PeerId,
+    ) -> Result<(), WireError>
+    where
+        Chain::Error: From<proof_util::UtreexoLeafError>,
+    {
+        debug!("processing block {}", block.block_hash());
+        let (proof, del_hashes, inputs) =
+            proof_util::process_proof(udata, &block.txdata, block_height, |h| {
+                self.chain.get_block_hash(h)
+            })?;
+
+        if let Err(e) = self.chain.connect_block(block, proof, inputs, del_hashes) {
+            error!(
+                "Invalid block {:?} received by peer {} reason: {:?}",
+                block.header, peer, e
+            );
+
+            if let BlockchainError::BlockValidation(e) = e {
+                // Because the proof isn't committed to the block, we can't invalidate
+                // it if the proof is invalid. Any other error should cause the block
+                // to be invalidated.
+                match e {
+                    BlockValidationErrors::InvalidCoinbase(_)
+                    | BlockValidationErrors::UtxoNotFound(_)
+                    | BlockValidationErrors::ScriptValidationError(_)
+                    | BlockValidationErrors::NullPrevOut
+                    | BlockValidationErrors::EmptyInputs
+                    | BlockValidationErrors::EmptyOutputs
+                    | BlockValidationErrors::ScriptError
+                    | BlockValidationErrors::BlockTooBig
+                    | BlockValidationErrors::NotEnoughPow
+                    | BlockValidationErrors::TooManyCoins
+                    | BlockValidationErrors::BadMerkleRoot
+                    | BlockValidationErrors::BadWitnessCommitment
+                    | BlockValidationErrors::NotEnoughMoney
+                    | BlockValidationErrors::FirstTxIsNotCoinbase
+                    | BlockValidationErrors::BadCoinbaseOutValue
+                    | BlockValidationErrors::EmptyBlock
+                    | BlockValidationErrors::BadBip34
+                    | BlockValidationErrors::BIP94TimeWarp
+                    | BlockValidationErrors::UnspendableUTXO
+                    | BlockValidationErrors::CoinbaseNotMatured => {
+                        try_and_log!(self.chain.invalidate_block(block.block_hash()));
+                    }
+                    BlockValidationErrors::InvalidProof => {}
+                    BlockValidationErrors::BlockExtendsAnOrphanChain
+                    | BlockValidationErrors::BlockDoesntExtendTip => {
+                        // for some reason, we've tried to connect a block that doesn't extend the
+                        // tip
+                        self.last_block_request = self.chain.get_validation_index().unwrap_or(0);
+                        // this is our mistake, don't punish the peer
+                        return Ok(());
+                    }
+                }
+            }
+
+            warn!(
+                "Block {} from peer {peer} is invalid, banning peer",
+                block.block_hash()
+            );
+
+            // Disconnect the peer and ban it.
+            if let Some(peer) = self.peers.get(&peer).cloned() {
+                self.address_man
+                    .update_set_state(peer.address_id as usize, AddressState::Banned(T::BAN_TIME));
+            }
+
+            self.send_to_peer(peer, NodeRequest::Shutdown).await?;
+            return Err(WireError::PeerMisbehaving);
+        }
+
+        Ok(())
     }
 
     fn get_port(network: Network) -> u16 {
@@ -759,7 +846,7 @@ where
         // ipv4 - it's hard to differentiate between ipv4 and hostname without an actual regex
         // simply try to parse it as an ip address and if it fails, assume it's a hostname
 
-        // this breake the necessity of feature gate on windows
+        // this breaks the necessity of feature gate on windows
         let mut address = address;
         if address.is_empty() {
             address = "127.0.0.1"
@@ -1473,7 +1560,6 @@ where
             !(is_inflight || is_pending)
         };
         let blocks: Vec<_> = blocks.into_iter().filter(should_request).collect();
-
         // if there's no block to request, don't propagate any message
         if blocks.is_empty() {
             return Ok(());
