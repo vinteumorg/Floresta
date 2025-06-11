@@ -5,10 +5,11 @@ This functional test cli utility to interact with a Floresta node with `getrpcin
 """
 
 import os
-import tempfile
-
 from test_framework import FlorestaTestFramework
-from test_framework.rpc.floresta import REGTEST_RPC_SERVER
+from test_framework.rpc.floresta import REGTEST_RPC_SERVER as florestad_conf
+from test_framework.rpc.bitcoin import REGTEST_RPC_SERVER as bitcoind_conf
+
+DATA_DIR = FlorestaTestFramework.get_integration_test_dir()
 
 
 class GetRpcInfoTest(FlorestaTestFramework):
@@ -16,27 +17,68 @@ class GetRpcInfoTest(FlorestaTestFramework):
     Test `getrpcinfo` rpc call, by creating a node
     """
 
-    nodes = [-1]
-    data_dir = os.path.normpath(
-        os.path.join(
-            FlorestaTestFramework.get_integration_test_dir(),
-            "data",
-            "florestacli-getrpcinfo-test",
-            "node-0",
-        )
-    )
+    nodes = [-1, -1]
 
     def set_test_params(self):
         """
         Setup the two node florestad process with different data-dirs, electrum-addresses
         and rpc-addresses in the same regtest network
         """
-        GetRpcInfoTest.nodes[0] = self.add_node(
-            extra_args=[
-                f"--data-dir={GetRpcInfoTest.data_dir}",
-            ],
-            rpcserver=REGTEST_RPC_SERVER,
+        # Create data directories for the nodes
+        self.data_dirs = GetRpcInfoTest.create_data_dirs(
+            DATA_DIR, self.__class__.__name__.lower(), nodes=2
         )
+
+        # Now create the nodes with the data directories
+        GetRpcInfoTest.nodes[0] = self.add_node(
+            variant="florestad",
+            extra_args=[
+                f"--data-dir={self.data_dirs[0]}",
+            ],
+            rpcserver=florestad_conf,
+        )
+
+        GetRpcInfoTest.nodes[1] = self.add_node(
+            variant="bitcoind",
+            extra_args=[
+                f"-datadir={self.data_dirs[1]}",
+            ],
+            rpcserver=bitcoind_conf,
+        )
+
+    def assert_rpcinfo_structure(self, result, expected_logpath: str):
+        # Ensure only 'active_commands' and 'logpath' are present
+        self.assertEqual(set(result.keys()), {"active_commands", "logpath"})
+        self.assertEqual(len(result["active_commands"]), 1)
+
+        # Ensure only 'duration' and 'method' are present in command
+        command = result["active_commands"][0]
+        self.assertEqual(set(command.keys()), {"duration", "method"})
+
+        # Check the command structure
+        self.assertEqual(command["method"], "getrpcinfo")
+        self.assertTrue(command["duration"] > 0)
+        self.assertEqual(result["logpath"], os.path.normpath(expected_logpath))
+
+    def test_floresta_getrpcinfo(self):
+        """
+        Test the `getrpcinfo` rpc call by creating a node
+        and checking the response in florestad.
+        """
+        floresta = self.get_node(GetRpcInfoTest.nodes[0])
+        result = floresta.rpc.get_rpcinfo()
+        expected_logpath = os.path.join(self.data_dirs[0], "regtest", "output.log")
+        self.assert_rpcinfo_structure(result, expected_logpath)
+
+    def test_bitcoind_getrpcinfo(self):
+        """
+        Test the `getrpcinfo` rpc call by creating a node
+        and checking the response in bitcoind.
+        """
+        bitcoind = self.get_node(GetRpcInfoTest.nodes[1])
+        result = bitcoind.rpc.get_rpcinfo()
+        expected_logpath = os.path.join(self.data_dirs[1], "regtest", "debug.log")
+        self.assert_rpcinfo_structure(result, expected_logpath)
 
     def run_test(self):
         """
@@ -44,27 +86,14 @@ class GetRpcInfoTest(FlorestaTestFramework):
         """
         # Start node
         self.run_node(GetRpcInfoTest.nodes[0])
+        self.run_node(GetRpcInfoTest.nodes[1])
 
         # Test assertions
-        node = self.get_node(GetRpcInfoTest.nodes[0])
-
-        result = node.rpc.get_rpcinfo()
-        self.assertIn("active_commands", result)
-        self.assertIn("logpath", result)
-        self.assertEqual(len(result["active_commands"]), 1)
-        self.assertIn("duration", result["active_commands"][0])
-        self.assertIn("method", result["active_commands"][0])
-        self.assertEqual(result["active_commands"][0]["duration"], 0)
-        self.assertEqual(result["active_commands"][0]["method"], "getrpcinfo")
-        self.assertEqual(
-            result["logpath"],
-            os.path.normpath(
-                os.path.join(GetRpcInfoTest.data_dir, "regtest", "output.log")
-            ),
-        )
+        self.test_floresta_getrpcinfo()
+        self.test_bitcoind_getrpcinfo()
 
         # stop node
-        self.stop_node(GetRpcInfoTest.nodes[0])
+        self.stop()
 
 
 if __name__ == "__main__":

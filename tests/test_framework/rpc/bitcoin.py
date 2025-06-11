@@ -46,3 +46,10 @@ class BitcoinRPC(BaseRPC):
         Perform the `ping` RPC that checks if our peers are alive.
         """
         self.perform_request("ping")
+
+    def get_rpcinfo(self):
+        """
+        Returns stats about our RPC server performing
+        `perform_request('getrpcinfo')`
+        """
+        return self.perform_request("getrpcinfo")
