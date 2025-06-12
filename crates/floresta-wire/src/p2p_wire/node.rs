@@ -3,6 +3,7 @@
 //! A node should not care about peer-specific messages, peers'll handle things like pings.
 use std::collections::BTreeMap;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::fmt::Debug;
 use std::net::IpAddr;
 use std::net::SocketAddr;
@@ -20,6 +21,7 @@ use bitcoin::p2p::ServiceFlags;
 use bitcoin::Block;
 use bitcoin::BlockHash;
 use bitcoin::Network;
+use bitcoin::OutPoint;
 use bitcoin::Txid;
 use floresta_chain::proof_util;
 use floresta_chain::proof_util::UtreexoLeafError;
@@ -546,6 +548,36 @@ where
         // We allow V1 fallback iff the `v2` flag is not set
         self.open_connection(kind, peer_id as usize, address, !v2_transport)
             .await
+    }
+
+    pub(crate) fn get_block_bitmap(&self, block: &Block) -> Result<Bitmap, WireError> {
+        let mut block_spends = HashSet::new();
+        for tx in block.txdata.iter() {
+            if tx.is_coinbase() {
+                // Coinbase transactions don't spend any outputs, so we can skip them
+                continue;
+            }
+
+            let txid = tx.compute_txid();
+            for input in tx.input.iter() {
+                block_spends.insert(input.previous_output);
+            }
+
+            // remove same-block spends
+            for (vout, _) in tx.output.iter().enumerate() {
+                let outpoint = OutPoint {
+                    txid,
+                    vout: vout as u32,
+                };
+
+                block_spends.remove(&outpoint);
+            }
+        }
+
+        let mut bitmap = Bitmap::new();
+        block_spends.iter().for_each(|_| bitmap.push_input(true));
+
+        Ok(bitmap)
     }
 
     /// Sends the same request to all connected peers
