@@ -1,30 +1,24 @@
 """
 run_tests.py
 
-Command Line Interface to run a test by its name. The name should be placed at ./tests folder.
-It's suposed that you run it through `poetry` package management and `poe` task manager, but you
-can run it with `python` if you installed the packages properly, in a isolated or not isolated
-environment (althought we recommend the isolated environment).
+Command Line Interface to run an individual test or multiple tests in a suite.
 
-All tests will run as a spwaned subprocess and what happens will be logged to a temporary directory
+The test-suite should be placed as a subfolder at `./tests` folder and the
+test-name should be a file with the suffix `-test.py` inside the test-suite
+folder.
 
-```bash
-# The default way to run all tests
-poetry run poe tests
+It's recommended that you run it through `uv` package management, but you can run
+it with `python` if you installed the packages properly, in a isolated or not
+isolated environment (althought we recommend the isolated environment).
 
-# The default way to run a separated test (see the ones -- or define one -- in pyproject.toml)
-poetry run poe example-test
+All tests will run as a spwaned subprocess and what happens will be logged to
+a temporary directory.
 
-# This will do the same thing in the isolated environment
-poetry run python tests/run_tests.py --test-name example_test
+For more information about how to run the tests, see
+[doc/running_tests.md](doc/running_tests.md).
 
-# You can even define the `data_dir` to logs
-poetry run python tests/run_tests.py --test-name example_test --data-dir $HOME/my/path
-
-# If you have a proper environment wit all necessary packages installed
-# it can be possible to run without poetry
-python tests/run_tests.py --test-name example_test --data-dir $HOME/my/path
-```
+For more information about how to define a test, see
+[tests/example](./tests/example) files.
 """
 
 import argparse
@@ -52,6 +46,36 @@ def list_test_suites(test_dir: str):
             print(f"* {name}")
 
 
+def run_test(args: argparse.Namespace, test_suite_dir: str, file: str):
+    """Run a test file from the test suite directory"""
+    data_dir = os.path.normpath(os.path.join(args.data_dir, file))
+    if not os.path.isdir(data_dir):
+        os.makedirs(data_dir)
+
+    # get test file and create a log for it
+    test_filename = os.path.normpath(os.path.join(test_suite_dir, file))
+    test_logname = os.path.normpath(os.path.join(data_dir, f"{int(time.time())}.log"))
+
+    with open(test_logname, "wt", encoding="utf-8") as log_file:
+        cli = ["python", test_filename]
+        cli_msg = " ".join(cli)
+        print(f"{INFO_EMOJI} Running '{cli_msg}'")
+        print(f"Writing stuff to {test_logname}")
+
+        with subprocess.Popen(cli, stdout=log_file, stderr=log_file) as test:
+            test.wait()
+
+        # Check the test, if failed, log the results
+        # if passed, just show that worked
+        if test.returncode != 0:
+            print(f"Test {file} not passed {FAILURE_EMOJI}")
+            with open(test_logname, "rt", encoding="utf-8") as log_file:
+                raise RuntimeError(f"Tests failed:{log_file.read()}")
+
+        print(f"Test {file} passed {SUCCESS_EMOJI}")
+        print()
+
+
 def main():
     """
     Create a CLI called `run_tests` with calling arguments
@@ -61,8 +85,13 @@ def main():
     tool to help with function testing of Floresta
 
     options:
-        -h, --help                show this help message and exit
-        -d, --data-dir DATA_DIR   data directory of the run_tests's functional test logs
+        -h, --help                 show this help message and exit.
+        -d, --data-dir DATA_DIR    data directory of the run_tests's functional
+                                   test logs.
+        -t, --test-suite TEST_NAME test-suit directory to be tested by run_tests.
+                                   You can add many.
+        -k, --test-name TEST_NAME  test name to be tested by run_tests's.
+                                   You can add many.
     """
     # Structure the CLI
     parser = argparse.ArgumentParser(
@@ -80,7 +109,15 @@ def main():
     parser.add_argument(
         "-t",
         "--test-suite",
-        help="test-suit directory to be tested by %(prog)s's. You can add many ",
+        help="test suite directory to be tested by %(prog)s's. You can add many",
+        action="append",
+        default=[],
+    )
+
+    parser.add_argument(
+        "-k",
+        "--test-name",
+        help="test name in a suite to be tested by %(prog)s's. You can add many",
         action="append",
         default=[],
     )
@@ -135,40 +172,17 @@ def main():
         # inside the folder. The tests should have
         # a suffix "-test.py"
         for file in os.listdir(test_suite_dir):
+
+            # if we passed one or more test file to filter,
+            # add them to the list and do nor include those
+            # that are not in the list. If no files are provided,
+            # include all of them.
             if file.endswith("-test.py"):
-
-                # Define the data-dir and create it
-                data_dir = os.path.normpath(os.path.join(args.data_dir, file))
-                if not os.path.isdir(data_dir):
-                    os.makedirs(data_dir)
-
-                # get test file and create a log for it
-                test_filename = os.path.normpath(os.path.join(test_suite_dir, file))
-                test_logname = os.path.normpath(
-                    os.path.join(data_dir, f"{int(time.time())}.log")
-                )
-
-                # Now start the test
-                with open(test_logname, "wt", encoding="utf-8") as log_file:
-                    cli = ["python", test_filename]
-                    cli_msg = " ".join(cli)
-                    print(f"Running '{cli_msg}'")
-
-                    with subprocess.Popen(
-                        cli, stdout=log_file, stderr=log_file
-                    ) as test:
-                        test.wait()
-                        print(f"Writing stuff to {test_logname}")
-
-                # Check the test, if failed, log the results
-                # if passed, just show that worked
-                if test.returncode != 0:
-                    print(f"Test {file} not passed {FAILURE_EMOJI}")
-                    with open(test_logname, "rt", encoding="utf-8") as log_file:
-                        raise RuntimeError(f"Tests failed: {log_file.read()}")
-
-                print(f"Test {file} passed {SUCCESS_EMOJI}")
-                print()
+                if args.test_name:
+                    if any(file.startswith(name) for name in args.test_name):
+                        run_test(args, test_suite_dir, file)
+                else:
+                    run_test(args, test_suite_dir, file)
 
     print("🎉 ALL TESTS PASSED! GOOD JOB!")
 

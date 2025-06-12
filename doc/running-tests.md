@@ -45,6 +45,25 @@ reason, we recommend to use it before doing a commit when changes only the funct
 just test-functional
 ```
 
+Furthermore, you can only specific tests, rather than all at once.
+
+```bash
+# runs all tests in 'floresta-cli' suite
+just test-functional-run "--test-suite floresta-cli"
+
+# same as above
+just test-functional-run "-t floresta-cli"
+
+# run the stop and ping tests in the floresta-cli suite
+just test-functional-run "--test-suite floresta-cli --test-name stop --test-name ping"
+
+# same as above
+just test-functional-run "-t floresta-cli -k stop -k ping"
+
+# run many tests that start with the word `getblock` (getblockhash, getblockheader, etc...)
+just test-functional-run "-t floresta-cli -k getblock"
+```
+
 #### From helper scripts
 
 We provide two helper scripts to support our functional tests in this process and guarantee isolation and reproducibility.
@@ -78,6 +97,25 @@ UTREEXO_REVISION=0.1.0 ./tests/prepare.sh --build && ./tests/run.sh --preserve-d
 The `--build` argument will force the script to build `utreexod` even if it is already built.
 The `--preserve-data-dir` argument will keep the data and logs directories after running the tests
 (this is useful if you want to keep the data for debugging purposes).
+
+Furthermore, you can only specific tests, rather than all at once.
+
+```bash
+# runs all tests in 'floresta-cli' suite
+./tests/run.sh --test-suite floresta-cli
+
+# same as above
+./tests/run.sh -t floresta-cli
+
+# run the stop and ping tests in the floresta-cli suite
+./tests/run.sh --test-suite floresta-cli --test-name stop --test-name ping
+
+# same as above
+./tests/run.sh -t floresta-cli -k stop -k ping
+
+# run many tests that start with the word `getblock` (getblockhash, getblockheader, etc...)
+./tests/run.sh -t floresta-cli -k getblock
+```
 
 #### From python utility directly
 Additional functional tests are available (minimum python version: 3.12).
