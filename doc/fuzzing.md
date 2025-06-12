@@ -15,4 +15,4 @@ Available fuzz targets:
 - `disk_block_header_decode`
 - `disk_block_header_roundtrip`
 - `local_address_str`
-- `utreexo_block_des`
+- `utreexo_proof_des`
