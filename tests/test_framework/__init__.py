@@ -230,6 +230,20 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
             )
         return os.getenv("FLORESTA_TEMP_DIR")
 
+    @staticmethod
+    def create_data_dirs(data_dir: str, base_name: str, nodes: int) -> list[str]:
+        """
+        Create the data directories for the two nodes
+        to be used in the test.
+        """
+        paths = []
+        for i in range(nodes):
+            p = os.path.join(data_dir, "data", base_name, f"node-{i}")
+            os.makedirs(p, exist_ok=True)
+            paths.append(p)
+
+        return paths
+
     def create_ssl_keys(self) -> tuple[str, str]:
         """
         Create a PKCS#8 formatted private key and a self-signed certificate.
