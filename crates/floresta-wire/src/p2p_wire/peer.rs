@@ -3,17 +3,20 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 
+use bip324::serde::CommandString;
 use bitcoin::bip158::BlockFilter;
 use bitcoin::block::Header as BlockHeader;
+use bitcoin::consensus::deserialize;
+use bitcoin::consensus::serialize;
 use bitcoin::hashes::Hash;
 use bitcoin::p2p::address::AddrV2Message;
 use bitcoin::p2p::message::NetworkMessage;
 use bitcoin::p2p::message_blockdata::Inventory;
 use bitcoin::p2p::message_network::VersionMessage;
 use bitcoin::p2p::ServiceFlags;
+use bitcoin::Block;
 use bitcoin::BlockHash;
 use bitcoin::Transaction;
-use floresta_chain::UtreexoBlock;
 use log::debug;
 use log::error;
 use log::warn;
@@ -34,16 +37,22 @@ use super::transport::TransportError;
 use super::transport::TransportProtocol;
 use super::transport::WriteTransport;
 use crate::node::ConnectionKind;
+use crate::p2p_wire::block_proof::GetUtreexoProof;
+use crate::p2p_wire::block_proof::UtreexoProof;
 use crate::p2p_wire::transport::ReadTransport;
-use crate::p2p_wire::transport::UtreexoMessage;
 
 /// If we send a ping, and our peer takes more than PING_TIMEOUT to
 /// reply, disconnect.
-const PING_TIMEOUT: u64 = 10 * 60;
+const PING_TIMEOUT: u64 = 30;
+
 /// If the last message we've got was more than XX, send out a ping
-const SEND_PING_TIMEOUT: u64 = 2 * 60;
-/// The inv element type for a utreexo block with witness data
-const INV_UTREEXO_BLOCK: u32 = 0x40000002 | (1 << 24);
+const SEND_PING_TIMEOUT: u64 = 60;
+
+/// The command string for the utreexo proof message
+const UTREEXO_PROOF_CMD_STRING: &str = "uproof";
+
+/// The command string for a get utreexo proof message
+const GET_UTREEXO_PROOF_CMD: &str = "getuproof";
 
 #[derive(Debug, PartialEq)]
 enum State {
@@ -61,14 +70,8 @@ pub struct MessageActor<R: AsyncRead + Unpin + Send> {
 impl<R: AsyncRead + Unpin + Send> MessageActor<R> {
     async fn inner(&mut self) -> std::result::Result<(), PeerError> {
         loop {
-            match self.transport.read_message().await? {
-                UtreexoMessage::Standard(msg) => {
-                    self.sender.send(ReaderMessage::Message(msg))?;
-                }
-                UtreexoMessage::Block(block) => {
-                    self.sender.send(ReaderMessage::Block(block))?;
-                }
-            }
+            let msg = self.transport.read_message().await?;
+            self.sender.send(ReaderMessage::Message(msg))?;
         }
     }
 
@@ -148,7 +151,6 @@ impl From<TransportError> for PeerError {
 }
 
 pub enum ReaderMessage {
-    Block(UtreexoBlock),
     Message(NetworkMessage),
     Error(PeerError),
 }
@@ -156,12 +158,6 @@ pub enum ReaderMessage {
 impl From<tokio::sync::mpsc::error::SendError<ReaderMessage>> for PeerError {
     fn from(_: tokio::sync::mpsc::error::SendError<ReaderMessage>) -> Self {
         PeerError::Channel
-    }
-}
-
-impl From<UtreexoBlock> for ReaderMessage {
-    fn from(block: UtreexoBlock) -> Self {
-        ReaderMessage::Block(block)
     }
 }
 
@@ -238,10 +234,6 @@ impl<T: AsyncWrite + Unpin + Send + Sync> Peer<T> {
                         Some(ReaderMessage::Error(e)) => {
                             return Err(e);
                         }
-                        Some(ReaderMessage::Block(block)) => {
-                            debug!("got a utreexo block from peer {}", self.id);
-                            self.send_to_node(PeerMessages::Block(block)).await;
-                        }
                         Some(ReaderMessage::Message(msg)) => {
                             self.handle_peer_message(msg).await?;
                         }
@@ -299,21 +291,11 @@ impl<T: AsyncWrite + Unpin + Send + Sync> Peer<T> {
         assert_eq!(self.state, State::Connected);
         debug!("Handling node request: {request:?}");
         match request {
-            NodeRequest::GetBlock((block_hashes, proof)) => {
-                let inv = if proof {
-                    block_hashes
-                        .iter()
-                        .map(|block| Inventory::Unknown {
-                            inv_type: INV_UTREEXO_BLOCK,
-                            hash: *block.as_byte_array(),
-                        })
-                        .collect()
-                } else {
-                    block_hashes
-                        .iter()
-                        .map(|block| Inventory::WitnessBlock(*block))
-                        .collect()
-                };
+            NodeRequest::GetBlock(block_hashes) => {
+                let inv = block_hashes
+                    .iter()
+                    .map(|block| Inventory::WitnessBlock(*block))
+                    .collect();
 
                 let _ = self.write(NetworkMessage::GetData(inv)).await;
             }
@@ -369,9 +351,25 @@ impl<T: AsyncWrite + Unpin + Send + Sync> Peer<T> {
                 self.last_ping = Some(Instant::now());
                 self.write(NetworkMessage::Ping(nonce)).await?;
             }
+            NodeRequest::GetBlockProof((block_hash, proof_hashes_bitmap, leaf_index_bitmap)) => {
+                let get_block_proof = GetUtreexoProof {
+                    block_hash,
+                    include_leaves: true,
+                    proof_hashes_bitmap,
+                    leaf_index_bitmap,
+                };
+
+                self.write(NetworkMessage::Unknown {
+                    command: CommandString::try_from_static(GET_UTREEXO_PROOF_CMD)
+                        .expect("Invalid command string"),
+                    payload: serialize(&get_block_proof),
+                })
+                .await?;
+            }
         }
         Ok(())
     }
+
     pub async fn handle_peer_message(&mut self, message: NetworkMessage) -> Result<()> {
         self.last_message = Instant::now();
         debug!("Received {} from peer {}", message.command(), self.id);
@@ -437,7 +435,21 @@ impl<T: AsyncWrite + Unpin + Send + Sync> Peer<T> {
                     self.last_ping = None;
                 }
                 NetworkMessage::Unknown { command, payload } => {
+                    #[allow(non_snake_case)]
+                    let UTREEXO_PROOF_CMD: CommandString =
+                        CommandString::try_from_static(UTREEXO_PROOF_CMD_STRING)
+                            .expect("Invalid command string");
+
+                    if command == UTREEXO_PROOF_CMD {
+                        let utreexo_proof: UtreexoProof = deserialize(&payload)?;
+                        self.send_to_node(PeerMessages::UtreexoProof(utreexo_proof))
+                            .await;
+                    }
+
                     warn!("Unknown message: {command} {payload:?}");
+                }
+                NetworkMessage::Block(block) => {
+                    self.send_to_node(PeerMessages::Block(block)).await;
                 }
                 NetworkMessage::CFilter(filter_msg) => match filter_msg.filter_type {
                     0 => {
@@ -476,8 +488,7 @@ impl<T: AsyncWrite + Unpin + Send + Sync> Peer<T> {
                 | NetworkMessage::GetCFilters(_)
                 | NetworkMessage::MemPool
                 | NetworkMessage::MerkleBlock(_)
-                | NetworkMessage::SendCmpct(_)
-                | NetworkMessage::Block(_) => {}
+                | NetworkMessage::SendCmpct(_) => {}
             },
             State::None | State::SentVersion(_) => match message {
                 bitcoin::p2p::message::NetworkMessage::Version(version) => {
@@ -689,20 +700,34 @@ pub struct Version {
 pub enum PeerMessages {
     /// A new block just arrived, we should ask for it and update our chain
     NewBlock(BlockHash),
+
     /// We got a full block from our peer, presumptively we asked for it
-    Block(UtreexoBlock),
+    Block(Block),
+
     /// A response to a `getheaders` request
     Headers(Vec<BlockHeader>),
+
     /// We got some p2p addresses, add this to our local database
     Addr(Vec<AddrV2Message>),
+
     /// Peer notify its readiness
     Ready(Version),
+
     /// Remote peer disconnected
     Disconnected(usize),
+
     /// Remote peer doesn't known the data we asked for
     NotFound(Inventory),
+
     /// Remote peer sent us a transaction
     Transaction(Transaction),
+
+    /// Remote peer sent us a Utreexo state
     UtreexoState(Vec<u8>),
+
+    /// Remote peer sent us a compact block filter
     BlockFilter((BlockHash, BlockFilter)),
+
+    /// Remote peer sent us a Utreexo proof,
+    UtreexoProof(UtreexoProof),
 }
