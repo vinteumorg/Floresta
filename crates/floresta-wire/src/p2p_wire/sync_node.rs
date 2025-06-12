@@ -5,10 +5,8 @@ use std::time::Instant;
 
 use bitcoin::p2p::message_blockdata::Inventory;
 use bitcoin::p2p::ServiceFlags;
-use bitcoin::Block;
 use floresta_chain::proof_util;
 use floresta_chain::ThreadSafeChain;
-use floresta_chain::UData;
 use floresta_common::service_flags;
 use floresta_common::service_flags::UTREEXO;
 use log::debug;
@@ -28,7 +26,6 @@ use crate::node::NodeNotification;
 use crate::node::NodeRequest;
 use crate::node::UtreexoNode;
 use crate::node_context::NodeContext;
-use crate::node_context::PeerId;
 use crate::node_interface::NodeResponse;
 
 /// [`SyncNode`] is a node that downloads and validates the blockchain.
@@ -216,6 +213,7 @@ where
                 continue;
             }
 
+            try_and_log!(self.process_pending_blocks().await);
             if !self.has_utreexo_peers() {
                 continue;
             }
@@ -228,46 +226,6 @@ where
 
         done_cb(&self.chain);
         self
-    }
-
-    /// This function is called every time we get a Block message from a peer.
-    ///
-    /// It validates the block, and connects it to the chain.
-    async fn handle_block_data(
-        &mut self,
-        block: &Block,
-        udata: &UData,
-        peer: PeerId,
-    ) -> Result<(), WireError> {
-        let block_height = self.chain.get_validation_index()? + 1;
-        let block_hash = block.block_hash();
-        let start = Instant::now();
-
-        // Verify the utreexo proof, validate the block, and connect it. Else ban and disconnect
-        // to the peer that sent us an invalid block or utreexo data.
-        self.process_block(block, udata, block_height, peer).await?;
-
-        let elapsed = start.elapsed().as_secs();
-        self.block_sync_avg.add(elapsed);
-
-        #[cfg(feature = "metrics")]
-        {
-            use metrics::get_metrics;
-
-            let avg = self.block_sync_avg.value();
-            let metrics = get_metrics();
-            metrics.avg_block_processing_time.set(avg);
-        }
-
-        debug!("accepted block {block_hash} in {elapsed} seconds");
-        self.last_tip_update = Instant::now();
-
-        if *self.kill_signal.read().await {
-            return Ok(());
-        }
-
-        self.get_blocks_to_download().await;
-        Ok(())
     }
 
     /// Process a message from a peer and handle it accordingly between the variants of [`PeerMessages`].
@@ -287,26 +245,20 @@ where
 
                 match notification {
                     PeerMessages::Block(block) => {
-                        self.inflight
-                            .remove(&InflightRequests::Blocks(block.block.block_hash()));
-
-                        let Some((block, udata)) = self
-                            .check_is_user_block_and_reply(block.block, block.udata)
-                            .await?
-                        else {
-                            // if this is a user block, nothing else to do
-                            return Ok(());
-                        };
-
-                        let Some(udata) = udata else {
-                            warn!("Received block without udata from peer {peer}, ignoring");
-                            self.increase_banscore(peer, self.config.max_banscore)
-                                .await?;
+                        if self.blocks.contains_key(&block.block_hash()) {
+                            debug!(
+                                "Received block {} from peer {}, but we already have it",
+                                block.block_hash(),
+                                peer
+                            );
 
                             return Ok(());
-                        };
+                        }
 
-                        self.handle_block_data(&block, &udata, peer).await?;
+                        self.request_block_proof(block, peer).await?;
+
+                        self.process_pending_blocks().await?;
+                        self.get_blocks_to_download().await;
                     }
 
                     PeerMessages::Ready(version) => {
@@ -337,16 +289,6 @@ where
                                 request
                                     .2
                                     .send(NodeResponse::Block(None))
-                                    .map_err(|_| WireError::ResponseSendError)?;
-                            }
-
-                            if let Some(request) = self
-                                .inflight_user_requests
-                                .remove(&UserRequest::UtreexoBlock(block))
-                            {
-                                request
-                                    .2
-                                    .send(NodeResponse::UtreexoBlock(None))
                                     .map_err(|_| WireError::ResponseSendError)?;
                             }
                         }
@@ -381,6 +323,12 @@ where
                     PeerMessages::UtreexoState(_) => {
                         warn!("Utreexo state received from peer {peer}, but we didn't ask",);
                         self.increase_banscore(peer, 5).await?;
+                    }
+
+                    PeerMessages::UtreexoProof(uproof) => {
+                        self.attach_proof(uproof, peer).await?;
+                        self.process_pending_blocks().await?;
+                        self.get_blocks_to_download().await;
                     }
 
                     _ => {}

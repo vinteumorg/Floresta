@@ -38,7 +38,6 @@ use crate::prelude::*;
 use crate::pruned_utreexo::utxo_data::UtxoData;
 use crate::BlockConsumer;
 use crate::BlockchainError;
-use crate::UtreexoBlock;
 
 /// This trait is the main interface between our blockchain backend and other services.
 /// It'll be useful for transitioning from rpc to a p2p based node
@@ -85,7 +84,7 @@ pub trait BlockchainInterface {
     fn update_acc(
         &self,
         acc: Stump,
-        block: UtreexoBlock,
+        block: Block,
         height: u32,
         proof: Proof,
         del_hashes: Vec<sha256::Hash>,
@@ -316,7 +315,7 @@ impl<T: BlockchainInterface> BlockchainInterface for Arc<T> {
     fn update_acc(
         &self,
         acc: Stump,
-        block: UtreexoBlock,
+        block: Block,
         height: u32,
         proof: Proof,
         del_hashes: Vec<sha256::Hash>,

@@ -94,6 +94,7 @@ impl Default for UtreexoNodeConfig {
 }
 
 pub mod address_man;
+pub mod block_proof;
 pub mod chain_selector;
 pub mod error;
 pub mod mempool;

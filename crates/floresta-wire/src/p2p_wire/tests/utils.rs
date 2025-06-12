@@ -6,13 +6,13 @@ use std::str::FromStr;
 use std::time::Instant;
 
 use bitcoin::block::Header;
-use bitcoin::consensus::deserialize;
+use bitcoin::consensus::deserialize_partial;
 use bitcoin::consensus::Decodable;
 use bitcoin::hex::FromHex;
 use bitcoin::p2p::ServiceFlags;
+use bitcoin::Block;
 use bitcoin::BlockHash;
 use bitcoin::Network;
-use floresta_chain::UtreexoBlock;
 use floresta_common::bhash;
 use floresta_common::service_flags;
 use floresta_common::service_flags::UTREEXO;
@@ -27,6 +27,7 @@ use crate::node::LocalPeerView;
 use crate::node::NodeNotification;
 use crate::node::NodeRequest;
 use crate::node::PeerStatus;
+use crate::p2p_wire::block_proof::UtreexoProof;
 use crate::p2p_wire::node::ConnectionKind;
 use crate::p2p_wire::peer::PeerMessages;
 use crate::p2p_wire::peer::Version;
@@ -38,7 +39,7 @@ pub type HeaderList = Vec<Header>;
 
 /// A map that associates block hashes with their corresponding `UtreexoBlock` objects.
 /// This is useful for efficiently looking up blocks by their hash.
-pub type BlockHashMap = HashMap<BlockHash, UtreexoBlock>;
+pub type BlockHashMap = HashMap<BlockHash, Block>;
 
 /// A map of block hashes to raw block data (represented as bytes vector).
 pub type BlockDataMap = HashMap<BlockHash, Vec<u8>>;
@@ -47,7 +48,7 @@ pub type BlockDataMap = HashMap<BlockHash, Vec<u8>>;
 pub struct Essentials {
     pub headers: HeaderList,
     pub blocks: BlockHashMap,
-    pub invalid_block: UtreexoBlock,
+    pub invalid_block: Block,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -56,15 +57,15 @@ pub struct UtreexoRoots {
     numleaves: usize,
 }
 
-#[derive(Deserialize, Debug)]
-struct Block {
+#[derive(Deserialize, Debug, Clone)]
+struct BlockFile {
     block: String,
 }
 
 #[derive(Debug)]
 pub struct TestPeer {
     _headers: Vec<Header>,
-    blocks: HashMap<BlockHash, UtreexoBlock>,
+    blocks: HashMap<BlockHash, Block>,
     _filters: HashMap<BlockHash, Vec<u8>>,
     node_tx: UnboundedSender<NodeNotification>,
     node_rx: UnboundedReceiver<NodeRequest>,
@@ -75,7 +76,7 @@ impl TestPeer {
     pub fn new(
         node_tx: UnboundedSender<NodeNotification>,
         headers: Vec<Header>,
-        blocks: HashMap<BlockHash, UtreexoBlock>,
+        blocks: HashMap<BlockHash, Block>,
         filters: HashMap<BlockHash, Vec<u8>>,
         node_rx: UnboundedReceiver<NodeRequest>,
         peer_id: u32,
@@ -117,7 +118,7 @@ impl TestPeer {
             let req = self.node_rx.recv().await.unwrap();
 
             match req {
-                NodeRequest::GetBlock((hashes, _)) => {
+                NodeRequest::GetBlock(hashes) => {
                     for hash in hashes {
                         let block = self.blocks.get(&hash).unwrap().clone();
                         self.node_tx
@@ -130,6 +131,20 @@ impl TestPeer {
                 }
                 NodeRequest::Shutdown => {
                     break;
+                }
+                NodeRequest::GetBlockProof((block_hash, _, _)) => {
+                    let proof = UtreexoProof {
+                        block_hash,
+                        leaf_data: vec![],
+                        targets: vec![],
+                        proof_hashes: vec![],
+                    };
+                    self.node_tx
+                        .send(NodeNotification::FromPeer(
+                            self.peer_id,
+                            PeerMessages::UtreexoProof(proof),
+                        ))
+                        .unwrap();
                 }
                 _ => {}
             }
@@ -146,7 +161,7 @@ impl TestPeer {
 
 pub fn create_peer(
     headers: Vec<Header>,
-    blocks: HashMap<BlockHash, UtreexoBlock>,
+    blocks: HashMap<BlockHash, Block>,
     filters: HashMap<BlockHash, Vec<u8>>,
     node_sender: UnboundedSender<NodeNotification>,
     sender: UnboundedSender<NodeRequest>,
@@ -224,18 +239,18 @@ pub fn get_test_headers() -> Vec<Header> {
     headers
 }
 
-pub fn get_test_blocks() -> io::Result<HashMap<BlockHash, UtreexoBlock>> {
+pub fn get_test_blocks() -> io::Result<HashMap<BlockHash, Block>> {
     let dir = "./src/p2p_wire/tests/test_data/blocks.json";
     let mut contents = String::new();
     File::open(dir)?.read_to_string(&mut contents)?;
 
-    let blocks: Vec<Block> = serde_json::from_str(&contents).unwrap();
+    let blocks: Vec<BlockFile> = serde_json::from_str(&contents).unwrap();
     let mut u_blocks = HashMap::new();
 
     for block_str in blocks {
-        let block = Vec::from_hex(&block_str.block).unwrap();
-        let block: UtreexoBlock = deserialize(&block).unwrap();
-        u_blocks.insert(block.block.block_hash(), block);
+        let ser_block = Vec::from_hex(&block_str.block).unwrap();
+        let block: Block = deserialize_partial(&ser_block).unwrap().0;
+        u_blocks.insert(block.block_hash(), block);
     }
 
     Ok(u_blocks)
@@ -260,11 +275,11 @@ pub fn get_test_filters() -> io::Result<HashMap<BlockHash, Vec<u8>>> {
     Ok(filters)
 }
 
-pub fn generate_invalid_block() -> UtreexoBlock {
+pub fn generate_invalid_block() -> Block {
     let invalid_block_str = "00000020daf3b60d374b19476461f97540498dcfa2eb7016238ec6b1d022f82fb60100007a7ae65b53cb988c2ec92d2384996713821d5645ffe61c9acea60da75cd5edfa1a944d5fae77031e9dbb050001010000000001010000000000000000000000000000000000000000000000000000000000000000ffffffff025751feffffff0200f2052a01000000160014ef2dceae02e35f8137de76768ae3345d99ca68860000000000000000776a24aa21a9ede2f61c3f71d1defd3fa999dfa36953755c690689799962b48bebd836974e8cf94c4fecc7daa2490047304402202b3f946d6447f9bf17d00f3696cede7ee70b785495e5498274ee682a493befd5022045fc0bcf9331073168b5d35507175f9f374a8eba2336873885d12aada67ea5f60100012000000000000000000000000000000000000000000000000000000000000000000000000000000000";
 
     let block = Vec::from_hex(invalid_block_str).unwrap();
-    let block: UtreexoBlock = deserialize(&block).unwrap();
+    let block: Block = deserialize_partial(&block).unwrap().0;
 
     block
 }
