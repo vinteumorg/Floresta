@@ -62,7 +62,6 @@ use crate::read_lock;
 use crate::write_lock;
 use crate::BestChain;
 use crate::ChainStore;
-use crate::UtreexoBlock;
 
 /// Trait for components that need to receive notifications about new blocks.
 pub trait BlockConsumer: Sync + Send + 'static {
@@ -1022,12 +1021,12 @@ impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedSta
     fn update_acc(
         &self,
         acc: Stump,
-        block: UtreexoBlock,
+        block: Block,
         height: u32,
         proof: Proof,
         del_hashes: Vec<sha256::Hash>,
     ) -> Result<Stump, Self::Error> {
-        Consensus::update_acc(&acc, &block.block, height, proof, del_hashes)
+        Consensus::update_acc(&acc, &block, height, proof, del_hashes)
     }
 
     fn get_chain_tips(&self) -> Result<Vec<BlockHash>, Self::Error> {
