@@ -15,16 +15,16 @@ pub use bitcoin::Network;
 use fern::colors::Color;
 use fern::colors::ColoredLevelConfig;
 use fern::FormatCallback;
-#[cfg(feature = "experimental-db")]
-use floresta_chain::pruned_utreexo::flat_chain_store::FlatChainStore as ChainStore;
-#[cfg(feature = "experimental-db")]
-use floresta_chain::pruned_utreexo::flat_chain_store::FlatChainStoreConfig;
 #[cfg(feature = "zmq-server")]
 use floresta_chain::pruned_utreexo::BlockchainInterface;
 pub use floresta_chain::AssumeUtreexoValue;
 use floresta_chain::AssumeValidArg;
 use floresta_chain::BlockchainError;
 use floresta_chain::ChainState;
+#[cfg(feature = "experimental-db")]
+use floresta_chain::FlatChainStore as ChainStore;
+#[cfg(feature = "experimental-db")]
+use floresta_chain::FlatChainStoreConfig;
 #[cfg(not(feature = "experimental-db"))]
 use floresta_chain::KvChainStore as ChainStore;
 #[cfg(feature = "compact-filters")]

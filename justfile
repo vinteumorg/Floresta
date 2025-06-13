@@ -61,7 +61,7 @@ test-functional:
 
 # Run the benchmarks
 bench:
-    cargo bench --features test-utils
+    cargo bench --features test-utils,experimental-db
 
 # Generate documentation for all crates
 doc:

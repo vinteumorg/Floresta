@@ -17,6 +17,8 @@ use floresta_chain::pruned_utreexo::utxo_data::UtxoData;
 use floresta_chain::pruned_utreexo::UpdatableChainstate;
 use floresta_chain::AssumeValidArg;
 use floresta_chain::ChainState;
+use floresta_chain::FlatChainStore;
+use floresta_chain::FlatChainStoreConfig;
 use floresta_chain::KvChainStore;
 use rustreexo::accumulator::proof::Proof;
 
@@ -38,6 +40,24 @@ fn setup_test_chain<'a>(
 ) -> ChainState<KvChainStore<'a>> {
     let test_id = rand::random::<u64>();
     let chainstore = KvChainStore::new(format!("./tmp-db/{test_id}/")).unwrap();
+    ChainState::new(chainstore, network, assume_valid_arg)
+}
+
+fn setup_test_chain_flat(
+    network: Network,
+    assume_valid_arg: AssumeValidArg,
+) -> ChainState<FlatChainStore> {
+    let test_id = rand::random::<u64>();
+    let config = FlatChainStoreConfig {
+        block_index_size: Some(32_768),
+        headers_file_size: Some(32_768),
+        fork_file_size: Some(10_000), // Will be rounded up to 16,384
+        cache_size: Some(10),
+        file_permission: Some(0o660),
+        path: format!("./tmp-db/{test_id}/"),
+    };
+
+    let chainstore = FlatChainStore::new(config).unwrap();
     ChainState::new(chainstore, network, assume_valid_arg)
 }
 
@@ -78,9 +98,21 @@ fn accept_mainnet_headers_benchmark(c: &mut Criterion) {
         headers.push(header);
     }
 
-    c.bench_function("accept_10k_mainnet_headers", |b| {
+    c.bench_function("accept_10k_mainnet_headers_kv", |b| {
         b.iter_batched(
             || setup_test_chain(Network::Bitcoin, AssumeValidArg::Hardcoded),
+            |chain| {
+                headers
+                    .iter()
+                    .for_each(|header| chain.accept_header(*header).unwrap())
+            },
+            BatchSize::SmallInput,
+        )
+    });
+
+    c.bench_function("accept_10k_mainnet_headers_flat", |b| {
+        b.iter_batched(
+            || setup_test_chain_flat(Network::Bitcoin, AssumeValidArg::Hardcoded),
             |chain| {
                 headers
                     .iter()
@@ -94,9 +126,21 @@ fn accept_mainnet_headers_benchmark(c: &mut Criterion) {
 fn accept_headers_benchmark(c: &mut Criterion) {
     let blocks = read_blocks_txt();
 
-    c.bench_function("accept_150_headers", |b| {
+    c.bench_function("accept_150_headers_kv", |b| {
         b.iter_batched(
             || setup_test_chain(Network::Regtest, AssumeValidArg::Disabled),
+            |chain| {
+                blocks
+                    .iter()
+                    .for_each(|block| chain.accept_header(block.header).unwrap());
+            },
+            BatchSize::SmallInput,
+        )
+    });
+
+    c.bench_function("accept_150_headers_flat", |b| {
+        b.iter_batched(
+            || setup_test_chain_flat(Network::Regtest, AssumeValidArg::Disabled),
             |chain| {
                 blocks
                     .iter()
@@ -110,7 +154,7 @@ fn accept_headers_benchmark(c: &mut Criterion) {
 fn connect_blocks_benchmark(c: &mut Criterion) {
     let blocks = read_blocks_txt();
 
-    let setup_test_chain = || {
+    let setup_chain_kv = || {
         let chain = setup_test_chain(Network::Regtest, AssumeValidArg::Disabled);
         // We need to accept the headers before connecting blocks
         blocks
@@ -120,9 +164,33 @@ fn connect_blocks_benchmark(c: &mut Criterion) {
         chain
     };
 
-    c.bench_function("connect_150_blocks", |b| {
+    let setup_chain_flat = || {
+        let chain = setup_test_chain_flat(Network::Regtest, AssumeValidArg::Disabled);
+        // We need to accept the headers before connecting blocks
+        blocks
+            .iter()
+            .for_each(|block| chain.accept_header(block.header).unwrap());
+
+        chain
+    };
+
+    c.bench_function("connect_150_blocks_kv", |b| {
         b.iter_batched(
-            setup_test_chain,
+            setup_chain_kv,
+            |chain| {
+                blocks.iter().for_each(|block| {
+                    chain
+                        .connect_block(block, Proof::default(), HashMap::new(), Vec::new())
+                        .unwrap();
+                })
+            },
+            BatchSize::SmallInput,
+        )
+    });
+
+    c.bench_function("connect_150_blocks_flat", |b| {
+        b.iter_batched(
+            setup_chain_flat,
             |chain| {
                 blocks.iter().for_each(|block| {
                     chain

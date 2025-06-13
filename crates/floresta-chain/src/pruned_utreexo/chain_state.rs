@@ -1491,14 +1491,37 @@ mod test {
     use crate::pruned_utreexo::consensus::Consensus;
     use crate::pruned_utreexo::utxo_data::UtxoData;
     use crate::AssumeValidArg;
+    #[cfg(feature = "experimental-db")]
+    use crate::FlatChainStore;
+    #[cfg(not(feature = "experimental-db"))]
     use crate::KvChainStore;
 
+    #[cfg(not(feature = "experimental-db"))]
     fn setup_test_chain<'a>(
         network: Network,
         assume_valid_arg: AssumeValidArg,
     ) -> ChainState<KvChainStore<'a>> {
         let test_id = rand::random::<u64>();
         let chainstore = KvChainStore::new(format!("./tmp-db/{test_id}/")).unwrap();
+        ChainState::new(chainstore, network, assume_valid_arg)
+    }
+
+    #[cfg(feature = "experimental-db")]
+    fn setup_test_chain(
+        network: Network,
+        assume_valid_arg: AssumeValidArg,
+    ) -> ChainState<FlatChainStore> {
+        let test_id = rand::random::<u64>();
+        let config = crate::FlatChainStoreConfig {
+            block_index_size: Some(32_768),
+            headers_file_size: Some(32_768),
+            fork_file_size: Some(10_000), // Will be rounded up to 16,384
+            cache_size: Some(10),
+            file_permission: Some(0o660),
+            path: format!("./tmp-db/{test_id}/"),
+        };
+
+        let chainstore = FlatChainStore::new(config).unwrap();
         ChainState::new(chainstore, network, assume_valid_arg)
     }
 
