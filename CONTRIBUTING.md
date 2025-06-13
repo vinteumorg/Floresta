@@ -184,7 +184,61 @@ pub fn validate_block_time(
     }
     Ok(())
 }
+```
 
+Documentation for RPC
+---------------------
+
+We aim on having a good documentation and CLI `help` command.
+
+To achieve this, we use the `rustdoc` tool, which generates documentation from Rust source code comments. We also use the `clap` library to generate CLI help and usage information directly from the code.
+
+Please use the following template example (with the empty lines in between) when developing a new RPC on the `enum Methods` at the [main.rs](/crates/floresta-cli/src/main.rs) and add it to the `trait FlorestaRPC` as well to generate on doc.
+
+```rust
+/// Provides comprehensive blockchain statistics including current block height,
+///
+/// best block hash, chain verification progress, network difficulty, and total work.
+///
+/// This is one of the most commonly used informational RPCs.
+///
+/// # Returns
+///
+/// JSON object containing:
+/// - **blocks**: Current block height (integer)
+///
+/// - **bestblockhash**: Hash of the current best block (string)
+///
+/// - **difficulty**: Current network difficulty (float)
+///
+/// - **verificationprogress**: Chain verification progress from 0.0 to 1.0 (float)
+///
+/// - **chainwork**: Total amount of work in the active chain (string)
+///
+/// - **warnings**: Any network warnings (string)
+///
+/// # Examples
+///
+/// ```bash
+/// floresta-cli getblockchaininfo
+///
+/// floresta-cli -n testnet getblockchaininfo
+/// ```
+///
+/// # Notes
+///
+/// - This is a read-only operation with no side effects
+///
+/// - Results are cached and updated with each new block
+///
+/// - Verification progress shows how much of the chain has been validated
+///
+///
+/// # Errors
+///
+/// - Connection refused: Node is not running
+///
+/// - Timeout: Node is not responding
 ```
 
 Security
