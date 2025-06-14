@@ -10,6 +10,8 @@ use floresta_cli::jsonrpc_client::Client;
 use floresta_cli::rpc::FlorestaRPC;
 use floresta_cli::rpc_types::AddNodeCommand;
 use floresta_cli::rpc_types::GetBlockRes;
+use floresta_common::desc_types::DescriptorId;
+use floresta_common::desc_types::DescriptorRequest;
 
 // Main function that runs the CLI application
 fn main() -> anyhow::Result<()> {
@@ -72,9 +74,7 @@ fn do_request(cmd: &Cli, client: Client) -> anyhow::Result<String> {
         Methods::GetBlockHeader { hash } => {
             serde_json::to_string_pretty(&client.get_block_header(hash)?)?
         }
-        Methods::LoadDescriptor { desc } => {
-            serde_json::to_string_pretty(&client.load_descriptor(desc)?)?
-        }
+
         Methods::GetRoots => serde_json::to_string_pretty(&client.get_roots()?)?,
         Methods::GetBlock { hash, verbosity } => {
             let block = client.get_block(hash, verbosity)?;
@@ -113,6 +113,12 @@ fn do_request(cmd: &Cli, client: Client) -> anyhow::Result<String> {
         Methods::GetRpcInfo => serde_json::to_string_pretty(&client.get_rpc_info()?)?,
         Methods::Uptime => serde_json::to_string_pretty(&client.uptime()?)?,
         Methods::ListDescriptors => serde_json::to_string_pretty(&client.list_descriptors()?)?,
+        Methods::ImportDescriptors { requests } => {
+            serde_json::to_string_pretty(&client.import_descriptors(requests)?)?
+        }
+        Methods::DeleteDescriptors { ids, pull, strict } => {
+            serde_json::to_string_pretty(&client.delete_descriptors(ids, pull, strict)?)?
+        }
         Methods::Ping => serde_json::to_string_pretty(&client.ping()?)?,
     })
 }
@@ -183,10 +189,12 @@ pub enum Methods {
     #[command(name = "getblockheader")]
     GetBlockHeader { hash: BlockHash },
 
-    /// Loads a new descriptor to the watch only wallet
-    #[command(name = "loaddescriptor")]
-    LoadDescriptor { desc: String },
-
+    /// Imports a new descriptor to the watch only wallet
+    #[command(name = "importdescriptors")]
+    ImportDescriptors {
+        #[arg( required = true, value_parser = floresta_cli::parsers::parse_json_array::<DescriptorRequest>)]
+        requests: Vec<DescriptorRequest>,
+    },
     /// Returns the roots of the current utreexo forest
     #[command(name = "getroots")]
     GetRoots,
@@ -269,4 +277,25 @@ pub enum Methods {
     /// Result: json null
     #[command(name = "ping")]
     Ping,
+
+    /// Search and delete for the identified descriptors with a [`DescriptorId`].
+    ///
+    /// You can tell the command to return the targeted descriptors by setting pull
+    /// to true.
+    ///
+    /// Strict is a flag to ensure correctness of the desired behavior, what it does is
+    /// to allow the server side to abort the actual deletion if any id doesn't match
+    /// any stored descriptor.
+    ///
+    /// Please refer about the [`DescriptorId`] docs to understand how to properly
+    /// identify your descriptor.
+    #[command(name = "deletedescriptors")]
+    DeleteDescriptors {
+        #[arg( required = true, value_parser = floresta_cli::parsers::parse_json_array::<DescriptorId>)]
+        ids: Vec<DescriptorId>,
+        #[arg(required = false, default_value_t = true)]
+        pull: bool,
+        #[arg(required = false, default_value_t = true)]
+        strict: bool,
+    },
 }

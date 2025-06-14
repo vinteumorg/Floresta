@@ -1,16 +1,16 @@
-use std::any::type_name;
 use std::error::Error;
 use std::fmt::Display;
-use std::str::FromStr;
+
+use serde::Deserialize;
 
 #[derive(Debug)]
 /// Collection of errors to deal with parsing.
 pub enum ParseError {
-    /// Returned when the user inserts an broken array
+    /// Returned when the user inserts a broken array
     InvalidArray,
 
     /// Returned when the consumer of tries to cast into
-    /// a incompatible type.
+    /// an incompatible type.
     InvalidTarget(String),
 }
 
@@ -19,10 +19,10 @@ impl Display for ParseError {
         match self {
             ParseError::InvalidArray => write!(
                 f,
-                "Couldnt parse the inserted as an Array, please refer to the docs"
+                "Couldn't parse the inserted as an Array, please refer to the docs"
             ),
             ParseError::InvalidTarget(target) => {
-                write!(f, "Could parse itens to {target}")
+                write!(f, "Could parse items to {target}")
             }
         }
     }
@@ -30,7 +30,7 @@ impl Display for ParseError {
 
 impl Error for ParseError {}
 
-/// Tries to parse a json array, you can insert a type to be casted on each item.
+/// Tries to parse a json array, you can insert a type to be cast on each item.
 ///
 /// Example: '["4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b", "4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b"]'
 /// Tries to parse a JSON array of hash strings into a vector of the target type.
@@ -48,15 +48,7 @@ impl Error for ParseError {}
 /// ```
 pub fn parse_json_array<Target>(s: &str) -> Result<Vec<Target>, ParseError>
 where
-    Target: FromStr,
+    Target: for<'a> Deserialize<'a>,
 {
-    let string_vec: Vec<String> = serde_json::from_str(s).map_err(|_| ParseError::InvalidArray)?;
-
-    string_vec
-        .into_iter()
-        .map(|s| {
-            Target::from_str(&s)
-                .map_err(|_| ParseError::InvalidTarget(type_name::<Target>().to_string()))
-        })
-        .collect()
+    serde_json::from_str(s).map_err(|_| ParseError::InvalidArray)
 }

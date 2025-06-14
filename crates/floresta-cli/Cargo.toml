@@ -21,6 +21,9 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 anyhow = "1.0"
 jsonrpc = { version = "0.18.0", optional = true, features = ["minreq_http"] }
+floresta-common = { path = "../floresta-common", default-features = false, features = [
+    "descriptors-no-std",
+] }
 
 [features]
 default = ["with-jsonrpc"]
