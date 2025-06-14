@@ -83,7 +83,7 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
     pub(super) async fn stop(&self) -> Result<&str, Error> {
         *self.kill_signal.write().await = true;
 
-        Ok("florestad stopping")
+        Ok("Floresta stopping")
     }
 
     // uptime

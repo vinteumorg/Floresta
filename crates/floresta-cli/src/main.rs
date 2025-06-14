@@ -208,7 +208,10 @@ pub enum Methods {
     #[command(name = "gettxout")]
     GetTxOut { txid: Txid, vout: u32 },
 
-    /// Stops the node
+    /// Request a graceful shutdown of Floresta.
+    ///
+    /// Result:
+    /// "str"    (string) A string with the content 'Floresta stopping'
     #[command(name = "stop")]
     Stop,
 
