@@ -536,13 +536,43 @@ impl Florestad {
             }
         }
 
-        // Electrum
-        let e_addr = self
+        // Electrum Server configuration.
+
+        // Default Electrum Server Ports.
+        //
+        // | Network  | sans-TLS | TLS      |
+        // |----------|----------|----------|
+        // | Bitcoin  | 50001    | 50002    |
+        // | Signet   | 60001    | 60002    |
+        // | Testnet4 | 40001    | 40002    |
+        // | Testnet3 | 30001    | 30002    |
+        // | Regtest  | 20001    | 20002    |
+        let default_electrum_port: u16 =
+            match (self.config.network, self.config.enable_electrum_tls) {
+                (Network::Bitcoin, false) => 50001,
+                (Network::Bitcoin, true) => 50002,
+                (Network::Signet, false) => 60001,
+                (Network::Signet, true) => 60002,
+                (Network::Testnet4, false) => 40001,
+                (Network::Testnet4, true) => 40002,
+                (Network::Testnet, false) => 30001,
+                (Network::Testnet, true) => 30002,
+                (Network::Regtest, false) => 20001,
+                (Network::Regtest, true) => 20002,
+                _ => 50001, // [`bitcoin::Network`] is `non-exhaustive`.
+            };
+
+        // Electrum Server's [`SocketAddr`].
+        let electrum_addr: SocketAddr = self
             .config
             .electrum_address
             .clone()
-            .map(|addr| Self::resolve_hostname(&addr, 50001))
-            .unwrap_or("0.0.0.0:50001".parse().expect("Hardcoded address"));
+            .map(|addr| Self::resolve_hostname(&addr, default_electrum_port))
+            .unwrap_or(
+                format!("0.0.0.0:{}", default_electrum_port)
+                    .parse()
+                    .expect("Hardcoded address"),
+            );
 
         // generate self-signed certificate if provided
         if self.config.gen_selfsigned_cert {
