@@ -119,7 +119,7 @@ pub struct Cli {
     pub electrum_address: Option<String>,
 
     #[arg(long, default_value_t = false)]
-    /// Wheter to enable the Electrum TLS server.
+    /// Whether to enable the Electrum TLS server.
     pub enable_electrum_tls: bool,
 
     #[arg(long, value_name = "address[:<port>]")]
@@ -127,23 +127,27 @@ pub struct Cli {
     pub electrum_address_tls: Option<String>,
 
     #[arg(long, default_value_t = false)]
-    /// Wheter to generate a self-signed TLS certificate on start.
+    /// Whether to generate a self-signed TLS certificate on start.
     ///
-    /// This option may conflict with other TLS-related flags, read the TLS section on `doc/run.md` for more information.
+    /// This option may conflict with other TLS-related flags. Read the TLS section on `doc/run.md` for more information.
     pub generate_cert: bool,
 
     #[arg(long, value_name = "PATH")]
     /// TLS private key path (defaults to `{data_dir}/tls/key.pem`).
     /// It must be PKCS#8-encoded. You can use `openssl` to generate it:
     ///
+    /// ```shell
     /// openssl genpkey -algorithm RSA -out key.pem -pkeyopt rsa_keygen_bits:2048
+    /// ```
     pub tls_key_path: Option<String>,
 
     #[arg(long, value_name = "PATH")]
     /// TLS certificate path (defaults to `{data_dir}/tls/cert.pem`).
     /// It must be PKCS#8-encoded. You can use `openssl` to generate it from a PKCS#8-encoded private key:
     ///
+    /// ```shell
     /// openssl req -x509 -new -key key.pem -out cert.pem -days 365 -subj "/CN=localhost"
+    /// ```
     pub tls_cert_path: Option<String>,
 
     #[arg(long, default_value_t = false)]
@@ -161,11 +165,11 @@ pub struct Cli {
 
     #[cfg(unix)]
     #[arg(long, value_name = "FILE", requires = "daemon")]
-    /// A file to write the process id to
+    /// File to write `florestad`'s PID to.
     ///
-    /// In case you're using the daemon option, and you want to know the process id, you can
+    /// In case you're using the daemon option, and you want to know the process ID, you can
     /// write it to a file. This option should be an absolute path to a file. Usually, you'd
-    /// write it to $DATA_DIR/florestad.pid
+    /// write it to `$DATA_DIR/florestad.pid`.
     pub pid_file: Option<String>,
 
     #[arg(long, default_value_t = false)]

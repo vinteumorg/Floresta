@@ -176,19 +176,23 @@ pub struct Config {
     pub assumeutreexo_value: Option<AssumeUtreexoValue>,
     /// Address the Electrum Server will listen to.
     pub electrum_address: Option<String>,
-    /// Wheter to enable the Electrum TLS server.
+    /// Whether to enable the Electrum TLS server.
     pub enable_electrum_tls: bool,
     /// Address the Electrum TLS Server will listen to.
     pub electrum_address_tls: Option<String>,
     /// TLS private key path (defaults to `{data_dir}/tls/key.pem`).
     /// It must be PKCS#8-encoded. You can use `openssl` to generate it:
     ///
+    /// ```shell
     /// openssl genpkey -algorithm RSA -out key.pem -pkeyopt rsa_keygen_bits:2048
+    /// ```
     pub tls_key_path: Option<String>,
     /// TLS certificate path (defaults to `{data_dir}/tls/cert.pem`).
     /// It must be PKCS#8-encoded. You can use `openssl` to generate it from a PKCS#8-encoded private key:
     ///
+    /// ```shell
     /// openssl req -x509 -new -key key.pem -out cert.pem -days 365 -subj "/CN=localhost"
+    /// ```
     pub tls_cert_path: Option<String>,
     /// Whether to create self signed certificate for `tls_key_path` and `tls_cert_path`.
     pub generate_cert: bool,
