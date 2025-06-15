@@ -96,16 +96,8 @@ pub struct Cli {
     pub connect: Option<String>,
 
     #[arg(long, value_name = "address[:<port>]")]
-    /// The address where our json-rpc server should listen to in the format <address>[:<port>]
+    /// The address where our json-rpc server should listen to, in the format <address>[:<port>]
     pub rpc_address: Option<String>,
-
-    #[arg(long, value_name = "address[:<port>]")]
-    /// The address where our electrum server should listen to in the format <address>[:<port>]
-    pub electrum_address: Option<String>,
-
-    #[arg(long, value_name = "address[:<port>]")]
-    /// The address where our ssl electrum server should listen to in the format <address>[:<port>]
-    pub ssl_electrum_address: Option<String>,
 
     #[arg(long, value_name = "HEIGHT")]
     /// Download block filters starting at this height. Negative numbers are relative to the current tip.
@@ -122,35 +114,37 @@ pub struct Cli {
     /// we reach the assumed tip. If you want to stop this behavior, use the --no-backfill flag.
     pub no_assume_utreexo: bool,
 
-    #[arg(long, value_name = "PATH")]
-    /// Path to the SSL certificate file (defaults to <data-dir>/ssl/cert.pem).
+    #[arg(long, value_name = "address[:<port>]")]
+    /// The address where the Electrum Server should listen to, in the format <address>[:<port>]
+    pub electrum_address: Option<String>,
+
+    #[arg(long, default_value_t = false)]
+    /// Wheter to enable the Electrum TLS server.
+    pub enable_electrum_tls: bool,
+
+    #[arg(long, value_name = "address[:<port>]")]
+    /// The address where the Electrum TLS Server should listen to, in the format <address>[:<port>]
+    pub electrum_address_tls: Option<String>,
+
+    #[arg(long, default_value_t = false)]
+    /// Wheter to generate a self-signed TLS certificate on start.
     ///
-    /// The user should create a PKCS#8 based one with openssl. For example, you
-    /// could create yourself a self-signed certificate with:
-    ///
-    /// openssl req -x509 -new -key key.pem -out cert.pem -days 365 -subj "/CN=localhost"
-    ///
-    /// alternatively, you can run florestad with --gen-selfsigned-cert
-    pub ssl_cert_path: Option<String>,
+    /// This option may conflict with other TLS-related flags, read the TLS section on `doc/run.md` for more information.
+    pub generate_cert: bool,
 
     #[arg(long, value_name = "PATH")]
-    /// Path to the SSL private key file (defaults to <data-dir>/ssl/key.pem).
-    ///
-    /// The user should create a PKCS#8 based one with openssl. For example, you
-    /// could create yourself a key for a self-signed certificate:
+    /// TLS private key path (defaults to `{data_dir}/tls/key.pem`).
+    /// It must be PKCS#8-encoded. You can use `openssl` to generate it:
     ///
     /// openssl genpkey -algorithm RSA -out key.pem -pkeyopt rsa_keygen_bits:2048
-    pub ssl_key_path: Option<String>,
+    pub tls_key_path: Option<String>,
 
-    #[arg(long, default_value_t = false)]
-    /// Whether to disable SSL
-    pub no_ssl: bool,
-
-    #[arg(long, default_value_t = false)]
-    /// Auto generates a ssl certificate in boot phase of florestad.
+    #[arg(long, value_name = "PATH")]
+    /// TLS certificate path (defaults to `{data_dir}/tls/cert.pem`).
+    /// It must be PKCS#8-encoded. You can use `openssl` to generate it from a PKCS#8-encoded private key:
     ///
-    /// It may conflict with other ssl related flags, please read the SSL Certificates section in README.md
-    pub gen_selfsigned_cert: bool,
+    /// openssl req -x509 -new -key key.pem -out cert.pem -days 365 -subj "/CN=localhost"
+    pub tls_cert_path: Option<String>,
 
     #[arg(long, default_value_t = false)]
     /// Whether we should try to connect with peers using the old, unencrypted V1 P2P protocol,

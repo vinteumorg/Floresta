@@ -73,7 +73,7 @@ mod tests {
             false => debug_path,
         };
 
-        // Makes a temporary directory to store the chain db, SSL certificates, logs, etc.
+        // Makes a temporary directory to store the chain db, TLS certificate, logs, etc.
         let test_code = rand::random::<u64>();
         let dirname = format!("{root}/tmp/floresta.{test_code}");
         fs::DirBuilder::new()
@@ -81,14 +81,14 @@ mod tests {
             .create(&dirname)
             .unwrap();
 
-        // Generate SSL certificate and key using rcgen
+        // Generate TLS private key and certificate using rcgen
         let CertifiedKey { cert, key_pair } =
             generate_simple_self_signed(vec!["localhost".into()]).unwrap();
         let cert_pem = cert.pem();
         let key_pem = key_pair.serialize_pem();
-        fs::create_dir_all(format!("{dirname}/regtest/ssl")).unwrap();
-        fs::write(format!("{dirname}/regtest/ssl/cert.pem"), cert_pem).unwrap();
-        fs::write(format!("{dirname}/regtest/ssl/key.pem"), key_pem).unwrap();
+        fs::create_dir_all(format!("{dirname}/regtest/tls")).unwrap();
+        fs::write(format!("{dirname}/regtest/tls/cert.pem"), cert_pem).unwrap();
+        fs::write(format!("{dirname}/regtest/tls/key.pem"), key_pem).unwrap();
 
         let port = get_available_port();
         let fld = Command::new(&florestad_path)
@@ -96,7 +96,6 @@ mod tests {
             .args(["--data-dir", &dirname])
             .args(["--rpc-address", &format!("127.0.0.1:{port}")])
             .args(["--electrum-address", "127.0.0.1:0"])
-            .args(["--ssl-electrum-address", "127.0.0.1:0"])
             .stdout(Stdio::null())
             .stderr(Stdio::inherit())
             .spawn()
