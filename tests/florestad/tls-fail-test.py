@@ -1,5 +1,5 @@
 """
-florestad/ssl-fail-test.py
+florestad/tls-fail-test.py
 
 This functional test checks the failure on connect to florestad's TLS port.
 """
@@ -13,7 +13,7 @@ from test_framework.rpc.floresta import REGTEST_RPC_SERVER
 
 class TestSslFailInitialization(FlorestaTestFramework):
     """
-    Test the initialization of florestad without --ssl-key-path and --ssl-cert-path
+    Test the initialization of florestad without --tls-key-path and --tls-cert-path
     (and without proper keys), a request from Electrum client to TLS port and its failure.
     """
 
@@ -25,12 +25,12 @@ class TestSslFailInitialization(FlorestaTestFramework):
         Setup a single node without SSL
         """
         TestSslFailInitialization.nodes[0] = self.add_node(
-            extra_args=[], rpcserver=REGTEST_RPC_SERVER, ssl=False
+            extra_args=[], rpcserver=REGTEST_RPC_SERVER, tls=False
         )
 
     def run_test(self):
         """
-        Run the no-ssl node, create an electrum client that will try to connect to port 50002,
+        Run the no-TLS node, create an electrum client that will try to connect to port 20002,
         and assert a connection refused failure.
         """
         self.run_node(TestSslFailInitialization.nodes[0])
@@ -40,7 +40,7 @@ class TestSslFailInitialization(FlorestaTestFramework):
         with self.assertRaises(ConnectionRefusedError) as exc:
             self.log("Trying to connect to electrum client")
             TestSslFailInitialization.electrum = ElectrumClient(
-                REGTEST_RPC_SERVER["host"], 50002
+                REGTEST_RPC_SERVER["host"], 20002
             )
 
         self.log("failed to connect to electrum client")
