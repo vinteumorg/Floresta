@@ -5,11 +5,10 @@ use std::time::Instant;
 
 use bitcoin::p2p::message_blockdata::Inventory;
 use bitcoin::p2p::ServiceFlags;
+use bitcoin::Block;
 use floresta_chain::pruned_utreexo::udata;
-use floresta_chain::BlockValidationErrors;
-use floresta_chain::BlockchainError;
 use floresta_chain::ThreadSafeChain;
-use floresta_chain::UtreexoBlock;
+use floresta_chain::UData;
 use floresta_common::service_flags;
 use floresta_common::service_flags::UTREEXO;
 use log::debug;
@@ -22,7 +21,6 @@ use super::error::WireError;
 use super::node::PeerStatus;
 use super::node_interface::UserRequest;
 use super::peer::PeerMessages;
-use crate::address_man::AddressState;
 use crate::node::periodic_job;
 use crate::node::try_and_log;
 use crate::node::ConnectionKind;
@@ -200,128 +198,38 @@ where
     /// This function bans the peer if the block is invalid and consider the whole chain as invalid.
     async fn handle_block_data(
         &mut self,
+        block: Block,
+        udata: UData,
         peer: PeerId,
-        block: UtreexoBlock,
     ) -> Result<(), WireError> {
-        let Some(block) = self.check_is_user_block_and_reply(block).await? else {
-            return Ok(());
-        };
-
         self.inflight
-            .remove(&InflightRequests::Blocks(block.block.block_hash()));
+            .remove(&InflightRequests::Blocks(block.block_hash()));
 
-        self.blocks.insert(block.block.block_hash(), (peer, block));
+        let block_height = self.chain.get_validation_index()? + 1;
+        let block_hash = block.block_hash();
+        let start = Instant::now();
 
-        let next_block_height = self.chain.get_validation_index()? + 1;
-        let mut next_block = self.chain.get_block_hash(next_block_height)?;
+        let elapsed = start.elapsed().as_secs();
+        self.block_sync_avg.add(elapsed);
 
-        while let Some((peer, block)) = self.blocks.remove(&next_block) {
-            let start = Instant::now();
-            if block.udata.is_none() {
-                error!("Block without proof received from peer {peer}");
-                self.send_to_peer(peer, NodeRequest::Shutdown).await?;
-                let next_peer = self
-                    .send_to_random_peer(
-                        NodeRequest::GetBlock((vec![block.block.block_hash()], true)),
-                        service_flags::UTREEXO.into(),
-                    )
-                    .await?;
+        #[cfg(feature = "metrics")]
+        {
+            use metrics::get_metrics;
 
-                self.inflight.insert(
-                    InflightRequests::Blocks(next_block),
-                    (next_peer, Instant::now()),
-                );
-                return Err(WireError::PeerMisbehaving);
-            }
-
-            debug!("processing block {}", block.block.block_hash());
-            let (proof, del_hashes, inputs) = floresta_chain::proof_util::process_proof(
-                &block.udata.unwrap(),
-                &block.block.txdata,
-                next_block_height,
-                |h| self.chain.get_block_hash(h),
-            )?;
-
-            if let Err(e) = self
-                .chain
-                .connect_block(&block.block, proof, inputs, del_hashes)
-            {
-                error!(
-                    "Invalid block {:?} received by peer {} reason: {:?}",
-                    block.block.header, peer, e
-                );
-
-                if let BlockchainError::BlockValidation(e) = e {
-                    // Because the proof isn't committed to the block, we can't invalidate
-                    // it if the proof is invalid. Any other error should cause the block
-                    // to be invalidated.
-                    match e {
-                        BlockValidationErrors::InvalidCoinbase(_)
-                        | BlockValidationErrors::UtxoNotFound(_)
-                        | BlockValidationErrors::ScriptValidationError(_)
-                        | BlockValidationErrors::InvalidOutput
-                        | BlockValidationErrors::ScriptError
-                        | BlockValidationErrors::BlockTooBig
-                        | BlockValidationErrors::NotEnoughPow
-                        | BlockValidationErrors::TooManyCoins
-                        | BlockValidationErrors::BadMerkleRoot
-                        | BlockValidationErrors::BadWitnessCommitment
-                        | BlockValidationErrors::NotEnoughMoney
-                        | BlockValidationErrors::FirstTxIsNotCoinbase
-                        | BlockValidationErrors::BadCoinbaseOutValue
-                        | BlockValidationErrors::EmptyBlock
-                        | BlockValidationErrors::BadBip34
-                        | BlockValidationErrors::BIP94TimeWarp
-                        | BlockValidationErrors::UnspendableUTXO
-                        | BlockValidationErrors::CoinbaseNotMatured => {
-                            self.send_to_peer(peer, NodeRequest::Shutdown).await?;
-                            try_and_log!(self.chain.invalidate_block(block.block.block_hash()));
-                        }
-                        BlockValidationErrors::InvalidProof => {}
-                        BlockValidationErrors::BlockExtendsAnOrphanChain
-                        | BlockValidationErrors::BlockDoesntExtendTip => {
-                            // We've requested and processed a block that's not the next one in our
-                            // chain. Force our last block requested to be the correct block, and
-                            // keep going.
-                            self.context.last_block_requested =
-                                self.chain.get_validation_index()?;
-                        }
-                    }
-                }
-
-                // Disconnect the peer and ban it.
-                if let Some(peer) = self.peers.get(&peer).cloned() {
-                    self.address_man.update_set_state(
-                        peer.address_id as usize,
-                        AddressState::Banned(SyncNode::BAN_TIME),
-                    );
-                }
-
-                self.send_to_peer(peer, NodeRequest::Shutdown).await?;
-                return Err(WireError::PeerMisbehaving);
-            }
-
-            let next = self.chain.get_validation_index()? + 1;
-
-            match self.chain.get_block_hash(next) {
-                Ok(_next_block) => next_block = _next_block,
-                Err(_) => break,
-            }
-
-            debug!("accepted block {}", block.block.block_hash());
-
-            let elapsed = start.elapsed().as_secs();
-            self.block_sync_avg.add(elapsed);
-
-            #[cfg(feature = "metrics")]
-            {
-                use metrics::get_metrics;
-
-                let avg = self.block_sync_avg.value();
-                let metrics = get_metrics();
-                metrics.avg_block_processing_time.set(avg);
-            }
+            let avg = self.block_sync_avg.value();
+            let metrics = get_metrics();
+            metrics.avg_block_processing_time.set(avg);
         }
+
+        if let Err(WireError::PeerMisbehaving) =
+            self.process_block(&block, &udata, block_height, peer)
+        {
+            // If the block is invalid, we ban the peer.
+            warn!("Block {block_hash} from peer {peer} is invalid, banning peer",);
+
+            self.send_to_peer(peer, NodeRequest::Shutdown).await?;
+            return Err(WireError::PeerMisbehaving);
+        };
 
         if self.inflight.len() < 4 {
             if *self.kill_signal.read().await {
@@ -337,6 +245,7 @@ where
 
         Ok(())
     }
+
     /// Process a message from a peer and handle it accordingly between the variants of [`PeerMessages`].
     async fn handle_message(&mut self, msg: NodeNotification) -> Result<(), WireError> {
         match msg {
@@ -354,7 +263,14 @@ where
 
                 match notification {
                     PeerMessages::Block(block) => {
-                        if let Err(e) = self.handle_block_data(peer, block).await {
+                        let Some(udata) = block.udata else {
+                            warn!("Received block without udata from peer {peer}");
+                            self.increase_banscore(peer, 5).await?;
+
+                            return Ok(());
+                        };
+
+                        if let Err(e) = self.handle_block_data(block.block, udata, peer).await {
                             error!("Error processing block: {e:?}");
                         }
                     }
