@@ -16,7 +16,7 @@ from test_framework import FlorestaTestFramework
 from test_framework.rpc.floresta import REGTEST_RPC_SERVER as floresta_config
 from test_framework.rpc.bitcoin import REGTEST_RPC_SERVER as bitcoind_config
 
-DATA_DIR = FlorestaTestFramework.get_integration_test_dir()
+DATA_DIR = str(FlorestaTestFramework.get_integration_test_dir())
 TIMEOUT = 15
 PING_TIMEOUT = 40
 
@@ -47,9 +47,9 @@ def run_test(name: str, v2transport: bool = False):
         def set_test_params(self):
             self.log(f"**************** Running {name} test")
             self.nodes = [-1, -1]
-            self.data_dirs = create_data_dirs(
-                self.__class__.__name__, 2, v2transport=v2transport
-            )
+
+            # Create data directories for the nodes
+            self.data_dirs = _AddnodeTest.create_data_dirs(DATA_DIR, name, 2)
             self.v2transport = v2transport
             AddnodeTestWrapper.set_test_params(self)
 
