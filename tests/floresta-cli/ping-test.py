@@ -12,20 +12,20 @@ import time
 
 
 class PingTest(FlorestaTestFramework):
-    index = [-1, -1]
+    nodes = [-1, -1]
     expected_chain = "regtest"
 
     def set_test_params(self):
-        PingTest.index[0] = self.add_node(variant="florestad", rpcserver=florestad_rpc)
-        PingTest.index[1] = self.add_node(variant="bitcoind", rpcserver=bitcoind_rpc)
+        PingTest.nodes[0] = self.add_node(variant="florestad", rpcserver=florestad_rpc)
+        PingTest.nodes[1] = self.add_node(variant="bitcoind", rpcserver=bitcoind_rpc)
 
     def run_test(self):
         # Start the nodes
-        self.run_node(PingTest.index[0])
-        self.run_node(PingTest.index[1])
+        self.run_node(PingTest.nodes[0])
+        self.run_node(PingTest.nodes[1])
 
-        bitcoind: BitcoinRPC = self.get_node(PingTest.index[1]).rpc
-        florestad: FlorestaRPC = self.get_node(PingTest.index[0]).rpc
+        bitcoind: BitcoinRPC = self.get_node(PingTest.nodes[1]).rpc
+        florestad: FlorestaRPC = self.get_node(PingTest.nodes[0]).rpc
 
         # Connect floresta to bitcoind
         florestad.addnode(

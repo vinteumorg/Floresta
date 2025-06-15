@@ -1,5 +1,5 @@
 """
-florestad/ssl-test.py
+florestad/tls-test.py
 
 This functional test tests the proper creatiion of a TLS port on florestad.
 """
@@ -13,7 +13,7 @@ from test_framework.rpc.floresta import REGTEST_RPC_TLS_SERVER
 
 class TestSslInitialization(FlorestaTestFramework):
     """
-    Test the initialization of florestad with --ssl-key-path and --ssl-cert-path and
+    Test the initialization of florestad with --tls-key-path and --tls-cert-path and
     a request from Electrum client to TLS port and its success.
     """
 
@@ -22,15 +22,16 @@ class TestSslInitialization(FlorestaTestFramework):
 
     def set_test_params(self):
         """
-        Setup a single node and a electrum client at port 50002
+        Setup a single node and a electrum client at port 20002
         """
         TestSslInitialization.nodes[0] = self.add_node(
-            extra_args=[], rpcserver=REGTEST_RPC_TLS_SERVER, ssl=True
+            rpcserver=REGTEST_RPC_TLS_SERVER,
+            tls=True,
         )
 
     def run_test(self):
         """
-        Run the ssl node, create a electrum client that will try to connect to port 50002.
+        Run the TLS node, create a electrum client that will try to connect to port 20002.
         Send a ping to make sure everything is working.
         """
         self.run_node(TestSslInitialization.nodes[0])
@@ -39,7 +40,7 @@ class TestSslInitialization(FlorestaTestFramework):
         TestSslInitialization.electrum = ElectrumClient(
             REGTEST_RPC_TLS_SERVER["host"],
             REGTEST_RPC_TLS_SERVER["ports"]["electrum-server-tls"],
-            ssl=True,
+            tls=True,
         )
 
         # request something to TLS port
