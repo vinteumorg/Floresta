@@ -546,13 +546,21 @@ impl Florestad {
             }
         }
 
-        // Electrum
-        let e_addr = self
+        // Electrum Server configuration.
+        let default_electrum_port: u16 =
+            Self::get_electrum_port(self.config.network, self.config.enable_electrum_tls);
+
+        // Electrum Server's [`SocketAddr`].
+        let electrum_addr: SocketAddr = self
             .config
             .electrum_address
             .clone()
-            .map(|addr| Self::resolve_hostname(&addr, 50001))
-            .unwrap_or("0.0.0.0:50001".parse().expect("Hardcoded address"));
+            .map(|addr| Self::resolve_hostname(&addr, default_electrum_port))
+            .unwrap_or(
+                format!("0.0.0.0:{}", default_electrum_port)
+                    .parse()
+                    .expect("Hardcoded address"),
+            );
 
         // generate self-signed certificate if provided
         if self.config.gen_selfsigned_cert {
@@ -888,11 +896,34 @@ impl Florestad {
         result
     }
 
-    /// Create a self_signed certificate signed by
-    /// a private key created on the fly
-    pub fn generate_selfsigned_certificate(
-        key_path: String,
-        cert_path: String,
+    /// Get the default Electrum port for the Network and TLS combination.
+    ///
+    /// Bitcoin  => 50001 (50002 TLS)
+    /// Signet   => 60001 (60002 TLS)
+    /// Testnet4 => 40001 (40003 TLS)
+    /// Testnet3 => 30001 (30002 TLS)
+    /// Regtest  => 20001 (20002 TLS)
+    fn get_electrum_port(network: Network, enable_electrum_tls: bool) -> u16 {
+        let mut electrum_port = match network {
+            Network::Bitcoin => 50001,
+            Network::Signet => 60001,
+            Network::Testnet4 => 40001,
+            Network::Testnet => 30001,
+            Network::Regtest => 20001,
+            _ => 50001, // [`bitcoin::Network`] is `non-exhaustive`.
+        };
+
+        if enable_electrum_tls {
+            electrum_port += 1;
+        }
+
+        electrum_port
+    }
+
+    /// Generate a self-signed TLS certificate from a random private key.
+    pub fn generate_self_signed_certificate(
+        tls_key_path: String,
+        tls_cert_path: String,
         subject_alt_names: Vec<String>,
     ) -> Result<(), error::Error> {
         // Generate a key pair
