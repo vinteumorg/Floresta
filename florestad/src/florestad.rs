@@ -366,13 +366,14 @@ impl Florestad {
             .unwrap_or("floresta".into());
         let data_dir = match self.config.network {
             Network::Bitcoin => data_dir,
-            Network::Signet => data_dir + "signet/",
-            Network::Testnet => data_dir + "testnet3/",
-            Network::Testnet4 => data_dir + "testnet4/",
-            Network::Regtest => data_dir + "regtest/",
+            Network::Signet => format!("{data_dir}/signet"),
+            Network::Testnet => format!("{data_dir}/testnet3"),
+            Network::Testnet4 => format!("{data_dir}/testnet4"),
+            Network::Regtest => format!("{data_dir}/regtest"),
             // TODO: handle possible Err
             _ => panic!("This network is not supported: {}", self.config.network),
         };
+        let data_dir = data_dir.trim_end_matches('/').to_string();
 
         // create the data directory if it doesn't exist
         if !std::path::Path::new(&data_dir).exists() {
@@ -540,7 +541,7 @@ impl Florestad {
                     .json_rpc_address
                     .as_ref()
                     .map(|x| Self::resolve_hostname(x, 8332)),
-                data_dir.clone() + "output.log",
+                format!("{data_dir}/output.log"),
             ));
 
             if self.json_rpc.set(server).is_err() {
@@ -612,7 +613,7 @@ impl Florestad {
             // Generate self-signed TLS certificate, if enabled.
             if self.config.generate_cert {
                 // Create TLS directory, if it does not exist.
-                let tls_dir = format!("{data_dir}tls");
+                let tls_dir = format!("{data_dir}/tls");
                 if !Path::new(&tls_dir).exists() {
                     fs::create_dir_all(&tls_dir).expect("Could not create the TLS data directory");
                     info!("Created TLS directory at {tls_dir}");
@@ -622,8 +623,8 @@ impl Florestad {
                 let subject_alt_names = vec!["localhost".to_string()];
 
                 // Define file paths
-                let tls_key_path = format!("{data_dir}tls/key.pem");
-                let tls_cert_path = format!("{data_dir}tls/cert.pem");
+                let tls_key_path = format!("{data_dir}/tls/key.pem");
+                let tls_cert_path = format!("{data_dir}/tls/cert.pem");
 
                 // Create the certificate.
                 match Self::generate_self_signed_certificate(
