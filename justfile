@@ -108,7 +108,8 @@ pcc:
 
 # Convert all markdown files on /doc/rpc/ to man pages on /doc/rpc_man/
 # Must have pandoc installed
-convert-all:
+# Needs sudo to overwrite existing man pages
+gen-manpages:
     #!/usr/bin/env bash
     set -euo pipefail
 
@@ -119,7 +120,7 @@ convert-all:
     for md_file in doc/rpc/*.md; do
         if [[ -f "$md_file" ]]; then
             echo "Converting $md_file..."
-            just convert-single "$md_file"
+            just gen-single-manpage "$md_file"
         fi
     done
 
@@ -127,7 +128,8 @@ convert-all:
 
 # Convert a single markdown file on doc/rpc/ to man page on doc/rpc_man/
 # Must have pandoc installed
-convert-single FILE:
+# Needs sudo to overwrite existing man pages
+gen-single-manpage FILE:
     #!/usr/bin/env bash
     set -euo pipefail
 
