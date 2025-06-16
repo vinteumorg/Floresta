@@ -21,6 +21,7 @@ COPY florestad/ florestad/
 COPY crates/ crates/
 COPY fuzz/ fuzz/
 COPY metrics/ metrics/
+COPY doc/ doc/
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     if [ -n "$BUILD_FEATURES" ]; then \
       cargo build --release --features "$BUILD_FEATURES"; \
