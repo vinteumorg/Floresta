@@ -84,6 +84,7 @@
                 ./metrics
                 ./florestad
                 ./fuzz
+                ./doc/rpc
               ];
               # Nightly cargo
               cargo = rust-bin.selectLatestNightlyWith (toolchain: toolchain.default);
@@ -153,6 +154,7 @@
                 ./metrics
                 ./florestad
                 ./fuzz
+                ./doc/rpc
               ];
             };
           in
@@ -162,6 +164,7 @@
                 packageName = "florestad";
               in
               import ./contrib/nix/build_floresta.nix { inherit packageName pkgs src; };
+
             floresta-cli =
               let
                 packageName = "floresta-cli";
@@ -198,7 +201,7 @@
           in
           {
             default = mkShell {
-              #TO-DO: Use the standar way to include things inside the shell.
+              #TO-DO: Use the standard way to include things inside the shell.
               nativeBuildInputs = basicDevTools;
 
               shellHook = "\n";
