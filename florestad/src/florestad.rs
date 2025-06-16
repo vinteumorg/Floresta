@@ -352,10 +352,10 @@ impl Florestad {
             .unwrap_or("floresta".into());
         let data_dir = match self.config.network {
             Network::Bitcoin => data_dir,
-            Network::Signet => data_dir + "signet/",
-            Network::Testnet => data_dir + "testnet3/",
-            Network::Testnet4 => data_dir + "testnet4/",
-            Network::Regtest => data_dir + "regtest/",
+            Network::Signet => format!("{}/signet/", data_dir.trim_end_matches('/')),
+            Network::Testnet => format!("{}/testnet3/", data_dir.trim_end_matches('/')),
+            Network::Testnet4 => format!("{}/testnet4/", data_dir.trim_end_matches('/')),
+            Network::Regtest => format!("{}/regtest/", data_dir.trim_end_matches('/')),
             // TODO: handle possible Err
             _ => panic!("This network is not supported: {}", self.config.network),
         };
