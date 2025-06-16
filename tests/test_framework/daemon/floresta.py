@@ -46,9 +46,9 @@ class FlorestaDaemon(BaseDaemon):
             "--filters-start-height",
             "--assume-utreexo",
             "--pid-file",
-            "--gen-selfsigned-cert",
-            "--ssl-electrum-address",
-            "--ssl-cert-path",
-            "--ssl-key-path",
+            "--enable-electrum-tls",
+            "--generate-cert",
+            "--tls-cert-path",
+            "--tls-key-path",
             "--no-ssl",
         ]
