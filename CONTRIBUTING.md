@@ -209,6 +209,7 @@ just gen-manpages
 # or
 chmod +x contrib/dist/gen_manpages.sh
 ./contrib/dist/gen_manpages.sh
+sh ./contrib/dist/gen_manpages.sh <specific_md_path> # Specifying a md file will make the script only build this single one.
 ```
 
 Security
