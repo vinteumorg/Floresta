@@ -41,20 +41,23 @@ class UtreexoRPC(BaseRPC):
         """
         return self.perform_request("getnewaddress", [])
 
-    def generate_blocks(self, blocks: int, addr: str = ""):
+    def generate(self, blocks: int):
         """
-        Perform the `generatetoaddress` RPC command to utreexod.
+        Perform the `generate` RPC command to utreexod.
         """
-        if addr == "" or addr is None:
-            raise ValueError("Address is required")
+        return self.perform_request("generate", [blocks])
 
-        self.perform_request("generatetoaddress", [blocks, addr])
+    def get_utreexo_roots(self, block_hash: str):
+        """
+        Perform the `getutreexoroots` RPC command to utreexod
+        """
+        return self.perform_request("getutreexoroots", [block_hash])
 
     def send_to_address(self, address: str, amount: float):
         """
         Perform the `sendtoaddress` RPC command to utreexod
         """
-        self.perform_request("sendtoaddress", [address, amount])
+        return self.perform_request("sendtoaddress", [address, amount])
 
     def get_balance(self):
         """
@@ -67,6 +70,20 @@ class UtreexoRPC(BaseRPC):
         Perform the `getpeerinfo` RPC command to utreexod
         """
         return self.perform_request("getpeerinfo", [])
+
+    def invalidate_block(self, blockhash: str):
+        """
+        Invalidate a block by its hash performing
+        `perform_request('invalidateblock', params=[<str>])`
+        """
+        return self.perform_request("invalidateblock", params=[blockhash])
+
+    def get_blockhash(self, height: int) -> str:
+        """
+        Get the blockhash associated with a given height performing
+        `perform_request('getblockhash', params=[<int>])`
+        """
+        return self.perform_request("getblockhash", [height])
 
     def addnode(
         self, node: str, command: str, v2transport: bool = False, rpcquirk: bool = False

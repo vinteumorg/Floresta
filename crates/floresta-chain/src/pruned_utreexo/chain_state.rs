@@ -28,7 +28,6 @@ use core::ffi::c_uint;
 
 use bitcoin::block::Header as BlockHeader;
 use bitcoin::blockdata::constants::genesis_block;
-use bitcoin::consensus::deserialize_partial;
 use bitcoin::consensus::Decodable;
 use bitcoin::consensus::Encodable;
 use bitcoin::hashes::sha256;
@@ -308,7 +307,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         let mut height = self.get_chain_depth(new_tip)?;
         let mut header = DiskBlockHeader::HeadersOnly(*new_tip, height);
 
-        while !self.is_genesis(&header) || header.block_hash() == fork_point {
+        while !self.is_genesis(&header) && header.block_hash() != fork_point {
             let disk_header = DiskBlockHeader::HeadersOnly(*header, height);
             let hash = disk_header.block_hash();
 
@@ -331,7 +330,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         let mut header = *old_tip;
         let mut height = self.get_chain_depth(old_tip)?;
 
-        while !self.is_genesis(&header) || header.block_hash() == fork_point {
+        while !self.is_genesis(&header) && header.block_hash() != fork_point {
             self.update_header(&DiskBlockHeader::InFork(header, height))?;
 
             header = *self.get_ancestor(&header)?;
@@ -385,6 +384,19 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         ))
     }
 
+    /// Changes the acc we are using to validate blocks.
+    fn reorg_acc(&self, fork_pont: &BlockHeader) -> Result<(), BlockchainError> {
+        let height = self
+            .get_block_height(&fork_pont.block_hash())?
+            .ok_or(BlockchainError::BlockNotPresent)?;
+
+        let mut inner = write_lock!(self);
+        let acc = inner.chainstore.load_roots_for_block(height)?;
+        inner.acc = Self::deserialize_accumulator(acc)?;
+
+        Ok(())
+    }
+
     // This method should only be called after we validate the new branch
     fn reorg(&self, new_tip: BlockHeader) -> Result<(), BlockchainError> {
         let current_best_block = self.get_block_header(&self.get_best_block()?.1)?;
@@ -395,7 +407,9 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
 
         let validation_index = self.get_last_valid_block(&new_tip)?;
         let depth = self.get_chain_depth(&new_tip)?;
+
         self.change_active_chain(&new_tip, validation_index, depth);
+        self.reorg_acc(&fork_point)?;
 
         Ok(())
     }
@@ -406,7 +420,6 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         inner.best_block.best_block = new_tip.block_hash();
         inner.best_block.validation_index = last_valid;
         inner.best_block.depth = depth;
-        inner.acc = Stump::new();
     }
 
     /// Grabs the last block we validated in this branch. We don't validate a fork, unless it
@@ -417,27 +430,29 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
 
         while !self.is_genesis(&header) {
             let _header = self.get_ancestor(&header)?;
+
             match _header {
                 DiskBlockHeader::FullyValid(_, _) | DiskBlockHeader::AssumedValid(_, _) => {
-                    return Ok(header.block_hash())
+                    return Ok(_header.block_hash())
                 }
                 DiskBlockHeader::Orphan(_) => {
                     return Err(BlockchainError::InvalidTip(format(format_args!(
                         "Block {} doesn't have a known ancestor (i.e an orphan block)",
-                        header.block_hash()
+                        _header.block_hash()
                     ))))
                 }
                 DiskBlockHeader::HeadersOnly(_, _) | DiskBlockHeader::InFork(_, _) => {}
                 DiskBlockHeader::InvalidChain(_) => {
                     return Err(BlockchainError::InvalidTip(format(format_args!(
                         "Block {} is in an invalid chain",
-                        header.block_hash()
+                        _header.block_hash()
                     ))))
                 }
             }
 
             header = *_header;
         }
+
         Ok(header.block_hash())
     }
 
@@ -508,23 +523,6 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             .expect("This block should also be present")
     }
 
-    fn save_acc(&self) -> Result<(), bitcoin::consensus::encode::Error> {
-        let mut inner = write_lock!(self);
-        let mut ser_acc = Vec::new();
-
-        inner.acc.leaves.consensus_encode(&mut ser_acc)?;
-        for root in &inner.acc.roots {
-            ser_acc.extend_from_slice(&**root);
-        }
-
-        inner
-            .chainstore
-            .save_roots(ser_acc)
-            .expect("Chain store is not working");
-
-        Ok(())
-    }
-
     fn notify(&self, block: &Block, height: u32) {
         let inner = self.inner.read();
         let subs = inner.subscribers.iter();
@@ -553,6 +551,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         // TODO: handle possible Err
         let assume_valid =
             ChainParams::get_assume_valid(network, assume_valid).expect("Unsupported network");
+
         ChainState {
             inner: RwLock::new(ChainStateInner {
                 chainstore,
@@ -629,15 +628,21 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
     }
 
     pub fn load_chain_state(
-        chainstore: PersistedState,
+        mut chainstore: PersistedState,
         network: Network,
         assume_valid: AssumeValidArg,
     ) -> Result<ChainState<PersistedState>, BlockchainError> {
-        let acc = Self::load_acc(&chainstore);
-
         let best_block = chainstore
             .load_height()?
             .ok_or(BlockchainError::ChainNotInitialized)?;
+
+        let validation_index_height = chainstore
+            .get_header(&best_block.validation_index)?
+            .ok_or(BlockchainError::BlockNotPresent)?
+            .try_height()?;
+
+        let loaded_acc = chainstore.load_roots_for_block(validation_index_height)?;
+        let acc = Self::deserialize_accumulator(loaded_acc)?;
 
         let inner = ChainStateInner {
             acc,
@@ -711,30 +716,17 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         }
     }
 
-    fn load_acc<Storage: ChainStore>(data_storage: &Storage) -> Stump {
-        let acc = data_storage
-            .load_roots()
-            // TODO: handle possible Err
-            .expect("load_acc: Could not read roots");
-
-        let mut acc = match acc {
+    /// Tries to deserialize an accumulator returning an empty [`Stump`] `acc` is None
+    fn deserialize_accumulator(acc: Option<Vec<u8>>) -> Result<Stump, BlockchainError> {
+        let acc = match acc {
             Some(acc) => acc,
-            None => return Stump::new(),
+            None => return Ok(Stump::new()),
         };
 
-        let leaves = acc.drain(0..8).collect::<Vec<u8>>();
-        let (leaves, _) =
-            deserialize_partial::<u64>(&leaves).expect("load_acc: Invalid num_leaves");
-        let mut roots = Vec::new();
-        // Since we only expect hashes after the num_leaves, the length of the acc has to be a multiple of 32.
-        assert_eq!(acc.len() % 32, 0);
-        while acc.len() >= 32 {
-            let root = acc.drain(0..32).collect::<Vec<u8>>();
-            let root = BitcoinNodeHash::from(&*root);
-            roots.push(root);
-        }
-        Stump { leaves, roots }
+        let mut acc = acc.as_slice();
+        Stump::deserialize(&mut acc).map_err(BlockchainError::UtreexoError)
     }
+
     fn update_view(
         &self,
         height: u32,
@@ -750,17 +742,25 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             .chainstore
             .update_block_index(height, block.block_hash())?;
 
+        // save roots for this block
+        let mut roots = Vec::new();
+        acc.serialize(&mut roots)?;
+
+        inner.chainstore.save_roots_for_block(roots, height)?;
+
         // Updates our local view of the network
         inner.acc = acc;
         inner.best_block.valid_block(block.block_hash());
 
         Ok(())
     }
+
     fn update_tip(&self, best_block: BlockHash, height: u32) {
         let mut inner = write_lock!(self);
         inner.best_block.best_block = best_block;
         inner.best_block.depth = height;
     }
+
     fn verify_script(&self, height: u32) -> Result<bool, PersistedState::Error> {
         let inner = self.inner.read();
         match inner.assume_valid {
@@ -1083,18 +1083,17 @@ impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedSta
 
         Ok(hashes)
     }
+
     fn get_validation_index(&self) -> Result<u32, Self::Error> {
         let inner = self.inner.read();
         let validation = inner.best_block.validation_index;
         let header = self.get_disk_block_header(&validation)?;
         // The last validated disk header can only be FullyValid
         if let DiskBlockHeader::FullyValid(_, height) = header {
-            Ok(height)
-        } else {
-            unreachable!(
-                "Validation index is in an invalid state, you should re-index your node {header:?}"
-            )
+            return Ok(height);
         }
+
+        Err(BlockchainError::BadValidationIndex)
     }
 
     fn is_coinbase_mature(&self, height: u32, block: BlockHash) -> Result<bool, Self::Error> {
@@ -1132,17 +1131,19 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
         acc: Stump,
         assumed_hash: BlockHash,
     ) -> Result<bool, BlockchainError> {
-        let mut curr_header = self.get_block_header(&assumed_hash)?;
+        let mut curr_header = self.get_disk_block_header(&assumed_hash)?;
 
         while let Ok(header) = self.get_disk_block_header(&curr_header.block_hash()) {
             if self.is_genesis(&header) {
                 break;
             }
-            let height = header.try_height()?;
 
+            let height = header.try_height()?;
             self.update_header(&DiskBlockHeader::FullyValid(*header, height))?;
-            curr_header = *self.get_ancestor(&header)?;
+            curr_header = self.get_ancestor(&header)?;
         }
+
+        self.update_view(curr_header.try_height()?, &curr_header, acc.clone())?;
 
         let mut guard = write_lock!(self);
         guard.best_block.validation_index = assumed_hash;
@@ -1257,10 +1258,9 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
     }
 
     fn flush(&self) -> Result<(), BlockchainError> {
-        self.save_acc()?;
         let mut inner = write_lock!(self);
-
         let best_block = inner.best_block.clone();
+
         inner.chainstore.save_height(&best_block)?;
         inner.chainstore.flush()?;
 
@@ -1268,7 +1268,6 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
     }
 
     fn accept_header(&self, header: BlockHeader) -> Result<(), BlockchainError> {
-        debug!("Accepting header {header:?}");
         let disk_header = self.get_disk_block_header(&header.block_hash());
 
         match disk_header {
@@ -1461,7 +1460,6 @@ impl Decodable for BestChain {
 
 #[cfg(test)]
 mod test {
-    extern crate std;
     use core::str::FromStr;
     use std::format;
     use std::fs::File;
@@ -1481,6 +1479,7 @@ mod test {
     use floresta_common::bhash;
     use rand::Rng;
     use rustreexo::accumulator::proof::Proof;
+    use rustreexo::accumulator::stump::Stump;
 
     use super::BlockchainInterface;
     use super::ChainParams;
@@ -1632,6 +1631,7 @@ mod test {
         let chain = setup_test_chain(Network::Regtest, AssumeValidArg::Hardcoded);
         let json_blocks = include_str!("../../testdata/test_reorg.json");
         let blocks: Vec<Vec<&str>> = serde_json::from_str(json_blocks).unwrap();
+        let mut fork_acc = Stump::default();
 
         let parse_blocks = |blocks: &[&str]| {
             blocks
@@ -1661,16 +1661,24 @@ mod test {
             chain
                 .connect_block(&block, Proof::default(), HashMap::new(), Vec::new())
                 .unwrap();
+
+            if block.block_hash()
+                == bhash!("45c74beefa2a110715377e023d4260168b4cafbb0891f3b0869aea30867acc87")
+            {
+                // This is the block we will reorg to
+                fork_acc = chain.acc();
+            }
         }
 
         let expected = (
             10,
             bhash!("6e9c49a19038f7db8d13f6c2e70566385536ea11975528b557799e08a014e784"),
         );
+
         assert_eq!(chain.get_best_block().unwrap(), expected);
 
         // Then accept a fork chain with 11 new blocks, building on the previous height 5 block
-        for fork_block in long_chain {
+        for fork_block in long_chain.iter() {
             chain.accept_header(fork_block.header).unwrap();
         }
 
@@ -1678,14 +1686,28 @@ mod test {
             16,
             bhash!("4572ac401b94915dde6c4957b706abdb13b5824b000cad7f6065ebd9aea6dad1"),
         );
+
         assert_eq!(chain.get_best_block().unwrap(), expected);
+        assert_eq!(
+            chain.acc(),
+            fork_acc,
+            "The accumulator should not change when accepting headers only",
+        );
+
+        // Actually connect the fork chain
+        for fork in long_chain {
+            chain
+                .connect_block(&fork, Proof::default(), HashMap::new(), Vec::new())
+                .unwrap();
+        }
 
         for i in 1..=chain.get_height().unwrap() {
             let accepted = chain.get_block_hash(i).unwrap();
 
-            if let Ok(DiskBlockHeader::HeadersOnly(..)) = chain.get_disk_block_header(&accepted) {
+            if let Ok(DiskBlockHeader::FullyValid(..)) = chain.get_disk_block_header(&accepted) {
                 continue;
             }
+
             panic!("Block {i} is not in the store");
         }
     }
