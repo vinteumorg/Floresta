@@ -105,3 +105,61 @@ pcc:
     @just lint-features '-- -D warnings'
     @just test-features
     @just test-functional
+
+# Convert all markdown files on /doc/rpc/ to man pages on /doc/rpc_man/
+# Must have pandoc installed
+convert-all:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    # Create man page directory if it doesn't exist
+    mkdir -p doc/rpc_man
+
+    # Convert each .md file to man page
+    for md_file in doc/rpc/*.md; do
+        if [[ -f "$md_file" ]]; then
+            echo "Converting $md_file..."
+            just convert-single "$md_file"
+        fi
+    done
+
+    echo "All markdown files converted to man pages in ./doc/rpc_man/"
+
+# Convert a single markdown file on doc/rpc/ to man page on doc/rpc_man/
+# Must have pandoc installed
+convert-single FILE:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    if [[ ! -f "{{FILE}}" ]]; then
+        echo "Error: File {{FILE}} not found"
+        exit 1
+    fi
+
+    # Extract filename without extension
+    basename=$(basename "{{FILE}}" .md)
+
+    # Create man page directory if it doesn't exist
+    mkdir -p doc/rpc_man
+
+    # Convert markdown to man page using pandoc
+    # Default to section 1 (user commands) unless specified in filename
+    section=1
+    if [[ "$basename" =~ \.[0-9]$ ]]; then
+        section="${basename##*.}"
+        basename="${basename%.*}"
+    fi
+
+    # Convert to man page format
+    pandoc "{{FILE}}" \
+        -s \
+        -t man \
+        --metadata title="$basename" \
+        --metadata section="$section" \
+        --metadata date="$(date +'%B %Y')" \
+        -o "doc/rpc_man/${basename}.${section}"
+
+    # Compress the man page
+    gzip -f "doc/rpc_man/${basename}.${section}"
+
+    echo "Created: doc/rpc_man/${basename}.${section}.gz"
