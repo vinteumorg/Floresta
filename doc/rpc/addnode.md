@@ -1,4 +1,4 @@
-# `add_node`
+# `addnode`
 
 Attempts to add or remove a node from the addnode list.
 
