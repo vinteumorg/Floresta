@@ -53,3 +53,9 @@ class BitcoinRPC(BaseRPC):
         `perform_request('getrpcinfo')`
         """
         return self.perform_request("getrpcinfo")
+
+    def uptime(self) -> int:
+        """
+        Get the uptime of the node by performing `perform_request('uptime')`
+        """
+        return self.perform_request("uptime")
