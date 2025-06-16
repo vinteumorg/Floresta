@@ -50,7 +50,7 @@ test-functional-run arg="":
 
 # format and lint functional tests
 test-functional-uv-fmt:
-    uv run black --check --verbose ./tests
+    uv run black --verbose ./tests
     uv run pylint --verbose ./tests
 
 # Run all required stuff to functional tests
