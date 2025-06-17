@@ -40,16 +40,24 @@ for crate in $crates; do
         skip_default="--skip default"
     fi
 
+    # For floresta-chain and florestad, we must not define both flat-chainstore and kv-chainstore features at the same time.
+    # But we must define at least one of them.
+    if [ "$crate" = "floresta-chain" ] || [ "$crate" = "florestad" ]; then
+        store_features="--mutually-exclusive-features flat-chainstore,kv-chainstore --at-least-one-of flat-chainstore,kv-chainstore"
+    else
+        store_features=""
+    fi
+
     # Navigate to the crate's directory
     cd "$path" || exit 1
     printf "\033[1;35mRunning cargo %s for all feature combinations in %s...\033[0m\n" "$action" "$crate"
 
     if [ "$action" = "clippy" ]; then
         # shellcheck disable=SC2086
-        cargo +nightly hack clippy --all-targets --feature-powerset $skip_default $cargo_arg
+        cargo +nightly hack clippy --all-targets --feature-powerset $skip_default $store_features $cargo_arg
     elif [ "$action" = "test" ]; then
         # shellcheck disable=SC2086
-        cargo hack test --release --feature-powerset $skip_default -v $cargo_arg
+        cargo hack test --release --feature-powerset $skip_default $store_features -v $cargo_arg
     fi
 
     cd - > /dev/null || exit 1

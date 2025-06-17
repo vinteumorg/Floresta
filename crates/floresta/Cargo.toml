@@ -37,23 +37,23 @@ bitcoin = { version = "0.32", features = [
     "serde",
     "bitcoinconsensus",
 ], default-features=false }
-
 floresta = { version = "0.3.0", path = "../floresta", features = [
     "bitcoinconsensus",
     "memory-database",
     "electrum-server",
     "watch-only-wallet",
 ] }
-
 futures = "0.3.30"
 
 [features]
-default = ["bitcoinconsensus", "electrum-server", "watch-only-wallet"]
+default = ["bitcoinconsensus", "electrum-server", "watch-only-wallet", "flat-chainstore"]
 bitcoinconsensus = ["floresta-chain/bitcoinconsensus"]
 electrum-server = ["dep:floresta-electrum"]
 watch-only-wallet = ["dep:floresta-watch-only"]
 # Works only if `watch-only-wallet` is set
 memory-database = ["floresta-watch-only?/memory-database"]
+kv-chainstore = ["floresta-chain/kv-chainstore"]
+flat-chainstore = ["floresta-chain/flat-chainstore"]
 
 [lib]
 crate-type = ["cdylib", "rlib", "staticlib"]

@@ -52,11 +52,12 @@ path = "src/main.rs"
 pretty_assertions = "1"
 
 [features]
-experimental-db = ["floresta-chain/experimental-db"]
+kv-chainstore = ["floresta-chain/kv-chainstore"]
+flat-chainstore = ["floresta-chain/flat-chainstore"]
 compact-filters = ["dep:floresta-compact-filters"]
 zmq-server = ["dep:zmq"]
 json-rpc = ["dep:axum", "dep:tower-http", "compact-filters"]
-default = ["json-rpc"]
+default = ["json-rpc", "flat-chainstore"]
 metrics = ["dep:metrics", "floresta-wire/metrics"]
 
 [build-dependencies]

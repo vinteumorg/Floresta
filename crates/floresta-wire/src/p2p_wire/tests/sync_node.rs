@@ -7,7 +7,8 @@ mod tests_utils {
     use floresta_chain::pruned_utreexo::UpdatableChainstate;
     use floresta_chain::AssumeValidArg;
     use floresta_chain::ChainState;
-    use floresta_chain::KvChainStore;
+    use floresta_chain::FlatChainStore;
+    use floresta_chain::FlatChainStoreConfig;
     use rustreexo::accumulator::pollard::Pollard;
     use tokio::sync::Mutex;
     use tokio::sync::RwLock;
@@ -30,9 +31,11 @@ mod tests_utils {
         peers: Vec<PeerData>,
         pow_fraud_proofs: bool,
         network: Network,
-    ) -> Arc<ChainState<KvChainStore<'static>>> {
+    ) -> Arc<ChainState<FlatChainStore>> {
         let datadir = format!("./tmp-db/{}.sync_node", rand::random::<u32>());
-        let chainstore = KvChainStore::new(datadir.clone()).unwrap();
+        let config = FlatChainStoreConfig::new(datadir.clone());
+
+        let chainstore = FlatChainStore::new(config).unwrap();
         let mempool = Arc::new(Mutex::new(Mempool::new(Pollard::default(), 1000)));
         let chain = ChainState::new(chainstore, network, AssumeValidArg::Disabled);
         let chain = Arc::new(chain);
@@ -48,7 +51,7 @@ mod tests_utils {
         let config = get_node_config(datadir, network, pow_fraud_proofs);
 
         let kill_signal = Arc::new(RwLock::new(false));
-        let mut node = UtreexoNode::<Arc<ChainState<KvChainStore>>, SyncNode>::new(
+        let mut node = UtreexoNode::<Arc<ChainState<FlatChainStore>>, SyncNode>::new(
             config,
             chain.clone(),
             mempool,

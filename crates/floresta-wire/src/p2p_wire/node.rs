@@ -518,6 +518,10 @@ where
     /// erroing one.
     async fn broadcast_to_peers(&mut self, request: NodeRequest) {
         for peer in self.peers.values() {
+            if peer.state != PeerStatus::Ready {
+                continue;
+            }
+
             if let Err(err) = peer.channel.send(request.clone()) {
                 warn!("Failed to send request to peer {}: {err}", peer.address);
             }

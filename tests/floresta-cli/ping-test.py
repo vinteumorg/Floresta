@@ -8,6 +8,8 @@ from test_framework import FlorestaRPC, BitcoinRPC, FlorestaTestFramework
 from test_framework.rpc.floresta import REGTEST_RPC_SERVER as florestad_rpc
 from test_framework.rpc.bitcoin import REGTEST_RPC_SERVER as bitcoind_rpc
 
+import time
+
 
 class PingTest(FlorestaTestFramework):
     index = [-1, -1]
@@ -29,6 +31,8 @@ class PingTest(FlorestaTestFramework):
         florestad.addnode(
             f"{bitcoind_rpc['host']}:{bitcoind_rpc['ports']['p2p']}", "onetry"
         )
+
+        time.sleep(1)
 
         # Check that we have a connection, but no ping yet
         peer_info = bitcoind.get_peerinfo()

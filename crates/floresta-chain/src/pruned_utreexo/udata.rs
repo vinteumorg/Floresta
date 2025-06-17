@@ -642,7 +642,7 @@ pub mod proof_util {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "kv-chainstore"))]
 mod test {
     extern crate std;
 
