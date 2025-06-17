@@ -25,16 +25,20 @@ import argparse
 import os
 import subprocess
 import time
+from threading import Thread
+from queue import Queue
 
 from test_framework import FlorestaTestFramework
 
 BASE_DIR = os.path.normpath(
-    os.path.join(FlorestaTestFramework.get_integration_test_dir(), "logs")
+    os.path.join(str(FlorestaTestFramework.get_integration_test_dir()), "logs")
 )
 INFO_EMOJI = "ℹ️"
 SUCCESS_EMOJI = "✅"
 FAILURE_EMOJI = "❌"
 ALLDONE_EMOJI = "🎉"
+
+results = []
 
 
 def list_test_suites(test_dir: str):
@@ -46,34 +50,40 @@ def list_test_suites(test_dir: str):
             print(f"* {name}")
 
 
-def run_test(args: argparse.Namespace, test_suite_dir: str, file: str):
-    """Run a test file from the test suite directory"""
-    data_dir = os.path.normpath(os.path.join(args.data_dir, file))
-    if not os.path.isdir(data_dir):
-        os.makedirs(data_dir)
+def run_test_worker(task_queue: Queue, args: argparse.Namespace):
+    """
+    Worker function to run tests pulled from the task queue.
+    Each test is run in a subprocess and logs output to a file.
+    Collects the result but does not stop on failure.
+    """
+    while True:
+        task = task_queue.get()
+        if task is None:
+            break
 
-    # get test file and create a log for it
-    test_filename = os.path.normpath(os.path.join(test_suite_dir, file))
-    test_logname = os.path.normpath(os.path.join(data_dir, f"{int(time.time())}.log"))
+        test_suite_dir, file = task
+        data_dir = os.path.normpath(os.path.join(args.data_dir, file))
+        os.makedirs(data_dir, exist_ok=True)
 
-    with open(test_logname, "wt", encoding="utf-8") as log_file:
+        test_filename = os.path.normpath(os.path.join(test_suite_dir, file))
+        test_logname = os.path.normpath(
+            os.path.join(data_dir, f"{int(time.time())}.log")
+        )
+
         cli = ["python", test_filename]
         cli_msg = " ".join(cli)
         print(f"{INFO_EMOJI} Running '{cli_msg}'")
-        print(f"Writing stuff to {test_logname}")
 
-        with subprocess.Popen(cli, stdout=log_file, stderr=log_file) as test:
-            test.wait()
+        with open(test_logname, "wt", encoding="utf-8") as log_file:
+            with subprocess.Popen(cli, stdout=log_file, stderr=log_file) as test:
+                test.wait()
 
-        # Check the test, if failed, log the results
-        # if passed, just show that worked
-        if test.returncode != 0:
-            print(f"Test {file} not passed {FAILURE_EMOJI}")
-            with open(test_logname, "rt", encoding="utf-8") as log_file:
-                raise RuntimeError(f"Tests failed:{log_file.read()}")
+        if test.returncode == 0:
+            results.append((file, True, test_logname))
+        else:
+            results.append((file, False, test_logname))
 
-        print(f"Test {file} passed {SUCCESS_EMOJI}")
-        print()
+        task_queue.task_done()
 
 
 def main():
@@ -82,109 +92,82 @@ def main():
 
     usage: run_tests [-h] [-d DATA_DIR] [-t TEST_NAME]
 
-    tool to help with function testing of Floresta
+    Tool to help with function testing of Floresta.
 
-    options:
-        -h, --help                 show this help message and exit.
-        -d, --data-dir DATA_DIR    data directory of the run_tests's functional
-                                   test logs.
-        -t, --test-suite TEST_NAME test-suit directory to be tested by run_tests.
+    Options:
+        -h, --help                  Show this help message and exit.
+        -d, --data-dir DATA_DIR    Data directory for functional test logs.
+        -t, --test-suite TEST_NAME Test-suite directory to be tested.
                                    You can add many.
-        -k, --test-name TEST_NAME  test name to be tested by run_tests's.
+        -k, --test-name TEST_NAME  Test name to be tested in a suite.
                                    You can add many.
+        -l, --list-suites          List all available test-suite directories.
+        -T, --threads              Number of threads to run tests in parallel.
     """
     # Structure the CLI
-    parser = argparse.ArgumentParser(
-        prog="run_tests",
-        description="tool to help with function testing of Floresta",
-    )
-
-    parser.add_argument(
-        "-d",
-        "--data-dir",
-        help="data directory of the %(prog)s's functional test logs",
-        default=BASE_DIR,
-    )
-
-    parser.add_argument(
-        "-t",
-        "--test-suite",
-        help="test suite directory to be tested by %(prog)s's. You can add many",
-        action="append",
-        default=[],
-    )
-
-    parser.add_argument(
-        "-k",
-        "--test-name",
-        help="test name in a suite to be tested by %(prog)s's. You can add many",
-        action="append",
-        default=[],
-    )
-
-    parser.add_argument(
-        "-l",
-        "--list-suites",
-        help="list all available test-suit directories to be tested by %(prog)s's",
-        action="store_true",
-        default=False,
-    )
-
-    # Parse arguments of CLI
+    parser = argparse.ArgumentParser(prog="run_tests")
+    parser.add_argument("-d", "--data-dir", default=BASE_DIR)
+    parser.add_argument("-t", "--test-suite", action="append", default=[])
+    parser.add_argument("-k", "--test-name", action="append", default=[])
+    parser.add_argument("-l", "--list-suites", action="store_true", default=False)
+    parser.add_argument("-T", "--threads", type=int, default=4)
     args = parser.parse_args()
 
-    # Setup directories and filenames for the specific test
     test_dir = os.path.abspath(os.path.dirname(__file__))
 
-    # if list is provided,
-    # only list the available tests
-    # and exit the program
     if args.list_suites:
         list_test_suites(test_dir)
         return
 
-    # lets define the default paths of suites
-    # in None is provided in CLI.
-    # They should be all folders on tests/ dir,
-    # excluding __pycache__ and test_framework
-    if len(args.test_suite) == 0:
-        for _dir in os.listdir(test_dir):
-            test_suite_dir = os.path.join(test_dir, _dir)
-            if os.path.isdir(test_suite_dir) and _dir not in (
-                "__pycache__",
-                "test_framework",
-            ):
-                args.test_suite.append(test_suite_dir)
+    if not args.test_suite:
+        args.test_suite = [
+            os.path.join(test_dir, d)
+            for d in os.listdir(test_dir)
+            if os.path.isdir(os.path.join(test_dir, d))
+            and d not in ("__pycache__", "test_framework")
+        ]
 
-    # Run all tests defined by --test_suite if any is (are) provided.
-    # Run all default ones in ./tests/<test-suide-n>/*-test.py
-    for _dir in args.test_suite:
-        test_suite_dir = os.path.join(test_dir, _dir)
+    task_queue = Queue()
 
-        # If a suite isnt defined in tests folder
-        # raise an error and show it to the developer
+    for test_suite_dir in args.test_suite:
         if not os.path.exists(test_suite_dir):
-            raise argparse.ArgumentError(
-                argument=None, message=f"Suite '{_dir}' not found"
-            )
+            raise argparse.ArgumentError(None, f"Suite '{test_suite_dir}' not found")
 
-        # If the suite is found, run all tests
-        # inside the folder. The tests should have
-        # a suffix "-test.py"
         for file in os.listdir(test_suite_dir):
-
-            # if we passed one or more test file to filter,
-            # add them to the list and do nor include those
-            # that are not in the list. If no files are provided,
-            # include all of them.
             if file.endswith("-test.py"):
-                if args.test_name:
-                    if any(file.startswith(name) for name in args.test_name):
-                        run_test(args, test_suite_dir, file)
-                else:
-                    run_test(args, test_suite_dir, file)
+                if args.test_name and not any(
+                    file.startswith(name) for name in args.test_name
+                ):
+                    continue
+                task_queue.put((test_suite_dir, file))
 
-    print("🎉 ALL TESTS PASSED! GOOD JOB!")
+    workers = []
+    for _ in range(args.threads):
+        worker = Thread(target=run_test_worker, args=(task_queue, args))
+        worker.start()
+        workers.append(worker)
+
+    task_queue.join()
+
+    for _ in workers:
+        task_queue.put(None)
+
+    for worker in workers:
+        worker.join()
+
+    passed = [(name, log) for name, ok, log in results if ok]
+    failed = [(name, log) for name, ok, log in results if not ok]
+
+    print("\nTest Summary:")
+    for name, log in passed:
+        print(f"  {SUCCESS_EMOJI} {name}: (log: {log})")
+
+    if failed:
+        print(f"\n{FAILURE_EMOJI} {len(failed)} test(s) failed:")
+        for name, log in failed:
+            print(f"  {FAILURE_EMOJI} {name} (log: {log})")
+    else:
+        print(f"\n{ALLDONE_EMOJI} ALL TESTS PASSED! GOOD JOB!")
 
 
 if __name__ == "__main__":
