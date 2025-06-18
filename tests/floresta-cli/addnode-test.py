@@ -8,7 +8,6 @@ in context of the v1/v2 transport protocol.
 (see more at https://bitcoincore.org/en/doc/29.0.0/rpc/network/addnode/)
 """
 
-import os
 import re
 import time
 
@@ -21,25 +20,6 @@ TIMEOUT = 15
 PING_TIMEOUT = 40
 
 
-def create_data_dirs(
-    base_name: str, nodes: int, v2transport: bool = False
-) -> list[str]:
-    """
-    Create the data directories for the two nodes
-    to be used in the test.
-    """
-    transport = "v2" if v2transport else "v1"
-    dir_name = f"{base_name}-{transport}-transport"
-
-    paths = []
-    for i in range(nodes):
-        p = os.path.join(str(DATA_DIR), "data", dir_name, f"node-{i}")
-        os.makedirs(p, exist_ok=True)
-        paths.append(p)
-
-    return paths
-
-
 def run_test(name: str, v2transport: bool = False):
 
     class _AddnodeTest(FlorestaTestFramework):
@@ -47,9 +27,9 @@ def run_test(name: str, v2transport: bool = False):
         def set_test_params(self):
             self.log(f"**************** Running {name} test")
             self.nodes = [-1, -1]
-            self.data_dirs = create_data_dirs(
-                self.__class__.__name__, 2, v2transport=v2transport
-            )
+
+            # Create data directories for the nodes
+            self.data_dirs = _AddnodeTest.create_data_dirs(DATA_DIR, name, 2)
             self.v2transport = v2transport
             AddnodeTestWrapper.set_test_params(self)
 

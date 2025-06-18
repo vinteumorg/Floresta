@@ -64,7 +64,7 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
             .values()
             .map(|req| ActiveCommand {
                 method: req.method.clone(),
-                duration: req.when.elapsed().as_secs(),
+                duration: req.when.elapsed().as_micros() as u64,
             })
             .collect();
 
