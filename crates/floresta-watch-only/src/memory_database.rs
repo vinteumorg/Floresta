@@ -5,11 +5,11 @@
 //! For actual databases that can be used for production code, see [KvDatabase].
 use bitcoin::hashes::sha256;
 use bitcoin::Txid;
-use floresta_common::desc_types::extract_matching_one;
-use floresta_common::desc_types::extract_matching_ones;
-use floresta_common::desc_types::BlownDescriptor;
-use floresta_common::desc_types::DescriptorError;
-use floresta_common::desc_types::DescriptorId;
+use floresta_common::descriptor_internals::extract_matching_one;
+use floresta_common::descriptor_internals::extract_matching_ones;
+use floresta_common::descriptor_internals::ConcreteDescriptor;
+use floresta_common::descriptor_internals::DescriptorError;
+use floresta_common::descriptor_internals::DescriptorId;
 use floresta_common::prelude::sync::RwLock;
 use floresta_common::prelude::*;
 
@@ -23,7 +23,7 @@ struct Inner {
     transactions: HashMap<Txid, CachedTransaction>,
     stats: Stats,
     height: u32,
-    descriptors: Vec<BlownDescriptor>,
+    descriptors: Vec<ConcreteDescriptor>,
 }
 
 #[derive(Debug)]
@@ -102,7 +102,7 @@ impl AddressCacheDatabase for MemoryDatabase {
         Ok(())
     }
 
-    fn desc_delete(&self, one: &DescriptorId) -> Result<BlownDescriptor> {
+    fn desc_delete(&self, one: &DescriptorId) -> Result<ConcreteDescriptor> {
         let mut inner = self.get_inner_mut()?;
 
         if let Some(index) = extract_matching_one(&inner.descriptors, one) {
@@ -113,7 +113,7 @@ impl AddressCacheDatabase for MemoryDatabase {
             ))
         }
     }
-    fn desc_delete_batch(&self, batch: &[DescriptorId]) -> Result<Vec<BlownDescriptor>> {
+    fn desc_delete_batch(&self, batch: &[DescriptorId]) -> Result<Vec<ConcreteDescriptor>> {
         let mut inner = self.get_inner_mut()?;
         match batch.is_empty() {
             true => {
@@ -127,7 +127,7 @@ impl AddressCacheDatabase for MemoryDatabase {
                 .collect()),
         }
     }
-    fn desc_get(&self, one: &DescriptorId) -> Result<BlownDescriptor> {
+    fn desc_get(&self, one: &DescriptorId) -> Result<ConcreteDescriptor> {
         let inner = self.get_inner_mut()?;
 
         if let Some(index) = extract_matching_one(&inner.descriptors, one) {
@@ -142,7 +142,7 @@ impl AddressCacheDatabase for MemoryDatabase {
             ))
         }
     }
-    fn desc_get_batch(&self, batch: &[DescriptorId]) -> Result<Vec<BlownDescriptor>> {
+    fn desc_get_batch(&self, batch: &[DescriptorId]) -> Result<Vec<ConcreteDescriptor>> {
         let inner = self.get_inner()?;
         match batch.is_empty() {
             true => {
@@ -165,10 +165,10 @@ impl AddressCacheDatabase for MemoryDatabase {
             }
         }
     }
-    fn desc_insert(&self, one: BlownDescriptor) -> Result<()> {
+    fn desc_insert(&self, one: ConcreteDescriptor) -> Result<()> {
         Ok(self.get_inner_mut()?.descriptors.push(one))
     }
-    fn desc_insert_batch(&self, batch: Vec<BlownDescriptor>) -> Result<()> {
+    fn desc_insert_batch(&self, batch: Vec<ConcreteDescriptor>) -> Result<()> {
         let mut batch = batch;
         Ok(self.get_inner_mut()?.descriptors.append(&mut batch))
     }

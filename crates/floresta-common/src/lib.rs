@@ -13,7 +13,7 @@ use bitcoin::ScriptBuf;
 use sha2::Digest;
 
 #[cfg(any(feature = "descriptors-std", feature = "descriptors-no-std"))]
-pub mod desc_types;
+pub mod descriptor_internals;
 #[cfg(not(feature = "std"))]
 mod error;
 pub mod macros;

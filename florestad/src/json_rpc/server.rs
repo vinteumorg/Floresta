@@ -23,11 +23,11 @@ use bitcoin::TxOut;
 use bitcoin::Txid;
 use floresta_chain::pruned_utreexo::BlockchainInterface;
 use floresta_chain::pruned_utreexo::UpdatableChainstate;
-use floresta_common::desc_types::DeleteDescriptorRes;
-use floresta_common::desc_types::DescriptorId;
-use floresta_common::desc_types::DescriptorRequest;
 use floresta_chain::ThreadSafeChain;
-
+use floresta_common::descriptor_internals::DeleteDescriptorRes;
+use floresta_common::descriptor_internals::DescriptorId;
+use floresta_common::descriptor_internals::DescriptorRequest;
+use floresta_common::descriptor_internals::RescanRequest;
 use floresta_compact_filters::flat_filters_store::FlatFiltersStore;
 use floresta_compact_filters::network_filters::NetworkFilters;
 use floresta_watch_only::kv_database::KvDatabase;
@@ -117,15 +117,16 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
             .ok_or(Error::TxNotFound)
     }
 
-    /// "importdescriptors", which handles [`DescriptorRequest`]s, adding scripts to
-    /// the watch only wallet and triggering rescan if asked.
+    /// Server side handle of "importdescriptors",
+    ///
+    /// Import the descriptor from the given [`DescriptorRequest`].
     fn import_descriptors(&self, requests: Vec<DescriptorRequest>) -> Result<bool> {
         info!("Importing {requests:?} and Rescanning");
 
         // Extracts the BlownDescriptors and the earliest timestamp rescan requested.
         let (descriptors, rescan_timestamp) =
-            floresta_common::desc_types::handle_descriptors_requests(requests)
-                .map_err(|e| Error::DescriptorError(e))?;
+            floresta_common::descriptor_internals::handle_descriptors_requests(requests)
+                .map_err(|e| Error::BatchDescriptor(e))?;
 
         for descriptor in descriptors {
             let script = descriptor.descriptor.script_pubkey();
@@ -144,7 +145,8 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
         let node = self.node.clone();
         let chain = self.chain.clone();
 
-        if rescan_timestamp > 0 {
+        // TODO: implement all rescan requests.
+        if let RescanRequest::SpecifiedTime(time) = rescan_timestamp {
             tokio::task::spawn(Self::rescan_with_block_filters(
                 addresses, chain, wallet, cfilters, node,
             ));
@@ -473,7 +475,8 @@ fn get_http_error_code(err: &Error) -> u16 {
         | Error::InvalidPort
         | Error::InvalidHeight
         | Error::InvalidNetwork
-        | Error::DescriptorError(_)
+        | Error::Descriptor(_)
+        | Error::BatchDescriptor(_)
         | Error::InvalidVerbosityLevel
         | Error::Decode(_)
         | Error::MissingParams
@@ -518,7 +521,8 @@ fn get_json_rpc_error_code(err: &Error) -> i32 {
         | Error::BlockNotFound
         | Error::InvalidMemInfoMode
         | Error::InvalidAddnodeCommand
-        | Error::DescriptorError(_)
+        | Error::Descriptor(_)
+        | Error::BatchDescriptor(_)
         | Error::DecodeDescRequest(_, _)
         | Error::Wallet(_) => -32600,
 

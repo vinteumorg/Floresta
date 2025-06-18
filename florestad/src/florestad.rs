@@ -28,8 +28,8 @@ use floresta_chain::BlockchainError;
 use floresta_chain::ChainState;
 #[cfg(not(feature = "experimental-db"))]
 use floresta_chain::KvChainStore as ChainStore;
-use floresta_common::desc_types::DescriptorId;
-use floresta_common::desc_types::DescriptorRequest;
+use floresta_common::descriptor_internals::DescriptorId;
+use floresta_common::descriptor_internals::DescriptorRequest;
 #[cfg(feature = "compact-filters")]
 use floresta_compact_filters::flat_filters_store::FlatFiltersStore;
 #[cfg(feature = "compact-filters")]

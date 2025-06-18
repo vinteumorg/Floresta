@@ -6,10 +6,10 @@ use bitcoin::hashes::sha256;
 use bitcoin::ScriptBuf;
 use floresta_chain::BlockConsumer;
 use floresta_chain::DatabaseError;
-use floresta_common::desc_types::BlownDescriptor;
-use floresta_common::desc_types::DescriptorError;
-use floresta_common::desc_types::DescriptorId;
-use floresta_common::desc_types::DescriptorRequest;
+use floresta_common::descriptor_internals::ConcreteDescriptor;
+use floresta_common::descriptor_internals::DescriptorError;
+use floresta_common::descriptor_internals::DescriptorId;
+use floresta_common::descriptor_internals::DescriptorRequest;
 use floresta_common::get_spk_hash;
 
 pub mod kv_database;
@@ -45,6 +45,7 @@ use crate::memory_database::MemoryDatabase;
 pub enum WatchOnlyError {
     WalletNotInitialized,
     TransactionNotFound,
+    #[cfg(any(test, feature = "memory-database"))]
     MemoryDatabaseError(MemoryDatabaseError),
     KvDatabaseError(KvDatabaseError),
     DatabaseError(Box<dyn DatabaseError>),
@@ -53,6 +54,7 @@ pub enum WatchOnlyError {
 
 impl_error_from!(WatchOnlyError, DescriptorError, DescriptorError);
 impl_error_from!(WatchOnlyError, Box<dyn DatabaseError>, DatabaseError);
+#[cfg(any(test, feature = "memory-database"))]
 impl_error_from!(
     WatchOnlyError,
     <MemoryDatabase as AddressCacheDatabase>::Error,
@@ -79,6 +81,7 @@ impl Display for WatchOnlyError {
             WatchOnlyError::DescriptorError(e) => {
                 write!(f, "Descriptor error: {e:?}")
             }
+            #[cfg(any(test, feature = "memory-database"))]
             WatchOnlyError::MemoryDatabaseError(e) => {
                 write!(f, "MDb ${e:?}")
             }
@@ -175,25 +178,25 @@ pub trait AddressCacheDatabase {
     fn set_cache_height(&self, height: u32) -> Result<(), Self::Error>;
     // Descriptors crud.
     /// Insert a descriptor into the database
-    fn desc_insert(&self, one: BlownDescriptor) -> Result<(), Self::Error>;
+    fn desc_insert(&self, one: ConcreteDescriptor) -> Result<(), Self::Error>;
     /// Batch Insert a descriptor into the database
-    fn desc_insert_batch(&self, batch: Vec<BlownDescriptor>) -> Result<(), Self::Error>;
+    fn desc_insert_batch(&self, batch: Vec<ConcreteDescriptor>) -> Result<(), Self::Error>;
     /// Search for a descriptor by a matching [`DescriptorId`]
-    fn desc_get(&self, one: &DescriptorId) -> Result<BlownDescriptor, Self::Error>;
+    fn desc_get(&self, one: &DescriptorId) -> Result<ConcreteDescriptor, Self::Error>;
     /// Bacth search for a descriptor by matching [`DescriptorId`]s.
     ///
     /// An empty batch will return everything. Like a "list" function.
     ///
     /// The return may not be complete since not founding certain descriptors is not
     /// an error itself but returning none is.
-    fn desc_get_batch(&self, batch: &[DescriptorId]) -> Result<Vec<BlownDescriptor>, Self::Error>;
+    fn desc_get_batch(&self, batch: &[DescriptorId]) -> Result<Vec<ConcreteDescriptor>, Self::Error>;
     /// Delete a descriptor from the database by a matching [`DescriptorId`]
-    fn desc_delete(&self, one: &DescriptorId) -> Result<BlownDescriptor, Self::Error>;
+    fn desc_delete(&self, one: &DescriptorId) -> Result<ConcreteDescriptor, Self::Error>;
     /// Batch delete descriptors from the database by matching [`DescriptorId`]s
     fn desc_delete_batch(
         &self,
         batch: &[DescriptorId],
-    ) -> Result<Vec<BlownDescriptor>, Self::Error>;
+    ) -> Result<Vec<ConcreteDescriptor>, Self::Error>;
     /// Get a transaction from the database
     fn get_transaction(&self, txid: &Txid) -> Result<CachedTransaction, Self::Error>;
     /// Saves a transaction to the database
@@ -212,7 +215,7 @@ struct AddressCacheInner<D: AddressCacheDatabase> {
     /// Holds all scripts we are interested in
     script_set: HashSet<sha256::Hash>,
     /// Holds all descriptors we are interested in
-    descriptor_set: HashSet<BlownDescriptor>,
+    descriptor_set: HashSet<ConcreteDescriptor>,
     /// Keeps track of all utxos we own, and the script hash they belong to
     utxo_index: HashMap<OutPoint, Hash>,
 }
@@ -781,8 +784,8 @@ where
         )
     }
 
-    /// Return the [`BlownDescriptor`]s that we have.
-    pub fn get_descriptors(&self) -> Result<Vec<BlownDescriptor>, WatchOnlyError> {
+    /// Return the [`ConcreteDescriptor`]s that we have.
+    pub fn get_descriptors(&self) -> Result<Vec<ConcreteDescriptor>, WatchOnlyError> {
         let inner = self.inner.read().expect("poisoned lock");
         Ok(inner.database.desc_get_batch(&[])?)
     }
@@ -794,16 +797,19 @@ where
     /// and all the other data are extracted from [`DescriptorRequest::default`].
     pub fn push_descriptor_by_string(&self, descriptor: &str) -> Result<(), WatchOnlyError> {
         let inner = self.inner.write().expect("poisoned lock");
-        let blown = DescriptorRequest::from_str(descriptor)
-            .map_err(|e| WatchOnlyError::DescriptorError(e))?;
+
+        let blown = DescriptorRequest {
+            desc: descriptor.to_string(),
+            ..Default::default()
+        };
 
         Ok(inner
             .database
-            .desc_insert_batch(blown.get_blown_descriptors()?)?)
+            .desc_insert_batch(blown.into_blown_descriptors()?)?)
     }
 
-    /// Inserts a [`BlownDescriptor`] into the wallet
-    pub fn push_descriptor_blown(&self, request: &BlownDescriptor) -> Result<(), WatchOnlyError> {
+    /// Inserts a [`ConcreteDescriptor`] into the wallet
+    pub fn push_descriptor_blown(&self, request: &ConcreteDescriptor) -> Result<(), WatchOnlyError> {
         let inner = self.inner.write().expect("poisoned lock");
         inner.database.desc_insert(request.clone())?;
         Ok(())
@@ -814,7 +820,7 @@ where
     pub fn delete_descriptors(
         &self,
         ids: &[DescriptorId],
-    ) -> Result<(Vec<BlownDescriptor>, Vec<usize>), WatchOnlyError> {
+    ) -> Result<(Vec<ConcreteDescriptor>, Vec<usize>), WatchOnlyError> {
         let inner = self.inner.write().expect("poisoned lock");
 
         let deleted = inner.database.desc_delete_batch(ids)?;
@@ -843,7 +849,7 @@ where
     pub fn delete_descriptors_strict(
         &self,
         ids: &[DescriptorId],
-    ) -> Result<Vec<BlownDescriptor>, WatchOnlyError> {
+    ) -> Result<Vec<ConcreteDescriptor>, WatchOnlyError> {
         let inner = self.inner.write().expect("poisoned lock");
 
         let deleted = inner.database.desc_delete_batch(ids)?;
@@ -906,7 +912,7 @@ mod test {
     use bitcoin::OutPoint;
     use bitcoin::ScriptBuf;
     use bitcoin::Txid;
-    use floresta_common::desc_types::DescriptorId;
+    use floresta_common::descriptor_internals::DescriptorId;
     use floresta_common::get_spk_hash;
     use floresta_common::prelude::*;
 

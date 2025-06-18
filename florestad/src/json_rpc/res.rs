@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
 use axum::response::IntoResponse;
-use floresta_common::desc_types::DescriptorError;
+use floresta_common::descriptor_internals::DescriptorError;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -186,7 +186,8 @@ pub enum Error {
     InvalidScript,
     BlockNotFound,
     Chain,
-    DescriptorError(DescriptorError),
+    Descriptor(DescriptorError),
+    BatchDescriptor(Vec<DescriptorError>),
     InvalidVout,
     InvalidHeight,
     InvalidHash,
@@ -227,7 +228,8 @@ impl Display for Error {
             Error::InvalidPort => write!(f, "Invalid port"),
             Error::InvalidAddress => write!(f, "Invalid address"),
             Error::Node(e) => write!(f, "Node error: {e}"),
-            Error::DescriptorError(e) => write!(f, "{e:?}"), // A wrapper around another error, and the error will yield the message
+            Error::Descriptor(e) => write!(f, "{e:?}"), // A wrapper around another error, and the error will yield the message
+            Error::BatchDescriptor(b) =>  write!(f, "{b:?}"), // A wrapper around a vec of errors, youll mostly yield this from `handle_descriptors_requests`.
             Error::NoBlockFilters => write!(f, "You don't have block filters enabled, please start florestad with --cfilters to run this RPC"),
             Error::InvalidNetwork => write!(f, "Invalid network"),
             Error::InInitialBlockDownload => write!(f, "Node is in initial block download, wait until it's finished"),

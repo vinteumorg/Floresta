@@ -10,8 +10,8 @@ use floresta_cli::jsonrpc_client::Client;
 use floresta_cli::rpc::FlorestaRPC;
 use floresta_cli::rpc_types::AddNodeCommand;
 use floresta_cli::rpc_types::GetBlockRes;
-use floresta_common::desc_types::DescriptorId;
-use floresta_common::desc_types::DescriptorRequest;
+use floresta_common::descriptor_internals::DescriptorId;
+use floresta_common::descriptor_internals::DescriptorRequest;
 
 // Main function that runs the CLI application
 fn main() -> anyhow::Result<()> {
@@ -189,21 +189,66 @@ pub enum Methods {
     #[command(name = "getblockheader")]
     GetBlockHeader { hash: BlockHash },
 
-    /// Imports a new descriptor to the watch only wallet
-    #[command(name = "importdescriptors")]
-    ImportDescriptors {
-        #[arg( required = true, value_parser = floresta_cli::parsers::parse_json_array::<DescriptorRequest>)]
-        requests: Vec<DescriptorRequest>,
-    },
     /// Returns the roots of the current utreexo forest
     #[command(name = "getroots")]
     GetRoots,
-
     /// Returns a block
     #[command(name = "getblock")]
     GetBlock {
         hash: BlockHash,
         verbosity: Option<u32>,
+    },
+
+    /// # `importdescriptors`
+    ///
+    /// Imports the given descriptor requests into the watch-only wallet.
+    ///
+    /// ## Arguments
+    ///
+    /// * `requests` - A json Object that describes some meta-data about
+    /// a descriptor and how to derive it.
+    ///
+    /// A Descriptor Request
+    /// [
+    ///     {                                    (json object)
+    ///         "desc": "str",                     (string, required) Descriptor to import.
+    ///         "active": bool,                    (boolean, optional, default=false) Set this descriptor to be the active descriptor for the corresponding output type/externality
+    ///         "range": n or [n,n],               (numeric or array) If a ranged descriptor is used, this specifies the end or the range (in the form [begin,end]) to import
+    ///         "next_index": n,                   (numeric) If a ranged descriptor is set to active, this specifies the next index to generate addresses from
+    ///         "timestamp": timestamp | "now",    (integer / string, required) Time from which to start rescanning the blockchain for this descriptor, in UNIX epoch time
+    ///                                             Use the string "now" to substitute the current synced blockchain time.
+    ///                                             "now" can be specified to bypass scanning, for outputs which are known to never have been used, and
+    ///                                             0 can be specified to scan the entire blockchain. Blocks up to 2 hours before the earliest timestamp
+    ///                                             of all descriptors being imported will be scanned.
+    ///         "internal": bool,                  (boolean, optional, default=false) Whether matching outputs should be treated as not incoming payments (e.g. change)
+    ///         "label": "str",                    (string, optional, default='') Label to assign to the address, only allowed with internal=false
+    ///     },
+    /// ]
+    ///
+    /// ## Returns
+    ///
+    /// ### Ok Response
+    ///     - Returns a Boolean indicating wheter the request was succesfull.
+    ///
+    /// ### Error Enum [`CommandError`]
+    ///
+    ///     
+    ///
+    /// ## Usage Examples
+    ///
+    /// ```bash
+    ///     <command> <param1> <param2> <optional_param>
+    /// ```
+    ///
+    /// ## Notes
+    ///
+    /// - Any important behavioral notes or requirements
+    /// - Performance considerations if applicable
+    /// - Related RPC methods or alternatives
+    #[command(name = "importdescriptors")]
+    ImportDescriptors {
+        #[arg( required = true, value_parser = floresta_cli::parsers::parse_json_array::<DescriptorRequest>)]
+        requests: Vec<DescriptorRequest>,
     },
 
     /// Returns information about the peers we are connected to
@@ -275,12 +320,12 @@ pub enum Methods {
     #[command(name = "ping")]
     Ping,
 
-    /// Search and delete for the identified descriptors with a [`DescriptorId`].
+    /// Search and delete for the identified descriptors with a given [`DescriptorId`].
     ///
     /// You can tell the command to return the targeted descriptors by setting pull
     /// to true.
     ///
-    /// Strict is a flag to ensure correctness of the desired behavior, what it does is
+    /// Strict is a flag to ensure correctness of the desired behavior. What it does is
     /// to allow the server side to abort the actual deletion if any id doesn't match
     /// any stored descriptor.
     ///
