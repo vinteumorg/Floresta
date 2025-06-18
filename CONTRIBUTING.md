@@ -202,13 +202,12 @@ Please always create a new rpc documentation under the specified [directory](/do
 fn method_name
 ```
 
-We also have `man pages` that can be generated using the script [gen_manpages.sh](/contrib/dist/gen_manpages.sh) for releases/distributions or if you want to generate them locally you can also use the `just convert-all` command.
+We also have `man pages` that can be generated using the script [gen_manpages.sh](/contrib/dist/gen_manpages.sh) for releases/distributions or if you want to generate them locally you can also use the `just gen-manpages` command.
 
 ```bash
 just gen-manpages
 # or
-chmod +x contrib/dist/gen_manpages.sh
-./contrib/dist/gen_manpages.sh
+sh ./contrib/dist/gen_manpages.sh <specific_md_path> # Specifying a md file will make the script only build this single one.
 ```
 
 Security
