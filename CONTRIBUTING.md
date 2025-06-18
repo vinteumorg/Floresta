@@ -184,7 +184,30 @@ pub fn validate_block_time(
     }
     Ok(())
 }
+```
 
+Documentation for RPC
+---------------------
+
+We aim on having a good documentation and CLI `help` command.
+
+To achieve this, we use the `rustdoc` tool, which generates documentation from Rust source code comments. We also use the `clap` library to generate CLI help and usage information directly from the code.
+
+Please always create a new rpc documentation under the specified [directory](/doc/rpc) and implement using the following syntax on the method command definition:
+
+```rust
+#[doc = include_str!("../../../doc/rpc/command.md")]
+#[command(name = "addnode", long_about = Some(include_str!("../../../doc/rpc/command.md")),disable_help_subcommand = true)]
+// Some docstring
+fn method_name
+```
+
+We also have `man pages` that can be generated using the script [gen_manpages.sh](/contrib/dist/gen_manpages.sh) for releases/distributions or if you want to generate them locally you can also use the `just gen-manpages` command.
+
+```bash
+just gen-manpages
+# or
+sh ./contrib/dist/gen_manpages.sh <specific_md_path> # Specifying a md file will make the script only build this single one.
 ```
 
 Security
