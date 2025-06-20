@@ -39,8 +39,8 @@ use serde_json::Value;
 use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
 
-use super::res::Error;
 use super::res::GetBlockRes;
+use super::res::JsonRpcError;
 use super::res::RawTxJson;
 use super::res::RpcError;
 use super::res::ScriptPubKeyJson;
@@ -73,30 +73,33 @@ pub struct RpcImpl<Blockchain: RpcChain> {
     pub(super) start_time: Instant,
 }
 
-type Result<T> = std::result::Result<T, Error>;
+type Result<T> = std::result::Result<T, JsonRpcError>;
 
 impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
     async fn add_node(&self, node: String, command: String, v2transport: bool) -> Result<Value> {
         let node = node.split(':').collect::<Vec<&str>>();
         let (ip, port) = if node.len() == 2 {
-            (node[0], node[1].parse().map_err(|_| Error::InvalidPort)?)
+            (
+                node[0],
+                node[1].parse().map_err(|_| JsonRpcError::InvalidPort)?,
+            )
         } else {
             match self.network {
                 Network::Bitcoin => (node[0], 8333),
                 Network::Testnet => (node[0], 18333),
                 Network::Regtest => (node[0], 18444),
                 Network::Signet => (node[0], 38333),
-                _ => return Err(Error::InvalidNetwork),
+                _ => return Err(JsonRpcError::InvalidNetwork),
             }
         };
 
-        let peer = ip.parse().map_err(|_| Error::InvalidAddress)?;
+        let peer = ip.parse().map_err(|_| JsonRpcError::InvalidAddress)?;
 
         let _ = match command.as_str() {
             "add" => self.node.add_peer(peer, port, v2transport).await,
             "remove" => self.node.remove_peer(peer, port).await,
             "onetry" => self.node.onetry_peer(peer, port, v2transport).await,
-            _ => return Err(Error::InvalidAddnodeCommand),
+            _ => return Err(JsonRpcError::InvalidAddnodeCommand),
         };
 
         Ok(json!(null))
@@ -104,20 +107,23 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
 
     fn get_transaction(&self, tx_id: Txid, verbosity: Option<bool>) -> Result<Value> {
         if verbosity == Some(true) {
-            let tx = self.wallet.get_transaction(&tx_id).ok_or(Error::TxNotFound);
+            let tx = self
+                .wallet
+                .get_transaction(&tx_id)
+                .ok_or(JsonRpcError::TxNotFound);
             return tx.map(|tx| serde_json::to_value(self.make_raw_transaction(tx)).unwrap());
         }
 
         self.wallet
             .get_transaction(&tx_id)
             .and_then(|tx| serde_json::to_value(self.make_raw_transaction(tx)).ok())
-            .ok_or(Error::TxNotFound)
+            .ok_or(JsonRpcError::TxNotFound)
     }
 
     fn load_descriptor(&self, descriptor: String) -> Result<bool> {
         let desc = slice::from_ref(&descriptor);
         let Ok(mut parsed) = parse_descriptors(desc) else {
-            return Err(Error::InvalidDescriptor);
+            return Err(JsonRpcError::InvalidDescriptor);
         };
 
         // It's ok to unwrap because we know there is at least one element in the vector
@@ -138,7 +144,7 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
         let addresses = self.wallet.get_cached_addresses();
         let wallet = self.wallet.clone();
         if self.block_filter_storage.is_none() {
-            return Err(Error::InInitialBlockDownload);
+            return Err(JsonRpcError::InInitialBlockDownload);
         };
 
         let cfilters = self.block_filter_storage.as_ref().unwrap().clone();
@@ -155,13 +161,13 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
     fn rescan(&self, _rescan: u32) -> Result<bool> {
         // if we are on ibd, we don't have any filters to rescan
         if self.chain.is_in_ibd() {
-            return Err(Error::InInitialBlockDownload);
+            return Err(JsonRpcError::InInitialBlockDownload);
         }
 
         let addresses = self.wallet.get_cached_addresses();
         let wallet = self.wallet.clone();
         if self.block_filter_storage.is_none() {
-            return Err(Error::InInitialBlockDownload);
+            return Err(JsonRpcError::InInitialBlockDownload);
         };
 
         let cfilters = self.block_filter_storage.as_ref().unwrap().clone();
@@ -176,9 +182,9 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
     }
 
     fn send_raw_transaction(&self, tx: String) -> Result<Txid> {
-        let tx_hex = Vec::from_hex(&tx).map_err(|_| Error::InvalidHex)?;
-        let tx = deserialize(&tx_hex).map_err(|e| Error::Decode(e.to_string()))?;
-        self.chain.broadcast(&tx).map_err(|_| Error::Chain)?;
+        let tx_hex = Vec::from_hex(&tx).map_err(|_| JsonRpcError::InvalidHex)?;
+        let tx = deserialize(&tx_hex).map_err(|e| JsonRpcError::Decode(e.to_string()))?;
+        self.chain.broadcast(&tx).map_err(|_| JsonRpcError::Chain)?;
 
         Ok(tx.compute_txid())
     }
@@ -187,7 +193,7 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
         self.node
             .get_peer_info()
             .await
-            .map_err(|_| Error::Node("Failed to get peer info".to_string()))
+            .map_err(|_| JsonRpcError::Node("Failed to get peer info".to_string()))
     }
 }
 
@@ -195,13 +201,15 @@ async fn handle_json_rpc_request(
     req: Value,
     state: Arc<RpcImpl<impl RpcChain>>,
 ) -> Result<serde_json::Value> {
-    let method = req["method"].as_str().ok_or(Error::MethodNotFound)?;
-    let params = req["params"].as_array().ok_or(Error::MissingParams)?;
-    let version = req["jsonrpc"].as_str().ok_or(Error::MissingReq)?;
+    let method = req["method"].as_str().ok_or(JsonRpcError::MethodNotFound)?;
+    let params = req["params"]
+        .as_array()
+        .ok_or(JsonRpcError::MissingParams)?;
+    let version = req["jsonrpc"].as_str().ok_or(JsonRpcError::MissingReq)?;
     let id = req["id"].clone();
 
     if version != "2.0" {
-        return Err(Error::InvalidRequest);
+        return Err(JsonRpcError::InvalidRequest);
     }
 
     state.inflight.write().await.insert(
@@ -220,8 +228,8 @@ async fn handle_json_rpc_request(
         }
 
         "getblock" => {
-            let hash = BlockHash::from_str(params[0].as_str().ok_or(Error::InvalidHash)?)
-                .map_err(|_| Error::InvalidHash)?;
+            let hash = BlockHash::from_str(params[0].as_str().ok_or(JsonRpcError::InvalidHash)?)
+                .map_err(|_| JsonRpcError::InvalidHash)?;
             let verbosity = params.get(1).map(|v| v.as_u64().unwrap() as u8);
 
             match verbosity {
@@ -237,7 +245,7 @@ async fn handle_json_rpc_request(
                     let block = GetBlockRes::Verbose(block.into());
                     Ok(serde_json::to_value(block).unwrap())
                 }
-                _ => Err(Error::InvalidVerbosityLevel),
+                _ => Err(JsonRpcError::InvalidVerbosityLevel),
             }
         }
 
@@ -250,8 +258,8 @@ async fn handle_json_rpc_request(
             .map(|v| ::serde_json::to_value(v).unwrap()),
 
         "getblockfrompeer" => {
-            let hash = BlockHash::from_str(params[0].as_str().ok_or(Error::InvalidHash)?)
-                .map_err(|_| Error::InvalidHash)?;
+            let hash = BlockHash::from_str(params[0].as_str().ok_or(JsonRpcError::InvalidHash)?)
+                .map_err(|_| JsonRpcError::InvalidHash)?;
             state
                 .get_block(hash)
                 .await
@@ -259,24 +267,24 @@ async fn handle_json_rpc_request(
         }
 
         "getblockhash" => {
-            let height = params[0].as_u64().ok_or(Error::InvalidHeight)? as u32;
+            let height = params[0].as_u64().ok_or(JsonRpcError::InvalidHeight)? as u32;
             state
                 .get_block_hash(height)
                 .map(|h| ::serde_json::to_value(h).unwrap())
         }
 
         "getblockheader" => {
-            let hash = BlockHash::from_str(params[0].as_str().ok_or(Error::InvalidHash)?)
-                .map_err(|_| Error::InvalidHash)?;
+            let hash = BlockHash::from_str(params[0].as_str().ok_or(JsonRpcError::InvalidHash)?)
+                .map_err(|_| JsonRpcError::InvalidHash)?;
             state
                 .get_block_header(hash)
                 .map(|h| ::serde_json::to_value(h).unwrap())
         }
 
         "gettxout" => {
-            let txid = Txid::from_str(params[0].as_str().ok_or(Error::InvalidHash)?)
-                .map_err(|_| Error::InvalidHash)?;
-            let vout = params[1].as_u64().ok_or(Error::InvalidVout)? as u32;
+            let txid = Txid::from_str(params[0].as_str().ok_or(JsonRpcError::InvalidHash)?)
+                .map_err(|_| JsonRpcError::InvalidHash)?;
+            let vout = params[1].as_u64().ok_or(JsonRpcError::InvalidVout)? as u32;
             state
                 .get_tx_out(txid, vout)
                 .map(|v| ::serde_json::to_value(v).unwrap())
@@ -284,14 +292,14 @@ async fn handle_json_rpc_request(
 
         "gettxoutproof" => {
             let txids: Vec<Txid> =
-                serde_json::from_value(params[0].clone()).map_err(|_| Error::InvalidHash)?;
+                serde_json::from_value(params[0].clone()).map_err(|_| JsonRpcError::InvalidHash)?;
 
             let blockhash = params
                 .get(1)
                 .cloned()
                 .map(serde_json::from_value)
                 .transpose()
-                .map_err(|_| Error::InvalidBlockHash)?;
+                .map_err(|_| JsonRpcError::InvalidBlockHash)?;
 
             Ok(serde_json::to_value(
                 state
@@ -304,8 +312,8 @@ async fn handle_json_rpc_request(
         }
 
         "getrawtransaction" => {
-            let txid = Txid::from_str(params[0].as_str().ok_or(Error::InvalidHash)?)
-                .map_err(|_| Error::InvalidHash)?;
+            let txid = Txid::from_str(params[0].as_str().ok_or(JsonRpcError::InvalidHash)?)
+                .map_err(|_| JsonRpcError::InvalidHash)?;
             let verbosity = params.get(1).map(|v| v.as_bool().unwrap());
             state
                 .get_transaction(txid, verbosity)
@@ -317,12 +325,12 @@ async fn handle_json_rpc_request(
             .map(|v| ::serde_json::to_value(v).unwrap()),
 
         "findtxout" => {
-            let txid = Txid::from_str(params[0].as_str().ok_or(Error::InvalidHash)?)
-                .map_err(|_| Error::InvalidHash)?;
-            let vout = params[1].as_u64().ok_or(Error::InvalidVout)? as u32;
-            let script = ScriptBuf::from_hex(params[2].as_str().ok_or(Error::InvalidHex)?)
-                .map_err(|_| Error::InvalidScript)?;
-            let height = params[3].as_u64().ok_or(Error::InvalidHeight)? as u32;
+            let txid = Txid::from_str(params[0].as_str().ok_or(JsonRpcError::InvalidHash)?)
+                .map_err(|_| JsonRpcError::InvalidHash)?;
+            let vout = params[1].as_u64().ok_or(JsonRpcError::InvalidVout)? as u32;
+            let script = ScriptBuf::from_hex(params[2].as_str().ok_or(JsonRpcError::InvalidHex)?)
+                .map_err(|_| JsonRpcError::InvalidScript)?;
+            let height = params[3].as_u64().ok_or(JsonRpcError::InvalidHeight)? as u32;
 
             let state = state.clone();
             state.find_tx_out(txid, vout, script, height).await
@@ -361,8 +369,10 @@ async fn handle_json_rpc_request(
             .map(|v| ::serde_json::to_value(v).unwrap()),
 
         "addnode" => {
-            let node = params[0].as_str().ok_or(Error::InvalidAddress)?;
-            let command = params[1].as_str().ok_or(Error::InvalidAddnodeCommand)?;
+            let node = params[0].as_str().ok_or(JsonRpcError::InvalidAddress)?;
+            let command = params[1]
+                .as_str()
+                .ok_or(JsonRpcError::InvalidAddnodeCommand)?;
             let v2transport = params[2].as_bool().unwrap_or(false);
 
             state
@@ -379,21 +389,21 @@ async fn handle_json_rpc_request(
 
         // wallet
         "loaddescriptor" => {
-            let descriptor = params[0].as_str().ok_or(Error::InvalidDescriptor)?;
+            let descriptor = params[0].as_str().ok_or(JsonRpcError::InvalidDescriptor)?;
             state
                 .load_descriptor(descriptor.to_string())
                 .map(|v| ::serde_json::to_value(v).unwrap())
         }
 
         "rescanblockchain" => {
-            let rescan = params[0].as_u64().ok_or(Error::InvalidHeight)?;
+            let rescan = params[0].as_u64().ok_or(JsonRpcError::InvalidHeight)?;
             state
                 .rescan(rescan as u32)
                 .map(|v| ::serde_json::to_value(v).unwrap())
         }
 
         "sendrawtransaction" => {
-            let tx = params[0].as_str().ok_or(Error::InvalidHex)?;
+            let tx = params[0].as_str().ok_or(JsonRpcError::InvalidHex)?;
             state
                 .send_raw_transaction(tx.to_string())
                 .map(|v| ::serde_json::to_value(v).unwrap())
@@ -404,79 +414,81 @@ async fn handle_json_rpc_request(
             .map(|v| ::serde_json::to_value(v).unwrap()),
 
         _ => {
-            let error = Error::MethodNotFound;
+            let error = JsonRpcError::MethodNotFound;
             Err(error)
         }
     }
 }
 
-fn get_http_error_code(err: &Error) -> u16 {
+fn get_http_error_code(err: &JsonRpcError) -> u16 {
     match err {
         // you messed up
-        Error::InvalidHex
-        | Error::InvalidBlockHash
-        | Error::InvalidHash
-        | Error::InvalidAddress
-        | Error::InvalidScript
-        | Error::InvalidRequest
-        | Error::InvalidVout
-        | Error::InvalidPort
-        | Error::InvalidHeight
-        | Error::InvalidDescriptor
-        | Error::InvalidNetwork
-        | Error::InvalidVerbosityLevel
-        | Error::Decode(_)
-        | Error::MissingParams
-        | Error::MissingReq
-        | Error::NoBlockFilters
-        | Error::InvalidMemInfoMode
-        | Error::InvalidAddnodeCommand
-        | Error::Wallet(_) => 400,
+        JsonRpcError::InvalidHex
+        | JsonRpcError::InvalidBlockHash
+        | JsonRpcError::InvalidHash
+        | JsonRpcError::InvalidAddress
+        | JsonRpcError::InvalidScript
+        | JsonRpcError::InvalidRequest
+        | JsonRpcError::InvalidVout
+        | JsonRpcError::InvalidPort
+        | JsonRpcError::InvalidHeight
+        | JsonRpcError::InvalidDescriptor
+        | JsonRpcError::InvalidNetwork
+        | JsonRpcError::InvalidVerbosityLevel
+        | JsonRpcError::Decode(_)
+        | JsonRpcError::MissingParams
+        | JsonRpcError::MissingReq
+        | JsonRpcError::NoBlockFilters
+        | JsonRpcError::InvalidMemInfoMode
+        | JsonRpcError::InvalidAddnodeCommand
+        | JsonRpcError::Wallet(_) => 400,
 
         // idunnolol
-        Error::MethodNotFound | Error::BlockNotFound | Error::TxNotFound => 404,
+        JsonRpcError::MethodNotFound | JsonRpcError::BlockNotFound | JsonRpcError::TxNotFound => {
+            404
+        }
 
         // we messed up, sowwy
-        Error::InInitialBlockDownload
-        | Error::Node(_)
-        | Error::Chain
-        | Error::Encode
-        | Error::Filters(_) => 503,
+        JsonRpcError::InInitialBlockDownload
+        | JsonRpcError::Node(_)
+        | JsonRpcError::Chain
+        | JsonRpcError::Encode
+        | JsonRpcError::Filters(_) => 503,
     }
 }
 
-fn get_json_rpc_error_code(err: &Error) -> i32 {
+fn get_json_rpc_error_code(err: &JsonRpcError) -> i32 {
     match err {
         // Parse Error
-        Error::Decode(_) | Error::MissingReq | Error::MissingParams => -32700,
+        JsonRpcError::Decode(_) | JsonRpcError::MissingReq | JsonRpcError::MissingParams => -32700,
 
         // Invalid Request
-        Error::InvalidHex
-        | Error::InvalidBlockHash
-        | Error::InvalidHash
-        | Error::InvalidAddress
-        | Error::InvalidScript
-        | Error::MethodNotFound
-        | Error::InvalidRequest
-        | Error::InvalidVout
-        | Error::InvalidPort
-        | Error::InvalidHeight
-        | Error::InvalidDescriptor
-        | Error::InvalidNetwork
-        | Error::InvalidVerbosityLevel
-        | Error::TxNotFound
-        | Error::BlockNotFound
-        | Error::InvalidMemInfoMode
-        | Error::InvalidAddnodeCommand
-        | Error::Wallet(_) => -32600,
+        JsonRpcError::InvalidHex
+        | JsonRpcError::InvalidBlockHash
+        | JsonRpcError::InvalidHash
+        | JsonRpcError::InvalidAddress
+        | JsonRpcError::InvalidScript
+        | JsonRpcError::MethodNotFound
+        | JsonRpcError::InvalidRequest
+        | JsonRpcError::InvalidVout
+        | JsonRpcError::InvalidPort
+        | JsonRpcError::InvalidHeight
+        | JsonRpcError::InvalidDescriptor
+        | JsonRpcError::InvalidNetwork
+        | JsonRpcError::InvalidVerbosityLevel
+        | JsonRpcError::TxNotFound
+        | JsonRpcError::BlockNotFound
+        | JsonRpcError::InvalidMemInfoMode
+        | JsonRpcError::InvalidAddnodeCommand
+        | JsonRpcError::Wallet(_) => -32600,
 
         // server error
-        Error::InInitialBlockDownload
-        | Error::Node(_)
-        | Error::Chain
-        | Error::Encode
-        | Error::NoBlockFilters
-        | Error::Filters(_) => -32603,
+        JsonRpcError::InInitialBlockDownload
+        | JsonRpcError::Node(_)
+        | JsonRpcError::Chain
+        | JsonRpcError::Encode
+        | JsonRpcError::NoBlockFilters
+        | JsonRpcError::Filters(_) => -32603,
     }
 }
 
