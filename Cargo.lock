@@ -1100,6 +1100,7 @@ dependencies = [
  "floresta-chain",
  "floresta-wire",
  "libfuzzer-sys",
+ "rand",
 ]
 
 [[package]]
