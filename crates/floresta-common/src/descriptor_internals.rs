@@ -16,7 +16,7 @@ use serde::Serializer;
 
 use crate::prelude::*;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum DescriptorError {
     InvalidDescriptor,
 
@@ -93,7 +93,7 @@ pub fn handle_descriptors_requests(
     for request in requests {
         rescan_request = rescan_request.check_override(&request.timestamp);
 
-        match request.into_blown_descriptors() {
+        match request.into_concrete_descriptors() {
             Ok(batch) => {
                 for desc in batch {
                     descriptors.push(desc);
@@ -259,26 +259,27 @@ pub struct DescriptorRequest {
 // These defaults can be util.
 impl Default for DescriptorRequest {
     fn default() -> Self {
-        const DEFAULT_P2PK_DESCRIPTOR: &str =
-            "pk(0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798)";
+        const DEFAULT_PKH_DESCRIPTOR: &str =
+            "pkh([d34db33f/44'/0'/0']xpub6ERApfZwUNrhLCkDtcHTcxd75RbzS1ed54G1LkBUHQVHQKqhMkhgbmJbZRkrgZw4koxb5JaHWkY4ALHY2grBGRjaDMzQLcgJvLJuZZvRcEL/*)";
         Self {
-            desc: DEFAULT_P2PK_DESCRIPTOR.to_string(),
+            desc: DEFAULT_PKH_DESCRIPTOR.to_string(),
             active: false,
             range: DerivationRange::default(),
             next_index: None,
             timestamp: RescanRequest::Full,
-            label: DEFAULT_P2PK_DESCRIPTOR.to_string(),
+            label: DEFAULT_PKH_DESCRIPTOR.to_string(),
             internal: false,
         }
     }
 }
 
 impl DescriptorRequest {
+    
     /// Consume the [`DescriptorRequest`] into a [`ConcreteDescriptor`].
     ///
     /// The return is a Vec of it because a Descriptor request may yield more than one
-    /// decriptor while being a ranged one.
-    pub fn into_blown_descriptors(self) -> Result<Vec<ConcreteDescriptor>, DescriptorError> {
+    /// descriptor while being a ranged one.
+    pub fn into_concrete_descriptors(self) -> Result<Vec<ConcreteDescriptor>, DescriptorError> {
         self.range
             .range()
             .map(|index| {

@@ -189,7 +189,10 @@ pub trait AddressCacheDatabase {
     ///
     /// The return may not be complete since not founding certain descriptors is not
     /// an error itself but returning none is.
-    fn desc_get_batch(&self, batch: &[DescriptorId]) -> Result<Vec<ConcreteDescriptor>, Self::Error>;
+    fn desc_get_batch(
+        &self,
+        batch: &[DescriptorId],
+    ) -> Result<Vec<ConcreteDescriptor>, Self::Error>;
     /// Delete a descriptor from the database by a matching [`DescriptorId`]
     fn desc_delete(&self, one: &DescriptorId) -> Result<ConcreteDescriptor, Self::Error>;
     /// Batch delete descriptors from the database by matching [`DescriptorId`]s
@@ -805,11 +808,14 @@ where
 
         Ok(inner
             .database
-            .desc_insert_batch(blown.into_blown_descriptors()?)?)
+            .desc_insert_batch(blown.into_concrete_descriptors()?)?)
     }
 
     /// Inserts a [`ConcreteDescriptor`] into the wallet
-    pub fn push_descriptor_blown(&self, request: &ConcreteDescriptor) -> Result<(), WatchOnlyError> {
+    pub fn push_descriptor_blown(
+        &self,
+        request: &ConcreteDescriptor,
+    ) -> Result<(), WatchOnlyError> {
         let inner = self.inner.write().expect("poisoned lock");
         inner.database.desc_insert(request.clone())?;
         Ok(())
