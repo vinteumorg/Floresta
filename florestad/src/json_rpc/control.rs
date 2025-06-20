@@ -1,12 +1,12 @@
 use serde::Deserialize;
 use serde::Serialize;
 
-use super::res::Error;
+use super::res::JsonRpcError;
 use super::server::RpcChain;
 use super::server::RpcImpl;
 
 impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
-    pub(super) fn get_memory_info(&self, mode: &str) -> Result<GetMemInfoRes, Error> {
+    pub(super) fn get_memory_info(&self, mode: &str) -> Result<GetMemInfoRes, JsonRpcError> {
         #[cfg(target_env = "gnu")]
         match mode {
             // only available for glibc
@@ -44,7 +44,7 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
                 Ok(GetMemInfoRes::MallocInfo(info_str))
             }
 
-            _ => Err(Error::InvalidMemInfoMode),
+            _ => Err(JsonRpcError::InvalidMemInfoMode),
         }
 
         #[cfg(not(target_env = "gnu"))]
@@ -52,11 +52,11 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
         match mode {
             "stats" => Ok(GetMemInfoRes::Stats(GetMemInfoStats::default())),
             "mallocinfo" => Ok(GetMemInfoRes::MallocInfo(String::new())),
-            _ => Err(Error::InvalidMemInfoMode),
+            _ => Err(JsonRpcError::InvalidMemInfoMode),
         }
     }
 
-    pub(super) async fn get_rpc_info(&self) -> Result<GetRpcInfoRes, Error> {
+    pub(super) async fn get_rpc_info(&self) -> Result<GetRpcInfoRes, JsonRpcError> {
         let active_commands = self
             .inflight
             .read()
@@ -80,7 +80,7 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
     // logging
 
     // stop
-    pub(super) async fn stop(&self) -> Result<&str, Error> {
+    pub(super) async fn stop(&self) -> Result<&str, JsonRpcError> {
         *self.kill_signal.write().await = true;
 
         Ok("Floresta stopping")
