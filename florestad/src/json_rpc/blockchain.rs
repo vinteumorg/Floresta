@@ -11,16 +11,15 @@ use bitcoin::Txid;
 use serde_json::json;
 use serde_json::Value;
 
-use super::res::Error as RpcError;
-use super::res::Error;
 use super::res::GetBlockResVerbose;
 use super::res::GetBlockchainInfoRes;
 use super::res::GetTxOutProof;
+use super::res::JsonRpcError;
 use super::server::RpcChain;
 use super::server::RpcImpl;
 
 impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
-    async fn get_block_inner(&self, hash: BlockHash) -> Result<Block, RpcError> {
+    async fn get_block_inner(&self, hash: BlockHash) -> Result<Block, JsonRpcError> {
         let is_genesis = self.chain.get_block_hash(0).unwrap().eq(&hash);
 
         if is_genesis {
@@ -30,17 +29,20 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
         self.node
             .get_block(hash)
             .await
-            .map_err(|e| RpcError::Node(e.to_string()))
-            .and_then(|block| block.ok_or(RpcError::BlockNotFound))
+            .map_err(|e| JsonRpcError::Node(e.to_string()))
+            .and_then(|block| block.ok_or(JsonRpcError::BlockNotFound))
     }
 
     /// Return the block that contains the given Txid
-    pub fn get_block_by_txid(&self, txid: &Txid) -> Result<Block, RpcError> {
-        let height = self.wallet.get_height(txid).ok_or(RpcError::TxNotFound)?;
+    pub fn get_block_by_txid(&self, txid: &Txid) -> Result<Block, JsonRpcError> {
+        let height = self
+            .wallet
+            .get_height(txid)
+            .ok_or(JsonRpcError::TxNotFound)?;
         let blockhash = self.chain.get_block_hash(height).unwrap();
         self.chain
             .get_block(&blockhash)
-            .map_err(|_| RpcError::BlockNotFound)
+            .map_err(|_| JsonRpcError::BlockNotFound)
     }
 }
 
@@ -49,18 +51,21 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
     // dumputxoutset
 
     // getbestblockhash
-    pub(super) fn get_best_block_hash(&self) -> Result<BlockHash, RpcError> {
+    pub(super) fn get_best_block_hash(&self) -> Result<BlockHash, JsonRpcError> {
         Ok(self.chain.get_best_block().unwrap().1)
     }
 
     // getblock
-    pub(super) async fn get_block(&self, hash: BlockHash) -> Result<GetBlockResVerbose, RpcError> {
+    pub(super) async fn get_block(
+        &self,
+        hash: BlockHash,
+    ) -> Result<GetBlockResVerbose, JsonRpcError> {
         let block = self.get_block_inner(hash).await?;
-        let tip = self.chain.get_height().map_err(|_| RpcError::Chain)?;
+        let tip = self.chain.get_height().map_err(|_| JsonRpcError::Chain)?;
         let height = self
             .chain
             .get_block_height(&hash)
-            .map_err(|_| RpcError::Chain)?
+            .map_err(|_| JsonRpcError::Chain)?
             .unwrap();
 
         let median_time_past = if height > 11 {
@@ -111,13 +116,16 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
         Ok(block)
     }
 
-    pub(super) async fn get_block_serialized(&self, hash: BlockHash) -> Result<String, RpcError> {
+    pub(super) async fn get_block_serialized(
+        &self,
+        hash: BlockHash,
+    ) -> Result<String, JsonRpcError> {
         let block = self.get_block_inner(hash).await?;
         Ok(serialize_hex(&block))
     }
 
     // getblockchaininfo
-    pub(super) fn get_blockchain_info(&self) -> Result<GetBlockchainInfoRes, RpcError> {
+    pub(super) fn get_blockchain_info(&self) -> Result<GetBlockchainInfoRes, JsonRpcError> {
         let (height, hash) = self.chain.get_best_block().unwrap();
         let validated = self.chain.get_validation_index().unwrap();
         let ibd = self.chain.is_in_ibd();
@@ -153,7 +161,7 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
     }
 
     // getblockcount
-    pub(super) fn get_block_count(&self) -> Result<u32, RpcError> {
+    pub(super) fn get_block_count(&self) -> Result<u32, JsonRpcError> {
         Ok(self.chain.get_height().unwrap())
     }
 
@@ -161,17 +169,17 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
     // getblockfrompeer (just call getblock)
 
     // getblockhash
-    pub(super) fn get_block_hash(&self, height: u32) -> Result<BlockHash, RpcError> {
+    pub(super) fn get_block_hash(&self, height: u32) -> Result<BlockHash, JsonRpcError> {
         self.chain
             .get_block_hash(height)
-            .map_err(|_| RpcError::BlockNotFound)
+            .map_err(|_| JsonRpcError::BlockNotFound)
     }
 
     // getblockheader
-    pub(super) fn get_block_header(&self, hash: BlockHash) -> Result<Header, RpcError> {
+    pub(super) fn get_block_header(&self, hash: BlockHash) -> Result<Header, JsonRpcError> {
         self.chain
             .get_block_header(&hash)
-            .map_err(|_| RpcError::BlockNotFound)
+            .map_err(|_| JsonRpcError::BlockNotFound)
     }
 
     // getblockstats
@@ -186,7 +194,7 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
     // getmempoolinfo
     // getrawmempool
     // gettxout
-    pub(super) fn get_tx_out(&self, txid: Txid, outpoint: u32) -> Result<Value, RpcError> {
+    pub(super) fn get_tx_out(&self, txid: Txid, outpoint: u32) -> Result<Value, JsonRpcError> {
         let utxo = self.wallet.get_utxo(&OutPoint {
             txid,
             vout: outpoint,
@@ -197,7 +205,7 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
             None => Ok(json!({})),
         };
 
-        res.map_err(|_e| RpcError::Encode)
+        res.map_err(|_e| JsonRpcError::Encode)
     }
 
     /// Computes the necessary information for the RPC `gettxoutproof [txids] blockhash (optional)`
@@ -207,14 +215,14 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
     /// Specifying the blockhash will make this function go after the block and search
     /// for the transactions inside it, building a merkle proof from the block with its
     /// indexes. Not specifying will redirect it to search for the merkle proof on our
-    /// Watch-only wallet which may not have the transaction cached, returning [`RpcError::UncertainTxNotFound`].
+    /// Watch-only wallet which may not have the transaction cached, returning [`JsonRpcError::UncertainTxNotFound`].
     ///
-    /// Not founding one of the specified transactions will raise [`RpcError::TxNotFound`].
+    /// Not founding one of the specified transactions will raise [`JsonRpcError::TxNotFound`].
     pub(super) async fn get_txout_proof(
         &self,
         tx_ids: &[Txid],
         blockhash: Option<BlockHash>,
-    ) -> Result<GetTxOutProof, RpcError> {
+    ) -> Result<GetTxOutProof, JsonRpcError> {
         let block = match blockhash {
             Some(blockhash) => self.get_block_inner(blockhash).await?,
             // Using the first Txid to get the block should be fine since they are expected to all
@@ -242,7 +250,7 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
             .collect();
 
         if targeted_txids.len() != tx_ids.len() {
-            return Err(RpcError::TxNotFound);
+            return Err(JsonRpcError::TxNotFound);
         };
 
         let merkle_block = MerkleBlock::from_block_with_predicate(&block, |tx| tx_ids.contains(tx));
@@ -273,19 +281,19 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
         vout: u32,
         script: ScriptBuf,
         height: u32,
-    ) -> Result<Value, RpcError> {
+    ) -> Result<Value, JsonRpcError> {
         if let Some(txout) = self.wallet.get_utxo(&OutPoint { txid, vout }) {
             return Ok(serde_json::to_value(txout).unwrap());
         }
 
         // if we are on IBD, we don't have any filters to find this txout.
         if self.chain.is_in_ibd() {
-            return Err(RpcError::InInitialBlockDownload);
+            return Err(JsonRpcError::InInitialBlockDownload);
         }
 
         // can't proceed without block filters
         let Some(cfilters) = self.block_filter_storage.as_ref() else {
-            return Err(RpcError::NoBlockFilters);
+            return Err(JsonRpcError::NoBlockFilters);
         };
 
         self.wallet.cache_address(script.clone());
@@ -296,16 +304,16 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
                 Some(height as usize),
                 self.chain.clone(),
             )
-            .map_err(|e| RpcError::Filters(e.to_string()))?;
+            .map_err(|e| JsonRpcError::Filters(e.to_string()))?;
 
         for candidate in candidates {
             let candidate = self.node.get_block(candidate).await;
             let candidate = match candidate {
                 Err(e) => {
-                    return Err(RpcError::Node(e.to_string()));
+                    return Err(JsonRpcError::Node(e.to_string()));
                 }
                 Ok(None) => {
-                    return Err(RpcError::Node(format!(
+                    return Err(JsonRpcError::Node(format!(
                         "BUG: block {candidate:?} is a match in our filters, but we can't get it?"
                     )));
                 }
@@ -313,7 +321,7 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
             };
 
             let Ok(Some(height)) = self.chain.get_block_height(&candidate.block_hash()) else {
-                return Err(RpcError::BlockNotFound);
+                return Err(JsonRpcError::BlockNotFound);
             };
 
             self.wallet.block_process(&candidate, height);
@@ -323,16 +331,16 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
     }
 
     // getroots
-    pub(super) fn get_roots(&self) -> Result<Vec<String>, RpcError> {
+    pub(super) fn get_roots(&self) -> Result<Vec<String>, JsonRpcError> {
         let hashes = self.chain.get_root_hashes();
         Ok(hashes.iter().map(|h| h.to_string()).collect())
     }
 
-    pub(super) fn list_descriptors(&self) -> Result<Vec<String>, Error> {
+    pub(super) fn list_descriptors(&self) -> Result<Vec<String>, JsonRpcError> {
         let descriptors = self
             .wallet
             .get_descriptors()
-            .map_err(|e| Error::Wallet(e.to_string()))?;
+            .map_err(|e| JsonRpcError::Wallet(e.to_string()))?;
         Ok(descriptors)
     }
 }
