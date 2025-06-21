@@ -716,7 +716,10 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
         });
 
         let listener = match tokio::net::TcpListener::bind(address).await {
-            Ok(listener) => listener,
+            Ok(listener) => {
+                info!("RPC server running on: {address}");
+                listener
+            }
             Err(_) => {
                 error!(
                     "Failed to bind to address {address}. Floresta is probably already running.",

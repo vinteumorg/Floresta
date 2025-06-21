@@ -632,7 +632,7 @@ impl Florestad {
                 }
             };
 
-            info!("TLS server running on: {ssl_e_addr}");
+            info!("Electrum TLS server running on: {ssl_e_addr}");
             task::spawn(client_accept_loop(
                 tls_listener,
                 electrum_server.message_transmitter.clone(),
@@ -642,7 +642,7 @@ impl Florestad {
 
         // Electrum main loop
         task::spawn(electrum_server.main_loop());
-        info!("Server running on: {e_addr}");
+        info!("Electrum server running on: {e_addr}");
 
         // Chain provider
         let (sender, receiver) = oneshot::channel();
