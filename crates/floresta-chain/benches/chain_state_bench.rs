@@ -17,8 +17,11 @@ use floresta_chain::pruned_utreexo::utxo_data::UtxoData;
 use floresta_chain::pruned_utreexo::UpdatableChainstate;
 use floresta_chain::AssumeValidArg;
 use floresta_chain::ChainState;
+#[cfg(feature = "flat-chainstore")]
 use floresta_chain::FlatChainStore;
+#[cfg(feature = "flat-chainstore")]
 use floresta_chain::FlatChainStoreConfig;
+#[cfg(feature = "kv-chainstore")]
 use floresta_chain::KvChainStore;
 use rustreexo::accumulator::proof::Proof;
 
@@ -34,6 +37,7 @@ fn read_blocks_txt() -> Vec<Block> {
     blocks
 }
 
+#[cfg(feature = "kv-chainstore")]
 fn setup_test_chain<'a>(
     network: Network,
     assume_valid_arg: AssumeValidArg,
@@ -43,7 +47,8 @@ fn setup_test_chain<'a>(
     ChainState::new(chainstore, network, assume_valid_arg)
 }
 
-fn setup_test_chain_flat(
+#[cfg(feature = "flat-chainstore")]
+fn setup_test_chain(
     network: Network,
     assume_valid_arg: AssumeValidArg,
 ) -> ChainState<FlatChainStore> {
@@ -98,21 +103,9 @@ fn accept_mainnet_headers_benchmark(c: &mut Criterion) {
         headers.push(header);
     }
 
-    c.bench_function("accept_10k_mainnet_headers_kv", |b| {
+    c.bench_function("accept_10k_mainnet_headers", |b| {
         b.iter_batched(
             || setup_test_chain(Network::Bitcoin, AssumeValidArg::Hardcoded),
-            |chain| {
-                headers
-                    .iter()
-                    .for_each(|header| chain.accept_header(*header).unwrap())
-            },
-            BatchSize::SmallInput,
-        )
-    });
-
-    c.bench_function("accept_10k_mainnet_headers_flat", |b| {
-        b.iter_batched(
-            || setup_test_chain_flat(Network::Bitcoin, AssumeValidArg::Hardcoded),
             |chain| {
                 headers
                     .iter()
@@ -126,21 +119,9 @@ fn accept_mainnet_headers_benchmark(c: &mut Criterion) {
 fn accept_headers_benchmark(c: &mut Criterion) {
     let blocks = read_blocks_txt();
 
-    c.bench_function("accept_150_headers_kv", |b| {
+    c.bench_function("accept_150_headers", |b| {
         b.iter_batched(
             || setup_test_chain(Network::Regtest, AssumeValidArg::Disabled),
-            |chain| {
-                blocks
-                    .iter()
-                    .for_each(|block| chain.accept_header(block.header).unwrap());
-            },
-            BatchSize::SmallInput,
-        )
-    });
-
-    c.bench_function("accept_150_headers_flat", |b| {
-        b.iter_batched(
-            || setup_test_chain_flat(Network::Regtest, AssumeValidArg::Disabled),
             |chain| {
                 blocks
                     .iter()
@@ -154,7 +135,8 @@ fn accept_headers_benchmark(c: &mut Criterion) {
 fn connect_blocks_benchmark(c: &mut Criterion) {
     let blocks = read_blocks_txt();
 
-    let setup_chain_kv = || {
+    #[cfg(feature = "kv-chainstore")]
+    let setup_chain = || {
         let chain = setup_test_chain(Network::Regtest, AssumeValidArg::Disabled);
         // We need to accept the headers before connecting blocks
         blocks
@@ -164,8 +146,9 @@ fn connect_blocks_benchmark(c: &mut Criterion) {
         chain
     };
 
-    let setup_chain_flat = || {
-        let chain = setup_test_chain_flat(Network::Regtest, AssumeValidArg::Disabled);
+    #[cfg(feature = "flat-chainstore")]
+    let setup_chain = || {
+        let chain = setup_test_chain(Network::Regtest, AssumeValidArg::Disabled);
         // We need to accept the headers before connecting blocks
         blocks
             .iter()
@@ -174,23 +157,9 @@ fn connect_blocks_benchmark(c: &mut Criterion) {
         chain
     };
 
-    c.bench_function("connect_150_blocks_kv", |b| {
+    c.bench_function("connect_150_blocks", |b| {
         b.iter_batched(
-            setup_chain_kv,
-            |chain| {
-                blocks.iter().for_each(|block| {
-                    chain
-                        .connect_block(block, Proof::default(), HashMap::new(), Vec::new())
-                        .unwrap();
-                })
-            },
-            BatchSize::SmallInput,
-        )
-    });
-
-    c.bench_function("connect_150_blocks_flat", |b| {
-        b.iter_batched(
-            setup_chain_flat,
+            setup_chain,
             |chain| {
                 blocks.iter().for_each(|block| {
                     chain
