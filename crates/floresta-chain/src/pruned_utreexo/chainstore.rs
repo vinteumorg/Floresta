@@ -244,8 +244,8 @@ impl ChainStore for KvChainStore<'_> {
         Ok(())
     }
 
-    /// Gets the block header using the provided block hash. If it is on cache, it returns it directly, otherwise
-    /// it fetches it from the database.
+    /// Gets the block header using the provided block hash. If it is on cache, it returns it
+    /// directly, otherwise it fetches it from the database.
     fn get_header(&self, block_hash: &BlockHash) -> Result<Option<DiskBlockHeader>, Self::Error> {
         match self.headers_cache.read().get(block_hash) {
             Some(header) => Ok(Some(*header)),
@@ -256,6 +256,16 @@ impl ChainStore for KvChainStore<'_> {
                     .get(&block_hash)?
                     .and_then(|b| deserialize(&b).ok()))
             }
+        }
+    }
+
+    // Fetches the block header using the provided height. If it is on cache, it returns it
+    // directly, otherwise it fetches it from the database.
+    fn get_header_by_height(&self, height: u32) -> Result<Option<DiskBlockHeader>, Self::Error> {
+        let hash = self.get_block_hash(height)?;
+        match hash {
+            Some(hash) => self.get_header(&hash),
+            None => Ok(None),
         }
     }
 
