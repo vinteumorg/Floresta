@@ -10,7 +10,6 @@ use floresta_cli::jsonrpc_client::Client;
 use floresta_cli::rpc::FlorestaRPC;
 use floresta_cli::rpc_types::AddNodeCommand;
 use floresta_cli::rpc_types::GetBlockRes;
-
 // Main function that runs the CLI application
 fn main() -> anyhow::Result<()> {
     // Parse command line arguments into a Cli struct
@@ -216,7 +215,7 @@ pub enum Methods {
     Stop,
 
     #[doc = include_str!("../../../doc/rpc/addnode.md")]
-    #[command(name = "addnode", long_about = Some(include_str!("../../../doc/rpc/addnode.md")),disable_help_subcommand = true)]
+    #[command(name = "addnode",about = "Attempts to add or remove a node from the list of addnodes", long_about = Some(include_str!("../../../doc/rpc/addnode.md")),disable_help_subcommand = true)]
     AddNode {
         node: String,
         command: AddNodeCommand,
