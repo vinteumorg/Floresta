@@ -197,12 +197,22 @@ Please always create a new rpc documentation under the specified [directory](/do
 
 ```rust
 #[doc = include_str!("../../../doc/rpc/command.md")]
-#[command(name = "addnode", long_about = Some(include_str!("../../../doc/rpc/command.md")),disable_help_subcommand = true)]
-// Some docstring
+#[command(name = "command_name",about = "Write a short description of the command", long_about = Some(include_str!("../../../doc/rpc/command.md")),disable_help_subcommand = true)]
 fn method_name
 ```
 
-We also have `man pages` that can be generated using the script [gen_manpages.sh](/contrib/dist/gen_manpages.sh) for releases/distributions or if you want to generate them locally you can also use the `just convert-all` command.
+Example:
+```rust
+#[doc = include_str!("../../../doc/rpc/addnode.md")]
+#[command(name = "addnode",about = "Attempts to add or remove a node from the list of addnodes", long_about = Some(include_str!("../../../doc/rpc/addnode.md")),disable_help_subcommand = true)]
+AddNode {
+    node: String,
+    command: AddNodeCommand,
+    v2transport: Option<bool>,
+},
+```
+
+We also have `man pages` that can be generated using the script [gen_manpages.sh](/contrib/dist/gen_manpages.sh) for releases/distributions or if you want to generate them locally you can also use the `just gen-manpages` command. This will generate man pages from files at `doc/rpc/*.md` to `doc/man/*.1.gz`. It uses the `pandoc` dependency, so please install it before running the script.
 
 ```bash
 just gen-manpages
