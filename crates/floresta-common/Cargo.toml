@@ -17,7 +17,6 @@ spin = "0.9.8"
 
 # No-std specific dependencies
 hashbrown = { version = "0.15.2" }
-core2 = { version = "0.4.0", default-features = false }
 
 # Optional as descriptors feature
 miniscript = { version = "12", default-features = false, optional = true }
