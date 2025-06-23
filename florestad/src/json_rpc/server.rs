@@ -717,7 +717,10 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
 
         let listener = match tokio::net::TcpListener::bind(address).await {
             Ok(listener) => {
-                info!("RPC server running on: {address}");
+                let local_addr = listener
+                    .local_addr()
+                    .expect("Infallible: listener binding was `Ok`");
+                info!("RPC server running on: {local_addr}");
                 listener
             }
             Err(_) => {
