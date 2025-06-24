@@ -315,6 +315,7 @@ impl<T: JsonRPCClient> FlorestaRPC for T {
         self.call("ping", &[])
     }
 
+    /// TODO same as in `floresta-cli/main.rs`
     fn delete_descriptors(
         &self,
         ids: Vec<DescriptorId>,

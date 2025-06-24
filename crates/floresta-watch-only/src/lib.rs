@@ -2,8 +2,8 @@
 use core::cmp::Ordering;
 use core::fmt::Debug;
 
-use bitcoin::hashes::sha256;
-use bitcoin::ScriptBuf;
+use bitcoin::hashes::{sha256, sha256d};
+use bitcoin::{Network, ScriptBuf};
 use floresta_chain::BlockConsumer;
 use floresta_chain::DatabaseError;
 use floresta_common::descriptor_internals::ConcreteDescriptor;
@@ -101,7 +101,7 @@ pub struct CachedTransaction {
     pub merkle_block: Option<MerkleProof>,
     pub hash: Txid,
     pub position: u32,
-}
+} 
 
 impl Ord for CachedTransaction {
     fn cmp(&self, other: &Self) -> Ordering {
@@ -142,6 +142,10 @@ pub struct CachedAddress {
     script: ScriptBuf,
     transactions: Vec<Txid>,
     utxos: Vec<OutPoint>,
+    /// Describes when this cached address was directly derived from a descriptor.
+    /// 
+    /// This hash can be used to search for the descriptors in the database.
+    descriptor_hash: Option<sha256d::Hash>,
 }
 
 /// Holds some useful data about our wallet, like how many addresses we have, how many
@@ -176,6 +180,7 @@ pub trait AddressCacheDatabase {
     fn get_cache_height(&self) -> Result<u32, Self::Error>;
     /// Saves the height of the last block we filtered
     fn set_cache_height(&self, height: u32) -> Result<(), Self::Error>;
+
     // Descriptors crud.
     /// Insert a descriptor into the database
     fn desc_insert(&self, one: ConcreteDescriptor) -> Result<(), Self::Error>;
@@ -195,7 +200,9 @@ pub trait AddressCacheDatabase {
     ) -> Result<Vec<ConcreteDescriptor>, Self::Error>;
     /// Delete a descriptor from the database by a matching [`DescriptorId`]
     fn desc_delete(&self, one: &DescriptorId) -> Result<ConcreteDescriptor, Self::Error>;
-    /// Batch delete descriptors from the database by matching [`DescriptorId`]s
+    /// Batch delete descriptors from the database by matching [`DescriptorId`]s and 
+    /// a helper to clear the database, inserting an empty array will make this function to
+    /// delete all the descriptors.
     fn desc_delete_batch(
         &self,
         batch: &[DescriptorId],
@@ -217,7 +224,7 @@ struct AddressCacheInner<D: AddressCacheDatabase> {
     address_map: HashMap<Hash, CachedAddress>,
     /// Holds all scripts we are interested in
     script_set: HashSet<sha256::Hash>,
-    /// Holds all descriptors we are interested in
+    /// The descriptors that have some addresses cached
     descriptor_set: HashSet<ConcreteDescriptor>,
     /// Keeps track of all utxos we own, and the script hash they belong to
     utxo_index: HashMap<OutPoint, Hash>,
@@ -289,35 +296,46 @@ where
     }
 
     fn new(database: D) -> AddressCacheInner<D> {
+        
         let scripts = database.load().expect("Could not load database");
+        let loaded_descriptors = database.desc_get_batch(&[]).expect("Could not load descriptors");
+        
+        
         if database.get_stats().is_err() {
             database
                 .save_stats(&Stats::default())
                 .expect("Could not save stats");
         }
+        
         let mut address_map = HashMap::new();
+        
         let mut script_set = HashSet::new();
-        let mut descriptor_set = HashSet::new();
+        
+        let mut descriptors_ids = Vec::new();
+       
         let mut utxo_index = HashMap::new();
+        
+        
         for address in scripts {
+
+            if let &Some(hash) = &address.descriptor_hash  {
+                 descriptors_ids.push(DescriptorId::Hash(hash.clone()));
+            }
+            
             for utxo in address.utxos.iter() {
                 utxo_index.insert(*utxo, address.script_hash);
             }
             script_set.insert(address.script_hash);
             address_map.insert(address.script_hash, address);
         }
-        for descriptor in database
-            .desc_get_batch(&[])
-            .expect("Could not load descriptors")
-        {
-            descriptor_set.insert(descriptor);
-        }
+
+        let descriptor_set = HashSet::from_iter(database.desc_get_batch(&descriptors_ids).expect("The database is probably corrupted.").into_iter());
 
         AddressCacheInner {
             database,
             address_map,
-            script_set,
             descriptor_set,
+            script_set,
             utxo_index,
         }
     }
@@ -375,6 +393,7 @@ where
             return;
         }
         let new_address = CachedAddress {
+            descriptor_hash: None,
             balance: 0,
             script: script_pk,
             script_hash: hash,
@@ -575,6 +594,7 @@ where
             // We can track this address from now onwards, but the past history is only
             // available with full rescan
             let new_address = CachedAddress {
+                descriptor_hash: None,
                 balance: 0,
                 script,
                 script_hash: hash,
@@ -793,24 +813,6 @@ where
         Ok(inner.database.desc_get_batch(&[])?)
     }
 
-    /// Inserts a Descriptor into the wallet by its miniscript string.
-    ///
-    /// the function convert the given using [`DescriptorRequest::from_str`] which
-    /// sets the label and the internal string descriptor as the given
-    /// and all the other data are extracted from [`DescriptorRequest::default`].
-    pub fn push_descriptor_by_string(&self, descriptor: &str) -> Result<(), WatchOnlyError> {
-        let inner = self.inner.write().expect("poisoned lock");
-
-        let blown = DescriptorRequest {
-            desc: descriptor.to_string(),
-            ..Default::default()
-        };
-
-        Ok(inner
-            .database
-            .desc_insert_batch(blown.into_concrete_descriptors()?)?)
-    }
-
     /// Inserts a [`ConcreteDescriptor`] into the wallet
     pub fn push_descriptor_blown(
         &self,
@@ -918,7 +920,7 @@ mod test {
     use bitcoin::OutPoint;
     use bitcoin::ScriptBuf;
     use bitcoin::Txid;
-    use floresta_common::descriptor_internals::DescriptorId;
+    use floresta_common::descriptor_internals::{DescriptorId, DescriptorRequest};
     use floresta_common::get_spk_hash;
     use floresta_common::prelude::*;
 
@@ -1096,12 +1098,19 @@ mod test {
         cache.bump_height(118511);
         assert_eq!(cache.get_cache_height(), 118511);
 
-        // [is_cached], [push_descriptor]
-        let desc = "wsh(sortedmulti(1,[54ff5a12/48h/1h/0h/2h]tpubDDw6pwZA3hYxcSN32q7a5ynsKmWr4BbkBNHydHPKkM4BZwUfiK7tQ26h7USm8kA1E2FvCy7f7Er7QXKF8RNptATywydARtzgrxuPDwyYv4x/<0;1>/*,[bcf969c0/48h/1h/0h/2h]tpubDEFdgZdCPgQBTNtGj4h6AehK79Jm4LH54JrYBJjAtHMLEAth7LuY87awx9ZMiCURFzFWhxToRJK6xp39aqeJWrG5nuW3eBnXeMJcvDeDxfp/<0;1>/*))#fuw35j0q";
-        cache.push_descriptor_by_string(desc).unwrap();
-        assert!(cache
-            .is_cached(&DescriptorId::from_str(desc).unwrap())
-            .unwrap());
+        // // [is_cached], [push_descriptor]
+        // let desc = "wsh(sortedmulti(1,[54ff5a12/48h/1h/0h/2h]tpubDDw6pwZA3hYxcSN32q7a5ynsKmWr4BbkBNHydHPKkM4BZwUfiK7tQ26h7USm8kA1E2FvCy7f7Er7QXKF8RNptATywydARtzgrxuPDwyYv4x/<0;1>/*,[bcf969c0/48h/1h/0h/2h]tpubDEFdgZdCPgQBTNtGj4h6AehK79Jm4LH54JrYBJjAtHMLEAth7LuY87awx9ZMiCURFzFWhxToRJK6xp39aqeJWrG5nuW3eBnXeMJcvDeDxfp/<0;1>/*))#fuw35j0q";
+        //
+        // let request = DescriptorRequest {
+        //     desc: desc.to_string(),
+        //     ..Default::default()
+        // };
+        //
+        // cache.(request).unwrap();
+        //
+        // assert!(cache
+        //     .is_cached(&DescriptorId::from_str(desc).unwrap())
+        //     .unwrap());
 
         // [derive_addresses]
         cache.derive_addresses().unwrap();

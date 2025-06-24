@@ -146,7 +146,7 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
         let chain = self.chain.clone();
 
         // TODO: implement all rescan requests.
-        if let RescanRequest::SpecifiedTime(time) = rescan_timestamp {
+        if let RescanRequest::SpecifiedTime(_time) = rescan_timestamp {
             tokio::task::spawn(Self::rescan_with_block_filters(
                 addresses, chain, wallet, cfilters, node,
             ));

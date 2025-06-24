@@ -327,7 +327,7 @@ pub enum Methods {
     ///
     /// Strict is a flag to ensure correctness of the desired behavior. What it does is
     /// to allow the server side to abort the actual deletion if any id doesn't match
-    /// any stored descriptor.
+    /// a stored descriptor.
     ///
     /// Please refer about the [`DescriptorId`] docs to understand how to properly
     /// identify your descriptor.

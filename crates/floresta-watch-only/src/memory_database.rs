@@ -113,6 +113,10 @@ impl AddressCacheDatabase for MemoryDatabase {
             ))
         }
     }
+    
+     /// Batch delete descriptors from the database by matching [`DescriptorId`]s and 
+     /// a helper to clear the database, inserting an empty array will make this function to
+     /// delete all the descriptors.
     fn desc_delete_batch(&self, batch: &[DescriptorId]) -> Result<Vec<ConcreteDescriptor>> {
         let mut inner = self.get_inner_mut()?;
         match batch.is_empty() {

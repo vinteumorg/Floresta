@@ -110,7 +110,7 @@ impl AddressCacheDatabase for KvDatabase {
         self.1.set(&String::from("height"), &serialize(&height))?;
         self.1.flush()?;
         Ok(())
-    }
+        }
 
     fn desc_delete(&self, one: &DescriptorId) -> Result<ConcreteDescriptor> {
         let bucket = self.get_descriptor_bucket()?;
@@ -124,8 +124,15 @@ impl AddressCacheDatabase for KvDatabase {
         }
     }
 
+     /// Batch delete descriptors from the database by matching [`DescriptorId`]s and
+     /// a helper to clear the database, inserting an empty array will make this function to
+     /// delete all the descriptors.
     fn desc_delete_batch(&self, batch: &[DescriptorId]) -> Result<Vec<ConcreteDescriptor>> {
         let bucket = self.get_descriptor_bucket()?;
+         if batch.is_empty() {
+             bucket.clear()?;
+             return Ok([].into());
+         }
         let mut ret: Vec<ConcreteDescriptor> = vec![];
         for id in batch {
             let desc = match bucket.remove(&id.get_hash().to_string())? {
@@ -140,12 +147,12 @@ impl AddressCacheDatabase for KvDatabase {
     fn desc_get(&self, one: &DescriptorId) -> Result<ConcreteDescriptor> {
         let bucket = self.get_descriptor_bucket()?;
 
-        if let Some(raw) = bucket.get(&one.get_hash().to_string())? {
-            Ok(serde_json::from_slice(&raw)?)
-        } else {
-            Err(KvDatabaseError::DescriptorError(
-                            DescriptorError::DescriptorNotFound,
-                        ))
+
+        match bucket.get(&one.get_hash().to_string())? {
+            Some(raw ) => Ok(serde_json::from_slice(&raw)?),
+            None => Err(KvDatabaseError::DescriptorError(
+                                                  DescriptorError::DescriptorNotFound
+                                              ))
         }
     }
 
@@ -154,8 +161,7 @@ impl AddressCacheDatabase for KvDatabase {
         let mut ret: Vec<ConcreteDescriptor> = vec![];
 
         for id in batch {
-            let get = bucket.get(&id.get_hash().to_string())?;
-            if let Some(raw) = get {
+            if let Some(raw) = bucket.get(&id.get_hash().to_string())? {
                 ret.push(serde_json::from_slice(&raw)?);
             }
         }
@@ -278,6 +284,7 @@ mod test {
         let (address, script_hash) = get_test_address();
 
         let cache_address = CachedAddress {
+            descriptor_hash: None,
             script_hash,
             balance: 0,
             script: address.script_pubkey(),
@@ -325,7 +332,7 @@ mod test {
         assert_eq!(db.load().unwrap()[0].script_hash, cache_address.script_hash);
     }
 
-        // Helper to create test descriptors
+
         fn create_test_descriptors(count: u32) -> Vec<ConcreteDescriptor> {
             let request = DescriptorRequest {
                 range: DerivationRange::End(count),
@@ -339,7 +346,6 @@ mod test {
             }).collect()
         }
 
-        // Helper to get descriptor IDs
         fn get_descriptor_ids(descriptors: &[ConcreteDescriptor]) -> Vec<DescriptorId> {
             descriptors
                 .iter()

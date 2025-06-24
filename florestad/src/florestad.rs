@@ -865,11 +865,11 @@ impl Florestad {
         for descriptor in setup.descriptors {
             let descriptorid = DescriptorId::from_str(&descriptor.to_string())
                 .expect("At this point, these descriptors are valid.");
-            if !wallet.is_cached(&descriptorid).unwrap() {
-                wallet
-                    .push_descriptor_by_string(&descriptor.to_string())
-                    .unwrap();
-            }
+            // if !wallet.is_cached(&descriptorid).unwrap() {
+            //     wallet
+            //         .push_descriptor_by_string(&descriptor.to_string())
+            //          .unwrap();
+            // }
         }
         for addresses in setup.addresses {
             wallet.cache_address(addresses.script_pubkey())
@@ -914,8 +914,7 @@ impl Florestad {
         fs::write(&key_path, key_pair.serialize_pem())
             .map_err(|err| error::Error::CouldNotWriteFile(key_path, err))?;
 
-        fs::write(&cert_path, selfcert.pem())
-            .map_err(|err| error::Error::CouldNotWriteFile(cert_path, err))?;
+        fs::write(&cert_path, selfcert.pem()).map_err(|err| error::Error::CouldNotWriteFile(cert_path, err))?;
 
         Ok(())
     }
