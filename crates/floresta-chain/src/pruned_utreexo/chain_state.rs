@@ -228,7 +228,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             + 1;
 
         // Check pow
-        let expected_target = self.get_next_required_work(&prev_block, height, block_header);
+        let expected_target = self.get_next_required_work(&prev_block, height, block_header)?;
 
         let actual_target = block_header.target();
         if actual_target > expected_target {
@@ -514,13 +514,11 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         inner.consensus.parameters.clone()
     }
 
-    // This function should be only called if a block is guaranteed to be on chain
-    fn get_block_header_by_height(&self, height: u32) -> BlockHeader {
-        let block = self
-            .get_block_hash(height)
-            .expect("This block should be present");
-        self.get_block_header(&block)
-            .expect("This block should also be present")
+    fn get_header_by_height(&self, height: u32) -> Result<DiskBlockHeader, BlockchainError> {
+        read_lock!(self)
+            .chainstore
+            .get_header_by_height(height)?
+            .ok_or(BlockchainError::BlockNotPresent)
     }
 
     fn notify(&self, block: &Block, height: u32) {
@@ -576,11 +574,10 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
     /// Fetches a `DiskBlockHeader` from the chain store given its block hash. Returns an error if
     /// it's not present or if the database operation failed.
     fn get_disk_block_header(&self, hash: &BlockHash) -> Result<DiskBlockHeader, BlockchainError> {
-        let inner = read_lock!(self);
-        if let Some(header) = inner.chainstore.get_header(hash)? {
-            return Ok(header);
-        }
-        Err(BlockchainError::BlockNotPresent)
+        read_lock!(self)
+            .chainstore
+            .get_header(hash)?
+            .ok_or(BlockchainError::BlockNotPresent)
     }
 
     /// If we ever find ourselves in an undefined state, with one of our chain pointers
@@ -786,33 +783,33 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         last_block: &BlockHeader,
         next_height: u32,
         next_header: &BlockHeader,
-    ) -> Target {
+    ) -> Result<Target, BlockchainError> {
         let params: ChainParams = self.chain_params();
         // Special testnet rule, if a block takes more than 20 minutes to mine, we can
         // mine a block with diff 1
         if params.params.allow_min_difficulty_blocks
             && last_block.time + params.params.pow_target_spacing as u32 * 2 < next_header.time
         {
-            return params.params.max_attainable_target;
+            return Ok(params.params.max_attainable_target);
         }
 
         // Regtest don't have retarget
         if !params.params.no_pow_retargeting && (next_height) % 2016 == 0 {
             // First block in this epoch
-            let first_block = self.get_block_header_by_height(next_height - 2016);
-            let last_block = self.get_block_header_by_height(next_height - 1);
+            let first_block = self.get_header_by_height(next_height - 2016)?;
+            let last_block = self.get_header_by_height(next_height - 1)?;
 
             let target =
                 Consensus::calc_next_work_required(&last_block, &first_block, self.chain_params());
 
             if target < params.params.max_attainable_target {
-                return target;
+                return Ok(target);
             }
 
-            return params.params.max_attainable_target;
+            return Ok(params.params.max_attainable_target);
         }
 
-        last_block.target()
+        Ok(last_block.target())
     }
 
     /// Check timestamp against prev for difficulty-adjustment blocks to prevent timewarp attacks.
@@ -826,7 +823,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             return Ok(());
         }
 
-        let prev_header = self.get_block_header_by_height(height - 1);
+        let prev_header = self.get_header_by_height(height - 1)?;
         Ok(Consensus::check_bip94_time(block, &prev_header)?)
     }
 
@@ -1004,11 +1001,10 @@ impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedSta
     }
 
     fn get_block_hash(&self, height: u32) -> Result<bitcoin::BlockHash, Self::Error> {
-        let inner = self.inner.read();
-        if let Some(hash) = inner.chainstore.get_block_hash(height)? {
-            return Ok(hash);
-        }
-        Err(BlockchainError::BlockNotPresent)
+        read_lock!(self)
+            .chainstore
+            .get_block_hash(height)?
+            .ok_or(BlockchainError::BlockNotPresent)
     }
 
     fn get_tx(&self, _txid: &bitcoin::Txid) -> Result<Option<bitcoin::Transaction>, Self::Error> {
@@ -1702,13 +1698,18 @@ mod test {
         }
 
         for i in 1..=chain.get_height().unwrap() {
-            let accepted = chain.get_block_hash(i).unwrap();
+            let hash = chain.get_block_hash(i).unwrap();
+            let header = chain.get_disk_block_header(&hash).unwrap();
+            let header_by_height = chain.get_header_by_height(i).unwrap();
 
-            if let Ok(DiskBlockHeader::FullyValid(..)) = chain.get_disk_block_header(&accepted) {
+            assert_eq!(header, header_by_height);
+            assert_eq!(header.prev_blockhash, chain.get_block_hash(i - 1).unwrap());
+
+            if let DiskBlockHeader::FullyValid(..) = header {
                 continue;
+            } else {
+                panic!("Expected block at height {i} to be FullyValid, got: {header:?}");
             }
-
-            panic!("Block {i} is not in the store");
         }
     }
 
@@ -1729,8 +1730,8 @@ mod test {
         // push_headers
         assert_ok!(chain.push_headers(headers.clone(), 1));
 
-        // get_block_header_by_height
-        assert_eq!(chain.get_block_header_by_height(1), headers[0]);
+        // get_header_by_height
+        assert_eq!(*chain.get_header_by_height(1).unwrap(), headers[0]);
 
         // reindex_chain
         assert_eq!(chain.reindex_chain().depth, 2015);

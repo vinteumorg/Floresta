@@ -203,6 +203,9 @@ pub trait ChainStore {
     /// the data we save.
     fn get_header(&self, block_hash: &BlockHash) -> Result<Option<DiskBlockHeader>, Self::Error>;
 
+    /// Get a block header by its height in our database.
+    fn get_header_by_height(&self, height: u32) -> Result<Option<DiskBlockHeader>, Self::Error>;
+
     /// Saves a block header to our database. See [DiskBlockHeader] for more info about
     /// the data we save.
     fn save_header(&mut self, header: &DiskBlockHeader) -> Result<(), Self::Error>;
