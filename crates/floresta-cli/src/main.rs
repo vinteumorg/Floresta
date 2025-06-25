@@ -116,8 +116,8 @@ fn do_request(cmd: &Cli, client: Client) -> anyhow::Result<String> {
         Methods::ImportDescriptors { requests } => {
             serde_json::to_string_pretty(&client.import_descriptors(requests)?)?
         }
-        Methods::DeleteDescriptors { ids, pull, strict } => {
-            serde_json::to_string_pretty(&client.delete_descriptors(ids, pull, strict)?)?
+        Methods::DeleteDescriptors { ids, pull} => {
+            serde_json::to_string_pretty(&client.delete_descriptors(ids, pull)?)?
         }
         Methods::Ping => serde_json::to_string_pretty(&client.ping()?)?,
     })
@@ -325,10 +325,6 @@ pub enum Methods {
     /// You can tell the command to return the targeted descriptors by setting pull
     /// to true.
     ///
-    /// Strict is a flag to ensure correctness of the desired behavior. What it does is
-    /// to allow the server side to abort the actual deletion if any id doesn't match
-    /// a stored descriptor.
-    ///
     /// Please refer about the [`DescriptorId`] docs to understand how to properly
     /// identify your descriptor.
     #[command(name = "deletedescriptors")]
@@ -337,7 +333,5 @@ pub enum Methods {
         ids: Vec<DescriptorId>,
         #[arg(required = false, default_value_t = true)]
         pull: bool,
-        #[arg(required = false, default_value_t = true)]
-        strict: bool,
     },
 }

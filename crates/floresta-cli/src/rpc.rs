@@ -140,7 +140,6 @@ pub trait FlorestaRPC {
         &self,
         id: Vec<DescriptorId>,
         pull: bool,
-        strict: bool,
     ) -> Result<DeleteDescriptorRes>;
 }
 
@@ -320,14 +319,13 @@ impl<T: JsonRPCClient> FlorestaRPC for T {
         &self,
         ids: Vec<DescriptorId>,
         pull: bool,
-        strict: bool,
     ) -> Result<DeleteDescriptorRes> {
         self.call(
             "delete_descriptors",
             &[
                 serde_json::to_value(ids)?,
                 Value::Bool(pull),
-                Value::Bool(strict),
+         
             ],
         )
     }

@@ -5,24 +5,19 @@ use bitcoin::consensus::encode::Error;
 use bitcoin::consensus::serialize;
 use bitcoin::hashes::Hash;
 use bitcoin::Txid;
-use floresta_common::descriptor_internals::extract_matching_one;
-use floresta_common::descriptor_internals::ConcreteDescriptor;
-use floresta_common::descriptor_internals::DescriptorError;
+use floresta_common::descriptor_internals::{ConcreteDescriptor, DescriptorError};
 use floresta_common::descriptor_internals::DescriptorId;
 use floresta_common::descriptor_internals::DescriptorIdSelector;
-use floresta_common::descriptor_internals::DESCRIPTOR_STRING_KEY;
 use floresta_common::impl_error_from;
 use floresta_common::prelude::*;
 use kv::Bucket;
 use kv::Config;
 use kv::Store;
-
 use super::AddressCacheDatabase;
 use super::Stats;
-#[cfg(any(test, feature = "memory-database"))]
-use crate::memory_database::MemoryDatabaseError;
 
 pub struct KvDatabase(Store, Bucket<'static, String, Vec<u8>>);
+
 impl KvDatabase {
     pub fn new(datadir: String) -> Result<KvDatabase> {
         // Configure the database
@@ -33,6 +28,7 @@ impl KvDatabase {
         let bucket = store.bucket::<String, Vec<u8>>(Some("addresses"))?;
         Ok(KvDatabase(store, bucket))
     }
+    
     /// Returns the bucket used for storing descriptors.
     fn get_descriptor_bucket(&self) -> Result<Bucket<'static, String, Vec<u8>>> {
         self.0
@@ -127,21 +123,28 @@ impl AddressCacheDatabase for KvDatabase {
      /// Batch delete descriptors from the database by matching [`DescriptorId`]s and
      /// a helper to clear the database, inserting an empty array will make this function to
      /// delete all the descriptors.
+
     fn desc_delete_batch(&self, batch: &[DescriptorId]) -> Result<Vec<ConcreteDescriptor>> {
         let bucket = self.get_descriptor_bucket()?;
          if batch.is_empty() {
              bucket.clear()?;
              return Ok([].into());
          }
-        let mut ret: Vec<ConcreteDescriptor> = vec![];
-        for id in batch {
+        let mut ret_desc: Vec<ConcreteDescriptor> = vec![];
+
+        for  id in batch {
             let desc = match bucket.remove(&id.get_hash().to_string())? {
                 Some(desc) => desc,
-                None => continue,
+                None => {
+
+                        continue;
+                    
+                },
             };
-            ret.push(serde_json::from_slice(desc.as_ref())?);
+            ret_desc.push(serde_json::from_slice(desc.as_ref())?);
+
         }
-        Ok(ret)
+        Ok(ret_desc)
     }
 
     fn desc_get(&self, one: &DescriptorId) -> Result<ConcreteDescriptor> {
@@ -394,6 +397,7 @@ mod test {
             let deleted_batch = db.desc_delete_batch(&ids).unwrap();
 
             assert_eq!(deleted_batch.len(), 3);
+            
             assert_eq!(db.desc_get_batch(&ids).unwrap().len(), 0);
         }
 

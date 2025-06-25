@@ -64,12 +64,6 @@ where
 pub struct DeleteDescriptorRes {
     /// The deleted descriptors if the pulled flag is active
     pub pulled: Vec<ConcreteDescriptor>,
-
-    /// The difference between the given ids and the found
-    /// ones.
-    ///
-    /// If none, not_found will be an empty vec.
-    pub not_found: Vec<DescriptorId>,
 }
 
 /// The String key we use to address descriptors in KVs

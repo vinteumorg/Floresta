@@ -6,7 +6,7 @@ use bitcoin::hashes::{sha256, sha256d};
 use bitcoin::{Network, ScriptBuf};
 use floresta_chain::BlockConsumer;
 use floresta_chain::DatabaseError;
-use floresta_common::descriptor_internals::ConcreteDescriptor;
+use floresta_common::descriptor_internals::{extract_matching_one, ConcreteDescriptor, DescriptorIdSelector};
 use floresta_common::descriptor_internals::DescriptorError;
 use floresta_common::descriptor_internals::DescriptorId;
 use floresta_common::descriptor_internals::DescriptorRequest;
@@ -206,6 +206,7 @@ pub trait AddressCacheDatabase {
     fn desc_delete_batch(
         &self,
         batch: &[DescriptorId],
+
     ) -> Result<Vec<ConcreteDescriptor>, Self::Error>;
     /// Get a transaction from the database
     fn get_transaction(&self, txid: &Txid) -> Result<CachedTransaction, Self::Error>;
@@ -225,7 +226,7 @@ struct AddressCacheInner<D: AddressCacheDatabase> {
     /// Holds all scripts we are interested in
     script_set: HashSet<sha256::Hash>,
     /// The descriptors that have some addresses cached
-    descriptor_set: HashSet<ConcreteDescriptor>,
+    descriptor_set: Vec<ConcreteDescriptor>,
     /// Keeps track of all utxos we own, and the script hash they belong to
     utxo_index: HashMap<OutPoint, Hash>,
 }
@@ -298,7 +299,6 @@ where
     fn new(database: D) -> AddressCacheInner<D> {
         
         let scripts = database.load().expect("Could not load database");
-        let loaded_descriptors = database.desc_get_batch(&[]).expect("Could not load descriptors");
         
         
         if database.get_stats().is_err() {
@@ -329,7 +329,7 @@ where
             address_map.insert(address.script_hash, address);
         }
 
-        let descriptor_set = HashSet::from_iter(database.desc_get_batch(&descriptors_ids).expect("The database is probably corrupted.").into_iter());
+        let descriptor_set = database.desc_get_batch(&descriptors_ids).expect("The database is probably corrupted.");
 
         AddressCacheInner {
             database,
@@ -417,7 +417,9 @@ where
 
     fn derive_addresses(&mut self) -> Result<(), WatchOnlyError> {
         let mut stats = self.database.get_stats()?;
+
         let descriptors = self.database.desc_get_batch(&[])?;
+
         for desc in descriptors {
             let index = stats.derivation_index;
             for idx in index..(index + 100) {
@@ -425,6 +427,7 @@ where
                 self.cache_address(script);
             }
         }
+
         stats.derivation_index += 100;
         Ok(self.database.save_stats(&stats)?)
     }
@@ -691,10 +694,10 @@ where
         inner.database.get_cache_height().unwrap_or(0)
     }
 
-    /// Tells whether or not a descriptor is already cached
-    pub fn is_cached(&self, desc: &DescriptorId) -> Result<bool, WatchOnlyError> {
-        let inner = self.inner.read().expect("poisoned lock");
-        Ok(inner.database.desc_get(desc).is_ok())
+    /// Tells whether a descriptor is already cached
+    pub fn is_descriptor_cached(&self, desc: &DescriptorId) -> Result<bool, WatchOnlyError> {
+        let found = extract_matching_one(&self.get_descriptors()?, desc);
+        Ok(found.is_some())
     }
 
     /// Tells whether an address is already cached
@@ -807,19 +810,38 @@ where
         )
     }
 
-    /// Return the [`ConcreteDescriptor`]s that we have.
+    /// Return all the [`ConcreteDescriptor`]s that we have cached.
     pub fn get_descriptors(&self) -> Result<Vec<ConcreteDescriptor>, WatchOnlyError> {
         let inner = self.inner.read().expect("poisoned lock");
-        Ok(inner.database.desc_get_batch(&[])?)
+        Ok(inner.descriptor_set.clone())
     }
 
     /// Inserts a [`ConcreteDescriptor`] into the wallet
-    pub fn push_descriptor_blown(
+    pub fn cache_descriptor(
         &self,
-        request: &ConcreteDescriptor,
+        one: ConcreteDescriptor,
     ) -> Result<(), WatchOnlyError> {
-        let inner = self.inner.write().expect("poisoned lock");
-        inner.database.desc_insert(request.clone())?;
+        // TODO: reduce the clones.
+        let mut inner = self.inner.write().expect("poisoned lock");
+
+        let script = one.descriptor.script_pubkey();
+        
+        let spk_hash = get_spk_hash(&script);
+
+        let cast = CachedAddress {
+            script_hash: spk_hash.clone(),
+            script: script.clone(),
+            descriptor_hash: Some(one.get_hash()),
+            balance:0,
+            utxos: Vec::new(),
+            transactions: Vec::new(),
+        };
+
+        inner.database.desc_insert(one.clone())?;
+        inner.script_set.insert(spk_hash.clone());
+        inner.address_map.insert(spk_hash, cast);
+        inner.descriptor_set.push(one);
+        
         Ok(())
     }
 
@@ -828,58 +850,28 @@ where
     pub fn delete_descriptors(
         &self,
         ids: &[DescriptorId],
-    ) -> Result<(Vec<ConcreteDescriptor>, Vec<usize>), WatchOnlyError> {
-        let inner = self.inner.write().expect("poisoned lock");
-
-        let deleted = inner.database.desc_delete_batch(ids)?;
-
-        let missed_ones = ids
-            .iter()
-            .enumerate()
-            .filter_map(|(index, one)| {
-                for descriptor in &deleted {
-                    if descriptor.match_id(one) {
-                        return Some(index);
-                    }
-                }
-                None
-            })
-            .collect();
-        Ok((deleted, missed_ones))
-    }
-
-    /// Delete descriptors from the wallet returning the deleted ones.
-    ///
-    /// This version of [`AddressCache::delete_descriptors`] doesn't delete the descriptors if one of
-    /// the ids doesn't match a stored descriptor. This is the preferred one since it should be more
-    /// efficient if the ids are strictly correct. That is, every single given [`DescriptorId`]
-    /// should match a Descriptor that the wallet is holding.
-    pub fn delete_descriptors_strict(
-        &self,
-        ids: &[DescriptorId],
     ) -> Result<Vec<ConcreteDescriptor>, WatchOnlyError> {
-        let inner = self.inner.write().expect("poisoned lock");
+        let mut inner = self.inner.write().expect("poisoned lock");
 
         let deleted = inner.database.desc_delete_batch(ids)?;
-
-        if deleted.len() != ids.len() {
-            let missed_ones = ids
-                .iter()
-                .filter_map(|one| {
-                    for descriptor in &deleted {
-                        if descriptor.match_id(one) {
-                            return None;
-                        }
-                    }
-                    Some(one.clone())
-                })
-                .collect();
-
-            return Err(WatchOnlyError::DescriptorError(
-                DescriptorError::StrictDeletion(missed_ones),
-            ));
+        
+        let hashes: Vec<Hash> = deleted.iter().map( |desc| {
+            let index_to_remove = extract_matching_one(&inner.descriptor_set, &desc.get_id(DescriptorIdSelector::Hash));
+            // There's no problem if index_to_remove yields a
+            // none since if there's missing descriptors it will 
+            // fail at the db remove function and only if the 
+            // user wants it to fail.
+            if let Some(index) = index_to_remove {
+                inner.descriptor_set.remove(index);
+            }
+            get_spk_hash(&desc.descriptor.script_pubkey())
+        }).collect();
+        
+        for h in hashes {
+            inner.script_set.remove(&h);
+            inner.address_map.remove(&h);
         }
-
+        
         Ok(deleted)
     }
 

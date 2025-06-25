@@ -21,8 +21,6 @@ use bitcoin::ScriptBuf;
 use bitcoin::TxIn;
 use bitcoin::TxOut;
 use bitcoin::Txid;
-use floresta_chain::pruned_utreexo::BlockchainInterface;
-use floresta_chain::pruned_utreexo::UpdatableChainstate;
 use floresta_chain::ThreadSafeChain;
 use floresta_common::descriptor_internals::DeleteDescriptorRes;
 use floresta_common::descriptor_internals::DescriptorId;
@@ -41,7 +39,7 @@ use serde_json::json;
 use serde_json::Value;
 use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
-
+use crate::json_rpc::res::Error::Wallet;
 use super::res::Error;
 use super::res::GetBlockRes;
 use super::res::RawTxJson;
@@ -129,10 +127,7 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
                 .map_err(|e| Error::BatchDescriptor(e))?;
 
         for descriptor in descriptors {
-            let script = descriptor.descriptor.script_pubkey();
-            info!("Importing {script} to the wallet cache.");
-            self.wallet.cache_address(script);
-            self.wallet.push_descriptor_blown(&descriptor).unwrap()
+            self.wallet.cache_descriptor(descriptor).map_err(|e | Wallet(e.to_string()))?;
         }
 
         let addresses = self.wallet.get_cached_addresses();
@@ -144,13 +139,15 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
         let cfilters = self.block_filter_storage.as_ref().unwrap().clone();
         let node = self.node.clone();
         let chain = self.chain.clone();
-
-        // TODO: implement all rescan requests.
-        if let RescanRequest::SpecifiedTime(_time) = rescan_timestamp {
-            tokio::task::spawn(Self::rescan_with_block_filters(
-                addresses, chain, wallet, cfilters, node,
-            ));
-        }
+        
+        let rescan_heigth: Option<usize> = match rescan_timestamp {
+            RescanRequest::Full  => Some(0),
+            RescanRequest::Ignore => None,
+            RescanRequest::SpecifiedTime(time) => Some(time as usize),
+        };
+        tokio::task::spawn(Self::rescan_with_block_filters(
+                        addresses, chain, wallet, cfilters, rescan_heigth, node,
+                    ));
         Ok(true)
     }
 
@@ -165,29 +162,15 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
         &self,
         ids: Vec<DescriptorId>,
         pull: bool,
-        strict: bool,
     ) -> Result<DeleteDescriptorRes> {
-        let (mut pulled, missed) = match strict {
-            false => self.wallet.delete_descriptors(&ids).expect(""),
-            true => (
-                self.wallet.delete_descriptors_strict(&ids).expect(""),
-                vec![0usize],
-            ),
-        };
+        let mut pulled = self.wallet.delete_descriptors(&ids).map_err(|e | Wallet(e.to_string()))?;
 
         // Empty the return vector if pulled is false.
         if !pull {
             pulled = vec![];
         }
 
-        // Extract not found ones iterating over the given indexes
-        // and getting it from the given ids.
-        let not_found = missed
-            .into_iter()
-            .map(|idx| ids.get(idx).unwrap().clone())
-            .collect::<Vec<_>>();
-
-        Ok(DeleteDescriptorRes { pulled, not_found })
+        Ok(DeleteDescriptorRes { pulled })
     }
 
     fn rescan(&self, _rescan: u32) -> Result<bool> {
@@ -207,7 +190,7 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
         let chain = self.chain.clone();
 
         tokio::task::spawn(Self::rescan_with_block_filters(
-            addresses, chain, wallet, cfilters, node,
+            addresses, chain, wallet, cfilters,  None, node,
         ));
 
         Ok(true)
@@ -447,11 +430,9 @@ async fn handle_json_rpc_request(
                 .map_err(|error| Error::DecodeDescRequest(error, params[0].to_string()))?;
             let pull: bool = serde_json::from_value(params[1].clone())
                 .map_err(|error| Error::DecodeDescRequest(error, params[0].to_string()))?;
-            let strict: bool = serde_json::from_value(params[2].clone())
-                .map_err(|error| Error::DecodeDescRequest(error, params[0].to_string()))?;
 
             state
-                .delete_descriptors(ids, pull, strict)
+                .delete_descriptors(ids, pull)
                 .map(|v| ::serde_json::to_value(v).unwrap())
         }
 
@@ -611,12 +592,13 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
         chain: Blockchain,
         wallet: Arc<AddressCache<KvDatabase>>,
         cfilters: Arc<NetworkFilters<FlatFiltersStore>>,
+        height: Option<usize>,
         node: NodeInterface,
     ) -> Result<()> {
         let blocks = cfilters
             .match_any(
                 addresses.iter().map(|a| a.as_bytes()).collect(),
-                Some(0),
+                height,
                 chain.clone(),
             )
             .unwrap();
