@@ -64,6 +64,7 @@ where
     WireError: From<Chain::Error>,
     Chain::Error: From<udata::proof_util::Error>,
 {
+    /// Computes the next blocks to request, and sends a GETDATA request
     ///
     /// We send block requests in batches of four, and we can always have two
     /// such batches inflight. Therefore, we can have at most eight inflight
@@ -92,6 +93,7 @@ where
                     blocks.push(next_block);
                     self.context.last_block_requested += 1;
                 }
+
                 Err(_) => {
                     // this is likely because we've reached the end of the chain
                     // and we've got a `BlockNotPresent` error.
@@ -99,7 +101,24 @@ where
                 }
             }
         }
+
         try_and_log!(self.request_blocks(blocks).await);
+    }
+
+    async fn ask_for_missed_blocks(&mut self) -> Result<(), WireError> {
+        let next_request = self.chain.get_validation_index()? + 1;
+        let last_block_requested = self.last_block_request;
+
+        // we accumulate the hashes of all blocks in [next_request, last_block_requested] here
+        // and pass it to request_blocks, which will filter inflight and pending blocks out.
+        let mut range_blocks = Vec::new();
+
+        for request_height in next_request..=last_block_requested {
+            let block_hash = self.chain.get_block_hash(request_height)?;
+            range_blocks.push(block_hash);
+        }
+
+        self.request_blocks(range_blocks).await
     }
 
     /// While in sync phase, we don't want any non-utreexo connections. This function checks
@@ -193,6 +212,7 @@ where
                 continue;
             }
 
+            // Ask for missed blocks if they are no longer inflight or pending
             try_and_log!(self.ask_for_missed_blocks().await);
 
             if self.chain.get_validation_index().unwrap() + 10 > self.context.last_block_requested {
