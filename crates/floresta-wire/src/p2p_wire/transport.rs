@@ -147,7 +147,11 @@ async fn try_connection<A: ToSocketAddrs>(
     force_v1: bool,
 ) -> TransportResult {
     let tcp_stream = TcpStream::connect(address).await?;
-    tcp_stream.set_nodelay(true)?;
+    // Data is buffered until there is enough to send out
+    // thus reducing the amount of packages going through
+    // the network.
+    tcp_stream.set_nodelay(false)?;
+
     let peer_addr = match tcp_stream.peer_addr() {
         Ok(addr) => addr.to_string(),
         Err(_) => String::from("unknown peer"),
