@@ -64,11 +64,28 @@ where
     WireError: From<Chain::Error>,
     Chain::Error: From<udata::proof_util::Error>,
 {
-    /// Checks if we have the next 10 missing blocks until the tip, and request missing ones for a peer.
+    ///
+    /// We send block requests in batches of four, and we can always have two
+    /// such batches inflight. Therefore, we can have at most eight inflight
+    /// blocks.
+    ///
+    /// This function sends exactly one GETDATA, therefore ask for four blocks.
+    /// It will compute the next blocks we need, given our tip, validation index,
+    /// inflight requests and cached blocks. We then select a random peer and send
+    /// the request.
+    ///
+    /// TODO: Be smarter when selecting peers to send, like taking in consideration
+    /// already inflight blocks and latency.
     async fn get_blocks_to_download(&mut self) {
         let mut blocks = Vec::with_capacity(10);
-        for _ in 0..10 {
+        for _ in 0..4 {
             let next_block = self.context.last_block_requested + 1;
+            let validation_index = self.chain.get_validation_index().unwrap();
+            if next_block <= validation_index {
+                self.last_block_request = validation_index;
+                continue;
+            }
+
             let next_block = self.chain.get_block_hash(next_block);
             match next_block {
                 Ok(next_block) => {
@@ -76,6 +93,8 @@ where
                     self.context.last_block_requested += 1;
                 }
                 Err(_) => {
+                    // this is likely because we've reached the end of the chain
+                    // and we've got a `BlockNotPresent` error.
                     break;
                 }
             }
@@ -174,8 +193,10 @@ where
                 continue;
             }
 
+            try_and_log!(self.ask_for_missed_blocks().await);
+
             if self.chain.get_validation_index().unwrap() + 10 > self.context.last_block_requested {
-                if self.inflight.len() > 10 {
+                if self.inflight.len() > 4 {
                     continue;
                 }
 
