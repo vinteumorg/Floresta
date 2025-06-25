@@ -69,7 +69,7 @@ pub struct RpcImpl<Blockchain: RpcChain> {
     pub(super) node: NodeInterface,
     pub(super) kill_signal: Arc<RwLock<bool>>,
     pub(super) inflight: Arc<RwLock<HashMap<Value, InflightRpc>>>,
-    pub(super) log_dir: String,
+    pub(super) log_path: String,
     pub(super) start_time: Instant,
 }
 
@@ -732,7 +732,7 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
                 let local_addr = listener
                     .local_addr()
                     .expect("Infallible: listener binding was `Ok`");
-                info!("RPC server running on: {local_addr}");
+                info!("RPC server is running at {local_addr}");
                 listener
             }
             Err(_) => {
@@ -758,7 +758,7 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
                 network,
                 block_filter_storage,
                 inflight: Arc::new(RwLock::new(HashMap::new())),
-                log_dir: log_path,
+                log_path,
                 start_time: Instant::now(),
             }));
 
