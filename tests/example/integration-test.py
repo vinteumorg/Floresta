@@ -30,15 +30,9 @@ class IntegrationTest(FlorestaTestFramework):
             variant="florestad", rpcserver=florestad_rpc
         )
 
-        # since utreexod and bitcoind
-        # uses the same RPC server, we need to
-        # select a different port for utreexod
-        utreexod_rpc["ports"]["server"] = 18446
-        utreexod_rpc["ports"]["rpc"] = 18447
         IntegrationTest.index[1] = self.add_node(
             variant="utreexod",
             rpcserver=utreexod_rpc,
-            extra_args=["--listen=127.0.0.1:18446", "--rpclisten=127.0.0.1:18447"],
         )
 
         IntegrationTest.index[2] = self.add_node(
