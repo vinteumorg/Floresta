@@ -86,7 +86,33 @@ where
                 }
             }
         }
+
         try_and_log!(self.request_blocks(blocks).await);
+    }
+
+    async fn ask_for_missed_blocks(&mut self) -> Result<(), WireError> {
+        let next_request = self.chain.get_validation_index()? + 1;
+        let last_block_requested = self.last_block_request;
+
+        let blocks_to_request = (next_request..=last_block_requested)
+            .filter_map(|height| {
+                let block_hash = self.chain.get_block_hash(height).ok()?;
+                if self
+                    .inflight
+                    .contains_key(&InflightRequests::Blocks(block_hash))
+                {
+                    return None;
+                }
+
+                if self.blocks.contains_key(&block_hash) {
+                    return None;
+                }
+
+                Some(block_hash)
+            })
+            .collect();
+
+        self.request_blocks(blocks_to_request).await
     }
 
     /// While in sync phase, we don't want any non-utreexo connections. This function checks
