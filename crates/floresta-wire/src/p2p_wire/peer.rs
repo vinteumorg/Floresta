@@ -240,6 +240,7 @@ impl<T: AsyncWrite + Unpin + Send + Sync> Peer<T> {
                             return Err(e);
                         }
                         Some(ReaderMessage::Block(block)) => {
+                            debug!("got a utreexo block from peer {}", self.id);
                             self.send_to_node(PeerMessages::Block(block)).await;
                         }
                         Some(ReaderMessage::Message(msg)) => {
