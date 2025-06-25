@@ -21,11 +21,11 @@ pub use floresta_chain::AssumeUtreexoValue;
 use floresta_chain::AssumeValidArg;
 use floresta_chain::BlockchainError;
 use floresta_chain::ChainState;
-#[cfg(feature = "experimental-db")]
+#[cfg(feature = "flat-chainstore")]
 use floresta_chain::FlatChainStore as ChainStore;
-#[cfg(feature = "experimental-db")]
+#[cfg(feature = "flat-chainstore")]
 use floresta_chain::FlatChainStoreConfig;
-#[cfg(not(feature = "experimental-db"))]
+#[cfg(feature = "kv-chainstore")]
 use floresta_chain::KvChainStore as ChainStore;
 #[cfg(feature = "compact-filters")]
 use floresta_compact_filters::flat_filters_store::FlatFiltersStore;
@@ -73,6 +73,16 @@ use crate::json_rpc;
 use crate::wallet_input::InitialWalletSetup;
 #[cfg(feature = "zmq-server")]
 use crate::zmq::ZMQServer;
+
+// flat-chainstore and kv-chainstore are mutually exclusive
+#[cfg(all(feature = "flat-chainstore", feature = "kv-chainstore"))]
+compile_error!(
+    "You cannot use both flat-chainstore and kv-chainstore at the same time. Please choose one."
+);
+
+// at least one of flat-chainstore or kv-chainstore must be enabled
+#[cfg(not(any(feature = "flat-chainstore", feature = "kv-chainstore")))]
+compile_error!("You must enable either the flat-chainstore or kv-chainstore feature.");
 
 #[derive(Clone)]
 /// General configuration for the floresta daemon.
@@ -780,13 +790,13 @@ impl Florestad {
         None
     }
 
-    #[cfg(feature = "experimental-db")]
+    #[cfg(feature = "flat-chainstore")]
     fn load_chain_store(data_dir: String) -> ChainStore {
         let config = FlatChainStoreConfig::new(data_dir + "/chaindata");
         ChainStore::new(config).expect("failure while creating chainstate")
     }
 
-    #[cfg(not(feature = "experimental-db"))]
+    #[cfg(feature = "kv-chainstore")]
     fn load_chain_state(
         data_dir: String,
         network: Network,
@@ -809,7 +819,7 @@ impl Florestad {
         }
     }
 
-    #[cfg(feature = "experimental-db")]
+    #[cfg(feature = "flat-chainstore")]
     fn load_chain_state(
         data_dir: String,
         network: Network,

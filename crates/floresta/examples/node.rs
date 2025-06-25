@@ -12,10 +12,11 @@ use bitcoin::BlockHash;
 use bitcoin::Network;
 use floresta::chain::pruned_utreexo::BlockchainInterface;
 use floresta::chain::ChainState;
-use floresta::chain::KvChainStore;
 use floresta::wire::mempool::Mempool;
 use floresta::wire::node::UtreexoNode;
 use floresta_chain::AssumeValidArg;
+use floresta_chain::FlatChainStore;
+use floresta_chain::FlatChainStoreConfig;
 use floresta_wire::address_man::AddressMan;
 use floresta_wire::running_node::RunningNode;
 use floresta_wire::UtreexoNodeConfig;
@@ -31,8 +32,9 @@ async fn main() {
     // the block data after we have validated it. This saves a lot of space, but it means that
     // we can't serve blocks to other nodes or rescan the blockchain without downloading
     // it again.
+    let chain_store_config = FlatChainStoreConfig::new(DATA_DIR.into());
     let chain_store =
-        KvChainStore::new(DATA_DIR.into()).expect("failed to open the blockchain database");
+        FlatChainStore::new(chain_store_config).expect("failed to open the blockchain database");
 
     // The actual chainstate. It will keep track of the current state of the accumulator
     // and the headers chain. It will also validate new blocks and headers as we receive them.
@@ -41,7 +43,7 @@ async fn main() {
     // signatures in the blockchain, just the ones after the assume valid block. We are giving a Disabled
     // value, so we will validate all signatures regardless.
     // We place the chain state in an Arc, so we can share it with other components.
-    let chain = Arc::new(ChainState::<KvChainStore>::new(
+    let chain = Arc::new(ChainState::new(
         chain_store,
         Network::Bitcoin,
         AssumeValidArg::Disabled,
@@ -58,7 +60,7 @@ async fn main() {
     // Finally, we are using the chain state created above, the node will use it to determine
     // what blocks and headers to download, and hand them to it to validate.
     let config = UtreexoNodeConfig::default();
-    let p2p: UtreexoNode<Arc<ChainState<KvChainStore>>, RunningNode> = UtreexoNode::new(
+    let p2p: UtreexoNode<Arc<ChainState<FlatChainStore>>, RunningNode> = UtreexoNode::new(
         config,
         chain.clone(),
         Arc::new(Mutex::new(Mempool::new(Pollard::default(), 1000))),

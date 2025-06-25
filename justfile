@@ -61,7 +61,8 @@ test-functional:
 
 # Run the benchmarks
 bench:
-    cargo bench --features test-utils,experimental-db
+    cargo bench --package floresta-chain --no-default-features --features test-utils,kv-chainstore
+    cargo bench --package floresta-chain --no-default-features --features test-utils,flat-chainstore
 
 # Generate documentation for all crates
 doc:

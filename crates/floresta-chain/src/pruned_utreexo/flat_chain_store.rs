@@ -652,7 +652,7 @@ impl FlatChainStore {
             .write(true)
             .create(true)
             .truncate(false)
-            .open(&accumulator_file_path)?;
+            .open(accumulator_file_path)?;
 
         Ok(Self {
             headers,
@@ -718,7 +718,7 @@ impl FlatChainStore {
             .write(true)
             .create(true)
             .truncate(false)
-            .open(&accumulator_file_path)?;
+            .open(accumulator_file_path)?;
 
         Ok(Self {
             headers,

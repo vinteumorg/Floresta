@@ -1454,7 +1454,7 @@ impl Decodable for BestChain {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(feature = "kv-chainstore", feature = "flat-chainstore")))]
 mod test {
     use core::str::FromStr;
     use std::format;
@@ -1486,12 +1486,12 @@ mod test {
     use crate::pruned_utreexo::consensus::Consensus;
     use crate::pruned_utreexo::utxo_data::UtxoData;
     use crate::AssumeValidArg;
-    #[cfg(feature = "experimental-db")]
+    #[cfg(feature = "flat-chainstore")]
     use crate::FlatChainStore;
-    #[cfg(not(feature = "experimental-db"))]
+    #[cfg(feature = "kv-chainstore")]
     use crate::KvChainStore;
 
-    #[cfg(not(feature = "experimental-db"))]
+    #[cfg(feature = "kv-chainstore")]
     fn setup_test_chain<'a>(
         network: Network,
         assume_valid_arg: AssumeValidArg,
@@ -1501,7 +1501,7 @@ mod test {
         ChainState::new(chainstore, network, assume_valid_arg)
     }
 
-    #[cfg(feature = "experimental-db")]
+    #[cfg(feature = "flat-chainstore")]
     fn setup_test_chain(
         network: Network,
         assume_valid_arg: AssumeValidArg,

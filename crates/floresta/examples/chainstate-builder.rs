@@ -7,11 +7,11 @@
 //! ChainStateBuilder struct. This example shows how to use it.
 use bitcoin::blockdata::constants::genesis_block;
 use bitcoin::Network;
-use floresta::chain::ChainState;
-use floresta::chain::KvChainStore;
 use floresta_chain::pruned_utreexo::chain_state_builder::ChainStateBuilder;
 use floresta_chain::AssumeValidArg;
 use floresta_chain::ChainParams;
+use floresta_chain::FlatChainStore;
+use floresta_chain::FlatChainStoreConfig;
 use rustreexo::accumulator::stump::Stump;
 
 const DATA_DIR: &str = "./tmp-db";
@@ -26,8 +26,9 @@ async fn main() {
     // the block data after we validated it. This saves a lot of space, but it means that
     // we can't serve blocks to other nodes or rescan the blockchain without downloading
     // it again.
+    let chain_store_config = FlatChainStoreConfig::new(DATA_DIR.into());
     let chain_store =
-        KvChainStore::new(DATA_DIR.into()).expect("failed to open the blockchain database");
+        FlatChainStore::new(chain_store_config).expect("failed to open the blockchain database");
 
     // Create a new chain state builder. We can use it to customize the chain state.
     // Assume valid is the same as in node.rs, it's the block that we assume that all
@@ -44,7 +45,7 @@ async fn main() {
     // Finally, we set the utreexo accumulator. This is the accumulator that we use
     // to validate the blockchain. If you set the chain height, you should update
     // the accumulator to the state of the blockchain at that height too.
-    let _chain: ChainState<KvChainStore> = ChainStateBuilder::new()
+    let _chain = ChainStateBuilder::new()
         .with_assume_valid(AssumeValidArg::Disabled, network)
         .with_chain_params(params)
         .with_tip((genesis.block_hash(), 0), genesis.header)
