@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::slice;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Instant;
@@ -23,7 +22,10 @@ use bitcoin::TxIn;
 use bitcoin::TxOut;
 use bitcoin::Txid;
 use floresta_chain::ThreadSafeChain;
-use floresta_common::parse_descriptors;
+use floresta_common::descriptor_internals::DeleteDescriptorRes;
+use floresta_common::descriptor_internals::DescriptorId;
+use floresta_common::descriptor_internals::DescriptorRequest;
+use floresta_common::descriptor_internals::RescanRequest;
 use floresta_compact_filters::flat_filters_store::FlatFiltersStore;
 use floresta_compact_filters::network_filters::NetworkFilters;
 use floresta_watch_only::kv_database::KvDatabase;
@@ -31,14 +33,13 @@ use floresta_watch_only::AddressCache;
 use floresta_watch_only::CachedTransaction;
 use floresta_wire::node_interface::NodeInterface;
 use floresta_wire::node_interface::PeerInfo;
-use log::debug;
 use log::error;
 use log::info;
 use serde_json::json;
 use serde_json::Value;
 use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
-
+use crate::json_rpc::res::Error::Wallet;
 use super::res::Error;
 use super::res::GetBlockRes;
 use super::res::RawTxJson;
@@ -114,26 +115,20 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
             .ok_or(Error::TxNotFound)
     }
 
-    fn load_descriptor(&self, descriptor: String) -> Result<bool> {
-        let desc = slice::from_ref(&descriptor);
-        let Ok(mut parsed) = parse_descriptors(desc) else {
-            return Err(Error::InvalidDescriptor);
-        };
+    /// Server side handle of "importdescriptors",
+    ///
+    /// Import the descriptor from the given [`DescriptorRequest`].
+    fn import_descriptors(&self, requests: Vec<DescriptorRequest>) -> Result<bool> {
+        info!("Importing {requests:?} and Rescanning");
 
-        // It's ok to unwrap because we know there is at least one element in the vector
-        let addresses = parsed.pop().unwrap();
-        let addresses = (0..100)
-            .map(|index| {
-                let address = addresses
-                    .at_derivation_index(index)
-                    .unwrap()
-                    .script_pubkey();
-                self.wallet.cache_address(address.clone());
-                address
-            })
-            .collect::<Vec<_>>();
+        // Extracts the BlownDescriptors and the earliest timestamp rescan requested.
+        let (descriptors, rescan_timestamp) =
+            floresta_common::descriptor_internals::handle_descriptors_requests(requests)
+                .map_err(|e| Error::BatchDescriptor(e))?;
 
-        debug!("Rescanning with block filters for addresses: {addresses:?}");
+        for descriptor in descriptors {
+            self.wallet.cache_descriptor(descriptor).map_err(|e | Wallet(e.to_string()))?;
+        }
 
         let addresses = self.wallet.get_cached_addresses();
         let wallet = self.wallet.clone();
@@ -144,12 +139,38 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
         let cfilters = self.block_filter_storage.as_ref().unwrap().clone();
         let node = self.node.clone();
         let chain = self.chain.clone();
-
+        
+        let rescan_heigth: Option<usize> = match rescan_timestamp {
+            RescanRequest::Full  => Some(0),
+            RescanRequest::Ignore => None,
+            RescanRequest::SpecifiedTime(time) => Some(time as usize),
+        };
         tokio::task::spawn(Self::rescan_with_block_filters(
-            addresses, chain, wallet, cfilters, node,
-        ));
-
+                        addresses, chain, wallet, cfilters, rescan_heigth, node,
+                    ));
         Ok(true)
+    }
+
+    /// "deletedescriptors", that search into the wallet for the [`BlowDescriptors`] that matches
+    /// the given [`Vec<DescriptorId>`].
+    ///
+    /// Pull defines if the returning [`DeleteDescriptorRes`] should contain the deleted [`BlowDescriptors`].
+    ///
+    /// Strict defines whether we should yield an error and abort the deletion the descriptors if some
+    /// of the given Ids doesn't match.
+    fn delete_descriptors(
+        &self,
+        ids: Vec<DescriptorId>,
+        pull: bool,
+    ) -> Result<DeleteDescriptorRes> {
+        let mut pulled = self.wallet.delete_descriptors(&ids).map_err(|e | Wallet(e.to_string()))?;
+
+        // Empty the return vector if pulled is false.
+        if !pull {
+            pulled = vec![];
+        }
+
+        Ok(DeleteDescriptorRes { pulled })
     }
 
     fn rescan(&self, _rescan: u32) -> Result<bool> {
@@ -169,7 +190,7 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
         let chain = self.chain.clone();
 
         tokio::task::spawn(Self::rescan_with_block_filters(
-            addresses, chain, wallet, cfilters, node,
+            addresses, chain, wallet, cfilters,  None, node,
         ));
 
         Ok(true)
@@ -378,10 +399,11 @@ async fn handle_json_rpc_request(
         }
 
         // wallet
-        "loaddescriptor" => {
-            let descriptor = params[0].as_str().ok_or(Error::InvalidDescriptor)?;
+        "importdescriptors" => {
+            let requests: Vec<DescriptorRequest> = serde_json::from_value(params[0].clone())
+                .map_err(|e| Error::DecodeDescRequest(e, params[0].to_string()))?;
             state
-                .load_descriptor(descriptor.to_string())
+                .import_descriptors(requests)
                 .map(|v| ::serde_json::to_value(v).unwrap())
         }
 
@@ -403,6 +425,17 @@ async fn handle_json_rpc_request(
             .list_descriptors()
             .map(|v| ::serde_json::to_value(v).unwrap()),
 
+        "deletedescriptors" => {
+            let ids: Vec<DescriptorId> = serde_json::from_value(params[0].clone())
+                .map_err(|error| Error::DecodeDescRequest(error, params[0].to_string()))?;
+            let pull: bool = serde_json::from_value(params[1].clone())
+                .map_err(|error| Error::DecodeDescRequest(error, params[0].to_string()))?;
+
+            state
+                .delete_descriptors(ids, pull)
+                .map(|v| ::serde_json::to_value(v).unwrap())
+        }
+
         _ => {
             let error = Error::MethodNotFound;
             Err(error)
@@ -422,8 +455,9 @@ fn get_http_error_code(err: &Error) -> u16 {
         | Error::InvalidVout
         | Error::InvalidPort
         | Error::InvalidHeight
-        | Error::InvalidDescriptor
         | Error::InvalidNetwork
+        | Error::Descriptor(_)
+        | Error::BatchDescriptor(_)
         | Error::InvalidVerbosityLevel
         | Error::Decode(_)
         | Error::MissingParams
@@ -431,6 +465,7 @@ fn get_http_error_code(err: &Error) -> u16 {
         | Error::NoBlockFilters
         | Error::InvalidMemInfoMode
         | Error::InvalidAddnodeCommand
+        | Error::DecodeDescRequest(_, _)
         | Error::Wallet(_) => 400,
 
         // idunnolol
@@ -461,13 +496,15 @@ fn get_json_rpc_error_code(err: &Error) -> i32 {
         | Error::InvalidVout
         | Error::InvalidPort
         | Error::InvalidHeight
-        | Error::InvalidDescriptor
         | Error::InvalidNetwork
         | Error::InvalidVerbosityLevel
         | Error::TxNotFound
         | Error::BlockNotFound
         | Error::InvalidMemInfoMode
         | Error::InvalidAddnodeCommand
+        | Error::Descriptor(_)
+        | Error::BatchDescriptor(_)
+        | Error::DecodeDescRequest(_, _)
         | Error::Wallet(_) => -32600,
 
         // server error
@@ -555,12 +592,13 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
         chain: Blockchain,
         wallet: Arc<AddressCache<KvDatabase>>,
         cfilters: Arc<NetworkFilters<FlatFiltersStore>>,
+        height: Option<usize>,
         node: NodeInterface,
     ) -> Result<()> {
         let blocks = cfilters
             .match_any(
                 addresses.iter().map(|a| a.as_bytes()).collect(),
-                Some(0),
+                height,
                 chain.clone(),
             )
             .unwrap();

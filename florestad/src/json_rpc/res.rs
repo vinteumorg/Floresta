@@ -1,6 +1,7 @@
 use std::fmt::Display;
 
 use axum::response::IntoResponse;
+use floresta_common::descriptor_internals::DescriptorError;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -183,9 +184,10 @@ pub enum Error {
     InvalidVerbosityLevel,
     TxNotFound,
     InvalidScript,
-    InvalidDescriptor,
     BlockNotFound,
     Chain,
+    Descriptor(DescriptorError),
+    BatchDescriptor(Vec<DescriptorError>),
     InvalidVout,
     InvalidHeight,
     InvalidHash,
@@ -204,6 +206,7 @@ pub enum Error {
     InvalidMemInfoMode,
     Wallet(String),
     Filters(String),
+    DecodeDescRequest(serde_json::Error, String),
     InvalidAddnodeCommand,
 }
 
@@ -219,12 +222,14 @@ impl Display for Error {
             Error::MethodNotFound =>  write!(f, "Method not found"),
             Error::Decode(e) =>  write!(f, "error decoding request: {e}"),
             Error::TxNotFound =>  write!(f, "Transaction not found"),
-            Error::InvalidDescriptor =>  write!(f, "Invalid descriptor"),
+            Error::DecodeDescRequest(e, one) =>  write!(f, "Couldn't parse {one} into a Descriptor request; {e}"),
             Error::BlockNotFound =>  write!(f, "Block not found"),
             Error::Chain => write!(f, "Chain error"),
             Error::InvalidPort => write!(f, "Invalid port"),
             Error::InvalidAddress => write!(f, "Invalid address"),
             Error::Node(e) => write!(f, "Node error: {e}"),
+            Error::Descriptor(e) => write!(f, "{e:?}"), // A wrapper around another error, and the error will yield the message
+            Error::BatchDescriptor(b) =>  write!(f, "{b:?}"), // A wrapper around a vec of errors, youll mostly yield this from `handle_descriptors_requests`.
             Error::NoBlockFilters => write!(f, "You don't have block filters enabled, please start florestad with --cfilters to run this RPC"),
             Error::InvalidNetwork => write!(f, "Invalid network"),
             Error::InInitialBlockDownload => write!(f, "Node is in initial block download, wait until it's finished"),
