@@ -67,8 +67,14 @@ where
     /// Checks if we have the next 10 missing blocks until the tip, and request missing ones for a peer.
     async fn get_blocks_to_download(&mut self) {
         let mut blocks = Vec::with_capacity(10);
-        for _ in 0..10 {
+        for _ in 0..4 {
             let next_block = self.context.last_block_requested + 1;
+            let validation_index = self.chain.get_validation_index().unwrap();
+            if next_block <= validation_index {
+                self.last_block_request = validation_index;
+                continue;
+            }
+
             let next_block = self.chain.get_block_hash(next_block);
             match next_block {
                 Ok(next_block) => {
@@ -174,8 +180,10 @@ where
                 continue;
             }
 
+            try_and_log!(self.ask_for_missed_blocks().await);
+
             if self.chain.get_validation_index().unwrap() + 10 > self.context.last_block_requested {
-                if self.inflight.len() > 10 {
+                if self.inflight.len() > 4 {
                     continue;
                 }
 
