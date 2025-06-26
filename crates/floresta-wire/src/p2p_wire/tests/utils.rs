@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io;
 use std::io::Read;
-use std::str::FromStr;
+
 use std::time::Instant;
 
 use bitcoin::block::Header;
@@ -13,9 +13,11 @@ use bitcoin::p2p::ServiceFlags;
 use bitcoin::BlockHash;
 use bitcoin::Network;
 use floresta_chain::UtreexoBlock;
-use floresta_common::bhash;
 use floresta_common::service_flags;
 use floresta_common::service_flags::UTREEXO;
+use hex;
+use rand::rngs::OsRng;
+use rand::RngCore;
 use serde::Deserialize;
 use serde::Serialize;
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -23,11 +25,11 @@ use tokio::sync::mpsc::UnboundedSender;
 use tokio::task;
 use zstd;
 
+use crate::node::ConnectionKind;
 use crate::node::LocalPeerView;
 use crate::node::NodeNotification;
 use crate::node::NodeRequest;
 use crate::node::PeerStatus;
-use crate::p2p_wire::node::ConnectionKind;
 use crate::p2p_wire::peer::PeerMessages;
 use crate::p2p_wire::peer::Version;
 use crate::p2p_wire::transport::TransportProtocol;
@@ -117,6 +119,30 @@ impl TestPeer {
             let req = self.node_rx.recv().await.unwrap();
 
             match req {
+                NodeRequest::GetHeaders(hashes) => {
+                    let pos = hashes.first().unwrap();
+                    let pos = self._headers.iter().position(|h| h.block_hash() == *pos);
+                    let headers = match pos {
+                        None => vec![],
+                        Some(pos) => self._headers[(pos + 1)..].to_vec(),
+                    };
+
+                    self.node_tx
+                        .send(NodeNotification::FromPeer(
+                            self.peer_id,
+                            PeerMessages::Headers(headers),
+                        ))
+                        .unwrap();
+                }
+                NodeRequest::GetUtreexoState((hash, _)) => {
+                    let filters = self._filters.get(&hash).unwrap().clone();
+                    self.node_tx
+                        .send(NodeNotification::FromPeer(
+                            self.peer_id,
+                            PeerMessages::UtreexoState(filters),
+                        ))
+                        .unwrap();
+                }
                 NodeRequest::GetBlock((hashes, _)) => {
                     for hash in hashes {
                         let block = self.blocks.get(&hash).unwrap().clone();
@@ -210,6 +236,19 @@ pub fn serialize(root: UtreexoRoots) -> Vec<u8> {
     buffer
 }
 
+pub fn create_false_acc(tip: usize) -> Vec<u8> {
+    let mut bytes = [0u8; 32];
+    OsRng.fill_bytes(&mut bytes);
+    let node_hash = hex::encode(bytes);
+
+    let utreexo_root = UtreexoRoots {
+        roots: Some(vec![node_hash]),
+        numleaves: tip,
+    };
+
+    serialize(utreexo_root)
+}
+
 pub fn get_test_headers() -> Vec<Header> {
     let mut headers: Vec<Header> = Vec::new();
 
@@ -272,11 +311,7 @@ pub fn generate_invalid_block() -> UtreexoBlock {
 pub fn get_essentials() -> Essentials {
     let headers = get_test_headers();
     let blocks = get_test_blocks().unwrap();
-    let _filters = get_test_filters().unwrap();
     let invalid_block = generate_invalid_block();
-
-    // BlockHash of chain_tip: 0000035f0e5513b26bba7cead874fdf06241a934e4bc4cf7a0381c60e4cdd2bb (119)
-    let _tip_hash = bhash!("0000035f0e5513b26bba7cead874fdf06241a934e4bc4cf7a0381c60e4cdd2bb");
 
     Essentials {
         headers,
