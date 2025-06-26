@@ -75,8 +75,26 @@ open-doc:
 # Format code and run configured linters
 lint:
     @just fmt
-    cargo +nightly clippy --all-targets --no-default-features
-    cargo +nightly clippy --all-targets --all-features
+
+    # 1) Run with no features
+    cargo +nightly clippy --workspace --all-targets --no-default-features \
+        --exclude floresta-chain \
+        --exclude florestad
+
+    # 2) Run with all features
+    cargo +nightly clippy --workspace --all-targets --all-features \
+        --exclude floresta-chain \
+        --exclude florestad
+
+    # Run both cases in floresta-chain (one with kv, another with flat)
+    cargo +nightly clippy -p floresta-chain --all-targets --no-default-features --features kv-chainstore
+    cargo +nightly clippy -p floresta-chain --all-targets \
+        --features bitcoinconsensus,metrics,test-utils,flat-chainstore
+
+    # Run both cases in florestad (one with kv, another with flat)
+    cargo +nightly clippy -p florestad --all-targets --no-default-features --features kv-chainstore
+    cargo +nightly clippy -p florestad --all-targets \
+        --features compact-filters,zmq-server,json-rpc,metrics,flat-chainstore
 
 # Format code
 fmt:
