@@ -41,9 +41,7 @@ use crate::node_interface::NodeResponse;
 ///
 /// see [node_context](crates/floresta-wire/src/p2p_wire/node_context.rs) and [node.rs](crates/floresta-wire/src/p2p_wire/node.rs) for more information.
 #[derive(Clone, Debug, Default)]
-pub struct SyncNode {
-    last_block_requested: u32,
-}
+pub struct SyncNode {}
 
 impl NodeContext for SyncNode {
     fn get_required_services(&self) -> bitcoin::p2p::ServiceFlags {
@@ -105,7 +103,7 @@ where
             match next_block {
                 Ok(next_block) => {
                     blocks.push(next_block);
-                    self.context.last_block_requested += 1;
+                    self.last_block_request += 1;
                 }
 
                 Err(_) => {
@@ -165,7 +163,7 @@ where
     ///     - If were low on inflights, requests new blocks to validate.
     pub async fn run(mut self, done_cb: impl FnOnce(&Chain)) -> Self {
         info!("Starting sync node");
-        self.context.last_block_requested = self.chain.get_validation_index().unwrap();
+        self.last_block_request = self.chain.get_validation_index().unwrap();
 
         loop {
             while let Ok(Some(msg)) = timeout(Duration::from_secs(1), self.node_rx.recv()).await {
@@ -216,7 +214,6 @@ where
                 > SyncNode::ASSUME_STALE;
 
             if assume_stale {
-                self.context.last_block_requested = self.chain.get_validation_index().unwrap();
                 try_and_log!(self.create_connection(ConnectionKind::Extra).await);
                 self.last_tip_update = Instant::now();
                 continue;
@@ -229,19 +226,7 @@ where
             // Ask for missed blocks if they are no longer inflight or pending
             try_and_log!(self.ask_for_missed_blocks().await);
 
-            if self.chain.get_validation_index().unwrap() + 10 > self.context.last_block_requested {
-                if self.inflight.len() > 4 {
-                    continue;
-                }
-
-                // don't ask for blocks if we already have a lot of them in memory.
-                // If we don't limit it, we may end up using all the available memory
-                if self.blocks.len() > 10 {
-                    continue;
-                }
-
-                self.get_blocks_to_download().await;
-            }
+            self.get_blocks_to_download().await;
         }
 
         done_cb(&self.chain);
@@ -338,8 +323,7 @@ where
                             // We've requested and processed a block that's not the next one in our
                             // chain. Force our last block requested to be the correct block, and
                             // keep going.
-                            self.context.last_block_requested =
-                                self.chain.get_validation_index()?;
+                            self.last_block_request = self.chain.get_validation_index()?;
                         }
                     }
                 }
@@ -378,17 +362,7 @@ where
             }
         }
 
-        if self.inflight.len() < 4 {
-            if *self.kill_signal.read().await {
-                return Ok(());
-            }
-
-            if self.blocks.len() > 10 {
-                return Ok(());
-            }
-
-            self.get_blocks_to_download().await;
-        }
+        self.get_blocks_to_download().await;
 
         Ok(())
     }
