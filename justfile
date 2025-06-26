@@ -50,7 +50,7 @@ test-functional-run arg="":
 
 # format and lint functional tests
 test-functional-uv-fmt:
-    uv run black --check --verbose ./tests
+    uv run black --verbose ./tests
     uv run pylint --verbose ./tests
 
 # Run all required stuff to functional tests
@@ -96,6 +96,9 @@ lint:
     cargo +nightly clippy -p florestad --all-targets \
         --features compact-filters,zmq-server,json-rpc,metrics,flat-chainstore
 
+    # lint the functional tests
+    @just test-functional-uv-fmt
+
 # Format code
 fmt:
     cargo +nightly fmt --all
@@ -123,4 +126,5 @@ clean-data:
 pcc:
     @just lint-features '-- -D warnings'
     @just test-features
+    @test-functional-uv-fmt
     @just test-functional
