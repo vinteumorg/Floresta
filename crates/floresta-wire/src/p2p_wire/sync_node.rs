@@ -78,13 +78,27 @@ where
     /// TODO: Be smarter when selecting peers to send, like taking in consideration
     /// already inflight blocks and latency.
     async fn get_blocks_to_download(&mut self) {
-        let mut blocks = Vec::with_capacity(10);
-        for _ in 0..4 {
-            let next_block = self.context.last_block_requested + 1;
+        let max_inflight_blocks = SyncNode::BLOCKS_PER_GETDATA * SyncNode::MAX_CONCURRENT_GETDATA;
+        let inflight_blocks = self
+            .inflight
+            .keys()
+            .filter(|inflight| matches!(inflight, InflightRequests::Blocks(_)))
+            .count();
+
+        // if we do a request, this will be the new inflight blocks count
+        let next_inflight_count = inflight_blocks + SyncNode::BLOCKS_PER_GETDATA;
+
+        // if this request would make our inflight queue too long, postpone it
+        if next_inflight_count > max_inflight_blocks {
+            return;
+        }
+
+        let mut blocks = Vec::with_capacity(SyncNode::BLOCKS_PER_GETDATA);
+        for _ in 0..SyncNode::BLOCKS_PER_GETDATA {
+            let next_block = self.last_block_request + 1;
             let validation_index = self.chain.get_validation_index().unwrap();
             if next_block <= validation_index {
                 self.last_block_request = validation_index;
-                continue;
             }
 
             let next_block = self.chain.get_block_hash(next_block);
