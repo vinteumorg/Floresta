@@ -130,7 +130,7 @@ mod tests {
     #[tokio::test]
     async fn two_peers_different_tips() {
         let essentials = get_essentials();
-        let mut headers1 = essentials.headers[..HEADER_COUNT].to_vec();
+        let headers1 = essentials.headers[..HEADER_COUNT].to_vec();
         let mut headers2 = essentials.headers[..HEADER_COUNT].to_vec();
         headers2.pop();
 
@@ -185,7 +185,7 @@ mod tests {
     #[tokio::test]
     async fn two_peers_one_lying() {
         let essentials = get_essentials();
-        let mut headers = essentials.headers[..120].to_vec();
+        let headers = essentials.headers[..120].to_vec();
 
         let true_filters = get_test_filters().unwrap();
         let tip_hash =
@@ -219,7 +219,7 @@ mod tests {
     #[tokio::test]
     async fn ten_peers_one_honest() {
         let essentials = get_essentials();
-        let mut headers = essentials.headers[..120].to_vec();
+        let headers = essentials.headers[..120].to_vec();
 
         let true_filters = get_test_filters().unwrap();
         let tip_hash =
@@ -254,7 +254,7 @@ mod tests {
     #[tokio::test]
     async fn fork_chainwork_test() {
         let essentials = get_essentials();
-        let mut headers1 = essentials.headers[..HEADER_COUNT].to_vec();
+        let headers1 = essentials.headers[..HEADER_COUNT].to_vec();
         let mut headers2 = essentials.headers[..HEADER_COUNT].to_vec();
 
         // Fork: headers2 diverges at height 50
