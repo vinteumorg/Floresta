@@ -434,7 +434,7 @@ where
             }
 
             // Check if we haven't missed any block
-            if self.inflight.len() < 10 {
+            if self.inflight.len() < RunningNode::MAX_INFLIGHT_REQUESTS {
                 try_and_log!(self.ask_missed_block().await);
             }
         }

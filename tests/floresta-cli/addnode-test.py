@@ -17,7 +17,6 @@ from test_framework.rpc.bitcoin import REGTEST_RPC_SERVER as bitcoind_config
 
 DATA_DIR = FlorestaTestFramework.get_integration_test_dir()
 TIMEOUT = 15
-PING_TIMEOUT = 40
 
 
 def run_test(name: str, v2transport: bool = False):
@@ -45,6 +44,11 @@ def run_test(name: str, v2transport: bool = False):
 
 
 class AddnodeTestWrapper:
+    def ensure_see_connection_closed(node):
+        """Send two pings to our peers so our node realizes the pipe is broken"""
+        node.rpc.ping()
+        time.sleep(TIMEOUT)
+        node.rpc.ping()
 
     @staticmethod
     def set_test_params(test: FlorestaTestFramework):
@@ -100,7 +104,7 @@ class AddnodeTestWrapper:
         # `addnode` bitcoin-core compliant command
         # should return a null json object
         test.assertIsNone(result)
-
+        time.sleep(10)
         # Floresta should be able to connect almost immediately
         # to the utreexod node after adding it.
         peer_info = nodes[0].rpc.get_peerinfo()
@@ -165,13 +169,12 @@ class AddnodeTestWrapper:
         test.log(
             "=========== Testing should bitcoind disconnect and floresta not see anymore..."
         )
+
         # lets try to disconnect the node
         # and wait for disconnection to proceed
         # with the test
         test.stop_node(1)
-        nodes[0].rpc.ping()
-
-        time.sleep(PING_TIMEOUT)
+        AddnodeTestWrapper.ensure_see_connection_closed(nodes[0])
 
         # now we expect the node to be in the
         # awaiting state. It will be in that state
@@ -193,7 +196,9 @@ class AddnodeTestWrapper:
         # reconnect the bitcoind node
         test.run_node(1)
         nodes[1].rpc.wait_for_connections(opened=True)
-        time.sleep(PING_TIMEOUT)
+
+        AddnodeTestWrapper.ensure_see_connection_closed(nodes[0])
+        time.sleep(30)
 
         peer_info = nodes[0].rpc.get_peerinfo()
         test.assertEqual(len(peer_info), 1)
@@ -259,11 +264,13 @@ class AddnodeTestWrapper:
         nodes[1].rpc.wait_for_connections(opened=False)
 
         test.run_node(1)
-        nodes[0].rpc.ping()
+
+        # make sure the old connection was removed
+        AddnodeTestWrapper.ensure_see_connection_closed(nodes[0])
 
         # wait some time to guarantee
         # that it will not be in the peers list again
-        time.sleep(PING_TIMEOUT)
+        time.sleep(TIMEOUT)
 
         # now we expect the node to be in the
         # awaiting state. It will be in that state
@@ -346,7 +353,8 @@ class AddnodeTestWrapper:
         # wait some time to guarantee
         # that it will not be in the peers list again
         nodes[0].rpc.ping()
-        time.sleep(PING_TIMEOUT)
+        time.sleep(10)
+        nodes[0].rpc.ping()
 
         peer_info = nodes[0].rpc.get_peerinfo()
         test.assertEqual(len(peer_info), 0)

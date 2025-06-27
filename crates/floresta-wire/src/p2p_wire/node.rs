@@ -1464,15 +1464,20 @@ where
     }
 
     pub(crate) async fn request_blocks(&mut self, blocks: Vec<BlockHash>) -> Result<(), WireError> {
-        let blocks: Vec<_> = blocks
-            .into_iter()
-            .filter(|block| {
-                !self
-                    .inflight
-                    .contains_key(&InflightRequests::Blocks(*block))
-            })
-            .collect();
+        if blocks.is_empty() {
+            return Ok(());
+        }
 
+        let should_request = |block: &BlockHash| {
+            let is_inflight = self
+                .inflight
+                .contains_key(&InflightRequests::Blocks(*block));
+            let is_pendding = self.blocks.contains_key(block);
+
+            !(is_inflight || is_pendding)
+        };
+
+        let blocks: Vec<_> = blocks.into_iter().filter(should_request).collect();
         let peer = self
             .send_to_random_peer(
                 NodeRequest::GetBlock((blocks.clone(), true)),
