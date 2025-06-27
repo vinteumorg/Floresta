@@ -121,30 +121,33 @@ impl ChainParams {
         match network {
             Network::Bitcoin => Ok(AssumeUtreexoValue {
                 block_hash: bhash!(
-                    "00000000000000000000569f4d863c27e667cbee8acc8da195e7e5551658e6e9"
+                    "0000000000000000000239f2b7f982df299193bdd693f499e6b893d8276ab7ce"
                 ),
-                height: 855571,
+                height: 902967,
                 roots: acchashes![
-                    "4dcc014cc23611dda2dcf0f34a3e62e7d302146df4b0b01ac701d440358c19d6",
-                    "988e0a883e4ad0c5559432f4747395115112755ec1138dcdd62e2f5741c31c2c",
-                    "49ecba683e12823d44f2ad190120d3028386d8bb7860a3eea62a250a1f293c60",
-                    "7c02e55ae35f12501134f0b81a351abb6c5e7a2529641d0c537a7534a560c770",
-                    "59cb07c73d71164ce1a4f953cfd01ef0e3269080e29d34022d4251523cb1e8ac",
-                    "ff96c9983b6765092403f8089fe5d0cdd6a94c58e4dcd14e77570c8b10c17628",
-                    "47ed934529b2ea03a7382febcf0c05e0bfc5884cc1235c2ad42624a56234b9a6",
-                    "d5c9373ed35de281d426888bd656f04a36623197a33706932ab82014d67f26ae",
-                    "05de50991df991f0b78d9166d06ce3c61cb29e07dc7c53ba75d75df6455e6967",
-                    "ebfdaf53b7240e9cd25d7c63b35d462763253f9282cc97d8d0c92ea9ade6aa02",
-                    "c349b6850f75346224cf7cf1e0a69e194306c59489017cd4f4a045c001f1fefc",
-                    "7edfd925905e88fd14c47edaaf09606cf0ae19f3b898239a2feb607d175d9a90",
-                    "442dadd38fd16949d2ef03d799aa6b61ad8c0b7c611aaa5e218bc6360c4f41ce",
-                    "2a57b73e540c7a72cb44fdc4ab7fcc3f0f148be7885667f07fce345430f08a15",
-                    "66dc66000a8baaacacef280783a0245b4d33bd7eba5f1f14b939bd3a54e135cb",
-                    "67ba89afe6bce9bafbf0b88013e4446c861e6c746e291c3921e0b65c93671ba3",
-                    "972ea2c7472c22e4eab49e9c2db5757a048b271b6251883ce89ccfeaa38b47ab",
+                    "bd53eef66849c9d3ca13b62ce694030ac4d4b484c6f490f473b9868a7c5df2e8",
+                    "993ffb1782db628c18c75a5edb58d4d506167d85ca52273e108f35b73bb5b640",
+                    "36d8c4ba5176c816bdae7c4119d9f2ea26a1f743f5e6e626102f66a835eaac6d",
+                    "4c93092c1ecd843d2b439365609e7f616fe681de921a46642951cb90873ba6ce",
+                    "9b4435987e18e1fe4efcb6874bba5cdc66c3e3c68229f54624cb6343787488a4",
+                    "ab1e87c4066bf195fa7b8357874b82de4fa09ddba921499d6fc73aa133200505",
+                    "8f8215e284dbce604988755ba3c764dbfa024ae0d9659cd67b24742f46360849",
+                    "09b5057a8d6e1f61e93baf474220f581bd1a38d8a378dacb5f7fdec532f21e00",
+                    "a331072d7015c8d33a5c17391264a72a7ca1c07e1f5510797064fced7fbe591d",
+                    "c1c647289156980996d9ea46377e8c1b7e5c05940730ef8c25c0d081341221b5",
+                    "330115a495ed14140cd785d44418d84b872480d293972abd66e3325fdc78ac93",
+                    "b1d7a488e1197908efb2091a3b750508cb2fc495d2011bf2c34c5ae2d40bd2a5",
+                    "3b3b2e51ad96e1ae8ce468c7947b8aa2b41ecb400a32edec3dbcfe5ddb9aca50",
+                    "9d852775775f4c1e4a150404776a6b22569a0fe31f2e669fd3b31a0f70072800",
+                    "8e5f6a92169ad67b3f2682f230e2a62fc849b0a47bc36af8ce6cae24a5343126",
+                    "6dbd2925f8aa0745ac34fc9240ce2a7ef86953fc305c6570ef580a0763072bbe",
+                    "8121c38dcb37684c6d50175f5fd2695af3b12ce0263d20eb7cc503b96f7dba0d",
+                    "f5d8b30dd2038e1b3a5ced7a30c961e230270020c336fb649d0a9e169f11b876",
+                    "0466bd4eb9e7be5b8870e97d2a66377525391c16f15dbcc3833853c8d3bae51e",
+                    "976184c55f74cbb780938a20e2a5df2791cf51e712f68a400a6b024c77ad78e4",
                 ]
                 .to_vec(),
-                leaves: 2587882501,
+                leaves: 2860457445,
             }),
             Network::Testnet => Ok(AssumeUtreexoValue {
                 block_hash: genesis.block_hash(),
@@ -184,16 +187,16 @@ impl ChainParams {
             AssumeValidArg::UserInput(hash) => Ok(Some(hash)),
             AssumeValidArg::Hardcoded => match network {
                 Network::Bitcoin => Ok(Some(bhash!(
-                    "00000000000000000000569f4d863c27e667cbee8acc8da195e7e5551658e6e9"
+                    "00000000000000000001ff36aef3a0454cf48887edefa3aab1f91c6e67fee294"
                 ))),
                 Network::Testnet => Ok(Some(bhash!(
-                    "000000000000001142ad197bff16a1393290fca09e4ca904dd89e7ae98a90fcd"
+                    "000000007df22db38949c61ceb3d893b26db65e8341611150e7d0a9cd46be927"
                 ))),
                 Network::Testnet4 => Ok(Some(bhash!(
-                    "0000000006af13c1117f3e2eb14f10eb9736e255713118cf7eb6659b1448efc1"
+                    "0000000000335c2895f02ebc75773d2ca86095325becb51773ce5151e9bcf4e0"
                 ))),
                 Network::Signet => Ok(Some(bhash!(
-                    "0000003ed17b9c93954daab00d73ccbd0092074c4ebfc751c7458d58b827dfea"
+                    "000000084ece77f20a0b6a7dda9163f4527fd96d59f7941fb8452b3cec855c2e"
                 ))),
                 Network::Regtest => Ok(Some(bhash!(
                     "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206"
