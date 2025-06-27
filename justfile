@@ -61,8 +61,8 @@ test-functional:
 
 # Run the benchmarks
 bench:
-    cargo bench --package floresta-chain --no-default-features --features test-utils,kv-chainstore
-    cargo bench --package floresta-chain --no-default-features --features test-utils,flat-chainstore
+    cargo bench -p floresta-chain --no-default-features --features test-utils,kv-chainstore
+    cargo bench -p floresta-chain --no-default-features --features test-utils,flat-chainstore
 
 # Generate documentation for all crates
 doc:
@@ -96,7 +96,7 @@ lint:
     cargo +nightly clippy -p florestad --all-targets \
         --features compact-filters,zmq-server,json-rpc,metrics,flat-chainstore
 
-    # lint the functional tests
+    # Lint the functional tests
     @just test-functional-uv-fmt
 
 # Format code

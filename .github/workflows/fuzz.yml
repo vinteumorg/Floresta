@@ -82,7 +82,7 @@ jobs:
       # Install cargo-fuzz only if not found in cache
       - name: Install cargo-fuzz
         if: steps.cache-rust.outputs.cache-hit != 'true'
-        run: cargo install cargo-fuzz --locked --force
+        run: cargo +nightly install cargo-fuzz --locked --force
 
       # Pull corpus data from the floresta-qa-assets repository
       - name: Pull corpus data

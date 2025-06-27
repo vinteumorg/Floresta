@@ -21,11 +21,15 @@ crates="\
     floresta-watch-only \
     floresta-wire \
     floresta \
-    florestad"
+    florestad \
+    fuzz \
+    metrics"
+
+chainstore_feats="flat-chainstore,kv-chainstore"
 
 for crate in $crates; do
     # Determine the path to the crate
-    if [ "$crate" = "florestad" ]; then
+    if [ "$crate" = "florestad" ] || [ "$crate" = "fuzz" ] || [ "$crate" = "metrics" ]; then
         path="$crate"
     else
         path="crates/$crate"
@@ -33,19 +37,21 @@ for crate in $crates; do
 
     # The default feature, if not used to conditionally compile code, can be skipped as the combinations already
     # include that case (see https://github.com/taiki-e/cargo-hack/issues/155#issuecomment-2474330839)
-    if [ "$crate" = "floresta-compact-filters" ] || [ "$crate" = "floresta-electrum" ]; then
-        # These two crates don't have a default feature
+    if [ "$crate" = "floresta-compact-filters" ] || \
+       [ "$crate" = "floresta-electrum" ] || \
+       [ "$crate" = "fuzz" ] || \
+       [ "$crate" = "metrics" ]; then
+        # These crates don't have a default feature
         skip_default=""
     else
         skip_default="--skip default"
     fi
 
-    # For floresta-chain and florestad, we must not define both flat-chainstore and kv-chainstore features at the same time.
-    # But we must define at least one of them.
+    # For floresta-chain and florestad, require exactly one of 'flat-chainstore' or 'kv-chainstore'
     if [ "$crate" = "floresta-chain" ] || [ "$crate" = "florestad" ]; then
-        store_features="--mutually-exclusive-features flat-chainstore,kv-chainstore --at-least-one-of flat-chainstore,kv-chainstore"
+        store_feature="--mutually-exclusive-features $chainstore_feats --at-least-one-of $chainstore_feats"
     else
-        store_features=""
+        store_feature=""
     fi
 
     # Navigate to the crate's directory
@@ -54,10 +60,10 @@ for crate in $crates; do
 
     if [ "$action" = "clippy" ]; then
         # shellcheck disable=SC2086
-        cargo +nightly hack clippy --all-targets --feature-powerset $skip_default $store_features $cargo_arg
+        cargo +nightly hack clippy --all-targets --feature-powerset $skip_default $store_feature $cargo_arg
     elif [ "$action" = "test" ]; then
         # shellcheck disable=SC2086
-        cargo hack test --release --feature-powerset $skip_default $store_features -v $cargo_arg
+        cargo hack test --release --feature-powerset $skip_default $store_feature -v $cargo_arg
     fi
 
     cd - > /dev/null || exit 1
