@@ -1040,6 +1040,7 @@ dependencies = [
  "anyhow",
  "bitcoin 0.32.6",
  "clap",
+ "floresta-common",
  "jsonrpc",
  "rand",
  "rcgen",
@@ -1056,6 +1057,7 @@ dependencies = [
  "core2",
  "hashbrown",
  "miniscript 12.3.2",
+ "serde",
  "sha2",
  "spin",
 ]

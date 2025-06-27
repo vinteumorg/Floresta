@@ -171,8 +171,7 @@ pub struct Cli {
     pub pid_file: Option<String>,
 
     #[arg(long, default_value_t = false)]
-    /// Whether backfill should be disabled
-    ///
+    /// Whether backfill should be disabled5t6  '  lll         '         
     /// If we assumeutreexo or use pow fraud proofs, you have the option to download and validate
     /// the blocks that were skipped. This will take a long time, but will run on the background
     /// and won't affect the node's operation. You may notice that this will take a lot of CPU

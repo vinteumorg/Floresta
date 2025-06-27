@@ -27,6 +27,7 @@ use floresta_chain::BlockchainError;
 use floresta_chain::ChainState;
 #[cfg(not(feature = "experimental-db"))]
 use floresta_chain::KvChainStore as ChainStore;
+use floresta_common::descriptor_internals::DescriptorIdSelector;
 #[cfg(feature = "compact-filters")]
 use floresta_compact_filters::flat_filters_store::FlatFiltersStore;
 #[cfg(feature = "compact-filters")]
@@ -35,7 +36,6 @@ use floresta_electrum::electrum_protocol::client_accept_loop;
 use floresta_electrum::electrum_protocol::ElectrumServer;
 use floresta_watch_only::kv_database::KvDatabase;
 use floresta_watch_only::AddressCache;
-use floresta_watch_only::AddressCacheDatabase;
 use floresta_wire::address_man::AddressMan;
 use floresta_wire::mempool::Mempool;
 use floresta_wire::node::UtreexoNode;
@@ -70,7 +70,7 @@ use crate::config_file::ConfigFile;
 use crate::error;
 #[cfg(feature = "json-rpc")]
 use crate::json_rpc;
-use crate::wallet_input::InitialWalletSetup;
+use crate::wallet_input::convert_to_internal;
 #[cfg(feature = "zmq-server")]
 use crate::zmq::ZMQServer;
 
@@ -387,7 +387,9 @@ impl Florestad {
 
         // Load the watch-only wallet
         debug!("Loading wallet");
+
         let mut wallet = Self::load_wallet(&data_dir);
+
         wallet.setup().expect("Could not initialize wallet");
         debug!("Done loading wallet");
 
@@ -843,30 +845,36 @@ impl Florestad {
         }
     }
 
-    fn setup_wallet<D: AddressCacheDatabase>(
+    fn setup_wallet(
         mut xpubs: Vec<String>,
         descriptors: Vec<String>,
         addresses: Vec<String>,
-        wallet: &mut AddressCache<D>,
+        wallet: &mut AddressCache<KvDatabase>,
         network: Network,
     ) -> anyhow::Result<()> {
         if let Some(key) = Self::get_key_from_env() {
             xpubs.push(key);
         }
-        let setup = InitialWalletSetup::build(&xpubs, &descriptors, &addresses, network, 100)?;
-        for descriptor in setup.descriptors {
-            let descriptor = descriptor.to_string();
-            if !wallet.is_cached(&descriptor)? {
-                wallet.push_descriptor(&descriptor)?;
+
+        let initial_batch = convert_to_internal(&xpubs, &descriptors, &addresses, network, 100)?;
+
+        for descriptor in initial_batch.0 {
+            if !wallet
+                .is_descriptor_cached(&descriptor.get_id(DescriptorIdSelector::Hash))
+                .unwrap()
+            {
+                wallet.cache_descriptor(descriptor).unwrap()
             }
         }
-        for addresses in setup.addresses {
-            wallet.cache_address(addresses.script_pubkey());
+        for addresses in initial_batch.1 {
+            wallet.cache_address(addresses)
         }
         info!("Wallet setup completed!");
         anyhow::Ok(())
     }
 
+    /// Utility function that merges two ['Option<Vec<T>>'] returning an
+    /// empty one if the given are None.
     fn get_both_vec<T>(a: Option<Vec<T>>, b: Option<Vec<T>>) -> Vec<T> {
         let mut result: Vec<T> = Vec::new();
         if let Some(a) = a {
@@ -911,7 +919,7 @@ impl Florestad {
     /// defaults to `<data-dir>/ssl/cert.pem` and `<data-dir>/ssl/key.pem`.
     ///
     /// It will check if those files are well formated to PKCS#8 structure
-    /// and if it was in wrong structure, will exit with logs.
+    /// and if it was in the wrong structure, will exit with logs.
     ///
     /// If pass the check process, it will try to open those files and, if not exist,
     /// florestad will skip the SSL configuration.
