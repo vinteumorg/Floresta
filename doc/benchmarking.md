@@ -9,7 +9,8 @@ just bench
 Under the hood this runs:
 
 ```bash
-cargo bench --features test-utils,experimental-db
+cargo bench -p floresta-chain --no-default-features --features test-utils,kv-chainstore
+cargo bench -p floresta-chain --no-default-features --features test-utils,flat-chainstore
 ```
 
 By default, benchmarks that are resource-intensive are excluded to allow for quicker testing. If you'd like to include all benchmarks, use the following command:
@@ -19,7 +20,8 @@ By default, benchmarks that are resource-intensive are excluded to allow for qui
 EXPENSIVE_BENCHES=1 just bench
 
 # or, without Just:
-EXPENSIVE_BENCHES=1 cargo bench --features test-utils,experimental-db
+EXPENSIVE_BENCHES=1 cargo bench -p floresta-chain --no-default-features --features test-utils,kv-chainstore
+EXPENSIVE_BENCHES=1 cargo bench -p floresta-chain --no-default-features --features test-utils,flat-chainstore
 ```
 
 > **Note**: Running with `EXPENSIVE_BENCHES=1` enables the full benchmark suite, which will take several minutes to complete.
