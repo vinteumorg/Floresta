@@ -184,7 +184,42 @@ pub fn validate_block_time(
     }
     Ok(())
 }
+```
 
+Documentation for RPC
+---------------------
+
+We aim on having a good documentation and CLI `help` command.
+
+To achieve this, we use the `rustdoc` tool, which generates documentation from Rust source code comments. We also use the `clap` library to generate CLI help and usage information directly from the code.
+
+Please always create a new rpc documentation under the specified [directory](/doc/rpc) and implement using the following syntax on the method command definition:
+
+```rust
+#[doc = include_str!("../../../doc/rpc/command.md")]
+#[command(name = "command_name",about = "Write a short description of the command", long_about = Some(include_str!("../../../doc/rpc/command.md")),disable_help_subcommand = true)]
+fn method_name
+```
+
+Example:
+```rust
+#[doc = include_str!("../../../doc/rpc/addnode.md")]
+#[command(name = "addnode",about = "Attempts to add or remove a node from the list of addnodes", long_about = Some(include_str!("../../../doc/rpc/addnode.md")),disable_help_subcommand = true)]
+AddNode {
+    node: String,
+    command: AddNodeCommand,
+    v2transport: Option<bool>,
+},
+```
+
+We also have `man pages` that can be generated using the script [gen_manpages.sh](/contrib/dist/gen_manpages.sh) for releases/distributions or if you want to generate them locally you can also use the `just gen-manpages` command. This will generate man pages from files at `doc/rpc/*.md` to `doc/man/*.1.gz`. It uses the `pandoc` dependency, so please install it before running the script.
+
+```bash
+just gen-manpages
+# or
+chmod +x contrib/dist/gen_manpages.sh
+./contrib/dist/gen_manpages.sh
+sh ./contrib/dist/gen_manpages.sh <specific_md_path> # Specifying a md file will make the script only build this single one.
 ```
 
 Security

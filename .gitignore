@@ -4,6 +4,9 @@
 /result
 /bin
 
+# Man-pages
+doc/rpc_man/*.gz
+
 # Temporary files and generated data
 tmp/
 tmp-db/
