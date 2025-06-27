@@ -75,7 +75,7 @@ impl<Chain> UtreexoNode<Chain, RunningNode>
 where
     Chain: ThreadSafeChain + Clone,
     WireError: From<Chain::Error>,
-    Chain::Error: From<proof_util::Error>,
+    Chain::Error: From<proof_util::UtreexoLeafError>,
 {
     async fn send_addresses(&mut self) -> Result<(), WireError> {
         let addresses = self
@@ -629,12 +629,10 @@ where
                 return Ok(());
             };
 
-            let (proof, del_hashes, inputs) = floresta_chain::proof_util::process_proof(
-                udata,
-                &block.block.txdata,
-                validation_index + 1,
-                |h| self.chain.get_block_hash(h),
-            )?;
+            let (proof, del_hashes, inputs) =
+                proof_util::process_proof(udata, &block.block.txdata, validation_index + 1, |h| {
+                    self.chain.get_block_hash(h)
+                })?;
 
             if let Err(e) =
                 self.chain
@@ -700,11 +698,7 @@ where
 
                 let block_hash = block.block.block_hash();
 
-                let adds = floresta_chain::proof_util::get_block_adds(
-                    &block.block,
-                    block_height,
-                    block_hash,
-                );
+                let adds = proof_util::get_block_adds(&block.block, block_height, block_hash);
 
                 let adds: Vec<PollardAddition<BitcoinNodeHash>> = adds
                     .into_iter()

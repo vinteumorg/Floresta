@@ -128,7 +128,7 @@ impl<Chain> UtreexoNode<Chain, ChainSelector>
 where
     Chain: ChainBackend + 'static,
     WireError: From<Chain::Error>,
-    Chain::Error: From<proof_util::Error>,
+    Chain::Error: From<proof_util::UtreexoLeafError>,
 {
     /// This function is called every time we get a `Headers` message from a peer.
     /// It will validate the headers and add them to our chain, if they are valid.
@@ -393,7 +393,7 @@ where
 
     /// Updates a Stump, with the data from a Utreexo block
     fn update_acc(&self, acc: Stump, block: UtreexoBlock, height: u32) -> Result<Stump, WireError> {
-        let (proof, del_hashes, _) = floresta_chain::proof_util::process_proof(
+        let (proof, del_hashes, _) = proof_util::process_proof(
             block.udata.as_ref().unwrap(),
             &block.block.txdata,
             height,
@@ -544,7 +544,7 @@ where
         };
         let fork_height = self.chain.get_block_height(&fork)?.unwrap_or(0);
 
-        let (proof, del_hashes, inputs) = floresta_chain::proof_util::process_proof(
+        let (proof, del_hashes, inputs) = proof_util::process_proof(
             block.udata.as_ref().unwrap(),
             &block.block.txdata,
             fork_height,

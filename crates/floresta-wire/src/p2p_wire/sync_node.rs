@@ -5,7 +5,7 @@ use std::time::Instant;
 
 use bitcoin::p2p::message_blockdata::Inventory;
 use bitcoin::p2p::ServiceFlags;
-use floresta_chain::pruned_utreexo::udata;
+use floresta_chain::proof_util;
 use floresta_chain::BlockValidationErrors;
 use floresta_chain::BlockchainError;
 use floresta_chain::ThreadSafeChain;
@@ -62,7 +62,7 @@ impl<Chain> UtreexoNode<Chain, SyncNode>
 where
     Chain: ThreadSafeChain,
     WireError: From<Chain::Error>,
-    Chain::Error: From<udata::proof_util::Error>,
+    Chain::Error: From<proof_util::UtreexoLeafError>,
 {
     /// Checks if we have the next 10 missing blocks until the tip, and request missing ones for a peer.
     async fn get_blocks_to_download(&mut self) {
@@ -235,7 +235,7 @@ where
             }
 
             debug!("processing block {}", block.block.block_hash());
-            let (proof, del_hashes, inputs) = floresta_chain::proof_util::process_proof(
+            let (proof, del_hashes, inputs) = proof_util::process_proof(
                 &block.udata.unwrap(),
                 &block.block.txdata,
                 next_block_height,
