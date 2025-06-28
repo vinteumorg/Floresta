@@ -43,3 +43,17 @@ jobs:
         run: |
           tests/prepare.sh
           tests/run.sh
+
+      - name: Log tests on failure
+        if: failure()
+        run: |
+          logs=()
+          while IFS= read -r line; do
+            logs+=("$line")
+          done < <(find /tmp/floresta-func-tests* -type f -path "*/logs/*.log" 2>/dev/null || true)
+
+          for logfile in "${logs[@]}"; do
+            echo "::group::$logfile"
+            cat "$logfile" || echo "Failed to read $logfile"
+            echo "::endgroup::"
+          done
