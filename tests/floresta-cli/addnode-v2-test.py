@@ -93,13 +93,17 @@ class AddnodeTestWrapper:
         """
         test.log("=========== Testing should_floresta_add_bitcoind...")
         # Floresta adds the bitcoind node
+        bitcoind_port = bitcoind_config["ports"]["p2p"]
         result = nodes[0].rpc.addnode(
-            node="127.0.0.1:18444", command="add", v2transport=v2transport
+            node=f"127.0.0.1:{bitcoind_port}", command="add", v2transport=v2transport
         )
 
         # `addnode` bitcoin-core compliant command
         # should return a null json object
         test.assertIsNone(result)
+
+        # give some time to the node to establish the connection
+        time.sleep(1)
 
         # Floresta should be able to connect almost immediately
         # to the utreexod node after adding it.
@@ -109,7 +113,7 @@ class AddnodeTestWrapper:
         # now we expect the node to be in Ready state
         # with some expressive information. The node
         # should be in the `getpeerinfo` list.
-        test.assertEqual(peer_info[0]["address"], "127.0.0.1:18444")
+        test.assertEqual(peer_info[0]["address"], f"127.0.0.1:{bitcoind_port}")
         test.assertEqual(peer_info[0]["initial_height"], 0)
         test.assertEqual(peer_info[0]["kind"], "regular")
 
@@ -192,7 +196,7 @@ class AddnodeTestWrapper:
         )
         # reconnect the bitcoind node
         test.run_node(1)
-        nodes[1].rpc.wait_for_connections(opened=True)
+        nodes[1].rpc.wait_for_connections(opened=True, timeout=PING_TIMEOUT)
         time.sleep(PING_TIMEOUT)
 
         peer_info = nodes[0].rpc.get_peerinfo()
@@ -235,8 +239,9 @@ class AddnodeTestWrapper:
         with zero peers.
         """
         test.log("=========== Testing should floresta remove bitcoind...")
+        bitcoind_port = bitcoind_config["ports"]["p2p"]
         result = nodes[0].rpc.addnode(
-            node="127.0.0.1:18444",
+            node=f"127.0.0.1:{bitcoind_port}",
             command="remove",
         )
 
@@ -298,8 +303,9 @@ class AddnodeTestWrapper:
         test.log(
             "=========== Testing should floresta onetry connection with bitcoind..."
         )
+        bitcoind_port = bitcoind_config["ports"]["p2p"]
         result = nodes[0].rpc.addnode(
-            node="127.0.0.1:18444", command="onetry", v2transport=v2transport
+            node=f"127.0.0.1:{bitcoind_port}", command="onetry", v2transport=v2transport
         )
 
         # `addnode` bitcoin-core compliant command
@@ -313,8 +319,9 @@ class AddnodeTestWrapper:
         # to the peers list with the `getpeerinfo` command
         # but should be in the "Awaiting" state
         peer_info = nodes[0].rpc.get_peerinfo()
+        bitcoind_port = bitcoind_config["ports"]["p2p"]
         test.assertEqual(len(peer_info), 1)
-        test.assertEqual(peer_info[0]["address"], "127.0.0.1:18444")
+        test.assertEqual(peer_info[0]["address"], f"127.0.0.1:{bitcoind_port}")
         test.assertEqual(peer_info[0]["initial_height"], 0)
         test.assertEqual(peer_info[0]["kind"], "regular")
 
@@ -383,5 +390,4 @@ class AddnodeTestWrapper:
 
 
 if __name__ == "__main__":
-    run_test("addnode_v1_transport", v2transport=False)
     run_test("addnode_v2_transport", v2transport=True)

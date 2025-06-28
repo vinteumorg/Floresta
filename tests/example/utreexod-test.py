@@ -1,5 +1,5 @@
 """
-utreexo-test.py
+utreexod-test.py
 
 This is an example of how a tests with utreexo should look like,
 see `tests/test_framework/test_framework.py` for more info.

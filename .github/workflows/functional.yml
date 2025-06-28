@@ -40,6 +40,8 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Run functional tests tasks
+        env:
+          UTREEXO_REVISION: 0.4.0
         run: |
           tests/prepare.sh
           tests/run.sh

@@ -4,8 +4,6 @@ florestad/ssl-test.py
 This functional test tests the proper creatiion of a TLS port on florestad.
 """
 
-import json
-
 from test_framework import FlorestaTestFramework
 from test_framework.electrum.client import ElectrumClient
 from test_framework.rpc.floresta import REGTEST_RPC_TLS_SERVER
@@ -38,7 +36,7 @@ class TestSslInitialization(FlorestaTestFramework):
         # now create a connection with an electrum client at default port
         TestSslInitialization.electrum = ElectrumClient(
             REGTEST_RPC_TLS_SERVER["host"],
-            REGTEST_RPC_TLS_SERVER["ports"]["electrum-server-tls"],
+            REGTEST_RPC_TLS_SERVER["ports"]["electrum_tls"],
             ssl=True,
         )
 
