@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+#![allow(clippy::manual_is_multiple_of)]
+
 use core::cmp::Ordering;
 use core::fmt::Debug;
 

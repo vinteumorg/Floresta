@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+#![allow(clippy::manual_is_multiple_of)]
 
 use serde::Deserialize;
 use serde::Serialize;
