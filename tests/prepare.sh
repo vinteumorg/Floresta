@@ -88,38 +88,41 @@ build_core() {
 }
 
 build_utreexod() {
-	# Download and build utreexod
-	mkdir -p $FLORESTA_TEMP_DIR/binaries/build
-	cd $FLORESTA_TEMP_DIR/binaries/build
-	echo "Downloading and Building utreexod..."
-	git clone https://github.com/utreexo/utreexod
+    # Download and build utreexod
+    mkdir -p $FLORESTA_TEMP_DIR/binaries/build
+    cd $FLORESTA_TEMP_DIR/binaries/build
+    echo "Downloading and Building utreexod..."
+    git clone https://github.com/utreexo/utreexod
 
-	cd utreexod
+    cd utreexod
+    TEMP_REV=$DEFAULT_UTREEXO_REV
 
-	# check if UTREEXO_REVISION is set, if so checkout to it
-	if [ -n "$UTREEXO_REVISION" ]; then
-		# Check if the revision exists as a tag only
-		if git --no-pager tag -l | grep "$UTREEXO_REVISION"; then
-			git checkout "tags/v$UTREEXO_REVISION"
-		else
-			echo "utreexod 'v$UTREEXO_REVISION' is not a valid tag in this repository."
-			exit 1
-		fi
-	fi
+    # check if UTREEXO_REVISION is set, if so checkout to it
+    if [ -n "$UTREEXO_REVISION" ]; then
+        TEMP_REV="$UTREEXO_REVISION"
+    fi
 
-	go build -o $FLORESTA_TEMP_DIR/binaries/. .
-	rm -rf $FLORESTA_TEMP_DIR/binaries/build
+    # Check if the revision exists as a tag only
+    if git --no-pager tag -l | grep "$TEMP_REV"; then
+        git checkout "tags/v$TEMP_REV"
+    else
+        echo "utreexod 'v$TEMP_REV' is not a valid tag in this repository."
+        exit 1
+    fi
+
+    go build -o $FLORESTA_TEMP_DIR/binaries/. .
+    rm -rf $FLORESTA_TEMP_DIR/binaries/build
 }
 
 build_floresta() {
-	# We dont check if floresta already exist because a floresta binary could be already be installed on PATH
-	# causing collisions with the tests.
-	echo "Building florestad..."
+    # We dont check if floresta already exist because a floresta binary could be already be installed on PATH
+    # causing collisions with the tests.
+    echo "Building florestad..."
 
-	cd $FLORESTA_PROJ_DIR
-	cargo build --bin florestad --release
+    cd $FLORESTA_PROJ_DIR
+    cargo build --bin florestad --release
 
-	ln -fs $(pwd)/target/release/florestad $FLORESTA_TEMP_DIR/binaries/florestad
+    ln -fs $(pwd)/target/release/florestad $FLORESTA_TEMP_DIR/binaries/florestad
 }
 
 check_installed git
@@ -131,27 +134,24 @@ check_installed cargo
 check_installed uv
 
 # Check if florestad is already built or if --build is passed
-if [ ! -f $FLORESTA_TEMP_DIR/binaries/florestad ] || [ "$1" == "--build" ]
-then
-	build_floresta
+if [ ! -f $FLORESTA_TEMP_DIR/binaries/florestad ] || [ "$1" == "--build" ]; then
+    build_floresta
 else
-	echo "Florestad already built, skipping..."
+    echo "Florestad already built, skipping..."
 fi
 
 # Check if utreexod is already built or if --build is passed
-if [ ! -f $FLORESTA_TEMP_DIR/binaries/utreexod ] || [ "$1" == "--build" ]
-then
-	build_utreexod
+if [ ! -f $FLORESTA_TEMP_DIR/binaries/utreexod ] || [ "$1" == "--build" ]; then
+    build_utreexod
 else
-	echo "Utreexod already built, skipping..."
+    echo "Utreexod already built, skipping..."
 fi
 
 # Check if utreexod is already built or if --build is passed
-if [ ! -f $FLORESTA_TEMP_DIR/binaries/bitcoind ] || [ "$1" == "--build" ]
-then
-	build_core
+if [ ! -f $FLORESTA_TEMP_DIR/binaries/bitcoind ] || [ "$1" == "--build" ]; then
+    build_core
 else
-	echo "Bitcoind already built, skipping..."
+    echo "Bitcoind already built, skipping..."
 fi
 
 echo "All done!"
