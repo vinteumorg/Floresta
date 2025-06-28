@@ -9,6 +9,8 @@
 //! This module should receive blocks as we download them, it'll create a filter
 //! for it. Therefore, you can't use this to speedup wallet sync **before** IBD,
 //! since we wouldn't have the filter for all blocks yet.
+#![allow(clippy::manual_is_multiple_of)]
+
 use core::fmt::Debug;
 use std::fmt::Display;
 use std::sync::PoisonError;
