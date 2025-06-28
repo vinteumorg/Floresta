@@ -243,30 +243,30 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
 
         return paths
 
-    def create_ssl_keys(self) -> tuple[str, str]:
+    def create_tls_key_cert(self) -> tuple[str, str]:
         """
         Create a PKCS#8 formatted private key and a self-signed certificate.
-        These keys are intended to be used with florestad's --ssl-key-path and --ssl-cert-path
+        These keys are intended to be used with florestad's --tls-key-path and --tls-cert-path
         options.
         """
         # If we're in CI, we need to use the
         # path to the integration test dir
         # tempfile will be used to get the proper
         # temp dir for the OS
-        ssl_rel_path = os.path.join(
-            FlorestaTestFramework.get_integration_test_dir(), "data", "ssl"
+        tls_rel_path = os.path.join(
+            FlorestaTestFramework.get_integration_test_dir(), "data", "tls"
         )
-        ssl_path = os.path.normpath(os.path.abspath(ssl_rel_path))
+        tls_path = os.path.normpath(os.path.abspath(tls_rel_path))
 
         # Create the folder if not exists
-        os.makedirs(ssl_path, exist_ok=True)
+        os.makedirs(tls_path, exist_ok=True)
 
         # Create certificates
-        pk_path, private_key = create_pkcs8_private_key(ssl_path)
+        pk_path, private_key = create_pkcs8_private_key(tls_path)
         self.log(f"Created PKCS#8 key at {pk_path}")
 
         cert_path = create_pkcs8_self_signed_certificate(
-            ssl_path, private_key, common_name="florestad", validity_days=365
+            tls_path, private_key, common_name="florestad", validity_days=365
         )
         self.log(f"Created self-signed certificate at {cert_path}")
 
@@ -287,7 +287,7 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
         rpcserver: Dict[str, str | Dict[str, str | int] | int],
         extra_args: List[str] = [],
         variant: str = "florestad",
-        ssl: bool = False,
+        tls: bool = False,
     ) -> int:
         """
         Add a node settings to be run. Use this on set_test_params method
@@ -314,13 +314,15 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
             if not self.is_option_set(extra_args, "--data-dir"):
                 daemon.add_daemon_settings([f"--data-dir={tempdir}/data/{testname}"])
 
-            # configure (or not) the ssl keys
-            if not ssl:
-                daemon.add_daemon_settings(["--no-ssl"])
-            else:
-                (key, cert) = self.create_ssl_keys()
+            # Configure (or not) TLS
+            if tls:
+                (key, cert) = self.create_tls_key_cert()
                 daemon.add_daemon_settings(
-                    [f"--ssl-key-path={key}", f"--ssl-cert-path={cert}"]
+                    [
+                        "--enable-electrum-tls",
+                        f"--tls-key-path={key}",
+                        f"--tls-cert-path={cert}",
+                    ]
                 )
 
         elif variant == "utreexod":
@@ -332,11 +334,11 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
             if not self.is_option_set(extra_args, "--datadir"):
                 daemon.add_daemon_settings([f"--datadir={tempdir}/data/{testname}"])
 
-            # configure (or not) the ssl keys
-            if not ssl:
+            # configure (or not) the TLS keys
+            if not tls:
                 daemon.add_daemon_settings(["--notls"])
             else:
-                (key, cert) = self.create_ssl_keys()
+                (key, cert) = self.create_tls_key_cert()
                 daemon.add_daemon_settings([f"--rpckey={key}", f"--rpccert={cert}"])
 
         elif variant == "bitcoind":

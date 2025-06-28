@@ -56,7 +56,7 @@ class AddnodeTestWrapper:
             variant="florestad",
             extra_args=[f"--data-dir={test.data_dirs[0]}"],
             rpcserver=floresta_config,
-            ssl=False,
+            tls=False,
         )
 
         test.nodes[1] = test.add_node(
@@ -66,7 +66,7 @@ class AddnodeTestWrapper:
                 f"-v2transport={1 if test.v2transport else 0}",
             ],
             rpcserver=bitcoind_config,
-            ssl=False,
+            tls=False,
         )
 
     @staticmethod

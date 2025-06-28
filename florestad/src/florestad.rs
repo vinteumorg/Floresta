@@ -162,11 +162,7 @@ pub struct Config {
     #[cfg(feature = "json-rpc")]
     /// The address our json-rpc should listen to
     pub json_rpc_address: Option<String>,
-    /// The address our electrum server should listen to
-    pub electrum_address: Option<String>,
-    /// The address for ssl electrum server
-    pub ssl_electrum_address: Option<String>,
-    /// Whether we should write logs to the stdio
+    /// Whether we should write logs to `stdout`.
     pub log_to_stdout: bool,
     /// Whether we should log to a fs file
     pub log_to_file: bool,
@@ -178,22 +174,28 @@ pub struct Config {
     pub user_agent: String,
     /// The value to use for assumeutreexo
     pub assumeutreexo_value: Option<AssumeUtreexoValue>,
-    /// Path to the SSL certificate file (defaults to `{data_dir}/ssl/cert.pem`).
+    /// Address the Electrum Server will listen to.
+    pub electrum_address: Option<String>,
+    /// Whether to enable the Electrum TLS server.
+    pub enable_electrum_tls: bool,
+    /// Address the Electrum TLS Server will listen to.
+    pub electrum_address_tls: Option<String>,
+    /// TLS private key path (defaults to `{data_dir}/tls/key.pem`).
+    /// It must be PKCS#8-encoded. You can use `openssl` to generate it:
     ///
-    /// The user should create a PKCS#8 based one with openssl. For example:
-    ///
-    /// openssl req -x509 -new -key key.pem -out cert.pem -days 365 -subj "/CN=localhost"
-    pub ssl_cert_path: Option<String>,
-    /// Path to the SSL private key file (defaults to `{data_dir}/ssl/key.pem`).
-    ///
-    /// The user should create a PKCS#8 based one with openssl. For example:
-    ///
+    /// ```shell
     /// openssl genpkey -algorithm RSA -out key.pem -pkeyopt rsa_keygen_bits:2048
-    pub ssl_key_path: Option<String>,
-    /// Whether to disable SSL for the Electrum server
-    pub no_ssl: bool,
-    /// Whether to create self signed certificate for ssl_key_path and ssl_cert_path
-    pub gen_selfsigned_cert: bool,
+    /// ```
+    pub tls_key_path: Option<String>,
+    /// TLS certificate path (defaults to `{data_dir}/tls/cert.pem`).
+    /// It must be PKCS#8-encoded. You can use `openssl` to generate it from a PKCS#8-encoded private key:
+    ///
+    /// ```shell
+    /// openssl req -x509 -new -key key.pem -out cert.pem -days 365 -subj "/CN=localhost"
+    /// ```
+    pub tls_cert_path: Option<String>,
+    /// Whether to create self signed certificate for `tls_key_path` and `tls_cert_path`.
+    pub generate_cert: bool,
     /// Whether to allow fallback to v1 transport if v2 connection fails.
     pub allow_v1_fallback: bool,
     /// Whehter we should backfill
@@ -223,18 +225,18 @@ impl Default for Config {
             connect: None,
             #[cfg(feature = "json-rpc")]
             json_rpc_address: None,
-            electrum_address: None,
-            ssl_electrum_address: None,
             log_to_stdout: false,
             log_to_file: false,
             assume_utreexo: false,
             debug: false,
             user_agent: String::default(),
             assumeutreexo_value: None,
-            ssl_cert_path: None,
-            ssl_key_path: None,
-            no_ssl: false,
-            gen_selfsigned_cert: false,
+            electrum_address: None,
+            enable_electrum_tls: false,
+            electrum_address_tls: None,
+            generate_cert: false,
+            tls_key_path: None,
+            tls_cert_path: None,
             allow_v1_fallback: false,
             backfill: false,
         }
@@ -364,13 +366,14 @@ impl Florestad {
             .unwrap_or("floresta".into());
         let data_dir = match self.config.network {
             Network::Bitcoin => data_dir,
-            Network::Signet => data_dir + "/signet/",
-            Network::Testnet => data_dir + "/testnet3/",
-            Network::Testnet4 => data_dir + "/testnet4/",
-            Network::Regtest => data_dir + "/regtest/",
+            Network::Signet => format!("{data_dir}/signet"),
+            Network::Testnet => format!("{data_dir}/testnet3"),
+            Network::Testnet4 => format!("{data_dir}/testnet4"),
+            Network::Regtest => format!("{data_dir}/regtest"),
             // TODO: handle possible Err
             _ => panic!("This network is not supported: {}", self.config.network),
         };
+        let data_dir = data_dir.trim_end_matches('/').to_string();
 
         // create the data directory if it doesn't exist
         if !std::path::Path::new(&data_dir).exists() {
@@ -538,7 +541,7 @@ impl Florestad {
                     .json_rpc_address
                     .as_ref()
                     .map(|x| Self::resolve_hostname(x, 8332)),
-                data_dir.clone() + "output.log",
+                format!("{data_dir}/output.log"),
             ));
 
             if self.json_rpc.set(server).is_err() {
@@ -546,67 +549,9 @@ impl Florestad {
             }
         }
 
-        // Electrum
-        let e_addr = self
-            .config
-            .electrum_address
-            .clone()
-            .map(|addr| Self::resolve_hostname(&addr, 50001))
-            .unwrap_or("0.0.0.0:50001".parse().expect("Hardcoded address"));
+        // Electrum Server configuration.
 
-        // generate self-signed certificate if provided
-        if self.config.gen_selfsigned_cert {
-            // create ssl dir if not exists
-            let ssl_dir = format!("{}ssl", &data_dir);
-            if !Path::new(&ssl_dir).exists() {
-                warn!("creating {}", &ssl_dir);
-                fs::create_dir_all(&ssl_dir).expect("Could not create data directory");
-            }
-
-            //  create information for self-signed certificate about the current node
-            let subject_alt_names = vec!["localhost".to_string()];
-
-            // define file paths
-            let key_path = format!("{}ssl/key.pem", &data_dir);
-            let cert_path = format!("{}ssl/cert.pem", &data_dir);
-
-            match Florestad::generate_selfsigned_certificate(
-                key_path.clone(),
-                cert_path.clone(),
-                subject_alt_names,
-            ) {
-                Ok(()) => {
-                    warn!("PKCS#8 private-key'{key_path}' created");
-                    warn!("PKCS#8 self-signed certificate '{cert_path}' created");
-                }
-                Err(err) => {
-                    warn!("Failed to generate SSL certificate: '{err}'");
-                }
-            }
-        }
-
-        let ssl_e_addr = self
-            .config
-            .ssl_electrum_address
-            .clone()
-            .map(|addr| Self::resolve_hostname(&addr, 50002))
-            .unwrap_or("0.0.0.0:50002".parse().expect("Hardcoded address"));
-
-        // Load TLS configuration if needed
-        let tls_config = if !self.config.no_ssl {
-            match self.create_tls_config(&data_dir) {
-                Ok(config) => Some(config),
-                Err(e) => {
-                    warn!("Failed to load SSL certificates: {e}");
-                    None
-                }
-            }
-        } else {
-            None
-        };
-
-        let tls_acceptor = tls_config.map(TlsAcceptor::from);
-
+        // Instantiate the Electrum Server.
         let electrum_server = block_on(ElectrumServer::new(
             wallet,
             blockchain_state,
@@ -615,14 +560,29 @@ impl Florestad {
         ))
         .expect("Could not create an Electrum Server");
 
-        // Spawn all services
+        // Default Electrum Server port.
+        let default_electrum_port: u16 =
+            Self::get_default_electrum_port(self.config.network, false);
 
-        // Non-TLS Electrum accept loop
-        let non_tls_listener = match block_on(TcpListener::bind(e_addr)) {
+        // Electrum Server address.
+        let electrum_addr: SocketAddr = self
+            .config
+            .electrum_address
+            .as_ref()
+            .map(|addr| Self::resolve_hostname(addr, default_electrum_port))
+            .unwrap_or(
+                format!("0.0.0.0:{default_electrum_port}")
+                    .parse()
+                    .expect("Hardcoded address"),
+            );
+
+        // sans-TLS Electrum listener.
+        let non_tls_listener = match block_on(TcpListener::bind(electrum_addr)) {
             Ok(listener) => Arc::new(listener),
             Err(_) => {
                 error!(
-                    "Failed to bind to address {e_addr}. An Electrum server is probably already running.");
+                    "Failed to bind Electrum Server. Something is already bound to {electrum_addr}"
+                );
                 std::process::exit(1);
             }
         };
@@ -631,28 +591,94 @@ impl Florestad {
             electrum_server.message_transmitter.clone(),
             None,
         ));
+        info!("Electrum Server is running at {electrum_addr}");
 
-        // TLS Electrum accept loop
-        if let Some(tls_acceptor) = tls_acceptor {
-            let tls_listener = match block_on(TcpListener::bind(ssl_e_addr)) {
-                Ok(listener) => Arc::new(listener),
-                Err(_) => {
-                    error!("Failed to bind to address {e_addr}. An SSL Electrum server is probably already running.");
+        if self.config.enable_electrum_tls {
+            // Default Electrum TLS port.
+            let default_electrum_port_tls: u16 =
+                Self::get_default_electrum_port(self.config.network, true);
+
+            // Electrum TLS address.
+            let electrum_addr_tls: SocketAddr = self
+                .config
+                .electrum_address_tls
+                .as_ref()
+                .map(|addr| Self::resolve_hostname(addr, default_electrum_port_tls))
+                .unwrap_or(
+                    format!("0.0.0.0:{default_electrum_port_tls}")
+                        .parse()
+                        .expect("Hardcoded address"),
+                );
+
+            // Generate self-signed TLS certificate, if enabled.
+            if self.config.generate_cert {
+                // Create TLS directory, if it does not exist.
+                let tls_dir = format!("{data_dir}/tls");
+                if !Path::new(&tls_dir).exists() {
+                    fs::create_dir_all(&tls_dir).expect("Could not create the TLS data directory");
+                    info!("Created TLS directory at {tls_dir}");
+                }
+
+                // Create information for the self-signed certificate about the current node.
+                let subject_alt_names = vec!["localhost".to_string()];
+
+                // Define file paths
+                let tls_key_path = format!("{data_dir}/tls/key.pem");
+                let tls_cert_path = format!("{data_dir}/tls/cert.pem");
+
+                // Create the certificate.
+                match Self::generate_self_signed_certificate(
+                    tls_key_path.clone(),
+                    tls_cert_path.clone(),
+                    subject_alt_names,
+                ) {
+                    Ok(()) => {
+                        info!("TLS private key saved to {tls_key_path}");
+                        info!("TLS certificate saved to {tls_cert_path}");
+                    }
+                    Err(e) => {
+                        error!("Failed to generate TLS certificate: {e}");
+                        std::process::exit(1);
+                    }
+                }
+            }
+
+            // Assemble TLS configuration from file.
+            let tls_config = match self.create_tls_config(&data_dir) {
+                Ok(config) => config,
+                Err(e) => {
+                    error!("Failed to create TLS configuration from file: {e}");
+                    error!(
+                        "You must create the certificate manually or pass the --generate-cert flag"
+                    );
                     std::process::exit(1);
                 }
             };
 
-            info!("Electrum TLS server running on: {ssl_e_addr}");
+            // Electrum TLS accept loop.
+            let tls_listener = match block_on(TcpListener::bind(electrum_addr_tls)) {
+                Ok(listener) => Arc::new(listener),
+                Err(_) => {
+                    error!(
+                    "Failed to bind Electrum TLS Server. Something is already bound to {electrum_addr_tls}"
+                );
+                    std::process::exit(1);
+                }
+            };
+
+            // TLS Acceptor.
+            let tls_acceptor: TlsAcceptor = TlsAcceptor::from(tls_config);
+
             task::spawn(client_accept_loop(
                 tls_listener,
                 electrum_server.message_transmitter.clone(),
                 Some(tls_acceptor),
             ));
+            info!("Electrum TLS Server is running at {electrum_addr_tls}");
         }
 
-        // Electrum main loop
+        // Electrum Server's main loop.
         task::spawn(electrum_server.main_loop());
-        info!("Electrum server running on: {e_addr}");
 
         // Chain provider
         let (sender, receiver) = oneshot::channel();
@@ -888,83 +914,100 @@ impl Florestad {
         result
     }
 
-    /// Create a self_signed certificate signed by
-    /// a private key created on the fly
-    pub fn generate_selfsigned_certificate(
-        key_path: String,
-        cert_path: String,
+    /// Get the default Electrum port for the Network and TLS combination.
+    ///
+    /// Bitcoin  => 50001 (50002 TLS)
+    /// Signet   => 60001 (60002 TLS)
+    /// Testnet4 => 40001 (40003 TLS)
+    /// Testnet3 => 30001 (30002 TLS)
+    /// Regtest  => 20001 (20002 TLS)
+    fn get_default_electrum_port(network: Network, enable_electrum_tls: bool) -> u16 {
+        let mut electrum_port = match network {
+            Network::Bitcoin => 50001,
+            Network::Signet => 60001,
+            Network::Testnet4 => 40001,
+            Network::Testnet => 30001,
+            Network::Regtest => 20001,
+            _ => 50001, // [`bitcoin::Network`] is `non-exhaustive`.
+        };
+
+        if enable_electrum_tls {
+            electrum_port += 1;
+        }
+
+        electrum_port
+    }
+
+    /// Generate a self-signed TLS certificate from a random private key.
+    pub fn generate_self_signed_certificate(
+        tls_key_path: String,
+        tls_cert_path: String,
         subject_alt_names: Vec<String>,
     ) -> Result<(), error::Error> {
         // Generate a key pair
-        let key_pair = KeyPair::generate().map_err(error::Error::CouldNotGenerateKeypair)?;
+        let tls_key_pair = KeyPair::generate().map_err(error::Error::CouldNotGenerateKeypair)?;
 
         // Generate self-signed certificate
-        let mut params = CertificateParams::new(subject_alt_names)
+        let mut cert_params = CertificateParams::new(subject_alt_names)
             .map_err(error::Error::CouldNotGenerateCertParam)?;
 
-        params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
-        let selfcert = params
-            .self_signed(&key_pair)
+        cert_params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+        let certificate = cert_params
+            .self_signed(&tls_key_pair)
             .map_err(error::Error::CouldNotGenerateSelfSignedCert)?;
 
         // Create files
-        fs::write(&key_path, key_pair.serialize_pem())
-            .map_err(|err| error::Error::CouldNotWriteFile(key_path, err))?;
+        fs::write(&tls_key_path, tls_key_pair.serialize_pem())
+            .map_err(|err| error::Error::CouldNotWriteFile(tls_key_path, err))?;
 
-        fs::write(&cert_path, selfcert.pem())
-            .map_err(|err| error::Error::CouldNotWriteFile(cert_path, err))?;
+        fs::write(&tls_cert_path, certificate.pem())
+            .map_err(|err| error::Error::CouldNotWriteFile(tls_cert_path, err))?;
 
         Ok(())
     }
 
-    /// Create tls configuration with a PKCS#8 formatted key and certificates and
-    /// defaults to `<data-dir>/ssl/cert.pem` and `<data-dir>/ssl/key.pem`.
-    ///
-    /// It will check if those files are well formated to PKCS#8 structure
-    /// and if it was in wrong structure, will exit with logs.
-    ///
-    /// If pass the check process, it will try to open those files and, if not exist,
-    /// florestad will skip the SSL configuration.
+    /// Create the TLS configuration from a PKCS#8 private key and certificate.
     fn create_tls_config(&self, data_dir: &str) -> Result<Arc<ServerConfig>, error::Error> {
         // Use an agnostic way to build paths for platforms and fix the differences
         // in how Unix and Windows represent strings, maybe a user could use a weird
         // string on his/her path.
         //
         // See more at https://doc.rust-lang.org/std/ffi/struct.OsStr.html#method.to_string_lossy
-        let cert_path = self.config.ssl_cert_path.clone().unwrap_or_else(|| {
+        let tls_cert_path = self.config.tls_cert_path.clone().unwrap_or_else(|| {
             PathBuf::from(&data_dir)
-                .join("ssl")
+                .join("tls")
                 .join("cert.pem")
                 .to_string_lossy()
                 .into_owned()
         });
 
-        let key_path = self.config.ssl_key_path.clone().unwrap_or_else(|| {
+        let tls_key_path = self.config.tls_key_path.clone().unwrap_or_else(|| {
             PathBuf::from(&data_dir)
-                .join("ssl")
+                .join("tls")
                 .join("key.pem")
                 .to_string_lossy()
                 .into_owned()
         });
 
-        // Convert paths to Path for system-agnostic handling
-        let cert_path = Path::new(&cert_path);
-        let key_path = Path::new(&key_path);
+        // Convert paths to a [`Path`] for system-agnostic handling.
+        let tls_cert_path = Path::new(&tls_cert_path);
+        let tls_key_path = Path::new(&tls_key_path);
 
-        // Parse certificate chain and handle error if exist any
-        let cert_chain =
-            CertificateDer::from_pem_file(cert_path).map_err(error::Error::InvalidCert)?;
+        // Parse the certificate's chain from the file.
+        let tls_cert_chain =
+            CertificateDer::from_pem_file(tls_cert_path).map_err(error::Error::InvalidCert)?;
 
-        // Create private key vector and handle error if exist any
-        let key = PrivateKeyDer::from_pem_file(key_path).map_err(error::Error::InvalidPrivKey)?;
+        // Parse the private key from the file.
+        let tls_key =
+            PrivateKeyDer::from_pem_file(tls_key_path).map_err(error::Error::InvalidPrivKey)?;
 
-        // Check if nothing goes wrong
-        let config = ServerConfig::builder()
+        // Assemble the TLS configuration.
+        let tls_config = ServerConfig::builder()
             .with_no_client_auth()
-            .with_single_cert(vec![cert_chain], key)
+            .with_single_cert(vec![tls_cert_chain], tls_key)
             .map_err(error::Error::CouldNotConfigureTLS)?;
 
-        Ok(Arc::new(config))
+        Ok(Arc::new(tls_config))
     }
 }
 
