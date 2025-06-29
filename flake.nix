@@ -69,12 +69,13 @@
                 };
               };
             };
-          # This check runs clippy and rusfmt on all defined files in `fileset`,
+
+          # This check runs clippy and rustfmt on all defined files in `fileset`,
           # the rust files we have in this project
           rust-sanity-check =
             let
               # since the rust code of this project is spread across multiple files,
-              # its better to track them using file sets to avoid useless operations.
+              # it's better to track them using file sets to avoid useless operations.
               fileSet = lib.fileset.unions [
                 ./Cargo.toml
                 ./Cargo.lock
@@ -87,6 +88,13 @@
               ];
               # Nightly cargo
               cargo = rust-bin.selectLatestNightlyWith (toolchain: toolchain.default);
+              # Provide toolchains with extra components
+              clippyNightly = rust-bin.selectLatestNightlyWith (
+                toolchain: toolchain.default.override { extensions = [ "clippy" ]; }
+              );
+              rustfmtNightly = rust-bin.selectLatestNightlyWith (
+                toolchain: toolchain.default.override { extensions = [ "rustfmt" ]; }
+              );
             in
             pre-commit-hooks.lib.${system}.run {
               src = lib.fileset.toSource {
@@ -103,7 +111,7 @@
                 clippy = {
                   packageOverrides = {
                     inherit cargo;
-                    clippy = cargo;
+                    clippy = clippyNightly;
                   };
                   enable = true;
                   settings.denyWarnings = true;
@@ -112,6 +120,7 @@
                 rustfmt = {
                   packageOverrides = {
                     inherit cargo;
+                    rustfmt = rustfmtNightly;
                   };
                   enable = true;
                 };
