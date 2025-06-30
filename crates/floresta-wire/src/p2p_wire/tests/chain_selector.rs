@@ -1,5 +1,9 @@
 #[cfg(test)]
 mod tests_utils {
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    use std::time::Duration;
+
     use bitcoin::block::Header;
     use bitcoin::BlockHash;
     use bitcoin::Network;
@@ -10,9 +14,6 @@ mod tests_utils {
     use floresta_chain::UtreexoBlock;
     use rustreexo::accumulator::node_hash::BitcoinNodeHash;
     use rustreexo::accumulator::pollard::Pollard;
-    use std::collections::HashMap;
-    use std::sync::Arc;
-    use std::time::Duration;
     use tokio::sync::Mutex;
     use tokio::sync::RwLock;
     use tokio::time::timeout;
@@ -94,11 +95,14 @@ mod tests {
 
     use bitcoin::BlockHash;
     use bitcoin::Network;
-    use floresta_chain::pruned_utreexo::{BlockchainInterface, UpdatableChainstate};
+    use floresta_chain::pruned_utreexo::BlockchainInterface;
+    use floresta_chain::pruned_utreexo::UpdatableChainstate;
     use rustreexo::accumulator::node_hash::BitcoinNodeHash;
 
     use crate::p2p_wire::tests::chain_selector::tests_utils::setup_node;
-    use crate::p2p_wire::tests::utils::{create_false_acc, get_essentials, get_test_filters};
+    use crate::p2p_wire::tests::utils::create_false_acc;
+    use crate::p2p_wire::tests::utils::get_essentials;
+    use crate::p2p_wire::tests::utils::get_test_filters;
 
     // Use at least 100 headers for realistic sync
     const HEADER_COUNT: usize = 100;

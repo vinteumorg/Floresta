@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io;
 use std::io::Read;
-
 use std::time::Instant;
 
 use bitcoin::block::Header;
