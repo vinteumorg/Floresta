@@ -5,6 +5,23 @@ Brief description of what this RPC does and its primary purpose.
 ## Arguments
 
 * `param1` - Description of the first parameter (type)
+
+Please, always skip a line to render properly on man-pages.
+
+[ # wrap with `[` and `]` to indicate an array of objects.
+
+ {
+
+   json_string: "str", (String, required) Description about the expected json object.
+
+   numeric_camp: n, (numeric, optional) Describes an optional camp of the expected json object.
+
+   boolean_camp: bool, (Boolean, Required) Describes an obligatory boolean.
+
+ }
+
+]
+
 * `param2`  - Description of optional parameter (default: value) (type)
 
 ## Returns
