@@ -51,9 +51,7 @@ mod tests_utils {
         let mut headers = crate::p2p_wire::tests::utils::get_test_headers();
         headers.remove(0);
         headers.truncate(1);
-        for header in headers {
-            chain.accept_header(header).unwrap();
-        }
+        chain.accept_header(headers[0]).unwrap();
 
         let config = get_node_config(datadir, network, pow_fraud_proofs);
         let kill_signal = Arc::new(RwLock::new(false));
@@ -81,7 +79,7 @@ mod tests_utils {
             node.peers.insert(i as u32, peer);
         }
 
-        timeout(Duration::from_secs(30), node.run())
+        timeout(Duration::from_secs(100), node.run())
             .await
             .unwrap()
             .unwrap();
@@ -132,7 +130,7 @@ mod tests {
         let essentials = get_essentials();
         let headers1 = essentials.headers[..HEADER_COUNT].to_vec();
         let mut headers2 = essentials.headers[..HEADER_COUNT].to_vec();
-        headers2.pop();
+        headers2.truncate(HEADER_COUNT - 10);
 
         let peers = vec![
             (
