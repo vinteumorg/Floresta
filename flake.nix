@@ -69,12 +69,13 @@
                 };
               };
             };
-          # This check runs clippy and rusfmt on all defined files in `fileset`,
+
+          # This check runs clippy and rustfmt on all defined files in `fileset`,
           # the rust files we have in this project
           rust-sanity-check =
             let
               # since the rust code of this project is spread across multiple files,
-              # its better to track them using file sets to avoid useless operations.
+              # it's better to track them using file sets to avoid useless operations.
               fileSet = lib.fileset.unions [
                 ./Cargo.toml
                 ./Cargo.lock
@@ -117,6 +118,7 @@
                 };
               };
             };
+
           # This check runs black on check mode on all defined files in `fileset`,
           # the python files we have in this project
           python-sanity-check =
