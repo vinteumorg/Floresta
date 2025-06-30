@@ -14,7 +14,7 @@ members = [
     "crates/floresta-wire",
 ]
 
-default-members = [ 
+default-members = [
     "florestad",
     "crates/floresta",
     "crates/floresta-chain",
@@ -25,4 +25,3 @@ default-members = [
     "crates/floresta-watch-only",
     "crates/floresta-wire",
 ]
-

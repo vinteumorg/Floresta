@@ -10,4 +10,3 @@ sysinfo = "0.33"
 axum = "0.7"
 prometheus-client = "0.22.3"
 tokio = { version = "1", features = ["full"] }
-
