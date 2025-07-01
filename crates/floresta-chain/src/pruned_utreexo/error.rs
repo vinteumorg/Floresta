@@ -60,7 +60,9 @@ pub enum BlockValidationErrors {
     InvalidCoinbase(String),
     UtxoNotFound(OutPoint),
     ScriptValidationError(String),
-    InvalidOutput,
+    NullPrevOut,
+    EmptyInputs,
+    EmptyOutputs,
     ScriptError,
     BlockTooBig,
     TooManyCoins,
@@ -113,8 +115,17 @@ impl Display for BlockValidationErrors {
             BlockValidationErrors::UtxoNotFound(outpoint) => {
                 write!(f, "Utxo referenced by {outpoint:?} not found")
             }
-            BlockValidationErrors::InvalidOutput => {
-                write!(f, "Invalid output, verify spending values")
+            BlockValidationErrors::NullPrevOut => {
+                write!(
+                    f,
+                    "This transaction has a null PrevOut but it's not coinbase"
+                )
+            }
+            BlockValidationErrors::EmptyInputs => {
+                write!(f, "This transaction has no inputs")
+            }
+            BlockValidationErrors::EmptyOutputs => {
+                write!(f, "This transaction has no outputs")
             }
             BlockValidationErrors::BlockTooBig => write!(f, "Block too big"),
             BlockValidationErrors::InvalidCoinbase(e) => {

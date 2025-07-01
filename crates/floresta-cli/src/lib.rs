@@ -91,12 +91,12 @@ mod tests {
         fs::write(format!("{dirname}/regtest/tls/key.pem"), key_pem).unwrap();
 
         let port = get_available_port();
-        let fld = Command::new(&florestad_path)
+        let mut fld = Command::new(&florestad_path)
             .args(["-n", "regtest"])
             .args(["--data-dir", &dirname])
             .args(["--rpc-address", &format!("127.0.0.1:{port}")])
             .args(["--electrum-address", "127.0.0.1:0"])
-            .stdout(Stdio::null())
+            .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
             .spawn()
             .unwrap_or_else(|e| panic!("Couldn't launch florestad at {florestad_path}: {e}"));
@@ -106,15 +106,17 @@ mod tests {
         let mut retries = 10;
         loop {
             // Wait some time for florestad to start
-            sleep(Duration::from_secs(1));
+            sleep(Duration::from_secs(3));
 
-            if retries == 0 {
-                panic!("florestad didn't start");
-            }
-            retries -= 1;
             match client.get_blockchain_info() {
                 Ok(_) => break,
-                Err(_) => continue,
+                Err(_) if retries > 1 => retries -= 1,
+                Err(e) => {
+                    println!("Asked florestad for blockchain info, got: {e:?}");
+                    fld.kill().unwrap();
+
+                    panic!("Florestad didn't start after 30 seconds");
+                }
             }
         }
 
