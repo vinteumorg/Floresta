@@ -8,7 +8,7 @@ from test_framework.rpc.base import BaseRPC
 
 REGTEST_RPC_SERVER = {
     "host": "127.0.0.1",
-    "ports": {"rpc": 18443, "p2p": 18444, "p2p_local": 18445},
+    "ports": {"rpc": 18443, "p2p": 18444},
     "user": "bitcoin",
     "password": "bitcoin",
     "jsonrpc": "2.0",

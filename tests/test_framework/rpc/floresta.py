@@ -10,14 +10,11 @@ from test_framework.rpc.base import BaseRPC
 
 REGTEST_RPC_SERVER = {
     "host": "127.0.0.1",
-    "ports": {"rpc": 18442, "electrum-server": 20001},
-    "jsonrpc": "2.0",
-    "timeout": 10000,
-}
-
-REGTEST_RPC_TLS_SERVER = {
-    "host": "127.0.0.1",
-    "ports": {"rpc": 18442, "electrum-server-tls": 20002},
+    "ports": {
+        "rpc": 18442,
+        "electrum-server": 20001,
+        "electrum-server-tls": 20002,
+    },
     "jsonrpc": "2.0",
     "timeout": 10000,
 }
