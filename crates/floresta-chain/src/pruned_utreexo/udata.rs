@@ -306,6 +306,7 @@ impl From<Block> for UtreexoBlock {
 /// to consume a block (delete transactions included in it from the mempool);
 /// or to validate a block.
 pub mod proof_util {
+    use bitcoin::blockdata::script;
     use bitcoin::blockdata::script::Instruction;
     use bitcoin::consensus::Encodable;
     use bitcoin::hashes::sha256;
@@ -323,6 +324,7 @@ pub mod proof_util {
     use bitcoin::Txid;
     use bitcoin::WPubkeyHash;
     use bitcoin::WScriptHash;
+    use floresta_common::impl_error_from;
     use rustreexo::accumulator::node_hash::BitcoinNodeHash;
     use rustreexo::accumulator::proof::Proof;
     use sha2::Digest;
@@ -339,17 +341,39 @@ pub mod proof_util {
 
     #[derive(Debug)]
     /// Errors that may occur while reconstructing a leaf's scriptPubKey.
-    pub enum Error {
-        /// Triggered when the input lacks the hashed data required by the [ScriptPubKeyKind]
-        /// (i.e. the public key for P2PKH/P2WPKH, the redeem script for P2SH, or the witness script for P2WSH).
+    pub enum LeafErrorKind {
+        /// The witness or scriptsig was empty, so nothing could be inspected.
         EmptyStack,
+
+        /// The scriptsig data could not be parsed into `Instruction`s.
+        InvalidInstruction(script::Error),
+
+        /// The last instruction in the scriptsig was not an `OP_PUSHBYTES`.
+        NotPushBytes,
     }
 
-    impl From<Error> for BlockchainError {
-        fn from(_e: Error) -> Self {
-            BlockchainError::UtreexoError(
-                "Reconstruct Leaf Error: expected a standard pubkey type, found empty script"
-                    .to_string(),
+    /// Error while reconstructing a leaf's scriptPubKey, returned by `process_proof`.
+    ///
+    /// This error is triggered if the input lacks the hashed data required by the
+    /// [ScriptPubKeyKind] (i.e., the public key for P2PKH, the redeem script for P2SH, or the
+    /// witness public key and witness script for P2WPKH/P2WSH).
+    #[derive(Debug)]
+    pub struct UtreexoLeafError {
+        pub leaf: CompactLeafData,
+        pub txid: Txid,
+        pub vin: usize,
+        pub kind: LeafErrorKind,
+    }
+
+    impl_error_from!(LeafErrorKind, script::Error, InvalidInstruction);
+    impl_error_from!(BlockchainError, UtreexoLeafError, UtreexoLeaf);
+
+    impl Display for UtreexoLeafError {
+        fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+            write!(
+                f,
+                "failed to reconstruct leaf {:?} for TxIn {}:{}: {:?}",
+                self.leaf, self.txid, self.vin, self.kind
             )
         }
     }
@@ -387,7 +411,7 @@ pub mod proof_util {
         leaf: &CompactLeafData,
         input: &TxIn,
         block_hash: BlockHash,
-    ) -> Result<LeafData, Error> {
+    ) -> Result<LeafData, LeafErrorKind> {
         let spk = reconstruct_script_pubkey(leaf, input)?;
 
         Ok(LeafData {
@@ -502,7 +526,7 @@ pub mod proof_util {
     ) -> Result<(Proof, Vec<sha256::Hash>, UtxoMap), E>
     where
         F: Fn(u32) -> Result<BlockHash, E>,
-        E: From<Error>,
+        E: From<UtreexoLeafError>,
     {
         // Initialize return values
         let proof = Proof::from(&udata.proof);
@@ -528,7 +552,7 @@ pub mod proof_util {
                 );
             }
 
-            for input in tx.input.iter() {
+            for (vin, input) in tx.input.iter().enumerate() {
                 // Only reconstruct UTXOs missing from the map, from prior blocks. Transactions
                 // spending uncreated UTXOs yield an invalid deletion hash, failing utreexo verification.
                 if utxos.contains_key(&input.previous_output) {
@@ -544,7 +568,13 @@ pub mod proof_util {
                 let is_coinbase = (leaf.header_code & 1) != 0;
 
                 let hash = get_block_hash(creation_height)?;
-                let leaf = reconstruct_leaf_data(&leaf, input, hash)?;
+                let leaf =
+                    reconstruct_leaf_data(&leaf, input, hash).map_err(|e| UtreexoLeafError {
+                        leaf,
+                        txid,
+                        vin,
+                        kind: e,
+                    })?;
 
                 // Push the UTXO to remove from the set and its leaf hash (deletion hash)
                 del_hashes.push(leaf._get_leaf_hashes());
@@ -567,13 +597,13 @@ pub mod proof_util {
     /// the spending tx input. Returns an error if we can't reconstruct the script (the input
     /// doesn't contain the required data).
     ///
-    /// The reconstructed output script is the hash of either a public key or a script (i.e. P2PKH,
-    /// P2SH, P2WPKH and P2WSH).
+    /// The reconstructed output script is the hash of either a public key or a script (i.e., P2PKH,
+    /// P2SH, P2WPKH, and P2WSH).
     ///
     /// The logic behind is:
     ///
     /// For some script types, the output script is just the hash of something that needs to be
-    /// revealed at some later stage (e.g. pkh is the hash of a public key that will be revealed
+    /// revealed at some later stage (e.g., pkh is the hash of a public key that will be revealed
     /// afterwards in the scriptSig, at spend time). Therefore, this information is redundant,
     /// as we have it inside the spending transaction. For types where reconstruction is possible,
     /// we just need to communicate the type with a single byte marker, and the rest can be built
@@ -581,7 +611,7 @@ pub mod proof_util {
     pub fn reconstruct_script_pubkey(
         leaf: &CompactLeafData,
         input: &TxIn,
-    ) -> Result<ScriptBuf, Error> {
+    ) -> Result<ScriptBuf, LeafErrorKind> {
         match &leaf.spk_ty {
             ScriptPubKeyKind::Other(spk) => Ok(ScriptBuf::from(spk.clone().into_vec())),
             ScriptPubKeyKind::PubKeyHash => {
@@ -604,41 +634,41 @@ pub mod proof_util {
     }
 
     /// Computes the public key hash from the pushed key in the input's scriptSig.
-    fn get_pk_hash(input: &TxIn) -> Result<PubkeyHash, Error> {
-        let script_sig = &input.script_sig;
-        let inst = script_sig.instructions().last();
-        if let Some(Ok(Instruction::PushBytes(bytes))) = inst {
-            return Ok(PubkeyHash::hash(bytes.as_bytes()));
+    fn get_pk_hash(input: &TxIn) -> Result<PubkeyHash, LeafErrorKind> {
+        match input.script_sig.instructions().last() {
+            None => Err(LeafErrorKind::EmptyStack),
+            // Only valid if it's a push bytes instruction
+            Some(Ok(Instruction::PushBytes(b))) => Ok(PubkeyHash::hash(b.as_bytes())),
+            Some(Ok(_)) => Err(LeafErrorKind::NotPushBytes),
+            Some(Err(e)) => Err(e.into()),
         }
-        Err(Error::EmptyStack)
     }
 
     /// Computes the script hash from the input's scriptSig.
-    fn get_script_hash(input: &TxIn) -> Result<ScriptHash, Error> {
-        let script_sig = &input.script_sig;
-        let inst = script_sig.instructions().last();
-        if let Some(Ok(Instruction::PushBytes(bytes))) = inst {
-            return Ok(ScriptHash::hash(bytes.as_bytes()));
+    fn get_script_hash(input: &TxIn) -> Result<ScriptHash, LeafErrorKind> {
+        match input.script_sig.instructions().last() {
+            None => Err(LeafErrorKind::EmptyStack),
+            // Only valid if it's a push bytes instruction
+            Some(Ok(Instruction::PushBytes(b))) => Ok(ScriptHash::hash(b.as_bytes())),
+            Some(Ok(_)) => Err(LeafErrorKind::NotPushBytes),
+            Some(Err(e)) => Err(e.into()),
         }
-        Err(Error::EmptyStack)
     }
 
     /// Computes the witness public key hash from the input's witness data.
-    fn get_witness_pk_hash(input: &TxIn) -> Result<WPubkeyHash, Error> {
-        let witness = &input.witness;
-        if let Some(pk) = witness.last() {
-            return Ok(WPubkeyHash::hash(pk));
+    fn get_witness_pk_hash(input: &TxIn) -> Result<WPubkeyHash, LeafErrorKind> {
+        match input.witness.last() {
+            Some(pk) => Ok(WPubkeyHash::hash(pk)),
+            None => Err(LeafErrorKind::EmptyStack),
         }
-        Err(Error::EmptyStack)
     }
 
     /// Computes the witness script hash from the input's witness data.
-    fn get_witness_script_hash(input: &TxIn) -> Result<WScriptHash, Error> {
-        let witness = &input.witness;
-        if let Some(script) = witness.last() {
-            return Ok(WScriptHash::hash(script));
+    fn get_witness_script_hash(input: &TxIn) -> Result<WScriptHash, LeafErrorKind> {
+        match input.witness.last() {
+            Some(script) => Ok(WScriptHash::hash(script)),
+            None => Err(LeafErrorKind::EmptyStack),
         }
-        Err(Error::EmptyStack)
     }
 }
 
@@ -649,13 +679,17 @@ mod test {
     use std::format;
     use std::str::FromStr;
 
+    use bitcoin::blockdata::script;
     use bitcoin::consensus::encode::deserialize_hex;
     use bitcoin::hashes::sha256;
+    use bitcoin::opcodes::all::OP_NOP;
+    use bitcoin::opcodes::all::OP_PUSHBYTES_1;
     use bitcoin::Amount;
     use bitcoin::BlockHash;
     use bitcoin::Network;
     use bitcoin::ScriptBuf;
     use bitcoin::Transaction;
+    use bitcoin::TxIn;
     use floresta_common::acchashes;
     use floresta_common::bhash;
     use rustreexo::accumulator::node_hash::BitcoinNodeHash;
@@ -666,6 +700,8 @@ mod test {
     use super::LeafData;
     use super::ScriptPubKeyKind;
     use crate::proof_util::process_proof;
+    use crate::proof_util::reconstruct_script_pubkey;
+    use crate::proof_util::LeafErrorKind;
     use crate::AssumeValidArg;
     use crate::BlockchainError;
     use crate::ChainState;
@@ -753,7 +789,7 @@ mod test {
         }
     }
 
-    macro_rules! test_recover_spk {
+    macro_rules! assert_recover_spk {
         (
             $tx_hex:literal,
             $height:literal,
@@ -778,10 +814,29 @@ mod test {
             )
         };
     }
+
+    macro_rules! assert_recover_spk_err {
+        ($spk_kind:ident, $tx_in:expr, $err_kind:ident $( ( $inner:pat ) )?) => {
+            let compact = CompactLeafData {
+                header_code: 0,
+                amount: 1,
+                // The only relevant field to return the different error kinds
+                spk_ty: ScriptPubKeyKind::$spk_kind,
+            };
+            let err = reconstruct_script_pubkey(&compact, &$tx_in).unwrap_err();
+
+            assert!(
+                matches!(err, LeafErrorKind::$err_kind $( ( $inner ) )?),
+                "Expected LeafErrorKind::{}, got {err:?}",
+                stringify!($err_kind),
+            );
+        };
+    }
+
     #[test]
     fn test_spk_recovery() {
         // p2pkh
-        test_recover_spk!(
+        assert_recover_spk!(
             "010000000114baa734ec1a75e84726af2da3abcd41fe9d96f3f8b7e99bcefdfc040cffc2ba030000006a47304402202f89e2deb17f0c2c5732d6f7791a2731703cb128dc86ae0bf288e55a3d7ce9d6022051c2242ca0885a4a2054391385eda03132616fb0c2daa61d6823eff7a21b5d0c01210395c223fbf96e49e5b9e06a236ca7ef95b10bf18c074bd91a5942fc40360d0b68fdffffff04b400000000000000536a4c5058325bc5b3f7d4e7acf388d63ab92d14d7f8f8bcdff384bddd4668f283df0bfe1c2f7728ec1e550ca841794fa28e16e154c5b92b5a1d1d98db4e89f15726bf75e352fe000bddf10068000bd72600012bc20000000000000017a914352481ec2fecfde0c5cdc635a383c4ac27b9f71e87c20000000000000017a9144890aae025c84cb72a9730b49ca12595d6f6088d8772aa0900000000001976a914bf2646b8ba8b4a143220528bde9c306dac44a01c88ac00000000",
             0,
             777548,
@@ -791,7 +846,7 @@ mod test {
             "76a914bf2646b8ba8b4a143220528bde9c306dac44a01c88ac"
         );
         // p2sh
-        test_recover_spk!(
+        assert_recover_spk!(
             "0200000001ff1ba24eb11f1290b293b2c5520e4863ffedcc4a4ed9e4933334639ecbcc946500000000fc00473044022001460e6d06dc44e163ef1f692d275a1e357d086d0361fbe5012dbf18cbf2617202207f9e8fb54e776d7e98a6425da2be15e2ffca2e623b7617234226eafe77c70eaa01473044022076d756a250ad4044e2b4a0049112d87367b2f0ce80253e400f3ba09d620cbbdd022020f67b65f7cb5e109b8ccbc852e30b4e84b0b682136a5e72f679bd581b271ea8014c695221021c04b91bffe90c3e4defd021a4b6da4983b97e13c772bf15009f1661480658832102be11f7f0d9696ef731c13ed8b6e955df43cd4238d694a1698b02fcb3c2d275322102e0ad7274a4e93b3b30793ff7a04a31d2792ed22a563fe5ea0095af844c10c9c453aefdffffff02fd5403000000000017a914351bb17d072fff46336baec11a6a8d13ab6b590e87305837000000000017a9147b8d77369df3d2172b0d56792308d7f2635ca79087f1dd0b00",
             0,
             777548,
@@ -801,7 +856,7 @@ mod test {
             "a914ed9371b30de550c0617cd0c4b2c0c0dc5e88c65487"
         );
         //p2wpkh
-        test_recover_spk!(
+        assert_recover_spk!(
             "01000000000101a742910d02da84259631288eab229ca2bdd39ed7edc8811ca125dc0bcf2b654c0100000000ffffffff02ba150a000000000016001406a9852b7c9f4ff9993b5d2192ac42a5df54828e34c812000000000016001486bdf86c7cbce4841f95b4d8ef101ce8a306e6ad0247304402202936300c12249c8696bb90addcc9482995429d7be0418260178ddc0c630c10ed02206128cac337841b171d15d9aadc2af77d280da7cd85c049149c8134ddb5adc8a10121038adb3497e025c0ff14521a789af4f10d526ec4c95348e708ebdc4d5ac58228e500000000",
             1,
             777716,
@@ -811,7 +866,7 @@ mod test {
             "001406a9852b7c9f4ff9993b5d2192ac42a5df54828e"
         );
         //p2wsh
-        test_recover_spk!(
+        assert_recover_spk!(
             "01000000000101cacacdfdc79620cac8bc463cdac9864f557fdb73b6ef0dea8e0d74297d2e4c1a0100000000ffffffff0280841e000000000017a914cef5ab6252860ada719556abebe952c79c466f86878af74e0c00000000220020701a8d401c84fb13e6baf169d59684e17abd9fa216c8cc5b9fc63d622ff8c58d04004730440220289b2e0b6aec5a8f43d283edef0757206de77e3f3acdb322ade452a0468764db02201c332ec46a2ed3614fe392c4011063f39e77def57d89991ccbb99b6c7de2491901473044022044eaf71bdb4b3f0b0ba2f1eec82cad412729a1a4d5fc3b2fa251fecb73c56c0502201579c9e13b4d7595f9c6036a612828eac4796902c248131a7f25a117a0c68ca8016952210375e00eb72e29da82b89367947f29ef34afb75e8654f6ea368e0acdfd92976b7c2103a1b26313f430c4b15bb1fdce663207659d8cac749a0e53d70eff01874496feff2103c96d495bfdd5ba4145e3e046fee45e84a8a48ad05bd8dbb395c011a32cf9f88053ae00000000",
             0,
             487740,
@@ -820,7 +875,7 @@ mod test {
             WitnessV0ScriptHash,
             "0020701a8d401c84fb13e6baf169d59684e17abd9fa216c8cc5b9fc63d622ff8c58d"
         );
-        test_recover_spk!(
+        assert_recover_spk!(
             "020000000001018f97e04dd76eec325c149ad417175f01f71b45523d8df79d2745cfee110eabf20000000000ffffffff015cddc71d000000002200204ae81572f06e1b88fd5ced7a1a000945432e83e1551e6f721ee9c00b8cc3326001015100000000",
             0,
             27366,
@@ -830,6 +885,51 @@ mod test {
             "00204ae81572f06e1b88fd5ced7a1a000945432e83e1551e6f721ee9c00b8cc33260"
         );
     }
+
+    #[test]
+    fn test_invalid_spk_recovery() {
+        fn dummy_txin(script_sig: ScriptBuf) -> TxIn {
+            TxIn {
+                script_sig,
+                ..Default::default()
+            }
+        }
+
+        let empty_txin = dummy_txin(ScriptBuf::new());
+        assert_recover_spk_err!(PubKeyHash, empty_txin, EmptyStack);
+        assert_recover_spk_err!(ScriptHash, empty_txin, EmptyStack);
+        assert_recover_spk_err!(WitnessV0PubKeyHash, empty_txin, EmptyStack);
+        assert_recover_spk_err!(WitnessV0ScriptHash, empty_txin, EmptyStack);
+
+        let mut script_sig = ScriptBuf::new();
+        for _ in 0..255 {
+            // Trying with different lengths of the script_sig
+            script_sig.push_opcode(OP_NOP);
+
+            let non_push_txin = dummy_txin(script_sig.clone());
+            assert_recover_spk_err!(PubKeyHash, non_push_txin, NotPushBytes);
+            assert_recover_spk_err!(ScriptHash, non_push_txin, NotPushBytes);
+            assert_recover_spk_err!(WitnessV0PubKeyHash, non_push_txin, EmptyStack);
+            assert_recover_spk_err!(WitnessV0ScriptHash, non_push_txin, EmptyStack);
+        }
+        // Using an `OP_PUSHBYTES` without data, i.e., an invalid instruction
+        script_sig.push_opcode(OP_PUSHBYTES_1);
+
+        let invalid_txin = dummy_txin(script_sig);
+        assert_recover_spk_err!(
+            PubKeyHash,
+            invalid_txin,
+            InvalidInstruction(script::Error::EarlyEndOfScript)
+        );
+        assert_recover_spk_err!(
+            ScriptHash,
+            invalid_txin,
+            InvalidInstruction(script::Error::EarlyEndOfScript)
+        );
+        assert_recover_spk_err!(WitnessV0PubKeyHash, invalid_txin, EmptyStack);
+        assert_recover_spk_err!(WitnessV0ScriptHash, invalid_txin, EmptyStack);
+    }
+
     #[test]
     fn test_reconstruct_leaf_data() {
         let leaf: LeafData = deserialize_hex("f99e24b9e96a3c6220449b2bf520d6a9562237e2f4fc6f6b2ba57a71de000000e6f50efb6747f836ca3510df3da120fdb2ae4cf62893cc014e08c25dab70248b01000000cc000400b429653b4f0600001600142b91c8f80b071c5f60e1a512d49a6a544e51165b").unwrap();
