@@ -349,37 +349,14 @@ impl Florestad {
     /// Actually runs florestad, spawning all modules and waiting until
     /// someone asks to stop.
     pub fn start(&self) {
-        // Setup global logger
-        let data_dir = self
-            .config
-            .data_dir
-            .clone()
-            .or_else(|| {
-                dirs::home_dir().map(|x: PathBuf| {
-                    format!(
-                        "{}/{}/",
-                        x.to_str().unwrap_or_default().to_owned(),
-                        ".floresta",
-                    )
-                })
-            })
-            .unwrap_or("floresta".into());
-        let data_dir = match self.config.network {
-            Network::Bitcoin => data_dir,
-            Network::Signet => format!("{data_dir}/signet"),
-            Network::Testnet => format!("{data_dir}/testnet3"),
-            Network::Testnet4 => format!("{data_dir}/testnet4"),
-            Network::Regtest => format!("{data_dir}/regtest"),
-            // TODO: handle possible Err
-            _ => panic!("This network is not supported: {}", self.config.network),
-        };
-        let data_dir = data_dir.trim_end_matches('/').to_string();
+        let data_dir = Self::data_dir_path(&self.config);
 
-        // create the data directory if it doesn't exist
-        if !std::path::Path::new(&data_dir).exists() {
-            std::fs::create_dir_all(&data_dir).expect("Could not create data directory");
+        // Create the data directory if it doesn't exist
+        if !Path::new(&data_dir).exists() {
+            fs::create_dir_all(&data_dir).expect("Could not create data directory");
         }
 
+        // Setup global logger
         if self.config.log_to_stdout || self.config.log_to_file {
             Self::setup_logger(
                 &data_dir,
@@ -710,6 +687,32 @@ impl Florestad {
         }
     }
 
+    fn data_dir_path(config: &Config) -> String {
+        // base dir: config.data_dir or $HOME/.floresta or "./.floresta"
+        let mut base: PathBuf = config
+            .data_dir
+            .as_ref()
+            .map(|s| s.trim_end_matches(['/', '\\']).into())
+            .unwrap_or_else(|| {
+                dirs::home_dir()
+                    .unwrap_or_else(|| PathBuf::from("."))
+                    .join(".floresta")
+            });
+
+        // network-specific subdir
+        match config.network {
+            Network::Bitcoin => {} // no subdir
+            Network::Signet => base.push("signet"),
+            Network::Testnet => base.push("testnet3"),
+            Network::Testnet4 => base.push("testnet4"),
+            Network::Regtest => base.push("regtest"),
+            // TODO: handle possible Err
+            _ => panic!("This network is not supported: {}", config.network),
+        }
+
+        base.to_string_lossy().into_owned()
+    }
+
     fn setup_logger(
         data_dir: &String,
         log_file: bool,
@@ -1025,6 +1028,54 @@ impl From<Config> for Florestad {
             stop_notify: Arc::new(Mutex::new(None)),
             #[cfg(feature = "json-rpc")]
             json_rpc: OnceLock::new(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_data_dir_path() {
+        let mut config = Config::default();
+
+        let expected = dirs::home_dir()
+            .unwrap_or(PathBuf::from("."))
+            .join(".floresta");
+
+        assert_eq!(
+            Florestad::data_dir_path(&config),
+            expected.display().to_string(),
+        );
+
+        // Using other made-up directories
+        config.data_dir = Some("path/to/dir".to_string());
+        assert_eq!(Florestad::data_dir_path(&config), "path/to/dir");
+
+        config.data_dir = Some("path/to/dir/".to_string());
+        assert_eq!(Florestad::data_dir_path(&config), "path/to/dir");
+
+        config.data_dir = Some(format!("path{}", '\\')); // test removing the \ separator
+        assert_eq!(Florestad::data_dir_path(&config), "path");
+
+        config.data_dir = Some("path///".to_string()); // test removing many separators
+        assert_eq!(Florestad::data_dir_path(&config), "path");
+
+        // Using other networks
+        for &(net, suffix) in &[
+            (Network::Testnet, "testnet3"),
+            (Network::Testnet4, "testnet4"),
+            (Network::Signet, "signet"),
+            (Network::Regtest, "regtest"),
+        ] {
+            let expected = PathBuf::from("path").join(suffix);
+            config.network = net;
+
+            assert_eq!(
+                Florestad::data_dir_path(&config),
+                expected.display().to_string(),
+            );
         }
     }
 }
