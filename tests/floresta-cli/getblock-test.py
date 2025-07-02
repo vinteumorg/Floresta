@@ -42,25 +42,20 @@ class GetBlockTest(FlorestaTestFramework):
         """
         Setup a single node
         """
-        GetBlockTest.nodes[0] = self.add_node(
-            extra_args=[], rpcserver=REGTEST_RPC_SERVER
-        )
+        self.florestad = self.add_node(variant="florestad")
 
     def run_test(self):
         """
         Run JSONRPC server and get some data about first block
         """
-        self.run_node(GetBlockTest.nodes[0])
-
-        # Test assertions
-        node = self.get_node(GetBlockTest.nodes[0])
+        self.run_node(self.florestad)
 
         # Test verbose level 0
-        response = node.rpc.get_block(GetBlockTest.block, 0)
+        response = self.florestad.rpc.get_block(GetBlockTest.block, 0)
         self.assertEqual(response, GetBlockTest.serialized_data)
 
         # Test verbose level 1
-        response = node.rpc.get_block(GetBlockTest.block, 1)
+        response = self.florestad.rpc.get_block(GetBlockTest.block, 1)
         self.assertEqual(response["bits"], GetBlockTest.bits)
         self.assertEqual(response["chainwork"], GetBlockTest.chainwork)
         self.assertEqual(response["confirmations"], GetBlockTest.confirmations)
@@ -81,7 +76,7 @@ class GetBlockTest(FlorestaTestFramework):
         self.assertEqual(response["weight"], GetBlockTest.weight)
 
         # Shutdown node
-        node.stop()
+        self.stop()
 
 
 if __name__ == "__main__":

@@ -6,7 +6,6 @@ see `tests/test_framework/test_framework.py` for more info.
 """
 
 from test_framework import FlorestaTestFramework
-from test_framework.rpc.floresta import REGTEST_RPC_SERVER
 
 
 class FunctionalTest(FlorestaTestFramework):
@@ -17,7 +16,6 @@ class FunctionalTest(FlorestaTestFramework):
     the test do and the expected result in the docstrings
     """
 
-    index = [-1]
     expected_height = 0
     expected_block = "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206"
     expected_difficulty = 1
@@ -27,9 +25,7 @@ class FunctionalTest(FlorestaTestFramework):
         """
         Here we define setup for test adding a node definition
         """
-        FunctionalTest.index[0] = self.add_node(
-            variant="florestad", rpcserver=REGTEST_RPC_SERVER
-        )
+        self.florestad = self.add_node(variant="florestad")
 
     # All tests should override the run_test method
     def run_test(self):
@@ -46,14 +42,13 @@ class FunctionalTest(FlorestaTestFramework):
         # in this case, `florestad`, and wait for
         # all ports opened by it, including the
         # RPC port to be available
-        self.run_node(FunctionalTest.index[0])
+        self.run_node(self.florestad)
 
         # Once the node is running, we can create
         # a request to the RPC server. In this case, we
         # call it node, but in truth, will be a RPC request
         # to perform some kind of action
-        node = self.get_node(FunctionalTest.index[0])
-        inf_response = node.rpc.get_blockchain_info()
+        inf_response = self.florestad.rpc.get_blockchain_info()
 
         # Make assertions with our framework. Avoid usage of
         # native `assert` clauses. For more information, see
@@ -64,7 +59,7 @@ class FunctionalTest(FlorestaTestFramework):
         self.assertEqual(inf_response["leaf_count"], FunctionalTest.expected_leaf_count)
 
         # stop nodes
-        self.stop_node(FunctionalTest.index[0])
+        self.stop()
 
 
 if __name__ == "__main__":
