@@ -14,33 +14,27 @@ class GetPeerInfoTest(FlorestaTestFramework):
     a error because its making a IDB.
     """
 
-    nodes = [-1]
     expected_error = "Node is in initial block download, wait until it's finished"
 
     def set_test_params(self):
         """
         Setup a single node
         """
-        GetPeerInfoTest.nodes[0] = self.add_node(
-            extra_args=[], rpcserver=REGTEST_RPC_SERVER
-        )
+        self.florestad = self.add_node(variant="florestad")
 
     def run_test(self):
         """
         Run JSONRPC server and get some data about blockchain with only regtest genesis block
         """
         # Start node
-        self.run_node(GetPeerInfoTest.nodes[0])
+        self.run_node(self.florestad)
 
-        # Test assertions
-        node = self.get_node(GetPeerInfoTest.nodes[0])
-
-        result = node.rpc.get_peerinfo()
+        result = self.florestad.rpc.get_peerinfo()
         self.assertIsSome(result)
         self.assertEqual(len(result), 0)
 
         # stop the node
-        self.stop_node(GetPeerInfoTest.nodes[0])
+        self.stop()
 
 
 if __name__ == "__main__":

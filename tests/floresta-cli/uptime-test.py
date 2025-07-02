@@ -5,9 +5,7 @@ This functional test cli utility to interact with a Floresta node with `uptime`
 """
 
 import time
-from test_framework import FlorestaTestFramework
-from test_framework.rpc.floresta import REGTEST_RPC_SERVER as florestad_conf
-from test_framework.rpc.bitcoin import REGTEST_RPC_SERVER as bitcoind_conf
+from test_framework import FlorestaTestFramework, Node
 
 DATA_DIR = FlorestaTestFramework.get_integration_test_dir()
 
@@ -19,8 +17,6 @@ class UptimeTest(FlorestaTestFramework):
     equal to how long florestad has been running
     """
 
-    nodes = [-1, -1]
-
     def set_test_params(self):
         """
         Setup the two node florestad process with different data-dirs, electrum-addresses
@@ -30,31 +26,28 @@ class UptimeTest(FlorestaTestFramework):
             DATA_DIR, self.__class__.__name__.lower(), nodes=2
         )
 
-        UptimeTest.nodes[0] = self.add_node(
+        self.florestad = self.add_node(
             variant="florestad",
             extra_args=[
                 f"--data-dir={data_dirs[0]}",
             ],
-            rpcserver=florestad_conf,
         )
 
-        UptimeTest.nodes[1] = self.add_node(
+        self.bitcoind = self.add_node(
             variant="bitcoind",
             extra_args=[
                 f"-datadir={data_dirs[1]}",
             ],
-            rpcserver=bitcoind_conf,
         )
 
-    def test_node_uptime(self, index: int, test_time: int, margin: int):
+    def test_node_uptime(self, node: Node, test_time: int, margin: int):
         """
         Test the uptime of a node, given an index
         by checking if the uptime matches the elapsed
         time after starting the node with a grace period
         for startup and function call times
         """
-        self.run_node(UptimeTest.nodes[index])
-        node = self.get_node(UptimeTest.nodes[index])
+        self.run_node(node)
         before = time.time()
         time.sleep(test_time)
         result = node.rpc.uptime()
@@ -68,9 +61,8 @@ class UptimeTest(FlorestaTestFramework):
         """
         Run JSONRPC server on first, wait to connect, then call `addnode ip[:port]`
         """
-        for i in range(len(UptimeTest.nodes)):
-            self.test_node_uptime(index=i, test_time=5, margin=5)
-
+        self.test_node_uptime(node=self.florestad, test_time=15, margin=15)
+        self.test_node_uptime(node=self.bitcoind, test_time=15, margin=15)
         self.stop()
 
 

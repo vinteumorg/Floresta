@@ -5,11 +5,8 @@ This is an example of how a tests with integrated electrum should look like,
 see `tests/test_framework/test_framework.py` for more info.
 """
 
-import json
-
 from test_framework import FlorestaTestFramework
 from test_framework.electrum.client import ElectrumClient
-from test_framework.rpc.floresta import REGTEST_RPC_SERVER
 
 
 class ElectrumTest(FlorestaTestFramework):
@@ -27,9 +24,7 @@ class ElectrumTest(FlorestaTestFramework):
         """
         Here we define setup for test adding a node definition
         """
-        ElectrumTest.index[0] = self.add_node(
-            variant="florestad", rpcserver=REGTEST_RPC_SERVER
-        )
+        self.florestad = self.add_node(variant="florestad")
 
     # All tests should override the run_test method
     def run_test(self):
@@ -46,15 +41,14 @@ class ElectrumTest(FlorestaTestFramework):
         # in this case, `florestad`, and wait for
         # all ports opened by it, including the
         # RPC port to be available
-        self.run_node(ElectrumTest.index[0])
+        self.run_node(self.florestad)
 
         # Create an instance of the Electrum Client,
         # a small implementation of the electrum
         # protocol, to test our own electrum implementation
-
-        electrum = ElectrumClient(
-            REGTEST_RPC_SERVER["host"], REGTEST_RPC_SERVER["ports"]["electrum-server"]
-        )
+        host = self.florestad.get_host()
+        port = self.florestad.get_port("electrum-server")
+        electrum = ElectrumClient(host, port)
         rpc_response = electrum.get_version()
 
         # Make assertions with our framework. Avoid usage of
@@ -63,7 +57,7 @@ class ElectrumTest(FlorestaTestFramework):
         self.assertEqual(rpc_response["result"][0], ElectrumTest.expected_version[0])
         self.assertEqual(rpc_response["result"][1], ElectrumTest.expected_version[1])
 
-        self.stop_node(ElectrumTest.index[0])
+        self.stop()
 
 
 if __name__ == "__main__":
