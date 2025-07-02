@@ -52,7 +52,9 @@ class ElectrumTest(FlorestaTestFramework):
         # a small implementation of the electrum
         # protocol, to test our own electrum implementation
 
-        electrum = ElectrumClient("localhost", 50001)
+        electrum = ElectrumClient(
+            REGTEST_RPC_SERVER["host"], REGTEST_RPC_SERVER["ports"]["electrum-server"]
+        )
         rpc_response = electrum.get_version()
 
         # Make assertions with our framework. Avoid usage of

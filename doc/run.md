@@ -19,51 +19,31 @@ This will start the full node, and you can connect to it with an Electrum wallet
 floresta-cli getblockchaininfo
 ```
 
-For more information on how to use the `floresta-cli` tool, you can check the [api documentation](https://github.com/vinteumorg/Floresta/blob/master/crates/floresta-cli/README.md).
+For more information on how to use the `floresta-cli` tool, you can check the [API documentation](https://github.com/vinteumorg/Floresta/blob/master/crates/floresta-cli/README.md).
 
-Before running you can create the SSL certificates. If you don't do it, it will display a logging `Failed to load SSL certificates, ignoring SSL`. However, it is not mandatory to have the certificates to run the full node.
+## TLS
 
+By default, `florestad` will run an Electrum server without encryption, but you can add TLS encryption to Electrum communication:
 
-## SSL Certificates
-
-By default, `florestad` will run an Electrum server without any encrypted
-communication with clients. But you also can run a TLS enabled electrum
-server. This is particularly important if you want to access the Electrum
-Server from a public untrusted network.
-
-The options below will add encryption and authentication to your service.
+Manually create the TLS private key and certificate before running. These must be PKCS#8-encoded:
 
 ```bash
-florestad --ssl-key-path=<path to private key> --ssl-cert-path=<path to certificate>
+openssl genpkey -algorithm RSA -out key.pem -pkeyopt rsa_keygen_bits:2048
+
+openssl req -x509 -new -key key.pem -out cert.pem -days 365 -subj "/CN=localhost"
+
+florestad --enable-electrum-tls --tls-key-path=<privkey_path> --tls-cert-path=<cert_path>
 ```
 
-You must use [PKCS#8](https://docs.openssl.org/3.2/man1/openssl-pkcs8/) files,
-either built with a trusted chain or self-signed certificates.
+Or have Floresta generate them for you:
+
+```bash
+florestad --enable-electrum-tls --generate-cert
+```
 
 > Be aware that self-signed certificates do not inherently protect against
 man-in-the-middle (MITM) attacks because they
 [lack validation from a trusted Certificate Authority (CA)](https://security.stackexchange.com/questions/264247/man-in-the-middle-attack-only-affects-tls-certs-with-unqualified-subject-names).
-
-If you want to use self-signed certificates (for example, in your local network)
-you can generate them with the `--generate-ssl-certificates` flag. This will
-generate a private key and a certificate in `<data-dir>/ssl` and start a
-TLS server with these keys on `0.0.0.0:50002`.
-
-```bash
-florestad --gen-selfsigned-cert
-```
-
-You can also use the `--ssl-electrum-address` flag to specify the
-address and port of the Electrum server. This is useful if you want
-to run the Electrum server on a different machine or if you want to
-use a different port:
-
-```bash
-# Running with given certificates
-florestad --ssl-key-path <path> --ssl-cert-path <path> --ssl-electrum-address 51002
-# Running with self-signed certificates
-florestad --gen-selfsigned-cert --ssl-electrum-address 51002
-```
 
 ## Assume Utreexo
 

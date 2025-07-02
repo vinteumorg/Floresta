@@ -1,7 +1,7 @@
 """
 tests/test_framework/electrum/base.py
 
-base client to connect to Floresta's electrum server
+Base client to connect to Floresta's Electrum server.
 """
 
 import json
@@ -14,20 +14,20 @@ from OpenSSL import SSL
 # pylint: disable=too-few-public-methods
 class BaseClient:
     """
-    A little class to help connect to Floresta's electrum server
+    Helper class to connect to Floresta's Electrum server.
     """
 
-    def __init__(self, host, port=8080, ssl=False):
+    def __init__(self, host, port=8080, tls=False):
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.connect((host, port))
 
-        if ssl:
-            context = SSL.Context(SSL.SSLv23_METHOD)
+        if tls:
+            context = SSL.Context(SSL.TLS_METHOD)
             context.set_verify(SSL.VERIFY_NONE, lambda *args: True)
-            ssl_conn = SSL.Connection(context, s)
-            ssl_conn.set_connect_state()
-            ssl_conn.do_handshake()  # Perform the SSL handshake
-            self._conn = ssl_conn
+            tls_conn = SSL.Connection(context, s)
+            tls_conn.set_connect_state()
+            tls_conn.do_handshake()  # Perform the TLS handshake
+            self._conn = tls_conn
         else:
             self._conn = s
 

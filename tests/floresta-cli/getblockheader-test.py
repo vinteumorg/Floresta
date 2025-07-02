@@ -11,7 +11,7 @@ from test_framework.rpc.floresta import REGTEST_RPC_SERVER
 class GetBlockheaderHeightZeroTest(FlorestaTestFramework):
     """
     Test `getblockheader` with a fresh node and expect a result like this:
-    
+
     ````bash
     $> ./target/release floresta_cli --network=regtest getblockheader \
         0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206

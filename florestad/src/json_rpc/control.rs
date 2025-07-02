@@ -68,11 +68,9 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
             })
             .collect();
 
-        let logpath = self.log_dir.clone();
-
         Ok(GetRpcInfoRes {
             active_commands,
-            logpath,
+            logpath: self.log_path.clone(),
         })
     }
 
