@@ -193,7 +193,7 @@ We aim on having a good documentation and CLI `help` command.
 
 To achieve this, we use the `rustdoc` tool, which generates documentation from Rust source code comments. We also use the `clap` library to generate CLI help and usage information directly from the code.
 
-Please always create a new rpc documentation under the specified [directory](/doc/rpc) and implement using the following syntax on the method command definition:
+Please, always create a new rpc documentation under the specified [directory](/doc/rpc) and implement using the following syntax on the method command definition:
 
 ```rust
 #[doc = include_str!("../../../doc/rpc/command.md")]

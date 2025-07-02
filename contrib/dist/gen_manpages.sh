@@ -4,6 +4,18 @@
 
 set -euo pipefail
 
+check_installed() {
+    if ! command -v "$1" &>/dev/null; then
+        echo "You must have $1 installed to run this script!"
+        exit 1
+    fi
+}
+
+check_dependencies() {
+    check_installed "pandoc"
+    check_installed "gzip"
+}
+
 # Get the script directory and project root
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -53,6 +65,8 @@ convert_single() {
     echo "Created: $TARGET_DIR/${basename}.${section}.gz"
 }
 
+check_dependencies
+
 # Main logic
 if [[ $# -eq 1 ]]; then
     # Convert single file if argument provided
@@ -80,9 +94,6 @@ else
         echo "Error: Source directory $SOURCE_DIR not found"
         exit 1
     fi
-
-    # Create man page directory if it doesn't exist
-    mkdir -p "$TARGET_DIR"
 
     # Check if there are any .md files
     if ! ls "$SOURCE_DIR"/*.md &>/dev/null; then
