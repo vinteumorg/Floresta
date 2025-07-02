@@ -6,8 +6,6 @@ This functional test cli utility to interact with a Floresta node with `getrpcin
 
 import os
 from test_framework import FlorestaTestFramework
-from test_framework.rpc.floresta import REGTEST_RPC_SERVER as florestad_conf
-from test_framework.rpc.bitcoin import REGTEST_RPC_SERVER as bitcoind_conf
 
 DATA_DIR = FlorestaTestFramework.get_integration_test_dir()
 
@@ -35,7 +33,6 @@ class GetRpcInfoTest(FlorestaTestFramework):
             extra_args=[
                 f"--data-dir={self.data_dirs[0]}",
             ],
-            rpcserver=florestad_conf,
         )
 
         GetRpcInfoTest.nodes[1] = self.add_node(
@@ -43,7 +40,6 @@ class GetRpcInfoTest(FlorestaTestFramework):
             extra_args=[
                 f"-datadir={self.data_dirs[1]}",
             ],
-            rpcserver=bitcoind_conf,
         )
 
     def assert_rpcinfo_structure(self, result, expected_logpath: str):

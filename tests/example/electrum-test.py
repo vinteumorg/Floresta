@@ -5,11 +5,8 @@ This is an example of how a tests with integrated electrum should look like,
 see `tests/test_framework/test_framework.py` for more info.
 """
 
-import json
-
 from test_framework import FlorestaTestFramework
 from test_framework.electrum.client import ElectrumClient
-from test_framework.rpc.floresta import REGTEST_RPC_SERVER
 
 
 class ElectrumTest(FlorestaTestFramework):
@@ -27,9 +24,7 @@ class ElectrumTest(FlorestaTestFramework):
         """
         Here we define setup for test adding a node definition
         """
-        ElectrumTest.index[0] = self.add_node(
-            variant="florestad", rpcserver=REGTEST_RPC_SERVER
-        )
+        ElectrumTest.index[0] = self.add_node(variant="florestad")
 
     # All tests should override the run_test method
     def run_test(self):
@@ -51,10 +46,10 @@ class ElectrumTest(FlorestaTestFramework):
         # Create an instance of the Electrum Client,
         # a small implementation of the electrum
         # protocol, to test our own electrum implementation
-
-        electrum = ElectrumClient(
-            REGTEST_RPC_SERVER["host"], REGTEST_RPC_SERVER["ports"]["electrum-server"]
-        )
+        node = self.get_node(ElectrumTest.index[0])
+        host = node.get_host()
+        port = node.get_port("electrum-server")
+        electrum = ElectrumClient(host, port)
         rpc_response = electrum.get_version()
 
         # Make assertions with our framework. Avoid usage of

@@ -6,7 +6,6 @@ see `tests/test_framework/test_framework.py` for more info.
 """
 
 from test_framework import FlorestaTestFramework
-from test_framework.rpc.bitcoin import REGTEST_RPC_SERVER
 
 
 class BitcoindTest(FlorestaTestFramework):
@@ -30,9 +29,7 @@ class BitcoindTest(FlorestaTestFramework):
         """
         Here we define setup for test adding a node definition
         """
-        BitcoindTest.index[0] = self.add_node(
-            variant="bitcoind", rpcserver=REGTEST_RPC_SERVER
-        )
+        BitcoindTest.index[0] = self.add_node(variant="bitcoind")
 
     # All tests should override the run_test method
     def run_test(self):

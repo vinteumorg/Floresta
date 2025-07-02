@@ -20,10 +20,7 @@ class GetRootsIDBLenZeroTest(FlorestaTestFramework):
         Setup the two node florestad process with different data-dirs, electrum-addresses
         and rpc-addresses in the same regtest network
         """
-        GetRootsIDBLenZeroTest.nodes[0] = self.add_node(
-            extra_args=[],
-            rpcserver=REGTEST_RPC_SERVER,
-        )
+        GetRootsIDBLenZeroTest.nodes[0] = self.add_node(variant="florestad")
 
     def run_test(self):
         """

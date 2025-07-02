@@ -8,7 +8,6 @@ import errno
 
 from test_framework import FlorestaTestFramework
 from test_framework.electrum.client import ElectrumClient
-from test_framework.rpc.floresta import REGTEST_RPC_SERVER, REGTEST_RPC_TLS_SERVER
 
 
 class TestSslFailInitialization(FlorestaTestFramework):
@@ -25,7 +24,7 @@ class TestSslFailInitialization(FlorestaTestFramework):
         Instantiate the node without Electrum TLS.
         """
         TestSslFailInitialization.nodes[0] = self.add_node(
-            rpcserver=REGTEST_RPC_SERVER, tls=False
+            variant="florestad", tls=False
         )
 
     def run_test(self):
@@ -34,14 +33,15 @@ class TestSslFailInitialization(FlorestaTestFramework):
         the TLS port (20002), and assert that the connection was refused since TLS was not enabled.
         """
         self.run_node(TestSslFailInitialization.nodes[0])
+        node = self.get_node(TestSslFailInitialization.nodes[0])
 
         # Create a connection with an Electrum client at the default Electrum TLS port.
         # It must fail since there is nothing bound to it.
         with self.assertRaises(ConnectionRefusedError) as exc:
             self.log("Trying to connect the Electrum no-TLS client")
             TestSslFailInitialization.electrum = ElectrumClient(
-                REGTEST_RPC_TLS_SERVER["host"],
-                REGTEST_RPC_TLS_SERVER["ports"]["electrum-server-tls"],
+                node.get_host(),
+                node.get_port("electrum-server") + 1,
             )
 
         self.log("Failed to connect to Electrum TLS client")

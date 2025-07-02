@@ -6,7 +6,6 @@ see `tests/test_framework/test_framework.py` for more info.
 """
 
 from test_framework import FlorestaTestFramework
-from test_framework.rpc.floresta import REGTEST_RPC_SERVER
 
 
 class FunctionalTest(FlorestaTestFramework):
@@ -27,9 +26,7 @@ class FunctionalTest(FlorestaTestFramework):
         """
         Here we define setup for test adding a node definition
         """
-        FunctionalTest.index[0] = self.add_node(
-            variant="florestad", rpcserver=REGTEST_RPC_SERVER
-        )
+        FunctionalTest.index[0] = self.add_node(variant="florestad")
 
     # All tests should override the run_test method
     def run_test(self):
@@ -64,7 +61,7 @@ class FunctionalTest(FlorestaTestFramework):
         self.assertEqual(inf_response["leaf_count"], FunctionalTest.expected_leaf_count)
 
         # stop nodes
-        self.stop_node(FunctionalTest.index[0])
+        self.stop()
 
 
 if __name__ == "__main__":
