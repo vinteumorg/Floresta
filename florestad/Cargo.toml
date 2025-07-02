@@ -58,7 +58,7 @@ flat-chainstore = ["floresta-chain/flat-chainstore"]
 compact-filters = ["dep:floresta-compact-filters"]
 zmq-server = ["dep:zmq"]
 json-rpc = ["dep:axum", "dep:tower-http", "compact-filters"]
-default = ["json-rpc", "flat-chainstore"]
+default = ["json-rpc", "flat-chainstore", "zmq-server"]
 metrics = ["dep:metrics", "floresta-wire/metrics"]
 tokio-console = ["dep:console-subscriber"]
 
