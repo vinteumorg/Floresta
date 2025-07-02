@@ -40,9 +40,9 @@ use crate::p2p_wire::transport::UtreexoMessage;
 
 /// If we send a ping, and our peer takes more than PING_TIMEOUT to
 /// reply, disconnect.
-const PING_TIMEOUT: u64 = 30;
+const PING_TIMEOUT: u64 = 10 * 60;
 /// If the last message we've got was more than XX, send out a ping
-const SEND_PING_TIMEOUT: u64 = 60;
+const SEND_PING_TIMEOUT: u64 = 2 * 60;
 /// The inv element type for a utreexo block with witness data
 const INV_UTREEXO_BLOCK: u32 = 0x40000002 | (1 << 24);
 
@@ -135,7 +135,7 @@ pub enum PeerError {
     #[error("Peer sent us too many message in a short period of time")]
     TooManyMessages,
     #[error("Peer timed a ping out")]
-    Timeout,
+    PingTimeout,
     #[error("channel error")]
     Channel,
     #[error("Transport error: {0}")]
@@ -240,6 +240,7 @@ impl<T: AsyncWrite + Unpin + Send + Sync> Peer<T> {
                             return Err(e);
                         }
                         Some(ReaderMessage::Block(block)) => {
+                            debug!("got a utreexo block from peer {}", self.id);
                             self.send_to_node(PeerMessages::Block(block)).await;
                         }
                         Some(ReaderMessage::Message(msg)) => {
@@ -256,7 +257,7 @@ impl<T: AsyncWrite + Unpin + Send + Sync> Peer<T> {
             // If we send a ping and our peer doesn't respond in time, disconnect
             if let Some(when) = self.last_ping {
                 if when.elapsed().as_secs() > PING_TIMEOUT {
-                    return Err(PeerError::Timeout);
+                    return Err(PeerError::PingTimeout);
                 }
             }
 

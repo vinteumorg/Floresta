@@ -41,9 +41,7 @@ use crate::node_interface::NodeResponse;
 ///
 /// see [node_context](crates/floresta-wire/src/p2p_wire/node_context.rs) and [node.rs](crates/floresta-wire/src/p2p_wire/node.rs) for more information.
 #[derive(Clone, Debug, Default)]
-pub struct SyncNode {
-    last_block_requested: u32,
-}
+pub struct SyncNode {}
 
 impl NodeContext for SyncNode {
     fn get_required_services(&self) -> bitcoin::p2p::ServiceFlags {
@@ -51,7 +49,7 @@ impl NodeContext for SyncNode {
     }
 
     const MAX_OUTGOING_PEERS: usize = 5; // don't need many peers, half the default
-    const TRY_NEW_CONNECTION: u64 = 10; // ten seconds
+    const TRY_NEW_CONNECTION: u64 = 60; // one minute
     const REQUEST_TIMEOUT: u64 = 10 * 60; // 10 minutes
     const MAX_INFLIGHT_REQUESTS: usize = 100; // double the default
 }
@@ -64,23 +62,75 @@ where
     WireError: From<Chain::Error>,
     Chain::Error: From<proof_util::UtreexoLeafError>,
 {
-    /// Checks if we have the next 10 missing blocks until the tip, and request missing ones for a peer.
+    /// Computes the next blocks to request, and sends a GETDATA request
+    ///
+    /// We send block requests in batches of four, and we can always have two
+    /// such batches inflight. Therefore, we can have at most eight inflight
+    /// blocks.
+    ///
+    /// This function sends exactly one GETDATA, therefore ask for four blocks.
+    /// It will compute the next blocks we need, given our tip, validation index,
+    /// inflight requests and cached blocks. We then select a random peer and send
+    /// the request.
+    ///
+    /// TODO: Be smarter when selecting peers to send, like taking in consideration
+    /// already inflight blocks and latency.
     async fn get_blocks_to_download(&mut self) {
-        let mut blocks = Vec::with_capacity(10);
-        for _ in 0..10 {
-            let next_block = self.context.last_block_requested + 1;
+        let max_inflight_blocks = SyncNode::BLOCKS_PER_GETDATA * SyncNode::MAX_CONCURRENT_GETDATA;
+        let inflight_blocks = self
+            .inflight
+            .keys()
+            .filter(|inflight| matches!(inflight, InflightRequests::Blocks(_)))
+            .count();
+
+        // if we do a request, this will be the new inflight blocks count
+        let next_inflight_count = inflight_blocks + SyncNode::BLOCKS_PER_GETDATA;
+
+        // if this request would make our inflight queue too long, postpone it
+        if next_inflight_count > max_inflight_blocks {
+            return;
+        }
+
+        let mut blocks = Vec::with_capacity(SyncNode::BLOCKS_PER_GETDATA);
+        for _ in 0..SyncNode::BLOCKS_PER_GETDATA {
+            let next_block = self.last_block_request + 1;
+            let validation_index = self.chain.get_validation_index().unwrap();
+            if next_block <= validation_index {
+                self.last_block_request = validation_index;
+            }
+
             let next_block = self.chain.get_block_hash(next_block);
             match next_block {
                 Ok(next_block) => {
                     blocks.push(next_block);
-                    self.context.last_block_requested += 1;
+                    self.last_block_request += 1;
                 }
+
                 Err(_) => {
+                    // this is likely because we've reached the end of the chain
+                    // and we've got a `BlockNotPresent` error.
                     break;
                 }
             }
         }
+
         try_and_log!(self.request_blocks(blocks).await);
+    }
+
+    async fn ask_for_missed_blocks(&mut self) -> Result<(), WireError> {
+        let next_request = self.chain.get_validation_index()? + 1;
+        let last_block_requested = self.last_block_request;
+
+        // we accumulate the hashes of all blocks in [next_request, last_block_requested] here
+        // and pass it to request_blocks, which will filter inflight and pending blocks out.
+        let mut range_blocks = Vec::new();
+
+        for request_height in next_request..=last_block_requested {
+            let block_hash = self.chain.get_block_hash(request_height)?;
+            range_blocks.push(block_hash);
+        }
+
+        self.request_blocks(range_blocks).await
     }
 
     /// While in sync phase, we don't want any non-utreexo connections. This function checks
@@ -113,7 +163,7 @@ where
     ///     - If were low on inflights, requests new blocks to validate.
     pub async fn run(mut self, done_cb: impl FnOnce(&Chain)) -> Self {
         info!("Starting sync node");
-        self.context.last_block_requested = self.chain.get_validation_index().unwrap();
+        self.last_block_request = self.chain.get_validation_index().unwrap();
 
         loop {
             while let Ok(Some(msg)) = timeout(Duration::from_secs(1), self.node_rx.recv()).await {
@@ -164,7 +214,6 @@ where
                 > SyncNode::ASSUME_STALE;
 
             if assume_stale {
-                self.context.last_block_requested = self.chain.get_validation_index().unwrap();
                 try_and_log!(self.create_connection(ConnectionKind::Extra).await);
                 self.last_tip_update = Instant::now();
                 continue;
@@ -174,19 +223,10 @@ where
                 continue;
             }
 
-            if self.chain.get_validation_index().unwrap() + 10 > self.context.last_block_requested {
-                if self.inflight.len() > 10 {
-                    continue;
-                }
+            // Ask for missed blocks if they are no longer inflight or pending
+            try_and_log!(self.ask_for_missed_blocks().await);
 
-                // don't ask for blocks if we already have a lot of them in memory.
-                // If we don't limit it, we may end up using all the available memory
-                if self.blocks.len() > 10 {
-                    continue;
-                }
-
-                self.get_blocks_to_download().await;
-            }
+            self.get_blocks_to_download().await;
         }
 
         done_cb(&self.chain);
@@ -283,8 +323,7 @@ where
                             // We've requested and processed a block that's not the next one in our
                             // chain. Force our last block requested to be the correct block, and
                             // keep going.
-                            self.context.last_block_requested =
-                                self.chain.get_validation_index()?;
+                            self.last_block_request = self.chain.get_validation_index()?;
                         }
                     }
                 }
@@ -323,17 +362,7 @@ where
             }
         }
 
-        if self.inflight.len() < 4 {
-            if *self.kill_signal.read().await {
-                return Ok(());
-            }
-
-            if self.blocks.len() > 10 {
-                return Ok(());
-            }
-
-            self.get_blocks_to_download().await;
-        }
+        self.get_blocks_to_download().await;
 
         Ok(())
     }
@@ -364,13 +393,6 @@ where
                     }
 
                     PeerMessages::Disconnected(idx) => {
-                        // check if this peer had inflight block requests, if so, bring our
-                        // `last_block_requested` back
-                        if self.inflight.values().any(|(peer_id, _)| *peer_id == peer) {
-                            self.context.last_block_requested =
-                                self.chain.get_validation_index()?;
-                        }
-
                         try_and_log!(self.handle_disconnection(peer, idx).await);
                     }
 

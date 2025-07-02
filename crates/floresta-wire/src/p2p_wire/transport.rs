@@ -27,6 +27,7 @@ use tokio::io::AsyncRead;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWrite;
 use tokio::io::AsyncWriteExt;
+use tokio::io::BufReader;
 use tokio::io::ReadHalf;
 use tokio::io::WriteHalf;
 use tokio::net::TcpStream;
@@ -37,7 +38,7 @@ use super::socks::Socks5Error;
 use super::socks::Socks5StreamBuilder;
 use crate::address_man::LocalAddress;
 
-type TcpReadTransport = ReadTransport<ReadHalf<TcpStream>>;
+type TcpReadTransport = ReadTransport<BufReader<ReadHalf<TcpStream>>>;
 type TcpWriteTransport = WriteTransport<WriteHalf<TcpStream>>;
 type TransportResult =
     Result<(TcpReadTransport, TcpWriteTransport, TransportProtocol), TransportError>;
@@ -147,12 +148,17 @@ async fn try_connection<A: ToSocketAddrs>(
     force_v1: bool,
 ) -> TransportResult {
     let tcp_stream = TcpStream::connect(address).await?;
-    tcp_stream.set_nodelay(true)?;
+    // Data is buffered until there is enough to send out
+    // thus reducing the amount of packages going through
+    // the network.
+    tcp_stream.set_nodelay(false)?;
+
     let peer_addr = match tcp_stream.peer_addr() {
         Ok(addr) => addr.to_string(),
         Err(_) => String::from("unknown peer"),
     };
-    let (mut reader, mut writer) = tokio::io::split(tcp_stream);
+    let (reader, mut writer) = tokio::io::split(tcp_stream);
+    let mut reader = BufReader::new(reader);
 
     match force_v1 {
         true => {
@@ -250,8 +256,8 @@ async fn try_proxy_connection<A: ToSocketAddrs>(
 ) -> TransportResult {
     let proxy = TcpStream::connect(proxy_addr).await?;
     let stream = Socks5StreamBuilder::connect(proxy, target_addr, port).await?;
-    let (mut reader, mut writer) = tokio::io::split(stream);
-
+    let (reader, mut writer) = tokio::io::split(stream);
+    let mut reader = BufReader::new(reader);
     match force_v1 {
         true => {
             info!("Using V1 protocol for proxy connection to {target_addr:?}",);
