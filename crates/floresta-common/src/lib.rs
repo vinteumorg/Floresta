@@ -3,29 +3,23 @@
 //! # Floresta Common
 //! Provides utility functions, macros and modules to be
 //! used in other Floresta crates.
-
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![no_std]
-
-use bitcoin::consensus::encode;
-use bitcoin::consensus::Decodable;
 use bitcoin::hashes::sha256;
 use bitcoin::hashes::Hash;
 use bitcoin::ScriptBuf;
-use bitcoin::VarInt;
-#[cfg(any(feature = "descriptors-std", feature = "descriptors-no-std"))]
-use miniscript::Descriptor;
-#[cfg(any(feature = "descriptors-std", feature = "descriptors-no-std"))]
-use miniscript::DescriptorPublicKey;
 use sha2::Digest;
 
+#[cfg(any(feature = "descriptors-std", feature = "descriptors-no-std"))]
+pub mod descriptor_internals;
 #[cfg(not(feature = "std"))]
 mod error;
 pub mod macros;
+
+#[cfg(feature = "slip132")]
+pub mod slip132;
 pub mod spsc;
 
-#[cfg(any(feature = "descriptors-std", feature = "descriptors-no-std"))]
-use prelude::*;
 pub use spsc::Channel;
 
 /// Computes the SHA-256 digest of the byte slice data and returns a [Hash] from `bitcoin_hashes`.
@@ -112,26 +106,6 @@ impl FractionAvg {
 
         self.numerator as f64 / self.denominator as f64
     }
-}
-
-#[cfg(any(feature = "descriptors-std", feature = "descriptors-no-std"))]
-/// Takes an array of descriptors as `String`, performs sanity checks on each one
-/// and returns list of parsed descriptors.
-pub fn parse_descriptors(
-    descriptors: &[String],
-) -> Result<Vec<Descriptor<DescriptorPublicKey>>, miniscript::Error> {
-    let descriptors = descriptors
-        .iter()
-        .map(|descriptor| {
-            let descriptor = Descriptor::<DescriptorPublicKey>::from_str(descriptor.as_str())?;
-            descriptor.sanity_check()?;
-            descriptor.into_single_descriptors()
-        })
-        .collect::<Result<Vec<Vec<_>>, _>>()?
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>();
-    Ok(descriptors)
 }
 
 #[cfg(not(feature = "std"))]
