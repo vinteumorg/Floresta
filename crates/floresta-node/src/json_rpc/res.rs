@@ -1,6 +1,7 @@
 use std::fmt::Display;
 
 use axum::response::IntoResponse;
+use floresta_common::descriptor_internals::DescriptorError;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -261,9 +262,6 @@ pub enum JsonRpcError {
     /// The provided script is invalid, e.g., if it is not a valid P2PKH or P2SH script
     InvalidScript,
 
-    /// The provided descriptor is invalid, e.g., if it does not match the expected format
-    InvalidDescriptor,
-
     /// The requested block is not found in the blockchain
     BlockNotFound,
 
@@ -305,6 +303,9 @@ pub enum JsonRpcError {
     /// This error is returned when there is an error with block filters, e.g., if the filters are not available or when there is an issue with the filter data
     Filters(String),
 
+    /// Returned when tried to decode a mal formatted descriptor.
+    DecodeDescRequest(serde_json::Error, String),
+
     /// This error is returned when the addnode command is invalid, e.g., if the command is not recognized or when the parameters are incorrect
     InvalidAddnodeCommand,
 
@@ -325,7 +326,8 @@ impl Display for JsonRpcError {
             JsonRpcError::MethodNotFound =>  write!(f, "Method not found"),
             JsonRpcError::Decode(e) =>  write!(f, "error decoding request: {e}"),
             JsonRpcError::TxNotFound =>  write!(f, "Transaction not found"),
-            JsonRpcError::InvalidDescriptor =>  write!(f, "Invalid descriptor"),
+            JsonRpcError::DecodeDescRequest(e, one) =>  write!(f, "Couldn't parse {one} into a Descriptor request; {e}"),
+            JsonRpcError::BatchDescriptor(b) =>  write!(f, "{b:?}"),
             JsonRpcError::BlockNotFound =>  write!(f, "Block not found"),
             JsonRpcError::Chain => write!(f, "Chain error"),
             JsonRpcError::InvalidPort => write!(f, "Invalid port"),

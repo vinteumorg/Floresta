@@ -9,9 +9,9 @@ use floresta_chain::FlatChainstoreError;
 use floresta_compact_filters::IterableFilterStoreError;
 use floresta_watch_only::kv_database::KvDatabaseError;
 use floresta_watch_only::WatchOnlyError;
+use floresta_common::descriptor_internals::DescriptorError;
+use floresta_common::slip132;
 use tokio_rustls::rustls::pki_types;
-
-use crate::slip132;
 #[derive(Debug)]
 pub enum FlorestadError {
     /// Encoding/decoding error.
@@ -50,6 +50,8 @@ pub enum FlorestadError {
     /// Parsing a bitcoin address.
     AddressParsing(bitcoin::address::ParseError),
 
+    DescriptorParsing(DescriptorError),
+    
     /// Parsing miniscript error.
     Miniscript(miniscript::Error),
 
@@ -282,6 +284,7 @@ impl_from_error!(ScriptValidation, bitcoin::blockdata::script::Error);
 impl_from_error!(Blockchain, BlockchainError);
 impl_from_error!(SerdeJson, serde_json::Error);
 impl_from_error!(WalletInput, slip132::Error);
+impl_from_error!(DescriptorParsing, DescriptorError);
 impl_from_error!(TomlParsing, toml::de::Error);
 impl_from_error!(BlockValidation, BlockValidationErrors);
 impl_from_error!(AddressParsing, bitcoin::address::ParseError);
