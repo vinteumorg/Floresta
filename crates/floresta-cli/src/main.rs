@@ -10,6 +10,8 @@ use floresta_cli::jsonrpc_client::Client;
 use floresta_cli::rpc::FlorestaRPC;
 use floresta_cli::rpc_types::AddNodeCommand;
 use floresta_cli::rpc_types::GetBlockRes;
+use floresta_common::descriptor_internals::DescriptorId;
+use floresta_common::descriptor_internals::DescriptorRequest;
 
 // Main function that runs the CLI application
 fn main() -> anyhow::Result<()> {
@@ -78,9 +80,7 @@ fn do_request(cmd: &Cli, client: Client) -> anyhow::Result<String> {
         Methods::GetBlockHeader { hash } => {
             serde_json::to_string_pretty(&client.get_block_header(hash)?)?
         }
-        Methods::LoadDescriptor { desc } => {
-            serde_json::to_string_pretty(&client.load_descriptor(desc)?)?
-        }
+
         Methods::GetRoots => serde_json::to_string_pretty(&client.get_roots()?)?,
         Methods::GetBlock { hash, verbosity } => {
             let block = client.get_block(hash, verbosity)?;
@@ -119,6 +119,12 @@ fn do_request(cmd: &Cli, client: Client) -> anyhow::Result<String> {
         Methods::GetRpcInfo => serde_json::to_string_pretty(&client.get_rpc_info()?)?,
         Methods::Uptime => serde_json::to_string_pretty(&client.uptime()?)?,
         Methods::ListDescriptors => serde_json::to_string_pretty(&client.list_descriptors()?)?,
+        Methods::ImportDescriptors { requests } => {
+            serde_json::to_string_pretty(&client.import_descriptors(requests)?)?
+        }
+        Methods::DeleteDescriptors { ids, pull } => {
+            serde_json::to_string_pretty(&client.delete_descriptors(ids, pull)?)?
+        }
         Methods::Ping => serde_json::to_string_pretty(&client.ping()?)?,
     })
 }
@@ -213,19 +219,77 @@ pub enum Methods {
     #[command(name = "getblockheader")]
     GetBlockHeader { hash: BlockHash },
 
-    /// Loads a new descriptor to the watch only wallet
-    #[command(name = "loaddescriptor")]
-    LoadDescriptor { desc: String },
-
     /// Returns the roots of the current utreexo forest
     #[command(name = "getroots")]
     GetRoots,
-
     /// Returns a block
     #[command(name = "getblock")]
     GetBlock {
         hash: BlockHash,
         verbosity: Option<u32>,
+    },
+
+    /// # `importdescriptors`
+    ///
+    /// Imports the given descriptor requests into the watch-only wallet.
+    ///
+    /// ## Arguments
+    ///
+    /// * `requests` - A json Object that describes some meta-data about a descriptor and how to derive it.
+    ///
+    /// A Descriptor Request
+    /// [
+    ///     {                                    (json object)
+    ///         "desc": "str",                     (string, required) Descriptor to import.
+    ///         "active": bool,                    (boolean, optional, default=false) Set this descriptor to be the active descriptor for the corresponding output type/externality
+    ///         "range": n or [n,n],               (numeric or array) If a ranged descriptor is used, this specifies the end or the range (in the form [begin,end]) to import
+    ///         "next_index": n,                   (numeric) If a ranged descriptor is set to active, this specifies the next index to generate addresses from
+    ///         "timestamp": timestamp | "now" | "full",    (integer / string, required) Time from which to start rescanning the blockchain for this descriptor, in UNIX epoch time
+    ///                                             Use the string "now" to substitute the current synced blockchain time.
+    ///                                             "now" can be specified to bypass scanning, for outputs which are known to never have been used, and
+    ///                                             0 or "full" can be specified to scan the entire blockchain. Blocks up to 2 hours before the earliest timestamp
+    ///                                             of all descriptors being imported will be scanned.
+    ///         "internal": bool,                  (boolean, optional, default=false) Whether matching outputs should be treated as not incoming payments (e.g. change)
+    ///         "label": "str",                    (string, optional, default='') Label to assign to the address, only allowed with internal=false
+    ///     },
+    /// ]
+    ///
+    /// ## Returns
+    ///
+    /// ### Ok Response
+    ///
+    ///     - Returns a Boolean indicating whether the request was successful.
+    ///
+    /// ### Error Enum [`floresta_common::descriptor_internals::DescriptorError`]
+    ///
+    /// These are the expected errors and cases;
+    ///
+    /// Error while deriving the descriptors.
+    /// DerivationError(ConversionError),
+    ///
+    /// Could not parse the descriptor
+    /// InvalidDescriptor,
+    ///
+    /// The descriptors script may be an invalid one.
+    /// Miniscript(miniscript::Error),
+    ///
+    /// ## Usage Examples
+    ///
+    /// ```bash
+    ///     bitcoin-cli importdescriptors '[{ "desc": "pkh(02c6...)", "timestamp": 0, "internal": true, "label": "my_vinteum_donation_change" }, { "desc": "pkh(02c6...)", "label": "my_vinteum_donation", "timestamp": now }]'
+    /// ```
+    ///
+    /// ## Notes
+    ///
+    /// - A descriptor request may yield more than one descriptor but, they are all deduped before being added to the wallet, the comparison factor is the descriptors miniscript.
+    /// - While entering more than one request the timestamp can be overridden by another request. The priority is Full > Ignore > SpecifiedTime  (a lesser one) > SpecifiedTime.
+    /// - **IBD** If the node is during its IBD phase the rescan request will be skipped but the descriptor will be added sucessfully. You might see the warning in the node logs and rescan later with "rescanblockchain"
+    /// - Related RPC methods "deletedescriptor", "listdescriptors"
+    #[command(name = "importdescriptors")]
+    ImportDescriptors {
+        #[arg( required = true, value_parser = floresta_cli::parsers::parse_json_array::<DescriptorRequest>
+        )]
+        requests: std::vec::Vec<DescriptorRequest>, // you need to specify the path of Vec https://github.com/clap-rs/clap/discussions/4695
     },
 
     /// Returns information about the peers we are connected to
@@ -289,7 +353,26 @@ pub enum Methods {
     #[command(name = "uptime")]
     Uptime,
 
-    /// Returns a list of all descriptors currently loaded in the wallet
+    /// # `listdescriptors`
+    ///
+    /// List the wallet descriptors
+    ///
+    /// ## Returns
+    ///
+    /// ### Ok Response
+    ///
+    ///     - Prints the cached descriptors.
+    ///
+    /// ## Usage Examples
+    ///
+    /// ```bash
+    ///     floresta-cli listdescriptors
+    /// ```
+    ///
+    /// ## Notes
+    ///
+    /// - The case for error will panic and shutdown the node since it'll probably represent a memory corruption
+    /// - Related Methods: "importdescriptors", "deletedescriptors"
     #[command(name = "listdescriptors")]
     ListDescriptors,
 
@@ -298,4 +381,58 @@ pub enum Methods {
     /// Result: json null
     #[command(name = "ping")]
     Ping,
+
+    /// # `deletedescriptors`
+    ///
+    /// From a given array of DescriptorId's, find and delete the identified ones.
+    ///
+    /// ## Arguments
+    ///
+    /// * ids - json array containing the descriptor ids.
+    ///
+    /// [
+    ///     {                                    (json object)
+    ///        "hash": "str",                    A descriptor identified by its double sha256 and its derived miniscript as preimage.
+    ///     },
+    ///     {                                    (json object)
+    ///         "label": "str",                  A descriptor identified by an arbitrary label. Searching by arbitrary labels can be expensive as it isnt indexed by it.
+    ///     },
+    ///     {                                    (json object)
+    ///         "miniscript": "str",             A descriptor identified by its miniscript.
+    ///     },
+    /// ]
+    ///
+    /// * pull - The boolean that defines whether to pull the deleted descriptors or not. (default=false)
+    ///
+    /// ## Returns
+    ///
+    /// ### Ok Response
+    ///
+    ///     - Returns the deleted descriptors if specified to do it.
+    ///
+    /// ### Error Enum [`floresta_common::descriptor_internals::DescriptorError`]
+    /// These are the expected errors;
+    ///
+    /// Specified descriptor was not found.
+    /// DescriptorNotFound,
+    ///
+    /// ## Usage Examples
+    ///
+    /// ```bash
+    ///     floresta-cli deletedescriptors [{"hash": "ebd042345b560280c7d676a9d4743fc1a3016017ca99cb6650da957be1ca4437"}, {"label": "my_vinteum_donation"}] --pull
+    ///     floresta-cli deletedescriptors [{"miniscript": "ebd042345b560280c7d676a9d4743fc1a3016017ca99cb6650da957be1ca4437"}, {"label": "my_vinteum_donation"}] --pull
+    /// ```
+    ///
+    /// ## Notes
+    ///
+    /// - A DescriptorId is an internal enum type that we use to facilitate descriptors handling.
+    /// - Related Methods: "importdescriptors", "listdescriptors"
+    #[command(name = "deletedescriptors")]
+    DeleteDescriptors {
+        #[arg( required = true, value_parser = floresta_cli::parsers::parse_json_array::<DescriptorId>
+        )]
+        ids: std::vec::Vec<DescriptorId>, // you need to specify the path of Vec https://github.com/clap-rs/clap/discussions/4695
+        #[arg(short = 'p', long = "pull", default_value_t = false)]
+        pull: bool,
+    },
 }
