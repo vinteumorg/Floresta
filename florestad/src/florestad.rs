@@ -357,14 +357,6 @@ impl Florestad {
             .expect("Failure to setup logger");
         }
 
-        // The config file inside our datadir directory. Any datadir
-        // passed as argument will be used instead
-        let system_config_file = format!("{data_dir}/config.toml");
-        let config_file = match &self.config.config_file {
-            Some(path) => Self::get_config_file(path),
-            None => Self::get_config_file(&system_config_file),
-        };
-
         // Load the watch-only wallet
         info!("Loading watch-only wallet");
 
@@ -897,8 +889,14 @@ impl Florestad {
             })
             .collect::<Vec<Xpub>>();
 
-        let initial_batch =
-            convert_to_internal(&casted_xpubs, &descriptors, &addresses, self.config.network, 20).expect("Could not parse some of the pre-defined Xpub, descriptors or Adresses.");
+        let initial_batch = convert_to_internal(
+            &casted_xpubs,
+            &descriptors,
+            &addresses,
+            self.config.network,
+            20,
+        )
+        .expect("Could not parse some of the pre-defined Xpub, descriptors or Adresses.");
 
         for descriptor in initial_batch.0 {
             if !wallet
@@ -916,15 +914,12 @@ impl Florestad {
         anyhow::Ok(())
     }
 
-    /// Scraps the defined xpubs, descriptors and addresses directly from 
+    /// Scraps the defined xpubs, descriptors and addresses directly from
     /// florestad's config file and cli configuration.
-    /// 
+    ///
     /// The returning array of Vec<String> is organized to separate the
     /// collected xpubs, descriptors and addresses, in this exact order.
-    fn get_pre_defined_xda(
-        &self,
-        config_file: ConfigFile,
-    ) -> [Vec<String>; 3]{
+    fn get_pre_defined_xda(&self, config_file: ConfigFile) -> [Vec<String>; 3] {
         let config = &self.config;
 
         let mut xpubs = Vec::new();
