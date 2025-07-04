@@ -12,6 +12,13 @@ use floresta_rpc::rpc::FlorestaRPC;
 use floresta_rpc::rpc_types::AddNodeCommand;
 use floresta_rpc::rpc_types::GetBlockRes;
 use floresta_rpc::rpc_types::RescanConfidence;
+use floresta_cli::jsonrpc_client::Client;
+use floresta_cli::rpc::FlorestaRPC;
+use floresta_cli::rpc_types::AddNodeCommand;
+use floresta_cli::rpc_types::GetBlockRes;
+use floresta_cli::rpc_types::RescanConfidence;
+use floresta_common::descriptor_internals::DescriptorId;
+use floresta_common::descriptor_internals::DescriptorRequest;
 
 // Main function that runs the CLI application
 fn main() -> anyhow::Result<()> {
@@ -85,9 +92,7 @@ fn do_request(cmd: &Cli, client: Client) -> anyhow::Result<String> {
         Methods::GetBlockHeader { hash } => {
             serde_json::to_string_pretty(&client.get_block_header(hash)?)?
         }
-        Methods::LoadDescriptor { desc } => {
-            serde_json::to_string_pretty(&client.load_descriptor(desc)?)?
-        }
+
         Methods::GetRoots => serde_json::to_string_pretty(&client.get_roots()?)?,
         Methods::GetBlock { hash, verbosity } => {
             let block = client.get_block(hash, verbosity)?;
@@ -126,6 +131,12 @@ fn do_request(cmd: &Cli, client: Client) -> anyhow::Result<String> {
         Methods::GetRpcInfo => serde_json::to_string_pretty(&client.get_rpc_info()?)?,
         Methods::Uptime => serde_json::to_string_pretty(&client.uptime()?)?,
         Methods::ListDescriptors => serde_json::to_string_pretty(&client.list_descriptors()?)?,
+        Methods::ImportDescriptors { requests } => {
+            serde_json::to_string_pretty(&client.import_descriptors(requests)?)?
+        }
+        Methods::DeleteDescriptors { ids, pull } => {
+            serde_json::to_string_pretty(&client.delete_descriptors(ids, pull)?)?
+        }
         Methods::Ping => serde_json::to_string_pretty(&client.ping()?)?,
     })
 }
@@ -227,19 +238,27 @@ pub enum Methods {
     #[command(name = "getblockheader")]
     GetBlockHeader { hash: BlockHash },
 
-    /// Loads a new descriptor to the watch only wallet
-    #[command(name = "loaddescriptor")]
-    LoadDescriptor { desc: String },
-
     /// Returns the roots of the current utreexo forest
     #[command(name = "getroots")]
     GetRoots,
-
     /// Returns a block
     #[command(name = "getblock")]
     GetBlock {
         hash: BlockHash,
         verbosity: Option<u32>,
+    },
+
+    #[doc = include_str!("../../../doc/rpc/importdescriptors.md")]
+    #[command(
+        name = "importdescriptors",
+        about = "Imports the given descriptor requests into the watch-only wallet.",
+        long_about = Some(include_str!("../../../doc/rpc/importdescriptors.md")),
+        disable_help_subcommand = true
+    )]
+    ImportDescriptors {
+        #[arg( required = true, value_parser = floresta_cli::parsers::parse_json_array::<DescriptorRequest>
+        )]
+        requests: std::vec::Vec<DescriptorRequest>, // you need to specify the path of Vec https://github.com/clap-rs/clap/discussions/4695
     },
 
     /// Returns information about the peers we are connected to
@@ -303,8 +322,13 @@ pub enum Methods {
     #[command(name = "uptime")]
     Uptime,
 
-    /// Returns a list of all descriptors currently loaded in the wallet
-    #[command(name = "listdescriptors")]
+    #[doc = include_str!("../../../doc/rpc/listdescriptors.md")]
+    #[command(
+        name = "listdescriptors",
+        about = "List the wallet descriptors",
+        long_about = Some(include_str!("../../../doc/rpc/listdescriptors.md")),
+        disable_help_subcommand = true
+    )]
     ListDescriptors,
 
     /// Sends a ping to all peers, checking if they are still alive
@@ -312,4 +336,19 @@ pub enum Methods {
     /// Result: json null
     #[command(name = "ping")]
     Ping,
+
+    #[doc = include_str!("../../../doc/rpc/deletedescriptors.md")]
+    #[command(
+        name = "deletedescriptors",
+        about = "From a given array of DescriptorId's, find and delete the identified ones.",
+        long_about = Some(include_str!("../../../doc/rpc/deletedescriptors.md")),
+        disable_help_subcommand = true
+    )]
+    DeleteDescriptors {
+        #[arg( required = true, value_parser = floresta_cli::parsers::parse_json_array::<DescriptorId>
+        )]
+        ids: std::vec::Vec<DescriptorId>, // you need to specify the path of Vec https://github.com/clap-rs/clap/discussions/4695
+        #[arg(short = 'p', long = "pull", default_value_t = false)]
+        pull: bool,
+    },
 }

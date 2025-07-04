@@ -10,6 +10,20 @@ use serde::Serialize;
 pub struct GetTxOutProof(pub Vec<u8>);
 
 #[derive(Debug, Deserialize, Serialize)]
+/// Return type for the "listdescriptors" rpc command to hold
+/// extra info about concrete descriptors
+pub struct ListDescriptorRes(pub Vec<VerboseDescriptor>);
+
+#[derive(Debug, Deserialize, Serialize)]
+/// The struct to hold info from the listdescriptors products.
+pub struct VerboseDescriptor {
+    pub label: String,
+    pub desc: String,
+    pub internal: bool,
+    pub hash: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct GetBlockchainInfoRes {
     /// The best block we know about
     ///
