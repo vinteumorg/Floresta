@@ -1539,10 +1539,12 @@ where
             ));
         }
 
-        // We allow V1 fallback only if the cli option was set, or if we are connecting to a
-        // utreexo peer, since utreexod doesn't support V2 yet.
-        let allow_v1 =
-            self.config.allow_v1_fallback || kind == ConnectionKind::Regular(UTREEXO.into());
+        // We allow V1 fallback only if the cli option was set, it's a --connect peer
+        // or if we are connecting to a utreexo peer, since utreexod doesn't support V2 yet.
+        let is_fixed = self.fixed_peer.is_some();
+        let allow_v1 = self.config.allow_v1_fallback
+            || kind == ConnectionKind::Regular(UTREEXO.into())
+            || is_fixed;
 
         self.open_connection(kind, peer_id, address, allow_v1)
             .await?;
