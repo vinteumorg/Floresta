@@ -299,7 +299,9 @@ where
                         BlockValidationErrors::InvalidCoinbase(_)
                         | BlockValidationErrors::UtxoNotFound(_)
                         | BlockValidationErrors::ScriptValidationError(_)
-                        | BlockValidationErrors::InvalidOutput
+                        | BlockValidationErrors::NullPrevOut
+                        | BlockValidationErrors::EmptyInputs
+                        | BlockValidationErrors::EmptyOutputs
                         | BlockValidationErrors::ScriptError
                         | BlockValidationErrors::BlockTooBig
                         | BlockValidationErrors::NotEnoughPow

@@ -8,7 +8,6 @@ use core::ffi::c_uint;
 
 use bitcoin::block::Header as BlockHeader;
 use bitcoin::hashes::sha256;
-use bitcoin::hashes::Hash;
 use bitcoin::Block;
 use bitcoin::CompactTarget;
 use bitcoin::OutPoint;
@@ -92,11 +91,7 @@ impl Consensus {
     /// - The first transaction in the block must be coinbase
     /// - The coinbase transaction must have the correct value (subsidy + fees)
     /// - The block must not create more coins than allowed
-    /// - All transactions must be valid:
-    ///     - The transaction must not be coinbase (already checked)
-    ///     - The transaction must not have duplicate inputs
-    ///     - The transaction must not spend more coins than it claims in the inputs
-    ///     - The transaction must have valid scripts
+    /// - All transactions must be valid, as verified by [`Consensus::verify_transaction`]
     #[allow(unused)]
     pub fn verify_block_transactions(
         height: u32,
@@ -106,7 +101,7 @@ impl Consensus {
         verify_script: bool,
         flags: c_uint,
     ) -> Result<(), BlockchainError> {
-        // Blocks must contain at least one transaction (i.e. the coinbase)
+        // Blocks must contain at least one transaction (i.e., the coinbase)
         if transactions.is_empty() {
             return Err(BlockValidationErrors::EmptyBlock)?;
         }
@@ -147,12 +142,17 @@ impl Consensus {
         Ok(())
     }
 
-    /// Verifies a single transaction. This function checks the following:
-    ///     - The transaction doesn't spend more coins than it claims in the inputs
-    ///     - The transaction doesn't create more coins than allowed
-    ///     - The transaction has valid scripts
-    ///     - The transaction doesn't have duplicate inputs (implicitly checked by the hashmap)
-    fn verify_transaction(
+    /// Verifies a single, non-coinbase transaction. To verify (the structure of) a coinbase
+    /// transaction, use [`Consensus::verify_coinbase`].
+    ///
+    /// This function checks that the transaction:
+    ///   - Has at least one input and one output
+    ///   - Doesn't have null PrevOuts (reserved only for coinbase transactions)
+    ///   - Doesn't spend more coins than it claims in the inputs
+    ///   - Doesn't "move" more coins than allowed (at most 21 million)
+    ///   - Spends mature coins, in case any input refers to a coinbase transaction
+    ///   - Has valid scripts (if we don't assume them), and within the allowed size
+    pub fn verify_transaction(
         transaction: &Transaction,
         utxos: &mut HashMap<OutPoint, UtxoData>,
         height: u32,
@@ -160,6 +160,13 @@ impl Consensus {
         _flags: c_uint,
     ) -> Result<(u64, u64), BlockchainError> {
         let txid = || transaction.compute_txid();
+
+        if transaction.input.is_empty() {
+            return Err(tx_err!(txid, EmptyInputs))?;
+        }
+        if transaction.output.is_empty() {
+            return Err(tx_err!(txid, EmptyOutputs))?;
+        }
 
         let out_value: u64 = transaction
             .output
@@ -169,6 +176,10 @@ impl Consensus {
 
         let mut in_value = 0;
         for input in transaction.input.iter() {
+            // Null PrevOuts are only allowed in coinbase inputs
+            if input.previous_output.is_null() {
+                return Err(tx_err!(txid, NullPrevOut))?;
+            }
             let utxo = Self::get_utxo(input, utxos, txid)?;
             let txout = &utxo.txout;
 
@@ -202,7 +213,7 @@ impl Consensus {
                     |outpoint| utxos.remove(outpoint).map(|utxo| utxo.txout),
                     _flags,
                 )
-                .map_err(|e| tx_err!(txid, ScriptValidationError, e.to_string()))?;
+                .map_err(|e| tx_err!(txid, ScriptValidationError, format!("{e:?}")))?;
         };
 
         Ok((in_value, out_value))
@@ -250,16 +261,17 @@ impl Consensus {
         Ok(())
     }
 
-    /// Validates the coinbase transaction's input.
-    fn verify_coinbase(tx: &Transaction) -> Result<(), TransactionError> {
+    /// Validates the coinbase transaction's input. The checks on the outputs require context about
+    /// the block and are performed by [`Consensus::verify_block_transactions`].
+    pub fn verify_coinbase(tx: &Transaction) -> Result<(), TransactionError> {
         let txid = || tx.compute_txid();
         let input = match tx.input.as_slice() {
             [i] => i,
             _ => return Err(tx_err!(txid, InvalidCoinbase, "Coinbase must have 1 input")),
         };
 
-        // The prevout input of a coinbase must be all zeroes
-        if input.previous_output.txid != Txid::all_zeros() {
+        // The PrevOut of the coinbase input must be null
+        if !input.previous_output.is_null() {
             return Err(tx_err!(txid, InvalidCoinbase, "Invalid Coinbase PrevOut"));
         }
 
@@ -350,7 +362,7 @@ impl Consensus {
 mod tests {
     use bitcoin::absolute::LockTime;
     use bitcoin::consensus::encode::deserialize_hex;
-    use bitcoin::hashes::sha256d::Hash;
+    use bitcoin::hashes::Hash;
     use bitcoin::opcodes::all::OP_NOP;
     use bitcoin::opcodes::OP_TRUE;
     use bitcoin::transaction::Version;
@@ -419,32 +431,24 @@ mod tests {
     ];
 
     fn coinbase(is_valid: bool) -> Transaction {
-        // This coinbase transactions was retrieved from https://learnmeabitcoin.com/explorer/block/0000000000000a0f82f8be9ec24ebfca3d5373fde8dc4d9b9a949d538e9ff679
-        // Create inputs
-        let input_txid = Txid::from_raw_hash(Hash::from_str(&format!("{:0>64}", "")).unwrap());
+        // This coinbase transaction was retrieved from https://learnmeabitcoin.com/explorer/block/0000000000000a0f82f8be9ec24ebfca3d5373fde8dc4d9b9a949d538e9ff679
 
-        let input_vout = 0;
-        let input_outpoint = OutPoint::new(input_txid, input_vout);
-        let input_script_sig = if is_valid {
+        // Create input
+        let script_sig = if is_valid {
             ScriptBuf::from_hex("03f0a2a4d9f0a2").unwrap()
         } else {
-            // This should invalidate the coinbase transaction since is a big, really big, script.
+            // This must invalidate the coinbase transaction since it's a big script.
             ScriptBuf::from_hex(&format!("{:0>420}", "")).unwrap()
         };
-
-        let input = txin!(input_outpoint, input_script_sig);
+        let input = txin!(OutPoint::null(), script_sig);
 
         // Create outputs
         let output_script = ScriptBuf::from_hex("41047eda6bd04fb27cab6e7c28c99b94977f073e912f25d1ff7165d9c95cd9bbe6da7e7ad7f2acb09e0ced91705f7616af53bee51a238b7dc527f2be0aa60469d140ac").unwrap();
         let output = txout!(5_000_350_000, output_script);
 
-        // Create transaction
-        let version = Version(1);
-        let lock_time = LockTime::from_height(150_007).unwrap();
-
         Transaction {
-            version,
-            lock_time,
+            version: Version(1),
+            lock_time: LockTime::from_height(150_007).unwrap(),
             input: vec![input],
             output: vec![output],
         }
@@ -678,12 +682,16 @@ mod tests {
             }
         }
 
+        let dummy_outpoint = OutPoint {
+            txid: Txid::all_zeros(),
+            vout: 0,
+        };
         let flags = 0;
         let dummy_height = 0;
 
         let mut utxos = HashMap::new();
         utxos.insert(
-            OutPoint::null(),
+            dummy_outpoint,
             UtxoData {
                 txout: txout!(0, true_script()),
                 is_coinbase: false,
@@ -693,7 +701,7 @@ mod tests {
         );
 
         // 1. Build a valid transaction that produces an oversized, unspendable output.
-        let dummy_in = txin!(OutPoint::null(), ScriptBuf::new());
+        let dummy_in = txin!(dummy_outpoint, ScriptBuf::new());
         let oversized_out = txout!(0, oversized_script());
         let tx_with_oversized = build_tx(dummy_in, oversized_out.clone());
 
