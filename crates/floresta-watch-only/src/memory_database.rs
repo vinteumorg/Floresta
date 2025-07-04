@@ -5,6 +5,11 @@
 //! For actual databases that can be used for production code, see [KvDatabase](crate::kv_database::KvDatabase).
 use bitcoin::hashes::sha256;
 use bitcoin::Txid;
+use floresta_common::descriptor_internals::extract_matching_one;
+use floresta_common::descriptor_internals::extract_matching_ones;
+use floresta_common::descriptor_internals::ConcreteDescriptor;
+use floresta_common::descriptor_internals::DescriptorError;
+use floresta_common::descriptor_internals::DescriptorId;
 use floresta_common::prelude::sync::RwLock;
 use floresta_common::prelude::*;
 
@@ -18,12 +23,13 @@ struct Inner {
     transactions: HashMap<Txid, CachedTransaction>,
     stats: Stats,
     height: u32,
-    descriptors: Vec<String>,
+    descriptors: Vec<ConcreteDescriptor>,
 }
 
 #[derive(Debug)]
 pub enum MemoryDatabaseError {
     PoisonedLock,
+    DescriptorError(DescriptorError),
 }
 #[derive(Debug, Default)]
 pub struct MemoryDatabase {
@@ -96,16 +102,75 @@ impl AddressCacheDatabase for MemoryDatabase {
         Ok(())
     }
 
-    fn desc_save(&self, descriptor: &str) -> Result<()> {
-        self.get_inner_mut().map(|mut inner| {
-            inner.descriptors.push(descriptor.into());
-        })
+    fn desc_delete(&self, one: &DescriptorId) -> Result<ConcreteDescriptor> {
+        let mut inner = self.get_inner_mut()?;
+
+        if let Some(index) = extract_matching_one(&inner.descriptors, one) {
+            Ok(inner.descriptors.remove(index))
+        } else {
+            Err(MemoryDatabaseError::DescriptorError(
+                DescriptorError::DescriptorNotFound,
+            ))
+        }
     }
 
-    fn descs_get(&self) -> Result<Vec<String>> {
-        Ok(self.get_inner()?.descriptors.to_owned())
+    /// Batch delete descriptors from the database by matching [`DescriptorId`]s and
+    /// a helper to clear the database, inserting an empty array will make this function to
+    /// delete all the descriptors.
+    fn desc_delete_batch(&self, batch: &[DescriptorId]) -> Result<Vec<ConcreteDescriptor>> {
+        let mut inner = self.get_inner_mut()?;
+        Ok(extract_matching_ones(&inner.descriptors, batch)
+            .into_iter()
+            .map(|index| inner.descriptors.remove(index))
+            .collect())
     }
+    fn desc_get(&self, one: &DescriptorId) -> Result<ConcreteDescriptor> {
+        let inner = self.get_inner_mut()?;
 
+        if let Some(index) = extract_matching_one(&inner.descriptors, one) {
+            Ok(inner
+                .descriptors
+                .get(index)
+                .expect("Already searched for the descriptor above.")
+                .clone())
+        } else {
+            Err(MemoryDatabaseError::DescriptorError(
+                DescriptorError::DescriptorNotFound,
+            ))
+        }
+    }
+    fn desc_get_batch(&self, batch: &[DescriptorId]) -> Result<Vec<ConcreteDescriptor>> {
+        let inner = self.get_inner()?;
+        match batch.is_empty() {
+            true => {
+                let ret = inner.descriptors.clone();
+
+                Ok(ret)
+            }
+            false => {
+                let to_get = extract_matching_ones(&inner.descriptors, batch);
+                Ok(to_get
+                    .into_iter()
+                    .map(|index| {
+                        inner
+                            .descriptors
+                            .get(index)
+                            .expect("Already searched for the descriptor above.")
+                            .clone()
+                    })
+                    .collect())
+            }
+        }
+    }
+    fn desc_insert(&self, one: ConcreteDescriptor) -> Result<()> {
+        self.get_inner_mut()?.descriptors.push(one);
+        Ok(())
+    }
+    fn desc_insert_batch(&self, batch: Vec<ConcreteDescriptor>) -> Result<()> {
+        let mut batch = batch;
+        self.get_inner_mut()?.descriptors.append(&mut batch);
+        Ok(())
+    }
     fn get_transaction(&self, txid: &bitcoin::Txid) -> Result<super::CachedTransaction> {
         if let Some(tx) = self.get_inner()?.transactions.get(txid) {
             return Ok(tx.clone());
