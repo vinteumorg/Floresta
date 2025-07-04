@@ -11,6 +11,7 @@ use std::sync::Mutex;
 #[cfg(feature = "json-rpc")]
 use std::sync::OnceLock;
 
+use bitcoin::bip32::Xpub;
 pub use bitcoin::Network;
 use fern::colors::Color;
 use fern::colors::ColoredLevelConfig;
@@ -27,6 +28,9 @@ use floresta_chain::FlatChainStore as ChainStore;
 use floresta_chain::FlatChainStoreConfig;
 #[cfg(all(feature = "kv-chainstore", not(doc)))]
 use floresta_chain::KvChainStore as ChainStore;
+use floresta_common::descriptor_internals::convert_to_internal;
+use floresta_common::descriptor_internals::DescriptorIdSelector;
+use floresta_common::slip132::FromSlip132;
 #[cfg(feature = "compact-filters")]
 use floresta_compact_filters::flat_filters_store::FlatFiltersStore;
 #[cfg(feature = "compact-filters")]
@@ -35,7 +39,6 @@ use floresta_electrum::electrum_protocol::client_accept_loop;
 use floresta_electrum::electrum_protocol::ElectrumServer;
 use floresta_watch_only::kv_database::KvDatabase;
 use floresta_watch_only::AddressCache;
-use floresta_watch_only::AddressCacheDatabase;
 use floresta_wire::address_man::AddressMan;
 use floresta_wire::mempool::Mempool;
 use floresta_wire::node::UtreexoNode;
@@ -68,7 +71,6 @@ use crate::config_file::ConfigFile;
 use crate::error;
 #[cfg(feature = "json-rpc")]
 use crate::json_rpc;
-use crate::wallet_input::InitialWalletSetup;
 #[cfg(feature = "zmq-server")]
 use crate::zmq::ZMQServer;
 
@@ -355,8 +357,19 @@ impl Florestad {
             .expect("Failure to setup logger");
         }
 
+        // The config file inside our datadir directory. Any datadir
+        // passed as argument will be used instead
+        let system_config_file = format!("{data_dir}/config.toml");
+        let config_file = match &self.config.config_file {
+            Some(path) => Self::get_config_file(path),
+            None => Self::get_config_file(&system_config_file),
+        };
+
+        // Load the watch-only wallet
         info!("Loading watch-only wallet");
+
         let mut wallet = Self::load_wallet(&data_dir);
+
         wallet.setup().expect("Could not initialize wallet");
         debug!("Done loading wallet");
 
@@ -857,10 +870,10 @@ impl Florestad {
         }
     }
 
-    fn setup_wallet<D: AddressCacheDatabase>(
+    fn setup_wallet(
         &self,
         data_dir: &str,
-        wallet: &mut AddressCache<D>,
+        wallet: &mut AddressCache<KvDatabase>,
     ) -> anyhow::Result<()> {
         // The config file inside our data directory or inside the specified directory
         let config_file = match self.config.config_file {
@@ -870,29 +883,48 @@ impl Florestad {
                 Self::get_config_file(&default_path)
             }
         };
-        let setup = self.prepare_wallet_setup(config_file)?;
 
-        // Add the configured descriptors and addresses to the wallet
-        for descriptor in setup.descriptors {
-            let descriptor = descriptor.to_string();
-            if !wallet.is_cached(&descriptor)? {
-                wallet.push_descriptor(&descriptor)?;
+        let [xpubs, descriptors, addresses] = self.get_pre_defined_xda(config_file);
+
+        let casted_xpubs = xpubs
+            .iter()
+            .filter_map(|s| match Xpub::from_slip132_str(s) {
+                Ok(xpub) => Some(xpub),
+                Err(e) => {
+                    error!("Failed to parse Xpub {s:?} because of {e:?}");
+                    None
+                }
+            })
+            .collect::<Vec<Xpub>>();
+
+        let initial_batch =
+            convert_to_internal(&casted_xpubs, &descriptors, &addresses, self.config.network, 20).expect("Could not parse some of the pre-defined Xpub, descriptors or Adresses.");
+
+        for descriptor in initial_batch.0 {
+            if !wallet
+                .is_descriptor_cached(&descriptor.get_id(DescriptorIdSelector::Hash))
+                .unwrap()
+            {
+                wallet.cache_descriptor(descriptor).unwrap()
             }
         }
-        for addresses in setup.addresses {
-            wallet.cache_address(addresses.script_pubkey());
+        for addresses in initial_batch.1 {
+            wallet.cache_address(addresses)
         }
 
         info!("Wallet setup completed!");
         anyhow::Ok(())
     }
 
-    /// Parses the configured list of xpubs, output descriptors and addresses to watch for, and
-    /// returns the constructed `InitialWalletSetup`.
-    fn prepare_wallet_setup(
+    /// Scraps the defined xpubs, descriptors and addresses directly from 
+    /// florestad's config file and cli configuration.
+    /// 
+    /// The returning array of Vec<String> is organized to separate the
+    /// collected xpubs, descriptors and addresses, in this exact order.
+    fn get_pre_defined_xda(
         &self,
         config_file: ConfigFile,
-    ) -> Result<InitialWalletSetup, error::Error> {
+    ) -> [Vec<String>; 3]{
         let config = &self.config;
 
         let mut xpubs = Vec::new();
@@ -906,7 +938,7 @@ impl Florestad {
 
         let addresses = config_file.wallet.addresses.unwrap_or_default();
 
-        InitialWalletSetup::build(&xpubs, &descriptors, &addresses, config.network, 100)
+        [xpubs, descriptors, addresses]
     }
 
     /// Get the default Electrum port for the Network and TLS combination.
