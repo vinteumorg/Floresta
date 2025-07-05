@@ -3,16 +3,12 @@ run_tests.py
 
 Command Line Interface to run an individual test or multiple tests in a suite.
 
-The test-suite should be placed as a subfolder at `./tests` folder and the
-test-name should be a file with the suffix `-test.py` inside the test-suite
-folder.
+New test suites should be added as a subdirectory of `./tests`.
 
-It's recommended that you run it through `uv` package management, but you can run
-it with `python` if you installed the packages properly, in a isolated or not
-isolated environment (althought we recommend the isolated environment).
+Running tests using the `uv` package manager is recommended, although you
+can run them using your system's Python directly (the use of a virtual environment is advised).
 
-All tests will run as a spwaned subprocess and what happens will be logged to
-a temporary directory.
+All tests will run as a spawned subprocess and logs will be written to a temporary directory.
 
 For more information about how to run the tests, see
 [doc/running_tests.md](doc/running_tests.md).
@@ -82,7 +78,7 @@ def main():
 
     usage: run_tests [-h] [-d DATA_DIR] [-t TEST_NAME]
 
-    tool to help with function testing of Floresta
+    Utility tool for Floresta functional tests
 
     options:
         -h, --help                 show this help message and exit.
@@ -136,9 +132,7 @@ def main():
     # Setup directories and filenames for the specific test
     test_dir = os.path.abspath(os.path.dirname(__file__))
 
-    # if list is provided,
-    # only list the available tests
-    # and exit the program
+    # If `--list-suites`/`-l` is passed, list available tests and exit.
     if args.list_suites:
         list_test_suites(test_dir)
         return
@@ -156,28 +150,21 @@ def main():
             ):
                 args.test_suite.append(test_suite_dir)
 
-    # Run all tests defined by --test_suite if any is (are) provided.
-    # Run all default ones in ./tests/<test-suide-n>/*-test.py
+    # Run all tests defined by --test_suite, if any.
     for _dir in args.test_suite:
         test_suite_dir = os.path.join(test_dir, _dir)
 
-        # If a suite isnt defined in tests folder
-        # raise an error and show it to the developer
+        # If the test suite is not found, throw an error.
         if not os.path.exists(test_suite_dir):
             raise argparse.ArgumentError(
                 argument=None, message=f"Suite '{_dir}' not found"
             )
 
-        # If the suite is found, run all tests
-        # inside the folder. The tests should have
-        # a suffix "-test.py"
+        # If the test suite is found, run all of it's tests.
         for file in os.listdir(test_suite_dir):
-
-            # if we passed one or more test file to filter,
-            # add them to the list and do nor include those
-            # that are not in the list. If no files are provided,
-            # include all of them.
-            if file.endswith("-test.py"):
+            # Add all tests selected with `--test-name` to the queue.
+            # If no tests were selected, add the whole suite to the queue.
+            if file.endswith(".py") and file != "__init__.py":
                 if args.test_name:
                     if any(file.startswith(name) for name in args.test_name):
                         run_test(args, test_suite_dir, file)
