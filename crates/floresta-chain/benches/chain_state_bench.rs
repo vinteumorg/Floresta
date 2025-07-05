@@ -25,7 +25,7 @@ use floresta_chain::FlatChainStoreConfig;
 use floresta_chain::KvChainStore;
 use rustreexo::accumulator::proof::Proof;
 
-// Reads the first 151 blocks (or 150 blocks on top of genesis) from blocks.txt, which are regtest
+/// Reads the first 151 blocks (or 150 blocks on top of genesis) from blocks.txt, which are regtest
 fn read_blocks_txt() -> Vec<Block> {
     let blocks: Vec<_> = include_str!("../testdata/blocks.txt")
         .lines()
@@ -35,6 +35,26 @@ fn read_blocks_txt() -> Vec<Block> {
 
     assert_eq!(blocks.len(), 151, "Expected 151 blocks in blocks.txt");
     blocks
+}
+
+/// Returns the first 10,237 mainnet headers
+fn read_mainnet_headers() -> Vec<BlockHeader> {
+    let file = include_bytes!("../testdata/headers.zst");
+    let uncompressed: Vec<u8> = zstd::decode_all(Cursor::new(file)).unwrap();
+    let mut buffer = uncompressed.as_slice();
+
+    // Read all headers into a vector
+    let mut headers = Vec::new();
+    while let Ok(header) = BlockHeader::consensus_decode(&mut buffer) {
+        headers.push(header);
+    }
+    assert_eq!(
+        headers.len(),
+        10_237,
+        "Expected 10,237 headers in headers.zst"
+    );
+
+    headers
 }
 
 #[cfg(feature = "kv-chainstore")]
@@ -91,17 +111,34 @@ fn decode_block_and_inputs(
     (block, inputs)
 }
 
-fn accept_mainnet_headers_benchmark(c: &mut Criterion) {
-    // Accepts the first 10235 mainnet headers
-    let file = include_bytes!("../testdata/headers.zst");
-    let uncompressed: Vec<u8> = zstd::decode_all(Cursor::new(file)).unwrap();
-    let mut buffer = uncompressed.as_slice();
+fn initialize_chainstore_benchmark(c: &mut Criterion) {
+    #[cfg(feature = "kv-chainstore")]
+    c.bench_function("initialize_chainstore", |b| {
+        b.iter_batched(
+            || {
+                let test_id = rand::random::<u64>();
+                format!("./tmp-db/{test_id}/")
+            },
+            |datadir| KvChainStore::new(datadir).unwrap(),
+            BatchSize::SmallInput,
+        )
+    });
 
-    // Read all headers into a vector
-    let mut headers = Vec::new();
-    while let Ok(header) = BlockHeader::consensus_decode(&mut buffer) {
-        headers.push(header);
-    }
+    #[cfg(feature = "flat-chainstore")]
+    c.bench_function("initialize_chainstore", |b| {
+        b.iter_batched(
+            || {
+                let test_id = rand::random::<u64>();
+                FlatChainStoreConfig::new(format!("./tmp-db/{test_id}/"))
+            },
+            |config| FlatChainStore::new(config).unwrap(),
+            BatchSize::SmallInput,
+        )
+    });
+}
+
+fn accept_mainnet_headers_benchmark(c: &mut Criterion) {
+    let headers = read_mainnet_headers();
 
     c.bench_function("accept_10k_mainnet_headers", |b| {
         b.iter_batched(
@@ -219,12 +256,54 @@ fn validate_many_inputs_block_benchmark(c: &mut Criterion) {
     group.finish();
 }
 
+#[cfg(feature = "flat-chainstore")]
+fn chainstore_checksum_benchmark(c: &mut Criterion) {
+    use floresta_chain::pruned_utreexo::ChainStore;
+    use floresta_chain::DiskBlockHeader;
+
+    let headers = read_mainnet_headers();
+
+    let setup_chain = || {
+        let test_id = rand::random::<u64>();
+        // The default config with the big mmap sizes that we use in `florestad`
+        let config = FlatChainStoreConfig::new(format!("./tmp-db/{test_id}/"));
+        let mut chainstore = FlatChainStore::new(config).unwrap();
+
+        headers.iter().enumerate().for_each(|(i, header)| {
+            let height = i as u32;
+            let disk_header = DiskBlockHeader::HeadersOnly(*header, height);
+
+            chainstore.save_header(&disk_header).unwrap();
+            chainstore
+                .update_block_index(height, header.block_hash())
+                .unwrap();
+        });
+
+        chainstore
+    };
+
+    c.bench_function("flat_chainstore_checksum", |b| {
+        b.iter_batched(
+            setup_chain,
+            |chainstore| chainstore.compute_checksum(),
+            BatchSize::SmallInput,
+        )
+    });
+}
+
+#[cfg(not(feature = "flat-chainstore"))]
+fn chainstore_checksum_benchmark(_c: &mut Criterion) {
+    // No-op as we only support the checksum in flat-chainstore
+}
+
 criterion_group!(
     benches,
+    initialize_chainstore_benchmark,
     accept_mainnet_headers_benchmark,
     accept_headers_benchmark,
     connect_blocks_benchmark,
     validate_full_block_benchmark,
-    validate_many_inputs_block_benchmark
+    validate_many_inputs_block_benchmark,
+    chainstore_checksum_benchmark
 );
 criterion_main!(benches);
