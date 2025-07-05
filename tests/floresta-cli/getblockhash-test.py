@@ -20,9 +20,7 @@ class GetBlockhashTest(FlorestaTestFramework):
         """
         Setup a single node
         """
-        GetBlockhashTest.nodes[0] = self.add_node(
-            extra_args=[], rpcserver=REGTEST_RPC_SERVER
-        )
+        GetBlockhashTest.nodes[0] = self.add_node(variant="florestad")
 
     def run_test(self):
         """

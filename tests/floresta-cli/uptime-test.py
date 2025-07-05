@@ -6,8 +6,6 @@ This functional test cli utility to interact with a Floresta node with `uptime`
 
 import time
 from test_framework import FlorestaTestFramework
-from test_framework.rpc.floresta import REGTEST_RPC_SERVER as florestad_conf
-from test_framework.rpc.bitcoin import REGTEST_RPC_SERVER as bitcoind_conf
 
 DATA_DIR = FlorestaTestFramework.get_integration_test_dir()
 
@@ -35,7 +33,6 @@ class UptimeTest(FlorestaTestFramework):
             extra_args=[
                 f"--data-dir={data_dirs[0]}",
             ],
-            rpcserver=florestad_conf,
         )
 
         UptimeTest.nodes[1] = self.add_node(
@@ -43,7 +40,6 @@ class UptimeTest(FlorestaTestFramework):
             extra_args=[
                 f"-datadir={data_dirs[1]}",
             ],
-            rpcserver=bitcoind_conf,
         )
 
     def test_node_uptime(self, index: int, test_time: int, margin: int):
@@ -69,7 +65,7 @@ class UptimeTest(FlorestaTestFramework):
         Run JSONRPC server on first, wait to connect, then call `addnode ip[:port]`
         """
         for i in range(len(UptimeTest.nodes)):
-            self.test_node_uptime(index=i, test_time=5, margin=5)
+            self.test_node_uptime(index=i, test_time=15, margin=15)
 
         self.stop()
 

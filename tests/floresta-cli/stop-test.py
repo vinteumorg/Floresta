@@ -6,8 +6,6 @@ This functional test cli utility to interact with a Floresta node with `stop`
 
 import re
 from test_framework import FlorestaTestFramework
-from test_framework.rpc.floresta import REGTEST_RPC_SERVER as florestad_rpc
-from test_framework.rpc.bitcoin import REGTEST_RPC_SERVER as bitcoin_rpc
 
 
 class StopTest(FlorestaTestFramework):
@@ -21,12 +19,8 @@ class StopTest(FlorestaTestFramework):
         """
         Setup a single node
         """
-        StopTest.nodes[0] = self.add_node(
-            variant="florestad", extra_args=[], rpcserver=florestad_rpc
-        )
-        StopTest.nodes[1] = self.add_node(
-            variant="bitcoind", extra_args=[], rpcserver=bitcoin_rpc
-        )
+        StopTest.nodes[0] = self.add_node(variant="florestad")
+        StopTest.nodes[1] = self.add_node(variant="bitcoind")
 
     def run_test(self):
         """

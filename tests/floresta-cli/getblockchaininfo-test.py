@@ -30,9 +30,7 @@ class GetBlockchaininfoTest(FlorestaTestFramework):
         """
         Setup a single node
         """
-        GetBlockchaininfoTest.nodes[0] = self.add_node(
-            extra_args=[], rpcserver=REGTEST_RPC_SERVER
-        )
+        GetBlockchaininfoTest.nodes[0] = self.add_node(variant="florestad")
 
     def run_test(self):
         """

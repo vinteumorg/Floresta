@@ -4,12 +4,8 @@ floresta_cli_getmemoryinfo.py
 This functional test cli utility to interact with a Floresta node with `getmemoryinfo`
 """
 
-import os
 import sys
-import tempfile
-
 from test_framework import FlorestaTestFramework
-from test_framework.rpc.floresta import REGTEST_RPC_SERVER
 
 
 class GetMemoryInfoTest(FlorestaTestFramework):
@@ -20,27 +16,12 @@ class GetMemoryInfoTest(FlorestaTestFramework):
 
     nodes = [-1]
 
-    # pylint: disable=duplicate-code
-    data_dir = os.path.normpath(
-        os.path.join(
-            FlorestaTestFramework.get_integration_test_dir(),
-            "data",
-            "florestacli-getmemoryinfo-test",
-            "node-0",
-        )
-    )
-
     def set_test_params(self):
         """
         Setup the two node florestad process with different data-dirs, electrum-addresses
         and rpc-addresses in the same regtest network
         """
-        GetMemoryInfoTest.nodes[0] = self.add_node(
-            extra_args=[
-                f"--data-dir={GetMemoryInfoTest.data_dir}",
-            ],
-            rpcserver=REGTEST_RPC_SERVER,
-        )
+        GetMemoryInfoTest.nodes[0] = self.add_node(variant="florestad")
 
     def test_mode_stats_ibd(self, node):
         """

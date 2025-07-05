@@ -4,11 +4,8 @@ florestad/tls-test.py
 This functional test tests the proper creatiion of a TLS port on florestad.
 """
 
-import json
-
 from test_framework import FlorestaTestFramework
 from test_framework.electrum.client import ElectrumClient
-from test_framework.rpc.floresta import REGTEST_RPC_TLS_SERVER
 
 
 class TestSslInitialization(FlorestaTestFramework):
@@ -24,10 +21,7 @@ class TestSslInitialization(FlorestaTestFramework):
         """
         Setup a single node and a electrum client at port 20002
         """
-        TestSslInitialization.nodes[0] = self.add_node(
-            rpcserver=REGTEST_RPC_TLS_SERVER,
-            tls=True,
-        )
+        TestSslInitialization.nodes[0] = self.add_node(variant="florestad", tls=True)
 
     def run_test(self):
         """
@@ -35,21 +29,25 @@ class TestSslInitialization(FlorestaTestFramework):
         Send a ping to make sure everything is working.
         """
         self.run_node(TestSslInitialization.nodes[0])
+        node = self.get_node(TestSslInitialization.nodes[0])
 
         # now create a connection with an electrum client at default port
         TestSslInitialization.electrum = ElectrumClient(
-            REGTEST_RPC_TLS_SERVER["host"],
-            REGTEST_RPC_TLS_SERVER["ports"]["electrum-server-tls"],
+            node.get_host(),
+            node.get_port("electrum-server-tls"),
             tls=True,
         )
 
         # request something to TLS port
-        result = TestSslInitialization.electrum.ping()
+        res = TestSslInitialization.electrum.ping()
+        result = res["result"]
+        id = res["id"]
+        jsonrpc = res["jsonrpc"]
 
         # if pinged, we should get a "null" in response
-        self.assertIsNone(result["result"])
-        self.assertEqual(result["id"], 0)
-        self.assertEqual(result["jsonrpc"], "2.0")
+        self.assertIsNone(result)
+        self.assertEqual(id, 0)
+        self.assertEqual(jsonrpc, "2.0")
 
         # stop the node
         self.stop_node(TestSslInitialization.nodes[0])

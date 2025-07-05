@@ -7,11 +7,10 @@ The directories used between each power-on/power-off must not be corrupted.
 """
 
 import filecmp
-import os
-import tempfile
 
 from test_framework import FlorestaTestFramework
-from test_framework.rpc.floresta import REGTEST_RPC_SERVER
+
+DATA_DIR = FlorestaTestFramework.get_integration_test_dir()
 
 
 class TestRestart(FlorestaTestFramework):
@@ -21,36 +20,23 @@ class TestRestart(FlorestaTestFramework):
     """
 
     indexes = [-1, -1]
-    data_dirs = [
-        os.path.normpath(
-            os.path.join(
-                FlorestaTestFramework.get_integration_test_dir(),
-                "data",
-                "restart",
-                "node-0",
-            )
-        ),
-        os.path.normpath(
-            os.path.join(
-                FlorestaTestFramework.get_integration_test_dir(),
-                "data",
-                "restart",
-                "node-1",
-            )
-        ),
-    ]
 
     def set_test_params(self):
         """
         Here we define setup for test
         """
+
+        self.data_dirs = TestRestart.create_data_dirs(
+            DATA_DIR, self.__class__.__name__.lower(), 2
+        )
+
         TestRestart.indexes[0] = self.add_node(
-            extra_args=[f"--data-dir={TestRestart.data_dirs[0]}"],
-            rpcserver=REGTEST_RPC_SERVER,
+            variant="florestad",
+            extra_args=[f"--data-dir={self.data_dirs[0]}"],
         )
         TestRestart.indexes[1] = self.add_node(
-            extra_args=[f"--data-dir={TestRestart.data_dirs[1]}"],
-            rpcserver=REGTEST_RPC_SERVER,
+            variant="florestad",
+            extra_args=[f"--data-dir={self.data_dirs[1]}"],
         )
 
     def run_test(self):
@@ -79,7 +65,7 @@ class TestRestart(FlorestaTestFramework):
 
         # check for any corruption
         # if any files are different, we will get a list of them
-        result = filecmp.dircmp(TestRestart.data_dirs[0], TestRestart.data_dirs[1])
+        result = filecmp.dircmp(self.data_dirs[0], self.data_dirs[1])
         self.assertEqual(len(result.diff_files), 0)
 
 

@@ -112,7 +112,7 @@ The `func-tests-env` devshell provides:
   - Python dependencies
   - `utreexod` included in `$PATH` and linked in `$FLORESTA_TEMP_DIR`
   - `florestad` included in `$PATH` and linked in `$FLORESTA_TEMP_DIR`
-  - `run_test` alias. `run_test="uv run tests/run_tests.py"`
+- `run_test` alias. `run_test="uv run tests/test_runner.py"`
 
 You can find more information about our tests in [running tests](./running-tests.md)
 

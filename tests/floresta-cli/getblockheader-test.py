@@ -39,9 +39,7 @@ class GetBlockheaderHeightZeroTest(FlorestaTestFramework):
         """
         Setup a single node
         """
-        GetBlockheaderHeightZeroTest.nodes[0] = self.add_node(
-            extra_args=[], rpcserver=REGTEST_RPC_SERVER
-        )
+        GetBlockheaderHeightZeroTest.nodes[0] = self.add_node(variant="florestad")
 
     def run_test(self):
         """

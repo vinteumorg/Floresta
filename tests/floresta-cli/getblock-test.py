@@ -42,9 +42,7 @@ class GetBlockTest(FlorestaTestFramework):
         """
         Setup a single node
         """
-        GetBlockTest.nodes[0] = self.add_node(
-            extra_args=[], rpcserver=REGTEST_RPC_SERVER
-        )
+        GetBlockTest.nodes[0] = self.add_node(variant="florestad")
 
     def run_test(self):
         """
