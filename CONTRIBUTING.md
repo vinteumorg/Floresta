@@ -212,15 +212,7 @@ AddNode {
 },
 ```
 
-We also have `man pages` that can be generated using the script [gen_manpages.sh](/contrib/dist/gen_manpages.sh) for releases/distributions or if you want to generate them locally you can also use the `just gen-manpages` command. This will generate man pages from files at `doc/rpc/*.md` to `doc/man/*.1.gz`. It uses the `pandoc` dependency, so please install it before running the script.
-
-```bash
-just gen-manpages
-# or
-chmod +x contrib/dist/gen_manpages.sh
-./contrib/dist/gen_manpages.sh
-sh ./contrib/dist/gen_manpages.sh <specific_md_path> # Specifying a md file will make the script only build this single one.
-```
+To generate the man pages for the RPC commands, follow the instructions outlined [here](doc/rpc_man/README.md).
 
 Security
 --------
