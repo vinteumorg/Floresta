@@ -209,11 +209,14 @@ class BaseDaemon(metaclass=BaseDaemonMetaClass):
             )
 
         elif self.name == "bitcoind":
+            # in multithread context maybe better to use
+            # `-rpcthreads=1` to avoid issues with many threads
             cmd.extend(
                 [
                     "-chain=regtest",
                     "-rpcuser=bitcoin",
                     "-rpcpassword=bitcoin",
+                    "-rpcthreads=1",
                 ]
             )
 
