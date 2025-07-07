@@ -64,7 +64,7 @@ pub trait FlorestaRPC {
     /// filters, we'll need to download the entire blockchain again, which will take a while.
     /// The rescan parameter is the height at which to start the rescan, and should be at least
     /// as old as the oldest transaction this descriptor could have been used in.
-    fn rescan(&self, rescan: u32) -> Result<bool>;
+    fn rescanblockchain(&self, start_height: u32) -> Result<bool>;
     /// Returns the current height of the blockchain
     fn get_block_count(&self) -> Result<u32>;
     /// Sends a hex-encoded transaction to the network
@@ -189,8 +189,11 @@ impl<T: JsonRPCClient> FlorestaRPC for T {
         self.call("stop", &[])
     }
 
-    fn rescan(&self, rescan: u32) -> Result<bool> {
-        self.call("rescan", &[Value::Number(Number::from(rescan))])
+    fn rescanblockchain(&self, start_height: u32) -> Result<bool> {
+        self.call(
+            "rescanblockchain",
+            &[Value::Number(Number::from(start_height))],
+        )
     }
 
     fn get_roots(&self) -> Result<Vec<String>> {
