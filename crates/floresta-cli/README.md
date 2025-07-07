@@ -13,7 +13,7 @@ Available commands:
  - [gettxout](#gettxout)
  - [gettxproof](#gettxproof)
  - [gettransaction](#gettransaction)
- - [rescan](#rescan)
+ - [rescanblockchain](#rescanblockchain)
  - [sendrawtransaction](#sendrawtransaction)
  - [getblockheader](#getblockheader)
  - [loaddescriptor](#loaddescriptor)
@@ -120,49 +120,51 @@ Returns a transaction data, given its id. The transaction itself doesn't have to
 `vin`: A vector of inputs
 
   `script_sig`: The script signature for this input
-  
+
   `asm`: The disassembled script signature
-    
+
   `hex`: Raw hex-encoded script signature
-  
+
   `sequence`: The nSequence value for this input
-  
+
   `txid`: The id of the transaction containing the output we are spending
-  
+
   `vout`: The index of the output we are spending
-  
+
   `witness`: A vector of witness data
 
 `vout`: A vector of outputs
 
   `n`: The index of this output
-  
+
   `script_pub_key`: The script pubkey for this output
-  
+
   `address`: The address this output pays to, if it's a standard output
-    
+
   `asm`: The disassembled script pubkey
-    
+
   `hex`: Raw hex-encoded script pubkey
-    
+
   `req_sigs`: The amount of signatures required to spend this output (Deprecated)
-    
+
   `type`: The type of this output (e.g pubkeyhash, scripthash, etc)
-    
+
   `value`: The amount of satoshis in this output
 
 `vsize`: The size of this transaction, in virtual bytes
 
 `weight`: The weight of this transaction
 
-## rescan
+## rescanblockchain
 
 Tells our node to rescan blocks. This rpc will only work if the node is not in IBD and it was started with the `--cfilters` flag.
 This will rescan for all scripts in our internal wallet within the range of blocks you've downloaded filters for (which can be set
 with the `--filters-start-height` flag). If we don't see any error in early stages, the rescan will continue in the background, and
 you'll get a `true` as a response. Once the process is finished, you'll see a log message in the node's log saying that the rescan is done.
 
-**Args**: None
+**Args**:
+
+`start_height`: The height of the block we should start rescanning from. If not provided, it will default to rescan from the genesis block.
 
 **Return**
 
