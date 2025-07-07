@@ -215,7 +215,10 @@ pub enum Methods {
     Stop,
 
     #[doc = include_str!("../../../doc/rpc/addnode.md")]
-    #[command(name = "addnode",about = "Attempts to add or remove a node from the list of addnodes", long_about = Some(include_str!("../../../doc/rpc/addnode.md")),disable_help_subcommand = true)]
+    #[command(name = "addnode",
+        about = "Attempts to add or remove a node from the list of addnodes",
+        long_about = Some(include_str!("../../../doc/rpc/addnode.md")),
+        disable_help_subcommand = true)]
     AddNode {
         node: String,
         command: AddNodeCommand,
