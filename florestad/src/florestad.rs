@@ -367,33 +367,13 @@ impl Florestad {
             .expect("Failure to setup logger");
         }
 
-        // The config file inside our datadir directory. Any datadir
-        // passed as argument will be used instead
-        let system_config_file = format!("{data_dir}/config.toml");
-        let config_file = match &self.config.config_file {
-            Some(path) => Self::get_config_file(path),
-            None => Self::get_config_file(&system_config_file),
-        };
-
-        // Load the watch-only wallet
-        debug!("Loading wallet");
+        info!("Loading watch-only wallet");
         let mut wallet = Self::load_wallet(&data_dir);
         wallet.setup().expect("Could not initialize wallet");
         debug!("Done loading wallet");
 
         // Try to add more wallets to watch if needed
-        let result = Self::setup_wallet(
-            Self::get_both_vec(self.config.wallet_xpub.clone(), config_file.wallet.xpubs),
-            Self::get_both_vec(
-                self.config.wallet_descriptor.clone(),
-                config_file.wallet.descriptors,
-            ),
-            Self::get_both_vec(config_file.wallet.addresses.clone(), None),
-            &mut wallet,
-            self.config.network,
-        );
-
-        if let Err(e) = result {
+        if let Err(e) = self.setup_wallet(&data_dir, &mut wallet) {
             log::error!("Something went wrong while setting wallet up: {e}");
             return;
         }
@@ -883,16 +863,21 @@ impl Florestad {
     }
 
     fn setup_wallet<D: AddressCacheDatabase>(
-        mut xpubs: Vec<String>,
-        descriptors: Vec<String>,
-        addresses: Vec<String>,
+        &self,
+        data_dir: &str,
         wallet: &mut AddressCache<D>,
-        network: Network,
     ) -> anyhow::Result<()> {
-        if let Some(key) = Self::get_key_from_env() {
-            xpubs.push(key);
-        }
-        let setup = InitialWalletSetup::build(&xpubs, &descriptors, &addresses, network, 100)?;
+        // The config file inside our data directory or inside the specified directory
+        let config_file = match self.config.config_file {
+            Some(ref path) => Self::get_config_file(path),
+            None => {
+                let default_path = format!("{data_dir}/config.toml");
+                Self::get_config_file(&default_path)
+            }
+        };
+        let setup = self.prepare_wallet_setup(config_file)?;
+
+        // Add the configured descriptors and addresses to the wallet
         for descriptor in setup.descriptors {
             let descriptor = descriptor.to_string();
             if !wallet.is_cached(&descriptor)? {
@@ -902,19 +887,31 @@ impl Florestad {
         for addresses in setup.addresses {
             wallet.cache_address(addresses.script_pubkey());
         }
+
         info!("Wallet setup completed!");
         anyhow::Ok(())
     }
 
-    fn get_both_vec<T>(a: Option<Vec<T>>, b: Option<Vec<T>>) -> Vec<T> {
-        let mut result: Vec<T> = Vec::new();
-        if let Some(a) = a {
-            result.extend(a);
-        }
-        if let Some(b) = b {
-            result.extend(b);
-        }
-        result
+    /// Parses the configured list of xpubs, output descriptors and addresses to watch for, and
+    /// returns the constructed `InitialWalletSetup`.
+    fn prepare_wallet_setup(
+        &self,
+        config_file: ConfigFile,
+    ) -> Result<InitialWalletSetup, error::Error> {
+        let config = &self.config;
+
+        let mut xpubs = Vec::new();
+        xpubs.extend(config.wallet_xpub.clone().unwrap_or_default());
+        xpubs.extend(config_file.wallet.xpubs.unwrap_or_default());
+        xpubs.extend(Self::get_key_from_env());
+
+        let mut descriptors = Vec::new();
+        descriptors.extend(config.wallet_descriptor.clone().unwrap_or_default());
+        descriptors.extend(config_file.wallet.descriptors.unwrap_or_default());
+
+        let addresses = config_file.wallet.addresses.unwrap_or_default();
+
+        InitialWalletSetup::build(&xpubs, &descriptors, &addresses, config.network, 100)
     }
 
     /// Get the default Electrum port for the Network and TLS combination.
