@@ -8,6 +8,7 @@ use bitcoin::MerkleBlock;
 use bitcoin::OutPoint;
 use bitcoin::ScriptBuf;
 use bitcoin::Txid;
+use log::debug;
 use serde_json::json;
 use serde_json::Value;
 
@@ -17,6 +18,7 @@ use super::res::GetTxOutProof;
 use super::res::JsonRpcError;
 use super::server::RpcChain;
 use super::server::RpcImpl;
+use crate::json_rpc::res::RescanConfidence;
 
 impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
     async fn get_block_inner(&self, hash: BlockHash) -> Result<Block, JsonRpcError> {
@@ -43,6 +45,72 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
         self.chain
             .get_block(&blockhash)
             .map_err(|_| JsonRpcError::BlockNotFound)
+    }
+
+    /// Retrieves the height of the block that was mined in the given timestamp.
+    ///
+    /// `timestamp` has an alias, 0 will directly refer to 1231006505, the time of the genesis block, returning 0.
+    pub async fn get_block_height_by_timestamp(
+        &self,
+        timestamp: u32,
+        confidence: &RescanConfidence,
+    ) -> Result<u32, JsonRpcError> {
+        /// Simple helper to avoid code reuse.
+        fn get_block_time<BlockChain: RpcChain>(
+            provider: &RpcImpl<BlockChain>,
+            at: u32,
+        ) -> Result<u32, JsonRpcError> {
+            let hash = provider.get_block_hash(at)?;
+            let block = provider.get_block_header(hash)?;
+            Ok(block.time)
+        }
+
+        let genesis_timestamp = genesis_block(self.network).header.time;
+
+        if timestamp == 0 || timestamp == genesis_timestamp {
+            return Ok(0);
+        };
+
+        let (tip_height, _) = self
+            .chain
+            .get_best_block()
+            .map_err(|_| JsonRpcError::BlockNotFound)?;
+
+        let tip_time = get_block_time(self, tip_height)?;
+
+        if timestamp < genesis_timestamp || timestamp > tip_time {
+            return Err(JsonRpcError::InvalidTimestamp);
+        }
+
+        let adjusted_target = timestamp.saturating_sub(confidence.val());
+
+        let mut high = tip_height;
+        let mut low = 0;
+        let max_iters = tip_height.ilog2() + 1;
+        for _ in 0..max_iters {
+            let cut = (high + low) / 2;
+
+            let block_timestamp = get_block_time(self, cut)?;
+
+            if block_timestamp == adjusted_target {
+                debug!("Find by timestamp found a precise block; returning {cut}");
+                return Ok(cut);
+            }
+
+            if high - low <= 2 {
+                debug!("Find by timestamp didnt found a precise block; returning {low}");
+                return Ok(low);
+            }
+
+            if block_timestamp > adjusted_target {
+                high = cut;
+            } else {
+                low = cut;
+            }
+        }
+
+        // This is pretty much unreacheable.
+        Err(JsonRpcError::BlockNotFound)
     }
 }
 
@@ -301,7 +369,8 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
         let candidates = cfilters
             .match_any(
                 vec![filter_key.as_slice()],
-                Some(height as usize),
+                Some(height),
+                None,
                 self.chain.clone(),
             )
             .map_err(|e| JsonRpcError::Filters(e.to_string()))?;
