@@ -278,15 +278,22 @@ pub struct GetBlockResVerbose {
 pub enum Error {
     /// An error while deserializing our response
     Serde(serde_json::Error),
+
     #[cfg(feature = "with-jsonrpc")]
     /// An internal reqwest error
     JsonRpc(jsonrpc::Error),
+
     /// An error internal to our jsonrpc server
     Api(serde_json::Value),
+
     /// The server sent an empty response
     EmptyResponse,
+
     /// The provided verbosity level is invalid
     InvalidVerbosity,
+
+    /// The user requested a rescan based on invalid values.
+    InvalidRescanVal,
 }
 
 impl From<serde_json::Error> for Error {
@@ -311,6 +318,7 @@ impl Display for Error {
             Error::Serde(e) => write!(f, "error while deserializing the response: {e}"),
             Error::EmptyResponse => write!(f, "got an empty response from server"),
             Error::InvalidVerbosity => write!(f, "invalid verbosity level"),
+            Error::InvalidRescanVal => write!(f, "Invalid rescan values"),
         }
     }
 }

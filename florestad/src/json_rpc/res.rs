@@ -196,6 +196,9 @@ pub struct GetBlockResVerbose {
 
 #[derive(Debug)]
 pub enum JsonRpcError {
+    /// There was a rescan request with invalid values
+    InvalidRescanVal,
+
     /// The request is missing some params field, which is required for most RPC calls
     MissingParams,
 
@@ -275,12 +278,17 @@ pub enum JsonRpcError {
 
     /// This error is returned when the addnode command is invalid, e.g., if the command is not recognized or when the parameters are incorrect
     InvalidAddnodeCommand,
+
+    /// Raised if when the rescanblockchain command, with the timestamp flag activated, contains some timestamp thats less than the genesis one and not zero which is the default value for this arg.
+    InvalidTimestamp,
 }
 
 impl Display for JsonRpcError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             JsonRpcError::InvalidBlockHash => write!(f, "Provided a invalid BlockHash"),
+            JsonRpcError::InvalidTimestamp => write!(f, "Invalid timestamp, ensure that it is between the genesis and the tip."),
+            JsonRpcError::InvalidRescanVal => write!(f, "You rescan request contains invalid values"),
             JsonRpcError::InvalidRequest => write!(f, "Invalid request"),
             JsonRpcError::InvalidHeight => write!(f, "Invalid height"),
             JsonRpcError::InvalidHash =>  write!(f, "Invalid hash"),

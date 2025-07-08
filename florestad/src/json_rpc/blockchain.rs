@@ -1,3 +1,6 @@
+use std::ops::AddAssign;
+use std::ops::SubAssign;
+
 use bitcoin::block::Header;
 use bitcoin::consensus::encode::serialize_hex;
 use bitcoin::consensus::Encodable;
@@ -5,6 +8,7 @@ use bitcoin::constants::genesis_block;
 use bitcoin::Block;
 use bitcoin::BlockHash;
 use bitcoin::MerkleBlock;
+use bitcoin::Network;
 use bitcoin::OutPoint;
 use bitcoin::ScriptBuf;
 use bitcoin::Txid;
@@ -43,6 +47,216 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
         self.chain
             .get_block(&blockhash)
             .map_err(|_| JsonRpcError::BlockNotFound)
+    }
+
+    /// Retrieves the height of the block that was mined in the given timestamp.
+    /// This function can be used as a precise find block by timestamp but only for mainnet
+    /// due to its principle that a block is mined in around 10 minutes.
+    ///
+    /// The main formula to start searching for the block is; first_height = (timestamp - GENESIS_TIMESTAMP) / 600
+    ///
+    /// `timestamp` has an alias, 0 will directly refer to 1231006505, the time of the genesis block, returning 0.
+    pub async fn get_block_height_by_timestamp(&self, timestamp: u32) -> Result<u32, JsonRpcError> {
+        const GENESIS_TIMESTAMP: u32 = 1231006505; // The u32 representation of 03 Jan 2009, 18:15:05. The salvation of human kind.
+
+        if timestamp == 0 || timestamp == GENESIS_TIMESTAMP {
+            return Ok(0);
+        };
+
+        if self.network != Network::Bitcoin {
+            self.get_block_height_by_timestamp_unprecise(timestamp)?;
+        }
+
+        const TEN_MINUTES: u32 = 600;
+
+        let highest_timestamp = self.get_blockchain_info()?.latest_block_time;
+
+        if timestamp <= GENESIS_TIMESTAMP || timestamp > highest_timestamp {
+            return Err(JsonRpcError::InvalidTimestamp);
+        }
+
+        let mut height_target = (timestamp - GENESIS_TIMESTAMP) / TEN_MINUTES;
+
+        // Find the first block at or below the target timestamp
+        while height_target > 0 {
+            let block_hash = match self.chain.get_block_hash(height_target) {
+                Ok(hash) => hash,
+                Err(_) => {
+                    height_target -= 1;
+                    continue;
+                }
+            };
+
+            let block_header = match self.chain.get_block_header(&block_hash) {
+                Ok(header) => header,
+                Err(_) => {
+                    height_target -= 1;
+                    continue;
+                }
+            };
+
+            let diff: i32 = (timestamp as i32).saturating_sub(block_header.time as i32);
+            let abs_diff = diff.unsigned_abs();
+            if diff.is_negative() {
+                // we got a block thats too high
+                if abs_diff > TEN_MINUTES {
+                    // When theres more than TEN_MINUTES of difference we can use the diff to have
+                    // a more precise guess of the block
+                    height_target = height_target.saturating_sub(TEN_MINUTES.div_ceil(abs_diff));
+                    continue;
+                }
+            }
+
+            if diff.is_positive() {
+                // we got a block thats too high
+                if abs_diff > TEN_MINUTES {
+                    // When theres more than TEN_MINUTES of difference we can use the diff to have
+                    // a more precise guess of the block
+                    height_target.add_assign(TEN_MINUTES.div_ceil(abs_diff));
+                    continue;
+                }
+            }
+            // at this point the expected diff is less than 10 minutes from the timestamp so we break expecting to find the closes
+            // block in a 2 hours spam
+            break;
+        }
+
+        // This block spam is the amount of blocks we search for around the height we
+        // got to find the closest one.
+        //
+        // the rationale behind 24 is that a block can have a valid timestamp in a 2 hour spam
+        // it can be 2 hours in the future and 2 hours in the past and this 4 hour spam should
+        // contain around 24 blocks. This is more a stop point in case the given timestamp is
+        // not precise and a block doesnt contain the exact timestamp were trying to find.
+        const BLOCK_SPAM: u8 = 24;
+
+        let blockhash = self.chain.get_block_hash(height_target).unwrap();
+
+        let mut target_block = self
+            .chain
+            .get_block_header(&blockhash)
+            .map_err(|_| JsonRpcError::BlockNotFound)?;
+
+        let mut perfect_height: Option<u32> =
+            (target_block.time == timestamp).then_some(height_target);
+
+        /// Type alias to hold the height and the timestamp, in the accordingly order.
+        type Candidate = (u32, u32);
+
+        let mut candidates: Vec<Candidate> = Vec::new();
+
+        for i in 1..(BLOCK_SPAM / 2) {
+            if let Some(height) = perfect_height {
+                return Ok(height);
+            };
+            let blockhash = self.chain.get_block_hash(height_target - i as u32).unwrap();
+
+            target_block = self
+                .chain
+                .get_block_header(&blockhash)
+                .map_err(|_| JsonRpcError::BlockNotFound)?;
+
+            if target_block.time == timestamp {
+                perfect_height = Some(height_target - i as u32);
+            } else {
+                candidates.push((height_target - i as u32, target_block.time));
+            }
+
+            let blockhash = self.chain.get_block_hash(height_target + i as u32).unwrap();
+
+            target_block = self
+                .chain
+                .get_block_header(&blockhash)
+                .map_err(|_| JsonRpcError::BlockNotFound)?;
+
+            if target_block.time == timestamp {
+                perfect_height = Some(height_target + i as u32);
+            } else {
+                candidates.push((height_target + i as u32, target_block.time));
+            }
+        }
+
+        let best_height = candidates
+            .iter()
+            .min_by_key(|(_, time)| time.abs_diff(timestamp))
+            .map(|(h, _)| *h)
+            .ok_or(JsonRpcError::BlockNotFound)?;
+
+        Ok(best_height)
+    }
+
+    /// Retrieves the height of a block thats close to this timestamp.
+    /// This is the unprecise version of `get_block_height_by_timestamp` intended to satisfy rescan requests that only
+    /// contain time values for the other networks that the block mining doesnt follow an average time like mainnet does.
+    ///
+    /// `timestamp` has an alias, 0 will directly refer to 1231006505, the time of the genesis block, returning 0.
+    pub fn get_block_height_by_timestamp_unprecise(
+        &self,
+        timestamp: u32,
+    ) -> Result<u32, JsonRpcError> {
+        const GENESIS_TIMESTAMP: u32 = 1231006505; // The u32 representation of 03 Jan 2009, 18:15:05. The salvation of human kind.
+
+        if timestamp == 0 || timestamp == GENESIS_TIMESTAMP {
+            return Ok(0);
+        };
+
+        let get_info = self.get_blockchain_info()?;
+
+        let tip = get_info.height as f32;
+
+        let highest_timestamp = get_info.latest_block_time;
+
+        if timestamp <= GENESIS_TIMESTAMP || timestamp > highest_timestamp {
+            return Err(JsonRpcError::InvalidTimestamp);
+        }
+
+        // testnet4 has a big gap between the genesis and the first block
+        // so we will use the timestamp of the first block instead of the genesis one.
+        let blockhash = self
+            .chain
+            .get_block_hash(1u32)
+            .map_err(|_| JsonRpcError::BlockNotFound)?;
+
+        let target_block = self
+            .chain
+            .get_block_header(&blockhash)
+            .map_err(|_| JsonRpcError::BlockNotFound)?;
+
+        let start_of_the_chain = target_block.time;
+
+        // Here i try to use basic percentage math to get a height thats relative
+        // to the timestamp.
+        let per = ((timestamp - start_of_the_chain) as f32
+            / (highest_timestamp - start_of_the_chain) as f32)
+            * tip; // Should i be afraid of a overflow here ?
+
+        let mut index = per as u32;
+
+        let blockhash = self
+            .chain
+            .get_block_hash(index)
+            .map_err(|_| JsonRpcError::BlockNotFound)?;
+
+        let mut target_block = self
+            .chain
+            .get_block_header(&blockhash)
+            .map_err(|_| JsonRpcError::BlockNotFound)?;
+
+        while target_block.time > timestamp && index > 0 {
+            index.sub_assign(1);
+
+            let blockhash = self
+                .chain
+                .get_block_hash(index)
+                .map_err(|_| JsonRpcError::BlockNotFound)?;
+
+            target_block = self
+                .chain
+                .get_block_header(&blockhash)
+                .map_err(|_| JsonRpcError::BlockNotFound)?;
+        }
+
+        Ok(index)
     }
 }
 
@@ -301,7 +515,8 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
         let candidates = cfilters
             .match_any(
                 vec![filter_key.as_slice()],
-                Some(height as usize),
+                Some(height),
+                None,
                 self.chain.clone(),
             )
             .map_err(|e| JsonRpcError::Filters(e.to_string()))?;
