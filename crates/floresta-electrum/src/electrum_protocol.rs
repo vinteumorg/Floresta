@@ -900,7 +900,8 @@ mod test {
     use bitcoin::Transaction;
     use floresta_chain::AssumeValidArg;
     use floresta_chain::ChainState;
-    use floresta_chain::KvChainStore;
+    use floresta_chain::FlatChainStore;
+    use floresta_chain::FlatChainStoreConfig;
     use floresta_common::assert_ok;
     use floresta_common::get_spk_hash;
     use floresta_watch_only::kv_database::KvDatabase;
@@ -1029,9 +1030,13 @@ mod test {
 
         // Create test_chain_state
         let test_id = rand::random::<u32>();
-        let chainstore = KvChainStore::new(format!("./tmp-db/{test_id}.floresta/")).unwrap();
-        let chain =
-            ChainState::<KvChainStore>::new(chainstore, Network::Signet, AssumeValidArg::Hardcoded);
+        let conf = FlatChainStoreConfig::new(format!("./tmp-db/{test_id}.floresta/"));
+        let chainstore = FlatChainStore::new(conf).unwrap();
+        let chain = ChainState::<FlatChainStore>::new(
+            chainstore,
+            Network::Signet,
+            AssumeValidArg::Hardcoded,
+        );
 
         let headers = get_test_signet_headers();
         chain.push_headers(headers, 1).unwrap();
@@ -1056,7 +1061,7 @@ mod test {
             allow_v1_fallback: true,
         };
 
-        let chain_provider: UtreexoNode<Arc<ChainState<KvChainStore>>, RunningNode> =
+        let chain_provider: UtreexoNode<Arc<ChainState<FlatChainStore>>, RunningNode> =
             UtreexoNode::new(
                 u_config,
                 chain.clone(),
@@ -1072,7 +1077,7 @@ mod test {
         let tls_config = Some(create_tls_config().expect("Failed to create TLS config"));
         let tls_acceptor = tls_config.map(TlsAcceptor::from);
 
-        let electrum_server: ElectrumServer<ChainState<KvChainStore>> =
+        let electrum_server: ElectrumServer<ChainState<FlatChainStore>> =
             block_on(ElectrumServer::new(wallet, chain, None, node_interface)).unwrap();
 
         let non_tls_listener = Arc::new(block_on(TcpListener::bind(e_addr)).unwrap());
