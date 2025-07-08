@@ -557,7 +557,7 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
         // If compact block filters are enabled, use them. Otherwise, fallback
         // to the "old-school" rescaning.
         if let Some(cfilters) = &self.block_filters {
-            self.rescan_with_block_filters(cfilters.clone(), addresses)
+            self.rescan_with_block_filters(cfilters.clone(), None, None, addresses)
                 .await?;
         }
 
@@ -570,6 +570,8 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
     async fn rescan_with_block_filters(
         &mut self,
         cfilters: Arc<NetworkFilters<FlatFiltersStore>>,
+        start_height: Option<u32>,
+        stop_height: Option<u32>,
         addresses: Vec<ScriptBuf>,
     ) -> Result<(), super::error::Error> {
         // By default, we look from 1..tip
@@ -578,8 +580,9 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
             .map(|address| address.as_bytes())
             .collect::<Vec<_>>();
 
-        // TODO (Davidson): Let users select what the starting and end height is
-        let Ok(blocks) = cfilters.match_any(_addresses, Some(0), self.chain.clone()) else {
+        let Ok(blocks) =
+            cfilters.match_any(_addresses, start_height, stop_height, self.chain.clone())
+        else {
             self.addresses_to_scan.extend(addresses); // push them back to get a retry
             return Ok(());
         };

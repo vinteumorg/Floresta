@@ -10,6 +10,8 @@ use floresta_cli::jsonrpc_client::Client;
 use floresta_cli::rpc::FlorestaRPC;
 use floresta_cli::rpc_types::AddNodeCommand;
 use floresta_cli::rpc_types::GetBlockRes;
+use floresta_cli::rpc_types::RescanConfidence;
+
 // Main function that runs the CLI application
 fn main() -> anyhow::Result<()> {
     // Parse command line arguments into a Cli struct
@@ -62,9 +64,17 @@ fn do_request(cmd: &Cli, client: Client) -> anyhow::Result<String> {
         Methods::GetTransaction { txid, .. } => {
             serde_json::to_string_pretty(&client.get_transaction(txid, Some(true))?)?
         }
-        Methods::RescanBlockchain { start_height } => {
-            serde_json::to_string_pretty(&client.rescanblockchain(start_height)?)?
-        }
+        Methods::RescanBlockchain {
+            start_block,
+            stop_block,
+            use_timestamp,
+            confidence,
+        } => serde_json::to_string_pretty(&client.rescanblockchain(
+            Some(start_block),
+            Some(stop_block),
+            use_timestamp,
+            confidence,
+        )?)?,
         Methods::SendRawTransaction { tx } => {
             serde_json::to_string_pretty(&client.send_raw_transaction(tx)?)?
         }
@@ -158,7 +168,7 @@ pub enum Methods {
     #[command(name = "gettxoutproof")]
     GetTxOutProof {
         /// The transaction IDs to prove
-        #[arg( required = true, value_parser = floresta_cli::parsers::parse_json_array::<Txid>)]
+        #[arg(required = true, value_parser = floresta_cli::parsers::parse_json_array::<Txid>)]
         txids: std::vec::Vec<Txid>, // you need to specify the path of Vec https://github.com/clap-rs/clap/discussions/4695
 
         /// The block in which to look for the transactions
@@ -170,9 +180,40 @@ pub enum Methods {
     #[command(name = "gettransaction")]
     GetTransaction { txid: Txid, verbose: Option<bool> },
 
-    /// Ask the node to rescan the blockchain for transactions
-    #[command(name = "rescanblockchain")]
-    RescanBlockchain { start_height: u32 },
+    #[doc = include_str!("../../../doc/rpc/rescanblockchain.md")]
+    #[command(
+        name = "rescanblockchain",
+        about = "Sends a request to the node to rescan the blockchain searching for transactions related to the wallet's cached addresses.",
+        long_about = Some(include_str!("../../../doc/rpc/rescanblockchain.md")),
+        disable_help_subcommand = true
+    )]
+    RescanBlockchain {
+        /// The starting point for the rescan. (optional)
+        #[arg(required = false, default_value_t = 0)]
+        start_block: u32,
+
+        /// The stopping height for the rescan. (optional)
+        #[arg(required = false, default_value_t = 0)]
+        stop_block: u32,
+
+        /// Treat the start parameter as a UNIX timestamp instead of block height.
+        #[arg(
+            short = 't',
+            long = "timestamp",
+            required = false,
+            default_value_t = false
+        )]
+        use_timestamp: bool,
+
+        #[arg(
+            short = 'c',
+            long = "confidence",
+            required = false,
+            default_value_t = RescanConfidence::Medium,
+            value_enum
+        )]
+        confidence: RescanConfidence,
+    },
 
     /// Submits a raw transaction to the network
     #[command(name = "sendrawtransaction")]
@@ -215,10 +256,12 @@ pub enum Methods {
     Stop,
 
     #[doc = include_str!("../../../doc/rpc/addnode.md")]
-    #[command(name = "addnode",
+    #[command(
+        name = "addnode",
         about = "Attempts to add or remove a node from the list of addnodes",
         long_about = Some(include_str!("../../../doc/rpc/addnode.md")),
-        disable_help_subcommand = true)]
+        disable_help_subcommand = true
+    )]
     AddNode {
         node: String,
         command: AddNodeCommand,
