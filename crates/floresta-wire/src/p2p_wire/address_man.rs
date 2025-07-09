@@ -383,7 +383,11 @@ impl AddressMan {
             let idx = rand::random::<usize>() % self.addresses.len();
             let peer = self.addresses.keys().nth(idx)?;
             let address = self.addresses.get(peer)?.to_owned();
-            if let AddressState::Banned(_) = address.state {
+
+            // don't try to connect to a peer that is banned or already connected
+            if matches!(address.state, AddressState::Banned(_))
+                | matches!(address.state, AddressState::Connected)
+            {
                 return None;
             }
 
@@ -396,8 +400,13 @@ impl AddressMan {
                 .or_else(|| self.get_random_address(required_service))?;
 
             match peer.state {
-                AddressState::NeverTried | AddressState::Tried(_) | AddressState::Connected => {
+                AddressState::NeverTried | AddressState::Tried(_) => {
                     return Some((id, peer));
+                }
+
+                AddressState::Connected => {
+                    // if we are connected to this peer, don't try to connect again
+                    continue;
                 }
 
                 AddressState::Banned(when) | AddressState::Failed(when) => {
