@@ -63,7 +63,7 @@ fn do_request(cmd: &Cli, client: Client) -> anyhow::Result<String> {
             serde_json::to_string_pretty(&client.get_transaction(txid, Some(true))?)?
         }
         Methods::RescanBlockchain { start_height } => {
-            serde_json::to_string_pretty(&client.rescan(start_height)?)?
+            serde_json::to_string_pretty(&client.rescanblockchain(start_height)?)?
         }
         Methods::SendRawTransaction { tx } => {
             serde_json::to_string_pretty(&client.send_raw_transaction(tx)?)?
@@ -171,7 +171,7 @@ pub enum Methods {
     GetTransaction { txid: Txid, verbose: Option<bool> },
 
     /// Ask the node to rescan the blockchain for transactions
-    #[command(name = "rescan")]
+    #[command(name = "rescanblockchain")]
     RescanBlockchain { start_height: u32 },
 
     /// Submits a raw transaction to the network

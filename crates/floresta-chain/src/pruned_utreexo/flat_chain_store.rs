@@ -188,7 +188,7 @@ struct FileChecksum(u64);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// The current checksum of our database
-struct DbCheckSum {
+pub struct DbCheckSum {
     /// The checksum of the headers file
     headers_checksum: FileChecksum,
 
@@ -780,8 +780,8 @@ impl FlatChainStore {
         Ok(())
     }
 
-    /// Computes a checksum for our database
-    fn compute_checksum(&self) -> DbCheckSum {
+    /// Computes the XXH3-64 checksum for our database
+    pub fn compute_checksum(&self) -> DbCheckSum {
         // a function that computes the xxHash of a memory map
         let checksum_fn = |mmap: &MmapMut| {
             let mmap_as_slice = mmap.iter().as_slice();
