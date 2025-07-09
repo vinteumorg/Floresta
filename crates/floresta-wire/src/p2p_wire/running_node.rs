@@ -141,15 +141,13 @@ where
                 self.send_to_peer(*peer, NodeRequest::Shutdown).await?;
             }
 
-            self.create_connection(ConnectionKind::Regular(UTREEXO.into()))
-                .await?;
-        }
-
-        if self.block_filters.is_none() {
-            return Ok(());
+            self.maybe_open_connection(UTREEXO.into()).await?;
         }
 
         if !self.has_compact_filters_peer() {
+            if self.block_filters.is_none() {
+                return Ok(());
+            }
             if self.peer_ids.len() == 10 {
                 let peer = random::<usize>() % self.peer_ids.len();
                 let peer = self
@@ -159,14 +157,11 @@ where
                 self.send_to_peer(*peer, NodeRequest::Shutdown).await?;
             }
 
-            self.create_connection(ConnectionKind::Regular(ServiceFlags::COMPACT_FILTERS))
+            self.maybe_open_connection(ServiceFlags::COMPACT_FILTERS)
                 .await?;
         }
 
-        if self.peers.len() < 10 {
-            self.create_connection(ConnectionKind::Regular(ServiceFlags::NONE))
-                .await?;
-        }
+        self.maybe_open_connection(ServiceFlags::NONE).await?;
 
         Ok(())
     }
