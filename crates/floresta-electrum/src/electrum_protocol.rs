@@ -919,8 +919,9 @@ mod test {
     use serde_json::json;
     use serde_json::Number;
     use serde_json::Value;
-    use tokio::io::AsyncReadExt;
+    use tokio::io::AsyncBufReadExt;
     use tokio::io::AsyncWriteExt;
+    use tokio::io::BufReader;
     use tokio::net::TcpListener;
     use tokio::net::TcpStream;
     use tokio::sync::Mutex;
@@ -1000,26 +1001,20 @@ mod test {
         stream.write_all(request.as_bytes()).await?;
         stream.flush().await?;
 
-        let mut response = vec![0u8; 100000000];
+        // Wrap the stream in a buffered reader and read one line (i.e., the full response)
+        let mut reader = BufReader::new(stream);
+        let mut line = String::new();
         let timeout_duration = Duration::from_secs(10);
 
-        let read_result = timeout(timeout_duration, stream.read(&mut response)).await;
-        match read_result {
-            Ok(Ok(0)) => Err(io::Error::new(
-                io::ErrorKind::BrokenPipe,
-                "No data received",
-            )),
-            Ok(Ok(n)) => {
-                let response: std::borrow::Cow<str> = String::from_utf8_lossy(&response[..n]);
-                let response: Value = serde_json::from_str(&response)?;
-                Ok(response)
-            }
-            Ok(Err(e)) => {
-                eprintln!("Error reading from socket: {e}");
-                Err(e)
-            }
-            Err(_) => Err(io::Error::new(io::ErrorKind::TimedOut, "Timeout occurred")),
+        let len = timeout(timeout_duration, reader.read_line(&mut line))
+            .await
+            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "Timeout occurred"))??;
+
+        if len == 0 {
+            return Err(io::Error::new(io::ErrorKind::BrokenPipe, "No data read"));
         }
+
+        Ok(serde_json::from_str(&line)?)
     }
 
     // Returns the port assigned by the OS
@@ -1221,7 +1216,9 @@ mod test {
         let mut batch_req = json!(batch_req).to_string();
         batch_req.push('\n');
 
-        assert_ok!(send_request(batch_req, port).await);
+        let re = send_request(batch_req, port).await.unwrap();
+        let answers = re.as_array().unwrap();
+        assert_eq!(answers.len(), 3);
     }
 
     #[tokio::test]
