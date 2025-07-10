@@ -1071,7 +1071,9 @@ mod test {
         let tls_acceptor = tls_config.map(TlsAcceptor::from);
 
         let electrum_server: ElectrumServer<ChainState<FlatChainStore>> =
-            ElectrumServer::new(wallet, chain, None, node_interface).await.unwrap();
+            ElectrumServer::new(wallet, chain, None, node_interface)
+                .await
+                .unwrap();
         let non_tls_listener = Arc::new(TcpListener::bind(e_addr).await.unwrap());
         let assigned_port = non_tls_listener.local_addr().unwrap().port();
 

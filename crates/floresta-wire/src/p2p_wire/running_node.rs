@@ -271,7 +271,7 @@ where
         Ok(true)
     }
 
-    pub async fn run(mut self, stop_signal: futures::channel::oneshot::Sender<()>) {
+    pub async fn run(mut self, stop_signal: tokio::sync::oneshot::Sender<()>) {
         try_and_warn!(self.init_peers().await);
 
         // Use this node state to Initial Block download

@@ -126,8 +126,8 @@ pub enum Socks5Error {
     ReadError,
 }
 
-impl From<futures::io::Error> for Socks5Error {
-    fn from(_error: futures::io::Error) -> Self {
+impl From<tokio::io::Error> for Socks5Error {
+    fn from(_error: tokio::io::Error) -> Self {
         Socks5Error::ReadError
     }
 }
