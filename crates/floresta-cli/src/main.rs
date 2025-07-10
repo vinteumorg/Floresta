@@ -10,7 +10,6 @@ use floresta_cli::jsonrpc_client::Client;
 use floresta_cli::rpc::FlorestaRPC;
 use floresta_cli::rpc_types::AddNodeCommand;
 use floresta_cli::rpc_types::GetBlockRes;
-
 // Main function that runs the CLI application
 fn main() -> anyhow::Result<()> {
     // Parse command line arguments into a Cli struct
@@ -215,25 +214,11 @@ pub enum Methods {
     #[command(name = "stop")]
     Stop,
 
-    /// Attempts to add or remove a node from the addnode list.
-    /// Or try a connection to a node once.
-    ///
-    /// Arguments:
-    /// 1. node (string, required):
-    ///     - The address of the peer to connect to;
-    ///
-    /// 2. command (string, required):
-    ///     - 'add' to add a node to the list;
-    ///     - 'remove' to remove a node from the list;
-    ///     - 'onetry' to try a connection to the node once.
-    ///
-    /// 3. v2transport (boolean, optional, default=false):
-    ///     - Only tries to connect with this address using BIP0324 P2P V2 protocol (ignored for 'remove' command)
-    ///
-    /// Result: json null
-    ///
-    /// Usage: addnode <ip:[port]> <add|remove|onetry> [true|false]
-    #[command(name = "addnode")]
+    #[doc = include_str!("../../../doc/rpc/addnode.md")]
+    #[command(name = "addnode",
+        about = "Attempts to add or remove a node from the list of addnodes",
+        long_about = Some(include_str!("../../../doc/rpc/addnode.md")),
+        disable_help_subcommand = true)]
     AddNode {
         node: String,
         command: AddNodeCommand,

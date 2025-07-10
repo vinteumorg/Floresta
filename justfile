@@ -128,3 +128,9 @@ pcc:
     @just test-features
     @test-functional-uv-fmt
     @just test-functional
+
+# Must have pandoc installed
+# Needs sudo to overwrite existing man pages
+# Convert all markdown files on /doc/rpc/ to man pages on /doc/rpc_man/
+gen-manpages path="":
+    ./contrib/dist/gen_manpages.sh {{path}}

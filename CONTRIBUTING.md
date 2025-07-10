@@ -184,8 +184,45 @@ pub fn validate_block_time(
     }
     Ok(())
 }
-
 ```
+
+Documentation for RPC
+---------------------
+
+We aim on having a good documentation and CLI `help` command.
+
+To achieve this, we use the `rustdoc` tool, which generates documentation from Rust source code comments. We also use the `clap` library to generate CLI help and usage information directly from the code.
+
+Please, always create a new RPC documentation under the specified [directory](/doc/rpc) and implement using the following syntax on the method command definition:
+
+```rust
+#[doc = include_str!("../../../doc/rpc/command.md")]
+#[command(name = "command_name",
+    about = "Write a short description of the command",
+    long_about = Some(include_str!("../../../doc/rpc/command.md")),
+    disable_help_subcommand = true)]
+MethodStruct{
+    arg1: type,
+    arg2: type,
+    arg3: type,
+}
+```
+
+Example:
+```rust
+#[doc = include_str!("../../../doc/rpc/addnode.md")]
+#[command(name = "addnode",
+    about = "Attempts to add or remove a node from the list of addnodes",
+    long_about = Some(include_str!("../../../doc/rpc/addnode.md")),
+    disable_help_subcommand = true)]
+AddNode {
+    node: String,
+    command: AddNodeCommand,
+    v2transport: Option<bool>,
+},
+```
+
+To generate the man pages for the RPC commands, follow the instructions outlined [here](doc/RPC_man/README.md).
 
 Security
 --------
