@@ -12,8 +12,8 @@ use kv::Integer;
 use kv::Store;
 use spin::RwLock;
 
-use super::chain_state::BestChain;
-use super::ChainStore;
+use crate::BestChain;
+use crate::ChainStore;
 use crate::DiskBlockHeader;
 
 /// As for now we use a KV (key/value) database to store the chain data.

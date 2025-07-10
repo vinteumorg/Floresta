@@ -94,8 +94,8 @@ use memmap2::MmapMut;
 use memmap2::MmapOptions;
 use xxhash_rust::xxh3;
 
-use super::ChainStore;
 use crate::BestChain;
+use crate::ChainStore;
 use crate::DatabaseError;
 use crate::DiskBlockHeader;
 
@@ -898,7 +898,7 @@ impl FlatChainStore {
         Ok(&mut *ptr)
     }
 
-    unsafe fn do_save_height(&mut self, best_block: BestChain) -> Result<(), FlatChainstoreError> {
+    unsafe fn do_save_height(&mut self, best_block: &BestChain) -> Result<(), FlatChainstoreError> {
         let metadata = self.get_metadata_mut()?;
 
         metadata.assume_valid_index = best_block.assume_valid_index;
@@ -1191,7 +1191,7 @@ impl ChainStore for FlatChainStore {
     }
 
     fn save_height(&mut self, height: &crate::BestChain) -> Result<(), Self::Error> {
-        unsafe { self.do_save_height(height.clone()) }
+        unsafe { self.do_save_height(height) }
     }
 
     fn save_header(&mut self, header: &DiskBlockHeader) -> Result<(), Self::Error> {
@@ -1244,11 +1244,11 @@ mod tests {
     use super::FlatChainStore;
     use super::FlatChainstoreError;
     use super::Index;
-    use crate::pruned_utreexo::ChainStore;
     use crate::pruned_utreexo::UpdatableChainstate;
     use crate::AssumeValidArg;
     use crate::BestChain;
     use crate::ChainState;
+    use crate::ChainStore;
     use crate::DiskBlockHeader;
 
     #[test]
