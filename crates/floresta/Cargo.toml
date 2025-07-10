@@ -43,7 +43,6 @@ floresta = { version = "0.3.0", path = "../floresta", features = [
     "electrum-server",
     "watch-only-wallet",
 ] }
-futures = "0.3.30"
 
 [features]
 default = ["bitcoinconsensus", "electrum-server", "watch-only-wallet", "flat-chainstore"]
