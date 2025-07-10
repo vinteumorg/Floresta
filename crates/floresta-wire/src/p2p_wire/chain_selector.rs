@@ -122,6 +122,21 @@ pub enum FindAccResult {
     KeepLooking(Vec<(PeerId, Vec<u8>)>),
 }
 
+/// Helper enum to express the different possibilities under `find_who_is_lying`
+pub enum PeerCheck {
+    /// One peer is lying
+    OneLying(PeerId),
+
+    /// Both peers are lying
+    BothLying,
+
+    /// One peer is unresponsive
+    UnresponsivePeer(PeerId),
+
+    /// Both peers are unresponsive
+    BothUnresponsivePeers,
+}
+
 impl NodeContext for ChainSelector {
     const REQUEST_TIMEOUT: u64 = 60; // Ban peers stalling our IBD
     const TRY_NEW_CONNECTION: u64 = 10; // Try creating connections more aggressively
@@ -239,21 +254,22 @@ where
         Ok((peer1_version, peer2_version))
     }
 
-    /// Find which peer is lying about what the accumulator state is at given
+    /// Find which peer is lying about what the accumulator state is at a given point
     ///
     /// This function will ask peers their accumulator for a given block, and check whether
     /// they agree or not. If they don't, we cut the search in half and keep looking for the
-    /// fork point. Once we find the fork point, we ask for the block that comes after the fork
-    /// download the block and proof, update the acc they agreed on, update the stump and see
-    /// who is lying.
+    /// fork point. Once we find the last agreed accumulator, we ask for the block and proof
+    /// that comes after it, update the accumulator from that point, and find who is lying.
     ///
-    /// This method should return the peer that is lying `Ok(Some(PeerId))` or `Ok(None)` if
-    /// both are lying or are unresponsive during the process.
+    /// If successful returns the [PeerCheck] enum, representing whether peers are:
+    ///
+    /// - Lying
+    /// - Unresponsive
     async fn find_who_is_lying(
         &mut self,
         peer1: PeerId,
         peer2: PeerId,
-    ) -> Result<Option<PeerId>, WireError> {
+    ) -> Result<PeerCheck, WireError> {
         let (mut height, mut hash) = self.chain.get_best_block()?;
         let mut prev_height = 0;
         // we first narrow down the possible fork point to a couple of blocks, looking
@@ -264,11 +280,12 @@ where
                 .grab_both_peers_version(peer1, peer2, hash, height)
                 .await?;
 
+            // if a peer is unresponsive, we opt for an early return
             let (peer1_acc, peer2_acc) = match (peer1_acc, peer2_acc) {
                 (Some(acc1), Some(acc2)) => (acc1, acc2),
-                (None, Some(_)) => return Ok(Some(peer2)),
-                (Some(_), None) => return Ok(Some(peer1)),
-                (None, None) => return Ok(None),
+                (None, Some(_)) => return Ok(PeerCheck::UnresponsivePeer(peer1)),
+                (Some(_), None) => return Ok(PeerCheck::UnresponsivePeer(peer2)),
+                (None, None) => return Ok(PeerCheck::BothUnresponsivePeers),
             };
 
             // if we have different states, we need to keep looking until we find the
@@ -355,42 +372,53 @@ where
             .await?;
 
         let agreed = match acc {
-            (Some(acc1), Some(_acc2)) => Self::parse_acc(acc1)?,
+            (Some(acc1), Some(_)) => Self::parse_acc(acc1)?,
             (Some(acc1), None) => Self::parse_acc(acc1)?,
             (None, Some(acc2)) => Self::parse_acc(acc2)?,
-            (None, None) => return Ok(None),
+            (None, None) => return Ok(PeerCheck::BothUnresponsivePeers),
         };
 
         hash = self.chain.get_block_hash(fork + 1)?;
 
         // now we know where the fork is, we need to check who is lying
-        let (Some(peer1_acc), Some(peer2_acc)) = self
+        let (peer1_acc, peer2_acc) = self
             .grab_both_peers_version(peer1, peer2, hash, fork + 1)
-            .await?
-        else {
-            return Ok(None);
+            .await?;
+
+        // if a peer is unresponsive, we opt for an early return
+        let (peer1_acc, peer2_acc) = match (peer1_acc, peer2_acc) {
+            (Some(acc1), Some(acc2)) => (acc1, acc2),
+            (None, Some(_)) => return Ok(PeerCheck::UnresponsivePeer(peer1)),
+            (Some(_), None) => return Ok(PeerCheck::UnresponsivePeer(peer2)),
+            (None, None) => return Ok(PeerCheck::BothUnresponsivePeers),
         };
 
         let block_hash = self.chain.get_block_hash(fork + 1)?;
 
-        let block = self.get_block_and_proof(peer1, block_hash).await?;
-        let proof = block.proof.expect("Block proof should be present");
-        let leaf_data = block.leaf_data.expect("Leaf data should be present");
+        let inflight_block = match self.get_block_and_proof(peer1, block_hash).await {
+            Err(WireError::PeerTimeout) => return Ok(PeerCheck::UnresponsivePeer(peer1)),
+            res => res?,
+        };
 
-        let acc1 = self.update_acc(agreed, block.block, proof, &leaf_data, fork + 1)?;
+        let proof = inflight_block.proof.expect("Block proof should be present");
+        let leaf_data = inflight_block
+            .leaf_data
+            .expect("Leaf data should be present");
+
+        let acc1 = self.update_acc(agreed, inflight_block.block, proof, &leaf_data, fork + 1)?;
 
         let peer1_acc = Self::parse_acc(peer1_acc)?;
         let peer2_acc = Self::parse_acc(peer2_acc)?;
 
         if peer1_acc != acc1 && peer2_acc != acc1 {
-            return Ok(None);
+            return Ok(PeerCheck::BothLying);
         }
 
         if peer1_acc != acc1 {
-            return Ok(Some(peer1));
+            return Ok(PeerCheck::OneLying(peer1));
         }
 
-        Ok(Some(peer2))
+        Ok(PeerCheck::OneLying(peer2))
     }
 
     /// Requests a block and its proof from a peer
@@ -527,21 +555,30 @@ where
             }
             let (peer1, peer2) = (peer[0].0, peer[1].0);
 
-            if let Some(liar) = self.find_who_is_lying(peer1, peer2).await? {
-                // if we found a liar, we need to ban them
-                self.send_to_peer(liar, NodeRequest::Shutdown)?;
-                if liar == peer1 {
-                    invalid_accs.insert(peer[0].1.clone());
-                } else {
+            let liar_state = self.find_who_is_lying(peer1, peer2).await?;
+
+            match liar_state {
+                PeerCheck::OneLying(liar) => {
+                    self.send_to_peer(liar, NodeRequest::Shutdown)?;
+                    if liar == peer1 {
+                        invalid_accs.insert(peer[0].1.clone());
+                        continue;
+                    }
                     invalid_accs.insert(peer[1].1.clone());
                 }
-            } else {
-                // Both peers were lying
-                self.send_to_peer(peer1, NodeRequest::Shutdown)?;
-                self.send_to_peer(peer2, NodeRequest::Shutdown)?;
-
-                invalid_accs.insert(peer[0].1.clone());
-                invalid_accs.insert(peer[1].1.clone());
+                PeerCheck::UnresponsivePeer(dead_peer) => {
+                    self.send_to_peer(dead_peer, NodeRequest::Shutdown)?;
+                }
+                PeerCheck::BothUnresponsivePeers => {
+                    self.send_to_peer(peer1, NodeRequest::Shutdown)?;
+                    self.send_to_peer(peer2, NodeRequest::Shutdown)?;
+                }
+                PeerCheck::BothLying => {
+                    self.send_to_peer(peer1, NodeRequest::Shutdown)?;
+                    self.send_to_peer(peer2, NodeRequest::Shutdown)?;
+                    invalid_accs.insert(peer[0].1.clone());
+                    invalid_accs.insert(peer[1].1.clone());
+                }
             }
         }
         //filter out the invalid accs
