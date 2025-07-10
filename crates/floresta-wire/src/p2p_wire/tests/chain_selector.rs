@@ -7,9 +7,11 @@ mod tests_utils {
     use bitcoin::Network;
     use floresta_chain::pruned_utreexo::UpdatableChainstate;
     use floresta_chain::AssumeValidArg;
+    use floresta_chain::ChainState;
     use floresta_chain::FlatChainStore;
     use floresta_chain::FlatChainStoreConfig;
     use rustreexo::accumulator::pollard::Pollard;
+    use tokio::sync::mpsc::unbounded_channel;
     use tokio::sync::Mutex;
     use tokio::sync::RwLock;
     use tokio::time::timeout;
@@ -24,8 +26,7 @@ mod tests_utils {
     use crate::p2p_wire::tests::utils::BlockDataMap;
     use crate::p2p_wire::tests::utils::BlockHashMap;
     use crate::p2p_wire::tests::utils::HeaderList;
-    use floresta_chain::ChainState;
-    pub const NUM_BLOCKS: usize = 10;
+    pub const NUM_BLOCKS: usize = 120;
 
     type PeerData = (HeaderList, BlockHashMap, BlockDataMap);
 
@@ -33,7 +34,7 @@ mod tests_utils {
         peers: Vec<PeerData>,
         pow_fraud_proofs: bool,
         network: Network,
-    ) -> Arc<floresta_chain::pruned_utreexo::chain_state::ChainState<FlatChainStore>> {
+    ) -> Arc<ChainState<FlatChainStore>> {
         let datadir = format!("./tmp-db/{}.chain_selector", rand::random::<u32>());
         let config = FlatChainStoreConfig::new(datadir.clone());
 
@@ -44,7 +45,7 @@ mod tests_utils {
 
         let mut headers = get_test_headers();
         headers.remove(0);
-        headers.truncate(9);
+        headers.truncate(119);
         for header in headers {
             chain.accept_header(header).unwrap();
         }
@@ -62,7 +63,7 @@ mod tests_utils {
         .unwrap();
 
         for (i, peer) in peers.into_iter().enumerate() {
-            let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+            let (sender, receiver) = unbounded_channel();
             let peer = create_peer(
                 peer.0,
                 peer.1,
@@ -95,28 +96,28 @@ mod tests {
     use rustreexo::accumulator::node_hash::BitcoinNodeHash;
 
     use crate::p2p_wire::tests::chain_selector::tests_utils::setup_node;
+    use crate::p2p_wire::tests::chain_selector::tests_utils::NUM_BLOCKS;
     use crate::p2p_wire::tests::utils::create_false_acc;
     use crate::p2p_wire::tests::utils::get_essentials;
     use crate::p2p_wire::tests::utils::get_test_filters;
-
-    use crate::p2p_wire::tests::chain_selector::tests_utils::NUM_BLOCKS;
-    const STARTING_LIE_BLOCK_HEIGHT: usize = 3;
+    const STARTING_LIE_BLOCK_HEIGHT: usize = 30;
 
     #[tokio::test]
     async fn two_peers_one_lying() {
         let essentials = get_essentials();
-        let headers = essentials.headers[..10].to_vec();
+        let headers = essentials.headers.to_vec();
         let blocks = essentials.blocks;
         let true_filters = get_test_filters().unwrap();
+
         let mut false_filters = true_filters.clone();
 
-        // this weird looking for loop is due to lint
-        for (i, _) in headers
+        let headers_iter = headers
             .iter()
             .enumerate()
             .take(NUM_BLOCKS)
-            .skip(STARTING_LIE_BLOCK_HEIGHT)
-        {
+            .skip(STARTING_LIE_BLOCK_HEIGHT);
+
+        for (i, _) in headers_iter {
             false_filters.remove(&headers[i].block_hash());
             false_filters.insert(headers[i].block_hash(), create_false_acc(i));
         }
@@ -126,11 +127,12 @@ mod tests {
             (headers.clone(), blocks.clone(), false_filters),
         ];
 
-        let chain = setup_node(peers, false, Network::Signet).await;
+        let chain = setup_node(peers, true, Network::Signet).await;
         let best_block = chain.get_best_block().unwrap();
-        assert_eq!(best_block.1, headers[9].block_hash());
+        assert_eq!(best_block.1, headers[119].block_hash());
 
         let root_hashes = chain.get_root_hashes();
+        // the following assert is checking the third root of the accumulator at height 119
         assert_eq!(
             root_hashes[3],
             BitcoinNodeHash::from_str(
