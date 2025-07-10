@@ -258,7 +258,7 @@ fn validate_many_inputs_block_benchmark(c: &mut Criterion) {
 
 #[cfg(feature = "flat-chainstore")]
 fn chainstore_checksum_benchmark(c: &mut Criterion) {
-    use floresta_chain::pruned_utreexo::ChainStore;
+    use floresta_chain::ChainStore;
     use floresta_chain::DiskBlockHeader;
 
     let headers = read_mainnet_headers();
