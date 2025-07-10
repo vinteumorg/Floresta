@@ -1152,7 +1152,6 @@ dependencies = [
  "floresta-compact-filters",
  "floresta-watch-only",
  "floresta-wire",
- "futures",
  "log",
  "rand",
  "rcgen",
