@@ -136,18 +136,16 @@ pub enum AssumeValidArg {
 }
 
 impl<PersistedState: ChainStore> ChainState<PersistedState> {
-    fn maybe_reindex(&self, potential_tip: &DiskBlockHeader) {
+    fn maybe_reindex(&self, potential_tip: &DiskBlockHeader) -> Result<(), BlockchainError> {
         if let DiskBlockHeader::HeadersOnly(_, height) = potential_tip {
-            let best_height = self
-                .get_best_block()
-                .expect("infallible: in-memory BestChain is initialized")
-                .0;
+            let best_height = self.get_best_block()?.0;
 
             if *height > best_height {
-                let best_chain = self.reindex_chain();
-                write_lock!(self).best_block = best_chain;
+                self.reindex_chain()?;
             }
         }
+
+        Ok(())
     }
 
     /// Just adds headers to the chainstate, without validating them.
@@ -390,9 +388,9 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             .get_block_height(&fork_pont.block_hash())?
             .ok_or(BlockchainError::BlockNotPresent)?;
 
+        let acc = self.get_roots_for_block(height)?.unwrap_or_default();
         let mut inner = write_lock!(self);
-        let acc = inner.chainstore.load_roots_for_block(height)?;
-        inner.acc = Self::deserialize_accumulator(acc)?;
+        inner.acc = acc;
 
         Ok(())
     }
@@ -580,16 +578,88 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             .ok_or(BlockchainError::BlockNotPresent)
     }
 
-    /// If we ever find ourselves in an undefined state, with one of our chain pointers
-    /// pointing to an invalid block, we'll find out what blocks do we have, and start from this
-    /// point.
-    fn reindex_chain(&self) -> BestChain {
+    /// Returns the parsed accumulator for a given block height, if they are present.
+    fn get_roots_for_block(&self, height: u32) -> Result<Option<Stump>, BlockchainError> {
+        let acc = { write_lock!(self).chainstore.load_roots_for_block(height)? };
+
+        let Some(acc) = acc else {
+            return Ok(None);
+        };
+
+        let mut acc = acc.as_slice();
+        let acc = Stump::deserialize(&mut acc).map_err(BlockchainError::UtreexoError)?;
+        Ok(Some(acc))
+    }
+
+    /// Re-indexes the chain if we find ourselves in an undefined state
+    ///
+    /// Here, we have to find what's the best chain we have, then figure out
+    /// how many blocks we have validated. We then need to take extra care
+    /// to align our accumulator with the validation index. If the validation_index
+    /// diverges from the inner acc by even one block, all proofs will be invalid.
+    ///
+    /// We start at the alleged validation index, and then we look for the last
+    /// accumulator we have. If we don't have the accumulator for the validation index,
+    /// we roll back our chain to the last accumulator we have, and then re-validate
+    /// them
+    fn reindex_chain(&self) -> Result<(), BlockchainError> {
+        // Figure out what's the best chain we have
+        let best_chain = self.find_best_chain();
+
+        // This is what we've found as the best chain, now let's figure out
+        // what is the most recent accumulator we have
+        let validation_index_height = self
+            .get_block_height(&best_chain.validation_index)?
+            .unwrap_or(0);
+
+        debug!(
+            "Re-indexing chain, validation index height: {}, best block: {}, depth: {}",
+            validation_index_height, best_chain.best_block, best_chain.depth
+        );
+
+        // This will be the height of the last accumulator we have
+        // Find the last height <= validation_index_height that has an accumulator
+        let mut found = None;
+
+        for h in (1..=validation_index_height).rev() {
+            if let Some(acc) = self.get_roots_for_block(h)? {
+                found = Some((h, acc));
+                break;
+            }
+        }
+
+        if let Some((last_acc_height, acc)) = found {
+            // If the last acc height is lower than the validation index height, roll back our
+            // database state
+            for height in (last_acc_height + 1)..=validation_index_height {
+                let header = self.get_header_by_height(height)?;
+                self.update_header(&DiskBlockHeader::HeadersOnly(*header, height))?;
+            }
+
+            let last_acc_header = self.get_header_by_height(last_acc_height)?;
+            let mut inner = write_lock!(self);
+
+            inner.acc = acc;
+            inner.best_block = best_chain.clone();
+            inner.best_block.validation_index = last_acc_header.block_hash();
+        }
+
+        debug!(
+            "Re-indexing complete, new validation index: {} new tip: {}",
+            best_chain.validation_index, best_chain.best_block
+        );
+
+        Ok(())
+    }
+
+    /// Reconstructs the `BestChain` data based on the database indexes and headers. This is useful
+    /// to recover from an invalid state or data corruption
+    fn find_best_chain(&self) -> BestChain {
         let get_disk_block_hash =
             |height: u32| -> Result<Option<BlockHash>, PersistedState::Error> {
                 read_lock!(self).chainstore.get_block_hash(height)
             };
 
-        warn!("reindexing our chain");
         let mut best_block = get_disk_block_hash(0)
             // TODO: handle possible Err
             .expect("TODO handle chainstore error")
@@ -606,15 +676,18 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
                     assert_eq!(height, next_height);
                     validation_index = block_hash;
                 }
-                Ok(DiskBlockHeader::HeadersOnly(_, height)) => {
+                Ok(DiskBlockHeader::HeadersOnly(_, height))
+                | Ok(DiskBlockHeader::AssumedValid(_, height)) => {
                     assert_eq!(height, next_height);
                 }
                 _ => break,
             }
+
             best_block = block_hash;
             depth = next_height;
             next_height += 1;
         }
+
         BestChain {
             best_block,
             depth,
@@ -657,60 +730,82 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             assume_valid: ChainParams::get_assume_valid(network, assume_valid)
                 .expect("Unsupported network"),
         };
+
         info!(
             "Chainstate loaded at height: {}, checking if we have all blocks",
-            inner.best_block.best_block
+            inner.best_block.depth,
         );
+
         let chainstate = ChainState {
             inner: RwLock::new(inner),
         };
+
         // Check the integrity of our chain
-        chainstate.check_chain_integrity();
+        chainstate.check_chain_integrity()?;
         Ok(chainstate)
     }
 
     /// Checks whether our database got a file-level corruption, and if so, reindex.
     ///
     /// This protects us from fs corruption, like random bit-flips or power loss.
-    fn check_db_integrity(&self) {
-        let inner = read_lock!(self);
-        if inner.chainstore.check_integrity().is_err() {
+    fn check_db_integrity(&self) -> Result<(), BlockchainError> {
+        let res = {
+            let inner = read_lock!(self);
+            inner.chainstore.check_integrity()
+        };
+
+        if res.is_err() {
             warn!("We had a data corruption in our database, reindexing");
-            self.reindex_chain();
+            self.reindex_chain()?;
         }
+
+        Ok(())
     }
 
-    fn check_chain_integrity(&self) {
-        let (best_height, best_hash) = self
-            .get_best_block()
-            .expect("infallible: in-memory BestChain is initialized");
-
-        self.check_db_integrity();
+    fn check_chain_integrity(&self) -> Result<(), BlockchainError> {
+        self.check_db_integrity()?;
+        let (best_height, best_hash) = self.get_best_block()?;
 
         // make sure our index is right for the latest block
-        let best_disk_height = self
-            .get_disk_block_header(&best_hash)
-            .expect("should have this loaded")
-            .height()
-            .expect("should have this loaded");
+        let best_disk_height = self.get_disk_block_header(&best_hash)?.try_height()?;
 
         if best_height != best_disk_height {
-            self.reindex_chain();
+            self.reindex_chain()?;
+            return Ok(());
         }
 
         // make sure our validation index is pointing to a valid block
-        let validation_index = self
-            .get_best_block()
-            .expect("infallible: in-memory BestChain is initialized")
-            .1;
+        let Ok(validation_index) = self.get_validation_index() else {
+            self.reindex_chain()?;
+            return Ok(());
+        };
 
-        let last_valid_header = self
-            .get_disk_block_header(&validation_index)
-            .expect("should have this loaded");
+        let last_valid_block = self.get_block_hash(validation_index)?;
+        let last_valid_header = self.get_disk_block_header(&last_valid_block)?;
 
         if !matches!(last_valid_header, DiskBlockHeader::FullyValid(_, _)) {
-            self.reindex_chain();
+            self.reindex_chain()?;
+            return Ok(());
         }
+
+        // make sure we don't have valid blocks that are after our validation index
+        let next_height = validation_index + 1;
+        if next_height > best_height {
+            // We don't have a next block, so we are good
+            return Ok(());
+        }
+
+        let next_block_hash = self.get_block_hash(next_height)?;
+        let next_header = self.get_disk_block_header(&next_block_hash)?;
+
+        if matches!(next_header, DiskBlockHeader::FullyValid(_, _)) {
+            warn!(
+                "We have a valid block at height {next_height}, but our validation index is {validation_index}",
+            );
+            self.reindex_chain()?;
+        }
+
+        Ok(())
     }
 
     /// Tries to deserialize an accumulator returning an empty [`Stump`] `acc` is None
@@ -1274,7 +1369,7 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
             }
             Ok(found) => {
                 // Possibly reindex to recompute the best_block field
-                self.maybe_reindex(&found);
+                self.maybe_reindex(&found)?;
                 // We already have this header
                 return Ok(());
             }
@@ -1733,8 +1828,8 @@ mod test {
         // get_header_by_height
         assert_eq!(*chain.get_header_by_height(1).unwrap(), headers[0]);
 
-        // reindex_chain
-        assert_eq!(chain.reindex_chain().depth, 2015);
+        // find_best_chain
+        assert_eq!(chain.find_best_chain().depth, 2015);
 
         // get_block_locator_for_tip
         assert!(!chain
