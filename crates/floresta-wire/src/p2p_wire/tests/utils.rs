@@ -233,7 +233,9 @@ pub fn get_test_blocks() -> io::Result<HashMap<BlockHash, UtreexoBlock>> {
     let mut u_blocks = HashMap::new();
 
     for block_str in blocks {
-        let block = Vec::from_hex(&block_str.block).unwrap();
+        let mut block = Vec::from_hex(&block_str.block).unwrap();
+        let mut udata = vec![0u8; 4]; // this append is to represent the udata of the UtreexoBlock.
+        block.append(&mut udata); // as the blocks in this test do not have any transactions spending UTXOs this can be empty
         let block: UtreexoBlock = deserialize(&block).unwrap();
         u_blocks.insert(block.block.block_hash(), block);
     }
