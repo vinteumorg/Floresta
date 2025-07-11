@@ -912,7 +912,6 @@ mod test {
     use floresta_wire::node::UtreexoNode;
     use floresta_wire::running_node::RunningNode;
     use floresta_wire::UtreexoNodeConfig;
-    use futures::executor::block_on;
     use rcgen::generate_simple_self_signed;
     use rcgen::CertifiedKey;
     use rustreexo::accumulator::pollard::Pollard;
@@ -1036,7 +1035,6 @@ mod test {
         let headers = get_test_signet_headers();
         chain.push_headers(headers, 1).unwrap();
         let chain = Arc::new(chain);
-
         // Create test_node_interface
         let u_config = UtreexoNodeConfig {
             disable_dns_seeds: true,
@@ -1073,9 +1071,10 @@ mod test {
         let tls_acceptor = tls_config.map(TlsAcceptor::from);
 
         let electrum_server: ElectrumServer<ChainState<FlatChainStore>> =
-            block_on(ElectrumServer::new(wallet, chain, None, node_interface)).unwrap();
-
-        let non_tls_listener = Arc::new(block_on(TcpListener::bind(e_addr)).unwrap());
+            ElectrumServer::new(wallet, chain, None, node_interface)
+                .await
+                .unwrap();
+        let non_tls_listener = Arc::new(TcpListener::bind(e_addr).await.unwrap());
         let assigned_port = non_tls_listener.local_addr().unwrap().port();
 
         task::spawn(client_accept_loop(
@@ -1086,7 +1085,7 @@ mod test {
 
         // TLS Electrum accept loop
         if let Some(tls_acceptor) = tls_acceptor {
-            let tls_listener = Arc::new(block_on(TcpListener::bind(ssl_e_addr)).unwrap());
+            let tls_listener = Arc::new(TcpListener::bind(ssl_e_addr).await.unwrap());
             task::spawn(client_accept_loop(
                 tls_listener,
                 electrum_server.message_transmitter.clone(),

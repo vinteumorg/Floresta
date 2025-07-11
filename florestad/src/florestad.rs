@@ -41,8 +41,6 @@ use floresta_wire::mempool::Mempool;
 use floresta_wire::node::UtreexoNode;
 use floresta_wire::running_node::RunningNode;
 use floresta_wire::UtreexoNodeConfig;
-use futures::channel::oneshot;
-use futures::executor::block_on;
 use log::debug;
 use log::error;
 use log::info;
@@ -250,7 +248,7 @@ pub struct Florestad {
     /// are about to die
     stop_signal: Arc<RwLock<bool>>,
     /// A channel that notifies we are done, and it's safe to die now
-    stop_notify: Arc<Mutex<Option<oneshot::Receiver<()>>>>,
+    stop_notify: Arc<Mutex<Option<tokio::sync::oneshot::Receiver<()>>>>,
     #[cfg(feature = "json-rpc")]
     /// A handle to our json-rpc server
     json_rpc: OnceLock<tokio::task::JoinHandle<()>>,
@@ -262,25 +260,15 @@ impl Florestad {
     /// It's not safe to stop your program before this thread returns because some
     /// information may not be fully flushed to disk yet, and killing the process
     /// before flushing everything is equivalent to an unclean shutdown.
-    #[allow(unused)]
-    pub fn stop(&self) {
-        block_on(async move {
-            *self.stop_signal.write().await = true;
-            let chan = {
-                let mut guard = self.stop_notify.lock().unwrap();
-                std::mem::take(&mut *guard)
-            };
-            if let Some(chan) = chan {
-                if let Err(e) = chan.await {
-                    error!("POSSIBLE BUG: unexpected error while shutting down {e:?}");
-                }
-            }
-        });
+    pub async fn stop(&self) {
+        info!("Stopping node...");
+        let mut stop_signal = self.stop_signal.write().await;
+        *stop_signal = true;
     }
 
-    pub fn should_stop(&self) -> bool {
-        let stop_signal = self.stop_signal.clone();
-        block_on(async { *stop_signal.read().await })
+    pub async fn should_stop(&self) -> bool {
+        let stop_signal = self.stop_signal.read().await;
+        *stop_signal
     }
 
     pub fn get_stop_signal(&self) -> Arc<RwLock<bool>> {
@@ -348,7 +336,7 @@ impl Florestad {
 
     /// Actually runs florestad, spawning all modules and waiting until
     /// someone asks to stop.
-    pub fn start(&self) {
+    pub async fn start(&self) {
         let data_dir = Self::data_dir_path(&self.config);
 
         // Create the data directory if it doesn't exist
@@ -509,12 +497,14 @@ impl Florestad {
         // Electrum Server configuration.
 
         // Instantiate the Electrum Server.
-        let electrum_server = block_on(ElectrumServer::new(
+
+        let electrum_server = ElectrumServer::new(
             wallet,
             blockchain_state,
             cfilters,
             chain_provider.get_handle(),
-        ))
+        )
+        .await
         .expect("Could not create an Electrum Server");
 
         // Default Electrum Server port.
@@ -534,7 +524,7 @@ impl Florestad {
             );
 
         // sans-TLS Electrum listener.
-        let non_tls_listener = match block_on(TcpListener::bind(electrum_addr)) {
+        let non_tls_listener = match TcpListener::bind(electrum_addr).await {
             Ok(listener) => Arc::new(listener),
             Err(_) => {
                 error!(
@@ -613,7 +603,7 @@ impl Florestad {
             };
 
             // Electrum TLS accept loop.
-            let tls_listener = match block_on(TcpListener::bind(electrum_addr_tls)) {
+            let tls_listener = match TcpListener::bind(electrum_addr_tls).await {
                 Ok(listener) => Arc::new(listener),
                 Err(_) => {
                     error!(
@@ -638,7 +628,7 @@ impl Florestad {
         task::spawn(electrum_server.main_loop());
 
         // Chain provider
-        let (sender, receiver) = oneshot::channel();
+        let (sender, receiver) = tokio::sync::oneshot::channel();
 
         let mut recv = self.stop_notify.lock().unwrap();
         *recv = Some(receiver);

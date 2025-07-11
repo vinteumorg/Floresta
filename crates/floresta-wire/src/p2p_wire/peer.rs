@@ -14,7 +14,6 @@ use bitcoin::p2p::ServiceFlags;
 use bitcoin::BlockHash;
 use bitcoin::Transaction;
 use floresta_chain::UtreexoBlock;
-use futures::FutureExt;
 use log::debug;
 use log::error;
 use log::warn;
@@ -217,8 +216,8 @@ impl<T: AsyncWrite + Unpin + Send + Sync> Peer<T> {
         self.write(version).await?;
         self.state = State::SentVersion(Instant::now());
         loop {
-            futures::select! {
-                request = tokio::time::timeout(Duration::from_secs(2), self.node_requests.recv()).fuse() => {
+            tokio::select! {
+                request = tokio::time::timeout(Duration::from_secs(2), self.node_requests.recv()) => {
                     match request {
                         Ok(None) => {
                             return Err(PeerError::Channel);
@@ -231,7 +230,7 @@ impl<T: AsyncWrite + Unpin + Send + Sync> Peer<T> {
                         }
                     }
                 },
-                message = self.actor_receiver.recv().fuse() => {
+                message = self.actor_receiver.recv() => {
                     match message {
                         None => {
                             return Err(PeerError::Channel);
