@@ -4,6 +4,7 @@
 //! Provides utility functions, macros and modules to be
 //! used in other Floresta crates.
 
+#![cfg_attr(docsrs, feature(doc_auto_cfg))]
 #![no_std]
 
 use bitcoin::hashes::sha256;
