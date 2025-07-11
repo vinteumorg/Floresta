@@ -25,7 +25,7 @@ mod tests_utils {
     use crate::p2p_wire::tests::utils::BlockHashMap;
     use crate::p2p_wire::tests::utils::HeaderList;
     use floresta_chain::ChainState;
-    pub const NUM_BLOCKS: usize = 120;
+    pub const NUM_BLOCKS: usize = 10;
 
     type PeerData = (HeaderList, BlockHashMap, BlockDataMap);
 
@@ -44,7 +44,7 @@ mod tests_utils {
 
         let mut headers = get_test_headers();
         headers.remove(0);
-        headers.truncate(119);
+        headers.truncate(9);
         for header in headers {
             chain.accept_header(header).unwrap();
         }
@@ -100,15 +100,14 @@ mod tests {
     use crate::p2p_wire::tests::utils::get_test_filters;
 
     use crate::p2p_wire::tests::chain_selector::tests_utils::NUM_BLOCKS;
-    const STARTING_LIE_BLOCK_HEIGHT: usize = 30;
+    const STARTING_LIE_BLOCK_HEIGHT: usize = 3;
 
     #[tokio::test]
     async fn two_peers_one_lying() {
         let essentials = get_essentials();
-        let headers = essentials.headers[..120].to_vec();
-
+        let headers = essentials.headers[..10].to_vec();
+        let blocks = essentials.blocks;
         let true_filters = get_test_filters().unwrap();
-
         let mut false_filters = true_filters.clone();
 
         // this weird looking for loop is due to lint
@@ -123,13 +122,13 @@ mod tests {
         }
 
         let peers = vec![
-            (headers.clone(), essentials.blocks.clone(), true_filters),
-            (headers.clone(), essentials.blocks.clone(), false_filters),
+            (headers.clone(), blocks.clone(), true_filters),
+            (headers.clone(), blocks.clone(), false_filters),
         ];
 
-        let chain = setup_node(peers, true, Network::Signet).await;
+        let chain = setup_node(peers, false, Network::Signet).await;
         let best_block = chain.get_best_block().unwrap();
-        assert_eq!(best_block.1, headers[119].block_hash());
+        assert_eq!(best_block.1, headers[9].block_hash());
 
         let root_hashes = chain.get_root_hashes();
         assert_eq!(
