@@ -7,8 +7,7 @@
 //! Bitcoin SLIP-132 standard implementation for parsing custom xpub/xpriv key
 //! formats
 
-use std::fmt::Debug;
-use std::str::FromStr;
+use core::str::FromStr;
 
 use bitcoin::base58;
 use bitcoin::bip32;
@@ -246,5 +245,69 @@ impl FromSlip132 for Xpriv {
         let xprv = Xpriv::decode(&data)?;
 
         Ok(xprv)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bitcoin::bip32::ChildNumber;
+    use bitcoin::bip32::Xpub;
+    use bitcoin::key::Secp256k1;
+    use bitcoin::Address;
+    use bitcoin::Network;
+
+    use crate::prelude::*;
+    use crate::slip132::FromSlip132;
+
+    #[test]
+    fn test_xpub_parsing() {
+        // Test cases from https://github.com/satoshilabs/slips/blob/master/slip-0132.md
+        const XPUB: &str = "xpub6BosfCnifzxcFwrSzQiqu2DBVTshkCXacvNsWGYJVVhhawA7d4R5WSWGFNbi8Aw6ZRc1brxMyWMzG3DSSSSoekkudhUd9yLb6qx39T9nMdj";
+        const YPUB: &str = "ypub6Ww3ibxVfGzLrAH1PNcjyAWenMTbbAosGNB6VvmSEgytSER9azLDWCxoJwW7Ke7icmizBMXrzBx9979FfaHxHcrArf3zbeJJJUZPf663zsP";
+        const ZPUB: &str = "zpub6rFR7y4Q2AijBEqTUquhVz398htDFrtymD9xYYfG1m4wAcvPhXNfE3EfH1r1ADqtfSdVCToUG868RvUUkgDKf31mGDtKsAYz2oz2AGutZYs";
+
+        let secp = Secp256k1::new();
+
+        let xpub: bitcoin::bip32::Xpub = Xpub::from_slip132_str(XPUB)
+            .expect("Parsing failed")
+            .ckd_pub(&secp, ChildNumber::Normal { index: 0 })
+            .and_then(|key| key.ckd_pub(&secp, ChildNumber::Normal { index: 0 }))
+            .unwrap();
+        let ypub = Xpub::from_slip132_str(YPUB)
+            .expect("Parsing failed")
+            .ckd_pub(&secp, ChildNumber::Normal { index: 0 })
+            .and_then(|key| key.ckd_pub(&secp, ChildNumber::Normal { index: 0 }))
+            .unwrap();
+        let zpub = Xpub::from_slip132_str(ZPUB)
+            .expect("Parsing failed")
+            .ckd_pub(&secp, ChildNumber::Normal { index: 0 })
+            .and_then(|key| key.ckd_pub(&secp, ChildNumber::Normal { index: 0 }))
+            .unwrap();
+        // Old p2pkh
+        assert_eq!(
+            Address::p2pkh(xpub.to_pub(), Network::Bitcoin)
+                .to_string()
+                .as_str(),
+            "1LqBGSKuX5yYUonjxT5qGfpUsXKYYWeabA"
+        );
+
+        // p2wpkh-p2pkh
+        let script = Address::p2wpkh(&ypub.to_pub(), Network::Bitcoin).script_pubkey();
+
+        assert_eq!(
+            Address::p2sh(&script, Network::Bitcoin)
+                .unwrap()
+                .to_string()
+                .as_str(),
+            "37VucYSaXLCAsxYyAPfbSi9eh4iEcbShgf"
+        );
+
+        // p2wpkh
+        assert_eq!(
+            Address::p2wpkh(&zpub.to_pub(), Network::Bitcoin)
+                .to_string()
+                .as_str(),
+            "bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu"
+        )
     }
 }
