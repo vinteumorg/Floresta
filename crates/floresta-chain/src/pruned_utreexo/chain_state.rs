@@ -11,10 +11,9 @@
 //! The primary methods for updating our state are [ChainState::accept_header], which constructs
 //! a chain of headers, and [ChainState::connect_block], which verifies the corresponding blocks.
 //!
-//! Key types:
+//! Key definitions:
 //! - [ChainState]: The high-level chain backend
 //! - [BlockConsumer]: Trait for receiving new block notifications
-//! - [BestChain]: Tracks the current best chain and alternative forks
 extern crate alloc;
 
 use alloc::borrow::ToOwned;
@@ -28,8 +27,6 @@ use core::ffi::c_uint;
 
 use bitcoin::block::Header as BlockHeader;
 use bitcoin::blockdata::constants::genesis_block;
-use bitcoin::consensus::Decodable;
-use bitcoin::consensus::Encodable;
 use bitcoin::hashes::sha256;
 use bitcoin::script;
 use bitcoin::Block;
@@ -60,12 +57,13 @@ use super::error::BlockchainError;
 use super::partial_chain::PartialChainState;
 use super::partial_chain::PartialChainStateInner;
 use super::BlockchainInterface;
-use super::ChainStore;
 use super::UpdatableChainstate;
 use crate::prelude::*;
 use crate::pruned_utreexo::utxo_data::UtxoData;
 use crate::read_lock;
 use crate::write_lock;
+use crate::BestChain;
+use crate::ChainStore;
 use crate::UtreexoBlock;
 
 /// Trait for components that need to receive notifications about new blocks.
@@ -1473,80 +1471,6 @@ macro_rules! write_lock {
     ($obj:ident) => {
         $obj.inner.write()
     };
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-/// Internal representation of the chain we are in
-pub struct BestChain {
-    /// Hash of the last block in the chain we believe has more work on
-    pub best_block: BlockHash,
-    /// How many blocks are pilled on this chain?
-    pub depth: u32,
-    /// We actually validated blocks up to this point
-    pub validation_index: BlockHash,
-    /// Blockchains are not fast-forward only, they might have "forks", sometimes it's useful
-    /// to keep track of them, in case they become the best one. This keeps track of some
-    /// tips we know about, but are not the best one. We don't keep tips that are too deep
-    /// or has too little work if compared to our best one
-    pub alternative_tips: Vec<BlockHash>,
-    /// Saves the height occupied by the assume valid block
-    pub assume_valid_index: u32,
-}
-
-impl BestChain {
-    fn new_block(&mut self, block_hash: BlockHash, height: u32) {
-        self.best_block = block_hash;
-        self.depth = height;
-    }
-    fn valid_block(&mut self, block_hash: BlockHash) {
-        self.validation_index = block_hash;
-    }
-}
-impl Encodable for BestChain {
-    fn consensus_encode<W: bitcoin::io::Write + ?Sized>(
-        &self,
-        writer: &mut W,
-    ) -> bitcoin::io::Result<usize> {
-        let mut len = 0;
-        len += self.best_block.consensus_encode(writer)?;
-        len += self.depth.consensus_encode(writer)?;
-        len += self.validation_index.consensus_encode(writer)?;
-        len += self.assume_valid_index.consensus_encode(writer)?;
-        len += self.alternative_tips.consensus_encode(writer)?;
-        Ok(len)
-    }
-}
-
-impl From<(BlockHash, u32)> for BestChain {
-    fn from((best_block, depth): (BlockHash, u32)) -> Self {
-        Self {
-            best_block,
-            depth,
-            validation_index: best_block,
-            assume_valid_index: 0,
-            alternative_tips: Vec::new(),
-        }
-    }
-}
-
-impl Decodable for BestChain {
-    fn consensus_decode<R: bitcoin::io::Read + ?Sized>(
-        reader: &mut R,
-    ) -> Result<Self, bitcoin::consensus::encode::Error> {
-        let best_block = BlockHash::consensus_decode(reader)?;
-        let depth = u32::consensus_decode(reader)?;
-        let validation_index = BlockHash::consensus_decode(reader)?;
-        let assume_valid_index = u32::consensus_decode(reader)?;
-
-        let alternative_tips = <Vec<BlockHash>>::consensus_decode(reader)?;
-        Ok(Self {
-            alternative_tips,
-            best_block,
-            depth,
-            validation_index,
-            assume_valid_index,
-        })
-    }
 }
 
 #[cfg(all(test, any(feature = "kv-chainstore", feature = "flat-chainstore")))]

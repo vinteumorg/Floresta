@@ -13,12 +13,12 @@ use bitcoin::BlockHash;
 use bitcoin::Network;
 use rustreexo::accumulator::stump::Stump;
 
-use super::chain_state::BestChain;
 use super::chain_state::ChainState;
 use super::chainparams::ChainParams;
-use super::ChainStore;
 use crate::pruned_utreexo::Box;
 use crate::AssumeValidArg;
+use crate::BestChain;
+use crate::ChainStore;
 use crate::DatabaseError;
 use crate::DiskBlockHeader;
 
