@@ -192,25 +192,25 @@ uv run pylint ./tests
 Our tests are separated by "test suites". Suites are folders located in `./tests/<suite>` and the tests are the `./tests/<suite>/*-test.py` files. To run all suites, type:
 
 ```bash
-FLORESTA_TEMP_DIR=<your_bin_dir> uv run tests/run_tests.py
+FLORESTA_TEMP_DIR=<your_bin_dir> uv run tests/test_runner.py
 ```
 
 You can list all suites with:
 
 ```bash
-FLORESTA_TEMP_DIR=<your_bin_dir> uv run tests/run_tests.py --list-suites
+FLORESTA_TEMP_DIR=<your_bin_dir> uv run tests/test_runner.py --list-suites
 ```
 
 To run a specific suite:
 
 ```bash
-FLORESTA_TEMP_DIR=<your_bin_dir> uv run tests/run_tests.py --test-suite <suite>
+FLORESTA_TEMP_DIR=<your_bin_dir> uv run tests/test_runner.py --test-suite <suite>
 ```
 
 You can even add more:
 
 ```bash
-FLORESTA_TEMP_DIR=<your_bin_dir> uv run tests/run_tests.py --test-suite <suite_A> --test-suite <suite_B>
+FLORESTA_TEMP_DIR=<your_bin_dir> uv run tests/test_runner.py --test-suite <suite_A> --test-suite <suite_B>
 ```
 
 ##### Clean up the environment

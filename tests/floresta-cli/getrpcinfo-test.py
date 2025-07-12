@@ -6,8 +6,6 @@ This functional test cli utility to interact with a Floresta node with `getrpcin
 
 import os
 from test_framework import FlorestaTestFramework
-from test_framework.rpc.floresta import REGTEST_RPC_SERVER as florestad_conf
-from test_framework.rpc.bitcoin import REGTEST_RPC_SERVER as bitcoind_conf
 
 DATA_DIR = FlorestaTestFramework.get_integration_test_dir()
 
@@ -30,20 +28,18 @@ class GetRpcInfoTest(FlorestaTestFramework):
         )
 
         # Now create the nodes with the data directories
-        GetRpcInfoTest.nodes[0] = self.add_node(
+        self.florestad = self.add_node(
             variant="florestad",
             extra_args=[
                 f"--data-dir={self.data_dirs[0]}",
             ],
-            rpcserver=florestad_conf,
         )
 
-        GetRpcInfoTest.nodes[1] = self.add_node(
+        self.bitcoind = self.add_node(
             variant="bitcoind",
             extra_args=[
                 f"-datadir={self.data_dirs[1]}",
             ],
-            rpcserver=bitcoind_conf,
         )
 
     def assert_rpcinfo_structure(self, result, expected_logpath: str):
@@ -65,8 +61,7 @@ class GetRpcInfoTest(FlorestaTestFramework):
         Test the `getrpcinfo` rpc call by creating a node
         and checking the response in florestad.
         """
-        floresta = self.get_node(GetRpcInfoTest.nodes[0])
-        result = floresta.rpc.get_rpcinfo()
+        result = self.florestad.rpc.get_rpcinfo()
         expected_logpath = os.path.join(self.data_dirs[0], "regtest", "output.log")
         self.assert_rpcinfo_structure(result, expected_logpath)
 
@@ -75,8 +70,7 @@ class GetRpcInfoTest(FlorestaTestFramework):
         Test the `getrpcinfo` rpc call by creating a node
         and checking the response in bitcoind.
         """
-        bitcoind = self.get_node(GetRpcInfoTest.nodes[1])
-        result = bitcoind.rpc.get_rpcinfo()
+        result = self.bitcoind.rpc.get_rpcinfo()
         expected_logpath = os.path.join(self.data_dirs[1], "regtest", "debug.log")
         self.assert_rpcinfo_structure(result, expected_logpath)
 
@@ -85,8 +79,8 @@ class GetRpcInfoTest(FlorestaTestFramework):
         Run JSONRPC server on first, wait to connect, then call `addnode ip[:port]`
         """
         # Start node
-        self.run_node(GetRpcInfoTest.nodes[0])
-        self.run_node(GetRpcInfoTest.nodes[1])
+        self.run_node(self.florestad)
+        self.run_node(self.bitcoind)
 
         # Test assertions
         self.test_floresta_getrpcinfo()

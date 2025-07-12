@@ -8,7 +8,6 @@ import errno
 
 from test_framework import FlorestaTestFramework
 from test_framework.electrum.client import ElectrumClient
-from test_framework.rpc.floresta import REGTEST_RPC_SERVER, REGTEST_RPC_TLS_SERVER
 
 
 class TestSslFailInitialization(FlorestaTestFramework):
@@ -17,31 +16,28 @@ class TestSslFailInitialization(FlorestaTestFramework):
     with `--enable-electrum-tls` and (`--generate-cert` or (`--tls-key-path` and `tls-cert-path`)).
     """
 
-    nodes = [-1]
     electrum = None
 
     def set_test_params(self):
         """
         Instantiate the node without Electrum TLS.
         """
-        TestSslFailInitialization.nodes[0] = self.add_node(
-            rpcserver=REGTEST_RPC_SERVER, tls=False
-        )
+        self.florestad = self.add_node(variant="florestad", tls=False)
 
     def run_test(self):
         """
         Run the node, create an Electrum client that will try to connect to
         the TLS port (20002), and assert that the connection was refused since TLS was not enabled.
         """
-        self.run_node(TestSslFailInitialization.nodes[0])
+        self.run_node(self.florestad)
 
         # Create a connection with an Electrum client at the default Electrum TLS port.
         # It must fail since there is nothing bound to it.
         with self.assertRaises(ConnectionRefusedError) as exc:
             self.log("Trying to connect the Electrum no-TLS client")
             TestSslFailInitialization.electrum = ElectrumClient(
-                REGTEST_RPC_TLS_SERVER["host"],
-                REGTEST_RPC_TLS_SERVER["ports"]["electrum-server-tls"],
+                self.florestad.get_host(),
+                self.florestad.get_port("electrum-server") + 1,
             )
 
         self.log("Failed to connect to Electrum TLS client")
@@ -49,7 +45,7 @@ class TestSslFailInitialization(FlorestaTestFramework):
         self.assertEqual(exc.exception.errno, errno.ECONNREFUSED)
 
         # Stop `florestad`
-        self.stop_node(TestSslFailInitialization.nodes[0])
+        self.stop()
 
 
 if __name__ == "__main__":

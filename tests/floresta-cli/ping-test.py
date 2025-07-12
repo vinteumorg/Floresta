@@ -4,48 +4,41 @@ send a ping to bitcoind and check if bitcoind receives it, by calling
 `getpeerinfo` and checking that we've received a ping from floresta.
 """
 
-from test_framework import FlorestaRPC, BitcoinRPC, FlorestaTestFramework
-from test_framework.rpc.floresta import REGTEST_RPC_SERVER as florestad_rpc
-from test_framework.rpc.bitcoin import REGTEST_RPC_SERVER as bitcoind_rpc
-
 import time
+from test_framework import FlorestaTestFramework
 
 
 class PingTest(FlorestaTestFramework):
-    nodes = [-1, -1]
     expected_chain = "regtest"
 
     def set_test_params(self):
-        PingTest.nodes[0] = self.add_node(variant="florestad", rpcserver=florestad_rpc)
-        PingTest.nodes[1] = self.add_node(variant="bitcoind", rpcserver=bitcoind_rpc)
+        self.florestad = self.add_node(variant="florestad")
+        self.bitcoind = self.add_node(variant="bitcoind")
 
     def run_test(self):
         # Start the nodes
-        self.run_node(PingTest.nodes[0])
-        self.run_node(PingTest.nodes[1])
-
-        bitcoind: BitcoinRPC = self.get_node(PingTest.nodes[1]).rpc
-        florestad: FlorestaRPC = self.get_node(PingTest.nodes[0]).rpc
+        self.run_node(self.florestad)
+        self.run_node(self.bitcoind)
 
         # Connect floresta to bitcoind
-        florestad.addnode(
-            f"{bitcoind_rpc['host']}:{bitcoind_rpc['ports']['p2p']}", "onetry"
-        )
+        host = self.bitcoind.get_host()
+        port = self.bitcoind.get_port("p2p")
+        self.florestad.rpc.addnode(f"{host}:{port}", "onetry")
 
         time.sleep(1)
 
         # Check that we have a connection, but no ping yet
-        peer_info = bitcoind.get_peerinfo()
+        peer_info = self.bitcoind.rpc.get_peerinfo()
         self.assertTrue(
             "ping" not in peer_info[0]["bytesrecv_per_msg"],
         )
 
         # Send a ping to bitcoind
         self.log("Sending ping to bitcoind...")
-        florestad.ping()
+        self.florestad.rpc.ping()
 
         # Check that bitcoind received the ping
-        peer_info = bitcoind.get_peerinfo()
+        peer_info = self.bitcoind.rpc.get_peerinfo()
         self.assertTrue(peer_info[0]["bytesrecv_per_msg"]["ping"])
 
         self.stop()
