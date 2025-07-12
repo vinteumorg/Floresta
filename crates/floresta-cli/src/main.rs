@@ -10,6 +10,7 @@ use floresta_cli::jsonrpc_client::Client;
 use floresta_cli::rpc::FlorestaRPC;
 use floresta_cli::rpc_types::AddNodeCommand;
 use floresta_cli::rpc_types::GetBlockRes;
+
 // Main function that runs the CLI application
 fn main() -> anyhow::Result<()> {
     // Parse command line arguments into a Cli struct
@@ -62,9 +63,15 @@ fn do_request(cmd: &Cli, client: Client) -> anyhow::Result<String> {
         Methods::GetTransaction { txid, .. } => {
             serde_json::to_string_pretty(&client.get_transaction(txid, Some(true))?)?
         }
-        Methods::RescanBlockchain { start_height } => {
-            serde_json::to_string_pretty(&client.rescanblockchain(start_height)?)?
-        }
+        Methods::RescanBlockchain {
+            start_height,
+            stop_height,
+            use_timestamp,
+        } => serde_json::to_string_pretty(&client.rescanblockchain(
+            Some(start_height),
+            Some(stop_height),
+            use_timestamp,
+        )?)?,
         Methods::SendRawTransaction { tx } => {
             serde_json::to_string_pretty(&client.send_raw_transaction(tx)?)?
         }
@@ -170,9 +177,31 @@ pub enum Methods {
     #[command(name = "gettransaction")]
     GetTransaction { txid: Txid, verbose: Option<bool> },
 
-    /// Ask the node to rescan the blockchain for transactions
-    #[command(name = "rescanblockchain")]
-    RescanBlockchain { start_height: u32 },
+    #[doc = include_str!("../../../doc/rpc/rescanblockchain.md")]
+    #[command(name = "rescanblockchain",
+    about = "Sends a request to the node for rescan the blockchain searching for addresses and utxos.",
+    long_about = Some(include_str!("../../../doc/rpc/rescanblockchain.md")),
+    disable_help_subcommand = true)]
+    RescanBlockchain {
+        /// The starting point for the rescan. Can be either:
+        /// - Block height (if --timestamp is not used)
+        /// - UNIX timestamp (if --timestamp is used)
+        #[arg(required = false, default_value_t = 0)]
+        start_height: u32,
+
+        /// The stopping height for the rescan (optional)
+        #[arg(required = false, default_value_t = 0)]
+        stop_height: u32,
+
+        /// Treat the start parameter as a UNIX timestamp instead of block height
+        #[arg(
+            short = 't',
+            long = "timestamp",
+            required = false,
+            default_value_t = false
+        )]
+        use_timestamp: bool,
+    },
 
     /// Submits a raw transaction to the network
     #[command(name = "sendrawtransaction")]
@@ -214,11 +243,25 @@ pub enum Methods {
     #[command(name = "stop")]
     Stop,
 
-    #[doc = include_str!("../../../doc/rpc/addnode.md")]
-    #[command(name = "addnode",
-        about = "Attempts to add or remove a node from the list of addnodes",
-        long_about = Some(include_str!("../../../doc/rpc/addnode.md")),
-        disable_help_subcommand = true)]
+    /// Attempts to add or remove a node from the addnode list.
+    /// Or try a connection to a node once.
+    ///
+    /// Arguments:
+    /// 1. node (string, required):
+    ///     - The address of the peer to connect to;
+    ///
+    /// 2. command (string, required):
+    ///     - 'add' to add a node to the list;
+    ///     - 'remove' to remove a node from the list;
+    ///     - 'onetry' to try a connection to the node once.
+    ///
+    /// 3. v2transport (boolean, optional, default=false):
+    ///     - Only tries to connect with this address using BIP0324 P2P V2 protocol (ignored for 'remove' command)
+    ///
+    /// Result: json null
+    ///
+    /// Usage: addnode <ip:[port]> <add|remove|onetry> [true|false]
+    #[command(name = "addnode")]
     AddNode {
         node: String,
         command: AddNodeCommand,

@@ -44,6 +44,47 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
             .get_block(&blockhash)
             .map_err(|_| JsonRpcError::BlockNotFound)
     }
+
+    /// Retrieves the height of the block that was mined in the given(or less) timestamp.
+    /// Intended to use for rescan requests that only has timestamp as info.
+    ///
+    /// This function uses the blockchain principle that a block is mined in around 10 minutes
+    /// to fetch a blockheight.
+    ///
+    /// The main formula to start searching for the block is (timestamp - GENESIS_TIMESTAMP) / 600
+    ///
+    /// Inserting an invalid timestamp will result in returning Ok(0u32).
+    pub async fn get_block_height_by_timestamp(&self, timestamp: u32) -> Result<u32, JsonRpcError> {
+        pub const TEN_MINUTES: u32 = 600;
+        pub const GENESIS_TIMESTAMP: u32 = 1231006505; // The u32 representation of 03 Jan 2009, 18:15:05
+
+        let mut height_target = (timestamp - GENESIS_TIMESTAMP)
+            .checked_div(TEN_MINUTES)
+            .unwrap_or(0u32);
+        let block_hash = self
+            .chain
+            .get_block_hash(height_target)
+            .map_err(|_| JsonRpcError::InvalidHeight)?;
+
+        let mut block_target = self
+            .chain
+            .get_block_header(&block_hash)
+            .map_err(|_| JsonRpcError::BlockNotFound)?;
+        while block_target.time > timestamp {
+            let block_hash = self
+                .chain
+                .get_block_hash(height_target)
+                .map_err(|_| JsonRpcError::InvalidHeight)?;
+
+            block_target = self
+                .chain
+                .get_block_header(&block_hash)
+                .map_err(|_| JsonRpcError::BlockNotFound)?;
+
+            height_target -= 1;
+        }
+        Ok(height_target)
+    }
 }
 
 // blockchain rpcs
@@ -301,7 +342,8 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
         let candidates = cfilters
             .match_any(
                 vec![filter_key.as_slice()],
-                Some(height as usize),
+                Some(height),
+                None,
                 self.chain.clone(),
             )
             .map_err(|e| JsonRpcError::Filters(e.to_string()))?;

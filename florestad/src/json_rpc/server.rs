@@ -152,13 +152,14 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
         let chain = self.chain.clone();
 
         tokio::task::spawn(Self::rescan_with_block_filters(
-            addresses, chain, wallet, cfilters, node,
+            addresses, chain, wallet, cfilters, node, None, None,
         ));
 
         Ok(true)
     }
 
-    fn rescan(&self, _rescan: u32) -> Result<bool> {
+    #[doc = include_str!("../../../doc/rpc/rescanblockchain.md")]
+    fn rescan(&self, start_height: Option<u32>, stop_height: Option<u32>) -> Result<bool> {
         // if we are on ibd, we don't have any filters to rescan
         if self.chain.is_in_ibd() {
             return Err(JsonRpcError::InInitialBlockDownload);
@@ -175,7 +176,13 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
         let chain = self.chain.clone();
 
         tokio::task::spawn(Self::rescan_with_block_filters(
-            addresses, chain, wallet, cfilters, node,
+            addresses,
+            chain,
+            wallet,
+            cfilters,
+            node,
+            start_height,
+            stop_height,
         ));
 
         Ok(true)
@@ -396,9 +403,35 @@ async fn handle_json_rpc_request(
         }
 
         "rescanblockchain" => {
-            let rescan = params[0].as_u64().ok_or(JsonRpcError::InvalidHeight)?;
+            let mut start_height = params
+                .first()
+                .and_then(Value::as_u64)
+                .map(|h| h as u32)
+                .ok_or(JsonRpcError::InvalidHeight)?;
+            let stop_height = params
+                .get(1)
+                .and_then(Value::as_u64)
+                .map(|h| h as u32)
+                .ok_or(JsonRpcError::InvalidHeight)?;
+            let use_timestamp = params.get(2).and_then(Value::as_bool).unwrap_or(false);
+
+            let mut stop_height = (stop_height != 0).then_some(stop_height);
+
+            if use_timestamp {
+                (start_height, stop_height) = match stop_height {
+                    Some(end) => (
+                        state.get_block_height_by_timestamp(start_height).await?,
+                        Some(state.get_block_height_by_timestamp(end).await?),
+                    ),
+                    None => (
+                        state.get_block_height_by_timestamp(start_height).await?,
+                        None,
+                    ),
+                }
+            }
+
             state
-                .rescan(rescan as u32)
+                .rescan(Some(start_height), stop_height)
                 .map(|v| ::serde_json::to_value(v).unwrap())
         }
 
@@ -568,11 +601,14 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
         wallet: Arc<AddressCache<KvDatabase>>,
         cfilters: Arc<NetworkFilters<FlatFiltersStore>>,
         node: NodeInterface,
+        start_height: Option<u32>,
+        stop_height: Option<u32>,
     ) -> Result<()> {
         let blocks = cfilters
             .match_any(
                 addresses.iter().map(|a| a.as_bytes()).collect(),
-                Some(0),
+                start_height,
+                stop_height,
                 chain.clone(),
             )
             .unwrap();
