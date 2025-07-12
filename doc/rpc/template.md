@@ -8,19 +8,22 @@ Brief description of what this RPC does and its primary purpose.
 
 Please, always skip a line to render properly on man-pages.
 
-[ # wrap with `[` and `]` to indicate an array of objects.
+```json5
+// Wrap with `[` and `]` to indicate an array of objects
+[
 
- {
+  {
 
-   json_string: "str", (String, required) Description about the expected json object.
+    "json_string": "str", // (String, required) Description about the expected JSON object.
 
-   numeric_field: n, (numeric, optional) Describes an optional camp of the expected json object.
+    "numeric_field": 123, // (Numeric, optional) Describes an optional field.
 
-   boolean_field: bool, (Boolean, Required) Describes an obligatory boolean.
+    "boolean_field": true // (Boolean, required) Describes an obligatory boolean.
 
- }
+  }
 
 ]
+```
 
 * `param2`  - Description of optional parameter (default: value) (type)
 
