@@ -215,9 +215,9 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
     /// Specifying the blockhash will make this function go after the block and search
     /// for the transactions inside it, building a merkle proof from the block with its
     /// indexes. Not specifying will redirect it to search for the merkle proof on our
-    /// Watch-only wallet which may not have the transaction cached, returning [`JsonRpcError::UncertainTxNotFound`].
+    /// watch-only wallet which may not have the transaction cached.
     ///
-    /// Not founding one of the specified transactions will raise [`JsonRpcError::TxNotFound`].
+    /// Not finding one of the specified transactions will raise [`JsonRpcError::TxNotFound`].
     pub(super) async fn get_txout_proof(
         &self,
         tx_ids: &[Txid],

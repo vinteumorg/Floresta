@@ -14,7 +14,7 @@ Attempts to add or remove a node from the addnode list.
 
 - json null
 
-### Error Enum [`CommandError`]
+### Error Enum `CommandError`
 
 Any of the error types on `rpc_types::Error`
 

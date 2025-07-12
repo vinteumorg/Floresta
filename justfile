@@ -55,26 +55,32 @@ test-functional-uv-fmt:
 
 # Run all required stuff to functional tests
 test-functional:
-  @just test-functional-uv-fmt
-  @just test-functional-prepare --build
-  @just test-functional-run
+    @just test-functional-uv-fmt
+    @just test-functional-prepare --build
+    @just test-functional-run
 
 # Run the benchmarks
 bench:
     cargo bench -p floresta-chain --no-default-features --features test-utils,kv-chainstore
     cargo bench -p floresta-chain --no-default-features --features test-utils,flat-chainstore
 
-# Generate documentation for all crates
+# Generate the public documentation for all crates
 doc:
     RUSTDOCFLAGS="--cfg docsrs" cargo +nightly doc --workspace --no-deps --all-features
 
-# Generate and open documentation for all crates
+# Generate and open the public documentation for all crates
 open-doc:
     RUSTDOCFLAGS="--cfg docsrs" cargo +nightly doc --workspace --no-deps --all-features --open
+
+# Generate the documentation for all crates, including private items, and fail on warnings
+doc-check:
+    RUSTDOCFLAGS="--cfg docsrs -D warnings" \
+    cargo +nightly doc --workspace --no-deps --all-features --document-private-items
 
 # Format code and run configured linters
 lint:
     @just fmt
+    @just doc-check
 
     # 1) Run with no features
     cargo +nightly clippy --workspace --all-targets --no-default-features \
@@ -115,6 +121,8 @@ test-features arg="":
 # Format code and run clippy for all feature combinations in each crate (arg: optional, e.g., '-- -D warnings')
 lint-features arg="":
     @just fmt
+    @just doc-check
+
     cargo install cargo-hack --locked
     ./contrib/feature_matrix.sh clippy '{{arg}}'
 
