@@ -447,7 +447,7 @@ where
 
     /// Handles remove node requests, removing a peer from the node.
     ///
-    /// Removes a node from the [`added_peers`] list but does not
+    /// Removes a node from the `added_peers` list but does not
     /// disconnect the node if it was already connected.  It only ensures
     /// that the node is no longer treated as a manually added node
     /// (i.e., it won't be reconnected if disconnected).
@@ -1645,7 +1645,7 @@ where
 
     /// Creates a new outgoing connection with `address`.
     ///
-    /// [`kind`] may or may not be a [`ConnectionKind::Feeler`], a special connection type
+    /// `kind` may or may not be a [`ConnectionKind::Feeler`], a special connection type
     /// that is used to learn about good peers, but are not kept after handshake
     /// (others are [`ConnectionKind::Regular`] and [`ConnectionKind::Extra`]).
     ///
@@ -1653,7 +1653,7 @@ where
     /// we may retry the connection with the old V1 protocol if the V2 connection fails.
     /// We don't open the connection here, we create a [`Peer`] actor that will try to open
     /// a connection with the given address and kind. If it succeeds, it will send a
-    /// [`NodeNotification::Ready`] to the node after handshaking.
+    /// [`PeerMessages::Ready`] to the node after handshaking.
     pub(crate) async fn open_connection(
         &mut self,
         kind: ConnectionKind,

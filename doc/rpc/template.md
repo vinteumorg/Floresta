@@ -31,7 +31,7 @@ Please, always skip a line to render properly on man-pages.
 - `field1`- (type) Description of return field
 - `field2` - (type) Description of another return field
 
-### Error Enum [`CommandError`]
+### Error Enum `CommandError`
 
 (Command error is a well documented enum returned client side)
 
