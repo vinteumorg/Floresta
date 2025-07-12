@@ -117,14 +117,19 @@ pub enum FindAccResult {
 
 /// Helper enum to express the different possibilities under `find_who_is_lying`
 pub enum LyingPeer {
+    // One peer is lying
     OnePeer(PeerId),
 
+    // Both peers are lying
     BothPeers(PeerId, PeerId),
 
+    // One peer is unresponsive
     UnresponsivePeer(PeerId),
 
+    // Both peers are unresponsive
     BothUnresponsivePeers(PeerId, PeerId),
 
+    // Neither peer is lying or unresponsive
     None,
 }
 
@@ -255,8 +260,10 @@ where
     /// download the block and proof, update the acc they agreed on, update the stump and see
     /// who is lying.
     ///
-    /// This method should return the peer that is lying `Ok(Some(PeerId))` or `Ok(None)` if
-    /// both are lying or are unresponsive during the process.
+    /// This method should return a enum of [LyingPeer] representing the state the peers are found, which can be:
+    /// - Lying
+    /// - Unresponsive
+    /// - None (if both peers are telling the truth)
     async fn find_who_is_lying(
         &mut self,
         peer1: PeerId,
