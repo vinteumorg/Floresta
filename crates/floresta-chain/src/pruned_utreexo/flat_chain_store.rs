@@ -22,7 +22,7 @@
 //!
 //! We want to keep the load factor for the hash map as low as possible, while also avoiding
 //! re-hashing. So we pick a fairly big initial space to it, say 10 million buckets. Each bucket is
-//! 4 bytes long, so we have 40 MiB of map. Each [HashedDiskHeader] is 124 bytes long (80 bytes for
+//! 4 bytes long, so we have 40 MiB of map. Each `HashedDiskHeader` is 124 bytes long (80 bytes for
 //! header + 4 for height + 32 for hash + 8 for the accumulator size and pos), so the maximum size
 //! for it, assuming 2.5 million headers (good for the next ~30 years), is 310 MiB.
 //! The smallest device I know that can run floresta has ~250 MiB of RAM, so we could
@@ -53,7 +53,8 @@
 //!
 //! Buckets are the slots of a hashmap.
 //!
-//! For more detailed information please refer to [Hash Table] (https://en.wikipedia.org/wiki/Hash_table) from wikipedia.
+//! For more detailed information please refer to [Hash Table](https://en.wikipedia.org/wiki/Hash_table)
+//! from wikipedia.
 //!
 //! # Safety
 //!
