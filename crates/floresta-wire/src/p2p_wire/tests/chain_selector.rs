@@ -142,4 +142,52 @@ mod tests {
         );
         assert_eq!(root_hashes.len(), 6);
     }
+
+    #[tokio::test]
+    async fn ten_peers_one_honest() {
+        use bitcoin::BlockHash;
+        use floresta_common::prelude::HashMap;
+        let essentials = get_essentials();
+        let headers = essentials.headers.to_vec();
+        let blocks = essentials.blocks;
+        let true_filters = get_test_filters().unwrap();
+        let mut false_filters_array: Vec<HashMap<BlockHash, Vec<u8>>> = Vec::new();
+
+        for i in 0..9 {
+            let mut false_filters = true_filters.clone();
+            for (j, _) in headers.iter().enumerate().take(NUM_BLOCKS).skip(i * 2) {
+                false_filters.remove(&headers[j].block_hash());
+                false_filters.insert(headers[j].block_hash(), create_false_acc(j));
+            }
+            false_filters_array.push(false_filters);
+        }
+
+        let mut peers = Vec::new();
+        for _ in 0..9 {
+            let peer = (
+                headers.clone(),
+                blocks.clone(),
+                false_filters_array.pop().unwrap(),
+            );
+            peers.push(peer);
+        }
+
+        peers.push((headers.clone(), blocks.clone(), true_filters.clone()));
+
+        let chain = setup_node(peers, true, Network::Signet).await;
+        let best_block = chain.get_best_block().unwrap();
+        assert_eq!(best_block.1, headers[119].block_hash());
+
+        let root_hashes = chain.get_root_hashes();
+
+        // the following assert is checking the third root of the accumulator at height 119
+        assert_eq!(
+            root_hashes[3],
+            BitcoinNodeHash::from_str(
+                "bfe030a7a994b921fb2329ff085bd0f2351cb5fa251985d6646aaf57954b782b"
+            )
+            .unwrap()
+        );
+        assert_eq!(root_hashes.len(), 6);
+    }
 }
