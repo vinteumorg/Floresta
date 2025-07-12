@@ -25,7 +25,7 @@ use floresta_chain::ChainState;
 use floresta_chain::FlatChainStore as ChainStore;
 #[cfg(feature = "flat-chainstore")]
 use floresta_chain::FlatChainStoreConfig;
-#[cfg(feature = "kv-chainstore")]
+#[cfg(all(feature = "kv-chainstore", not(doc)))]
 use floresta_chain::KvChainStore as ChainStore;
 #[cfg(feature = "compact-filters")]
 use floresta_compact_filters::flat_filters_store::FlatFiltersStore;
@@ -75,7 +75,7 @@ use crate::wallet_input::InitialWalletSetup;
 use crate::zmq::ZMQServer;
 
 // flat-chainstore and kv-chainstore are mutually exclusive
-#[cfg(all(feature = "flat-chainstore", feature = "kv-chainstore"))]
+#[cfg(all(feature = "flat-chainstore", feature = "kv-chainstore", not(doc)))]
 compile_error!(
     "You cannot use both flat-chainstore and kv-chainstore at the same time. Please choose one."
 );
@@ -805,7 +805,7 @@ impl Florestad {
         ChainStore::new(config).expect("failure while creating chainstate")
     }
 
-    #[cfg(feature = "kv-chainstore")]
+    #[cfg(all(feature = "kv-chainstore", not(doc)))]
     fn load_chain_state(
         data_dir: String,
         network: Network,

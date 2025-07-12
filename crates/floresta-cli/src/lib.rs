@@ -8,6 +8,8 @@
 //! ready-to-use library for interacting with florestad's json-rpc interface in your rust
 //! application.
 
+#![cfg_attr(docsrs, feature(doc_auto_cfg))]
+
 #[cfg(feature = "with-jsonrpc")]
 pub mod jsonrpc_client;
 

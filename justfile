@@ -66,11 +66,11 @@ bench:
 
 # Generate documentation for all crates
 doc:
-    cargo +nightly doc --workspace --no-deps
+    RUSTDOCFLAGS="--cfg docsrs" cargo +nightly doc --workspace --no-deps --all-features
 
 # Generate and open documentation for all crates
 open-doc:
-    cargo +nightly doc --workspace --no-deps --open
+    RUSTDOCFLAGS="--cfg docsrs" cargo +nightly doc --workspace --no-deps --all-features --open
 
 # Format code and run configured linters
 lint:
