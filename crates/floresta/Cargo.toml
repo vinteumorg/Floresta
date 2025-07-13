@@ -1,6 +1,6 @@
 [package]
 name = "floresta"
-version = "0.3.0"
+version = "0.4.0"
 authors = ["Davidson Souza <davidson.lucas.souza@outlook.com>"]
 edition = "2021"
 description = """
@@ -23,11 +23,11 @@ keywords = ["bitcoin", "utreexo", "node", "blockchain", "rust"]
 categories = ["cryptography::cryptocurrencies"]
 
 [dependencies]
-floresta-common = { path = "../floresta-common", version = "0.3.0" }
-floresta-chain = { path = "../floresta-chain", version = "0.3.0" }
-floresta-wire = { path = "../floresta-wire", version = "0.3.0" }
-floresta-watch-only = { path = "../floresta-watch-only", optional = true, version = "0.3.0" }
-floresta-electrum = { path = "../floresta-electrum", optional = true, version = "0.3.0" }
+floresta-common = { path = "../floresta-common", version = "0.4.0" }
+floresta-chain = { path = "../floresta-chain", version = "0.4.0" }
+floresta-wire = { path = "../floresta-wire", version = "0.4.0" }
+floresta-watch-only = { path = "../floresta-watch-only", optional = true, version = "0.4.0" }
+floresta-electrum = { path = "../floresta-electrum", optional = true, version = "0.4.0" }
 
 [dev-dependencies]
 rustreexo = "0.4"
@@ -37,7 +37,7 @@ bitcoin = { version = "0.32", features = [
     "serde",
     "bitcoinconsensus",
 ], default-features=false }
-floresta = { version = "0.3.0", path = "../floresta", features = [
+floresta = { version = "0.4.0", path = "../floresta", features = [
     "bitcoinconsensus",
     "memory-database",
     "electrum-server",
