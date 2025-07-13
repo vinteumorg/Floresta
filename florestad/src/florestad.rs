@@ -497,15 +497,20 @@ impl Florestad {
         // Electrum Server configuration.
 
         // Instantiate the Electrum Server.
-
-        let electrum_server = ElectrumServer::new(
+        let electrum_server = match ElectrumServer::new(
             wallet,
             blockchain_state,
             cfilters,
             chain_provider.get_handle(),
         )
         .await
-        .expect("Could not create an Electrum Server");
+        {
+            Ok(server) => server,
+            Err(e) => {
+                error!("Could not create an Electrum Server: {e}");
+                std::process::exit(1);
+            }
+        };
 
         // Default Electrum Server port.
         let default_electrum_port: u16 =
