@@ -12,8 +12,38 @@ cargo build
 
 The functional tests also need some dependencies, we use python for writing them and `uv` to manage its dependencies.
 
-Our tests also needs `utreexod` and `florestad` to test some functionalities. We offer a helper script to assist in this process and guarantee isolation and reproducibility. Since `go` is a requirement to build utreexod, make sure you have `go` available on your system.
-See [Setting Functional Tests Binaries](#setting-functional-tests-binaries) for more instructions.
+### Dependencies requirements to run functional tests
+
+The functional tests will build Bitcoin Core, Utreexo and Floresta in order to make integration testing. To do so it will use some dependencies.
+
+The following guide is a compilation taken from [Bitcoin](https://github.com/bitcoin/bitcoin/tree/master/doc) and [Utreexo](https://github.com/utreexo/utreexod/). It considers the user running the tests already has the required dependencies for building [Floresta](https://github.com/vinteumorg/Floresta/tree/master/doc).
+
+#### Ubuntu & Debian
+
+```bash
+sudo apt-get install build-essential cmake pkgconf python3 libevent-dev libboost-dev golang
+```
+
+#### Fedora
+
+```bash
+sudo dnf install gcc-c++ cmake make python3 libevent-devel boost-devel golang
+```
+
+#### MacOS
+
+```bash
+brew install cmake boost pkgconf libevent coreutils go
+```
+
+#### Installing UV
+
+UV is an extremely fast Python package and project manager, written in Rust.
+
+```bash
+# On macOS and Linux.
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
 
 ## Testing Options
 There's a set of unit and integration Rust tests that you can run with:
@@ -67,7 +97,6 @@ just test-functional-run "-t floresta-cli -k getblock"
 #### From helper scripts
 
 We provide two helper scripts to support our functional tests in this process and guarantee isolation and reproducibility.
-Since `go` is a requirement to build `utreexod`, make sure you have`go` available on your system.
 
 * [prepare.sh](https://github.com/vinteumorg/Floresta/blob/master/tests/prepare.sh) checks for build dependencies for both `utreexod` and `florestad`, builds them, and sets the `$FLORESTA_TEMP_DIR` environment variable. This variable points to where our functional tests will look for the binaries — specifically at `$FLORESTA_TEMP_DIR/binaries`.
 
