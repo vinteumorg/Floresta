@@ -136,6 +136,7 @@ impl From<base58::Error> for Error {
 
 /// SLIP 132-defined key applications defining types of scriptPubKey descriptors
 /// in which they can be used
+#[allow(dead_code)]
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum KeyApplication {
@@ -165,6 +166,7 @@ pub enum KeyApplication {
 }
 
 /// Unknown string representation of [`KeyApplication`] enum
+#[allow(dead_code)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct UnknownKeyApplicationError;
 
