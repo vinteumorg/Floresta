@@ -8,7 +8,12 @@ from test_framework.rpc.base import BaseRPC
 
 REGTEST_RPC_SERVER = {
     "host": "127.0.0.1",
-    "ports": {"server": 18444, "rpc": 18334},
+    "ports": {
+        "p2p": 18444,
+        "rpc": 18334,
+        "electrum-server": 20001,
+        "electrum-server-tls": 20002,
+    },
     "user": "utreexo",
     "password": "utreexo",
     "jsonrpc": "1.0",

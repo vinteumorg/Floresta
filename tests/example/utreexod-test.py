@@ -1,12 +1,11 @@
 """
-utreexo-test.py
+utreexod-test.py
 
 This is an example of how a tests with utreexo should look like,
 see `tests/test_framework/test_framework.py` for more info.
 """
 
 from test_framework import FlorestaTestFramework
-from test_framework.rpc.utreexo import REGTEST_RPC_SERVER
 
 
 class UtreexodTest(FlorestaTestFramework):
@@ -17,7 +16,6 @@ class UtreexodTest(FlorestaTestFramework):
     the test do and the expected result in the docstrings
     """
 
-    index = [-1]
     expected_chain = "regtest"
     expected_height = 0
     expected_headers = 0
@@ -30,9 +28,7 @@ class UtreexodTest(FlorestaTestFramework):
         """
         Here we define setup for test adding a node definition
         """
-        UtreexodTest.index[0] = self.add_node(
-            variant="utreexod", rpcserver=REGTEST_RPC_SERVER
-        )
+        self.utreexod = self.add_node(variant="utreexod")
 
     # All tests should override the run_test method
     def run_test(self):
@@ -49,14 +45,13 @@ class UtreexodTest(FlorestaTestFramework):
         # in this case, `utreexod`, and wait for
         # all ports opened by it, including the
         # RPC port to be available
-        self.run_node(UtreexodTest.index[0])
+        self.run_node(self.utreexod)
 
         # Once the node is running, we can create
         # a request to the RPC server. In this case, we
         # call it node, but in truth, will be a RPC request
         # to perform some kind of action
-        node = self.get_node(UtreexodTest.index[0])
-        utreexo_response = node.rpc.get_blockchain_info()
+        utreexo_response = self.utreexod.rpc.get_blockchain_info()
 
         self.assertEqual(utreexo_response["chain"], UtreexodTest.expected_chain)
         self.assertEqual(
@@ -66,7 +61,7 @@ class UtreexodTest(FlorestaTestFramework):
             utreexo_response["difficulty"], UtreexodTest.expected_difficulty
         )
 
-        self.stop_node(UtreexodTest.index[0])
+        self.stop()
 
 
 if __name__ == "__main__":

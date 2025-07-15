@@ -228,7 +228,7 @@
                 shellHook =
                   prepareHook
                   + ''
-                    alias run_test="uv run tests/run_tests.py"
+                    alias run_test="uv run tests/test_runner.py"
                     echo "run_test alias is set"
                   '';
               };

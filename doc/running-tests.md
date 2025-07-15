@@ -79,10 +79,10 @@ So a basic usage would be:
 ./tests/prepare.sh && ./tests/run.sh
 ```
 
-By default, the tool will build `utreexod` on its latest commit on `main`
-branch. If you want to build a specific commit, you can set the
+By default, the tool will build `utreexod` on its [latest release](https://github.com/utreexo/utreexod/releases/latest).
+If you want to build a specific release, you can set the
 `UTREEXO_REVISION` environment variable before running the script.
-It may be a tag or a commit hash. For example:
+It must be a [valid tag](https://github.com/utreexo/utreexod/tags) without the `v` prefix. For example:
 
 ```bash
 UTREEXO_REVISION=0.1.0 ./tests/prepare.sh && ./tests/run.sh
@@ -98,7 +98,7 @@ The `--build` argument will force the script to build `utreexod` even if it is a
 The `--preserve-data-dir` argument will keep the data and logs directories after running the tests
 (this is useful if you want to keep the data for debugging purposes).
 
-Furthermore, you can only specific tests, rather than all at once.
+Furthermore, you can run a set of specific tests, rather than all at once.
 
 ```bash
 # runs all tests in 'floresta-cli' suite
@@ -192,25 +192,25 @@ uv run pylint ./tests
 Our tests are separated by "test suites". Suites are folders located in `./tests/<suite>` and the tests are the `./tests/<suite>/*-test.py` files. To run all suites, type:
 
 ```bash
-FLORESTA_TEMP_DIR=<your_bin_dir> uv run tests/run_tests.py
+FLORESTA_TEMP_DIR=<your_bin_dir> uv run tests/test_runner.py
 ```
 
 You can list all suites with:
 
 ```bash
-FLORESTA_TEMP_DIR=<your_bin_dir> uv run tests/run_tests.py --list-suites
+FLORESTA_TEMP_DIR=<your_bin_dir> uv run tests/test_runner.py --list-suites
 ```
 
 To run a specific suite:
 
 ```bash
-FLORESTA_TEMP_DIR=<your_bin_dir> uv run tests/run_tests.py --test-suite <suite>
+FLORESTA_TEMP_DIR=<your_bin_dir> uv run tests/test_runner.py --test-suite <suite>
 ```
 
 You can even add more:
 
 ```bash
-FLORESTA_TEMP_DIR=<your_bin_dir> uv run tests/run_tests.py --test-suite <suite_A> --test-suite <suite_B>
+FLORESTA_TEMP_DIR=<your_bin_dir> uv run tests/test_runner.py --test-suite <suite_A> --test-suite <suite_B>
 ```
 
 ##### Clean up the environment

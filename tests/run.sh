@@ -43,7 +43,7 @@ for arg in "$@"; do
 done
 
 # Run the re-freshed tests
-uv run ./tests/run_tests.py "${UV_ARGS[@]}"
+uv run ./tests/test_runner.py "${UV_ARGS[@]}"
 
 # Clean up the data dir if we succeeded and --preserve-data-dir was not passed
 if [ $? -eq 0 ] && [ "$PRESERVE_DATA" = false ];

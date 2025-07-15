@@ -6,45 +6,38 @@ the --connect option pointing to the utreexod node. Then check if
 the utreexod node is connected to the florestad node.
 """
 
-from test_framework import UtreexoRPC, FlorestaTestFramework
-from test_framework.rpc.floresta import REGTEST_RPC_SERVER as florestad_rpc
-from test_framework.rpc.utreexo import REGTEST_RPC_SERVER as utreexod_rpc
-
+from test_framework import FlorestaTestFramework
 import time
 
 SLEEP_TIME = 10
 
 
 class CliConnectTest(FlorestaTestFramework):
-    nodes = [-1, -1]
 
     def set_test_params(self):
-        to_connect = f"{utreexod_rpc['host']}:{utreexod_rpc['ports']['server']}"
-        CliConnectTest.nodes[0] = self.add_node(
-            variant="florestad",
-            rpcserver=florestad_rpc,
-            extra_args=[
-                f"--connect={to_connect}",
-            ],
-        )
+        self.utreexod = self.add_node(variant="utreexod")
 
-        CliConnectTest.nodes[1] = self.add_node(
-            variant="utreexod",
-            rpcserver=utreexod_rpc,
+        # To get the random port we nee to start the utreexod first
+        self.log("=== Starting utreexod")
+        self.run_node(self.utreexod)
+
+        # Now we can start the florestad node with the connect option
+        to_connect = f"{self.utreexod.get_host()}:{self.utreexod.get_port('p2p')}"
+        self.florestad = self.add_node(
+            variant="florestad",
+            extra_args=[f"--connect={to_connect}"],
         )
 
     def run_test(self):
         # Start the nodes
-        self.log("=== Starting nodes")
-        self.run_node(CliConnectTest.nodes[0])
-        self.run_node(CliConnectTest.nodes[1])
+        self.log("=== Starting floresta")
+        self.run_node(self.florestad)
 
         time.sleep(SLEEP_TIME)  # Give some time for the nodes to start
 
         # Check whether the utreexod is connected to florestad
         self.log("=== Checking connection")
-        utreexod: UtreexoRPC = self.get_node(CliConnectTest.nodes[1]).rpc
-        res = utreexod.get_peerinfo()
+        res = self.utreexod.rpc.get_peerinfo()
         self.assertEqual(len(res), 1)
 
         # Stop the nodes

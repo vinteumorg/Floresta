@@ -6,7 +6,6 @@ see `tests/test_framework/test_framework.py` for more info.
 """
 
 from test_framework import FlorestaTestFramework
-from test_framework.rpc.bitcoin import REGTEST_RPC_SERVER
 
 
 class BitcoindTest(FlorestaTestFramework):
@@ -17,7 +16,6 @@ class BitcoindTest(FlorestaTestFramework):
     the test do and the expected result in the docstrings
     """
 
-    index = [-1]
     expected_chain = "regtest"
     expected_height = 0
     expected_headers = 0
@@ -30,9 +28,7 @@ class BitcoindTest(FlorestaTestFramework):
         """
         Here we define setup for test adding a node definition
         """
-        BitcoindTest.index[0] = self.add_node(
-            variant="bitcoind", rpcserver=REGTEST_RPC_SERVER
-        )
+        self.bitcoind = self.add_node(variant="bitcoind")
 
     # All tests should override the run_test method
     def run_test(self):
@@ -49,22 +45,19 @@ class BitcoindTest(FlorestaTestFramework):
         # in this case, `bitcoind`, and wait for
         # all ports opened by it, including the
         # RPC port to be available
-        self.run_node(BitcoindTest.index[0])
+        self.run_node(self.bitcoind)
 
         # Once the node is running, we can create
         # a request to the RPC server. In this case, we
         # call it node, but in truth, will be a RPC request
         # to perform some kind of action
-        node = self.get_node(BitcoindTest.index[0])
-        bitcoin_response = node.rpc.get_blockchain_info()
+        response = self.bitcoind.rpc.get_blockchain_info()
 
-        self.assertEqual(bitcoin_response["chain"], BitcoindTest.expected_chain)
-        self.assertEqual(
-            bitcoin_response["bestblockhash"], BitcoindTest.expected_blockhash
-        )
-        self.assertTrue(bitcoin_response["difficulty"] > 0)
+        self.assertEqual(response["chain"], BitcoindTest.expected_chain)
+        self.assertEqual(response["bestblockhash"], BitcoindTest.expected_blockhash)
+        self.assertTrue(response["difficulty"] > 0)
 
-        self.stop_node(BitcoindTest.index[0])
+        self.stop()
 
 
 if __name__ == "__main__":

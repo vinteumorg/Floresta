@@ -39,20 +39,19 @@ class GetBlockheaderHeightZeroTest(FlorestaTestFramework):
         """
         Setup a single node
         """
-        GetBlockheaderHeightZeroTest.nodes[0] = self.add_node(
-            extra_args=[], rpcserver=REGTEST_RPC_SERVER
-        )
+        self.florestad = self.add_node(variant="florestad")
 
     def run_test(self):
         """
         Run JSONRPC and get the header of the genesis block
         """
         # Start node
-        self.run_node(GetBlockheaderHeightZeroTest.nodes[0])
+        self.run_node(self.florestad)
 
         # Test assertions
-        node = self.get_node(GetBlockheaderHeightZeroTest.nodes[0])
-        response = node.rpc.get_blockheader(GetBlockheaderHeightZeroTest.blockhash)
+        response = self.florestad.rpc.get_blockheader(
+            GetBlockheaderHeightZeroTest.blockhash
+        )
         self.assertEqual(response["version"], GetBlockheaderHeightZeroTest.version)
         self.assertEqual(
             response["prev_blockhash"], GetBlockheaderHeightZeroTest.prev_blockhash
@@ -65,7 +64,7 @@ class GetBlockheaderHeightZeroTest(FlorestaTestFramework):
         self.assertEqual(response["nonce"], GetBlockheaderHeightZeroTest.nonce)
 
         # stop the node
-        self.stop_node(GetBlockheaderHeightZeroTest.nodes[0])
+        self.stop()
 
 
 if __name__ == "__main__":

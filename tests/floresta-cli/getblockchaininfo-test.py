@@ -30,21 +30,17 @@ class GetBlockchaininfoTest(FlorestaTestFramework):
         """
         Setup a single node
         """
-        GetBlockchaininfoTest.nodes[0] = self.add_node(
-            extra_args=[], rpcserver=REGTEST_RPC_SERVER
-        )
+        self.florestad = self.add_node(variant="florestad")
 
     def run_test(self):
         """
         Run JSONRPC server and get some data about blockchain with only regtest genesis block
         """
         # Start node
-        self.run_node(GetBlockchaininfoTest.nodes[0])
-        node = self.get_node(GetBlockchaininfoTest.nodes[0])
+        self.run_node(self.florestad)
 
         # Test assertions
-        node = self.get_node(GetBlockchaininfoTest.nodes[0])
-        response = node.rpc.get_blockchain_info()
+        response = self.florestad.rpc.get_blockchain_info()
         self.assertEqual(response["best_block"], GetBlockchaininfoTest.best_block)
         self.assertEqual(response["difficulty"], GetBlockchaininfoTest.difficulty)
         self.assertEqual(response["height"], GetBlockchaininfoTest.height)
@@ -60,7 +56,7 @@ class GetBlockchaininfoTest(FlorestaTestFramework):
         self.assertEqual(response["validated"], GetBlockchaininfoTest.validated)
 
         # Stop the node
-        self.stop_node(GetBlockchaininfoTest.nodes[0])
+        self.stop()
 
 
 if __name__ == "__main__":
