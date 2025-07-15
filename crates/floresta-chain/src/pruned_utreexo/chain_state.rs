@@ -95,8 +95,8 @@ pub struct ChainStateInner<PersistedState: ChainStore> {
     /// be notified of new blocks, a module should implement the [BlockConsumer] trait, and
     /// subscribe by passing an [Arc] of itself to chainstate.
     /// When a new block is accepted (as valid) we call `consume_block` from [BlockConsumer].
-    /// If a module just wants pass in a channel, [Sender] implements [BlockConsumer], and can
-    /// be used during subscription (just keep the [Receiver] side.
+    /// If a module just wants pass in a channel, `Sender` implements [BlockConsumer], and can
+    /// be used during subscription (just keep the `Receiver` side.
     subscribers: Vec<Arc<dyn BlockConsumer>>,
     /// Fee estimation for 1, 10 and 20 blocks
     fee_estimation: (f64, f64, f64),

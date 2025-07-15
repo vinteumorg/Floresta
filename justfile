@@ -48,33 +48,38 @@ test-functional-prepare arg="":
 test-functional-run arg="":
     bash tests/run.sh {{arg}}
 
-# format and lint functional tests
+# Format and lint functional tests
 test-functional-uv-fmt:
     uv run black --verbose ./tests
     uv run pylint --verbose ./tests
 
-# Run all required stuff to functional tests
+# Run the functional tests
 test-functional:
-  @just test-functional-uv-fmt
-  @just test-functional-prepare --build
-  @just test-functional-run
+    @just test-functional-prepare --build
+    @just test-functional-run
 
 # Run the benchmarks
 bench:
     cargo bench -p floresta-chain --no-default-features --features test-utils,kv-chainstore
     cargo bench -p floresta-chain --no-default-features --features test-utils,flat-chainstore
 
-# Generate documentation for all crates
+# Generate the public documentation for all crates
 doc:
     RUSTDOCFLAGS="--cfg docsrs" cargo +nightly doc --workspace --no-deps --all-features
 
-# Generate and open documentation for all crates
+# Generate and open the public documentation for all crates
 open-doc:
     RUSTDOCFLAGS="--cfg docsrs" cargo +nightly doc --workspace --no-deps --all-features --open
+
+# Generate the documentation for all crates, including private items, and fail on warnings
+doc-check:
+    RUSTDOCFLAGS="--cfg docsrs -D warnings" \
+    cargo +nightly doc --workspace --no-deps --all-features --document-private-items
 
 # Format code and run configured linters
 lint:
     @just fmt
+    @just doc-check
 
     # 1) Run with no features
     cargo +nightly clippy --workspace --all-targets --no-default-features \
@@ -115,6 +120,9 @@ test-features arg="":
 # Format code and run clippy for all feature combinations in each crate (arg: optional, e.g., '-- -D warnings')
 lint-features arg="":
     @just fmt
+    @just doc-check
+    @just test-functional-uv-fmt
+
     cargo install cargo-hack --locked
     ./contrib/feature_matrix.sh clippy '{{arg}}'
 
@@ -126,7 +134,6 @@ clean-data:
 pcc:
     @just lint-features '-- -D warnings'
     @just test-features
-    @test-functional-uv-fmt
     @just test-functional
 
 # Must have pandoc installed

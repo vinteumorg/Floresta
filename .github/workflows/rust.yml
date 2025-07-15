@@ -24,6 +24,11 @@ jobs:
       - name: Run cargo fmt
         run: cargo +nightly fmt --all --check
 
+      - name: Run cargo doc
+        run: |
+          RUSTDOCFLAGS="--cfg docsrs -D warnings" \
+          cargo +nightly doc --workspace --no-deps --all-features --document-private-items
+
       - name: Run cargo clippy
         run: ./contrib/feature_matrix.sh clippy '-- -D warnings'
         shell: bash   # Ensure the script runs using bash on all platforms
@@ -105,4 +110,7 @@ jobs:
 
       - name: Build Docker image
         run: |
-          docker buildx build --cache-to=type=local,dest=/tmp/.buildx-cache --cache-from=type=local,src=/tmp/.buildx-cache -t dlsz/floresta:latest .
+          docker buildx build \
+          --cache-to=type=local,dest=/tmp/.buildx-cache \
+          --cache-from=type=local,src=/tmp/.buildx-cache \
+          -t dlsz/floresta:latest .

@@ -176,7 +176,7 @@ pub trait UpdatableChainstate {
 /// This trait is defining how we interact with our chain database. This definitions
 /// will be used by the [ChainState](chain_state::ChainState) to save and retrieve data about the blockchain, likely
 /// on disk.
-/// Right now, you can use the [KvChainStore](chainstore::KvChainStore) in your code, it implements this trait and
+/// Right now, you can use the [KvChainStore](crate::KvChainStore) in your code, it implements this trait and
 /// uses a key-value store to save data.
 /// The [DatabaseError] is a simple trait that can be implemented by any error type that
 /// implements `std::error::Error` and `std::fmt::Display`. This is useful to abstract
