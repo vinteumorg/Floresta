@@ -55,7 +55,7 @@ test-functional-uv-fmt:
 
 # Run the functional tests
 test-functional:
-    @just test-functional-prepare --build
+    @just test-functional-prepare
     @just test-functional-run
 
 # Run the benchmarks
