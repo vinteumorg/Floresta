@@ -5,8 +5,6 @@
 //!
 //! - [BlockchainInterface]: The main interface for interacting with the backend
 //! - [UpdatableChainstate]: Trait defining methods for updating the chain state
-//! - [ChainStore]: Trait for persisting and retrieving blockchain data (headers, block hashes,
-//!   the best chain data, and the accumulator)
 extern crate alloc;
 
 pub mod chain_state;
@@ -38,11 +36,8 @@ use rustreexo::accumulator::stump::Stump;
 use self::partial_chain::PartialChainState;
 use crate::prelude::*;
 use crate::pruned_utreexo::utxo_data::UtxoData;
-use crate::BestChain;
 use crate::BlockConsumer;
 use crate::BlockchainError;
-use crate::DatabaseError;
-use crate::DiskBlockHeader;
 use crate::UtreexoBlock;
 
 /// This trait is the main interface between our blockchain backend and other services.
@@ -111,6 +106,7 @@ pub trait BlockchainInterface {
     fn get_params(&self) -> bitcoin::params::Params;
     fn acc(&self) -> Stump;
 }
+
 /// [UpdatableChainstate] is a contract that a is expected from a chainstate
 /// implementation, that wishes to be updated. Using those methods, a backend like the p2p-node,
 /// can notify new blocks and transactions to a chainstate, allowing it to update it's state.
@@ -171,64 +167,6 @@ pub trait UpdatableChainstate {
     fn mark_chain_as_assumed(&self, acc: Stump, tip: BlockHash) -> Result<bool, BlockchainError>;
     /// Returns the current accumulator
     fn get_acc(&self) -> Stump;
-}
-
-/// This trait is defining how we interact with our chain database. This definitions
-/// will be used by the [ChainState](chain_state::ChainState) to save and retrieve data about the blockchain, likely
-/// on disk.
-/// Right now, you can use the [KvChainStore](crate::KvChainStore) in your code, it implements this trait and
-/// uses a key-value store to save data.
-/// The [DatabaseError] is a simple trait that can be implemented by any error type that
-/// implements `std::error::Error` and `std::fmt::Display`. This is useful to abstract
-/// the database implementation from the blockchain.
-/// See the documentation of [DatabaseError] for more info.
-pub trait ChainStore {
-    type Error: DatabaseError;
-
-    /// Saves the accumulator state for a given block height.
-    fn save_roots_for_block(&mut self, roots: Vec<u8>, height: u32) -> Result<(), Self::Error>;
-
-    /// Loads the state of our accumulator for a given block height.
-    ///
-    /// This is the state of the resulting accumulator after we process the block at `height`. If you
-    /// need the accumulator used to validate a block at height `n`, you should get the accumulator
-    /// from block `n - 1`.
-    fn load_roots_for_block(&mut self, height: u32) -> Result<Option<Vec<u8>>, Self::Error>;
-
-    /// Loads the blockchain height
-    fn load_height(&self) -> Result<Option<BestChain>, Self::Error>;
-
-    /// Saves the blockchain height.
-    fn save_height(&mut self, height: &BestChain) -> Result<(), Self::Error>;
-
-    /// Get a block header from our database. See [DiskBlockHeader] for more info about
-    /// the data we save.
-    fn get_header(&self, block_hash: &BlockHash) -> Result<Option<DiskBlockHeader>, Self::Error>;
-
-    /// Get a block header by its height in our database.
-    fn get_header_by_height(&self, height: u32) -> Result<Option<DiskBlockHeader>, Self::Error>;
-
-    /// Saves a block header to our database. See [DiskBlockHeader] for more info about
-    /// the data we save.
-    fn save_header(&mut self, header: &DiskBlockHeader) -> Result<(), Self::Error>;
-
-    /// Returns the block hash for a given height.
-    fn get_block_hash(&self, height: u32) -> Result<Option<BlockHash>, Self::Error>;
-
-    /// Flushes write buffers to disk, this is called periodically by the [ChainState](crate::ChainState),
-    /// so in case of a crash, we don't lose too much data. If the database doesn't support
-    /// write buffers, this method can be a no-op.
-    fn flush(&mut self) -> Result<(), Self::Error>;
-
-    /// Associates a block hash with a given height, so we can retrieve it later.
-    fn update_block_index(&mut self, height: u32, hash: BlockHash) -> Result<(), Self::Error>;
-
-    /// Checks if our database didn't get corrupted, and if it has, it returns
-    /// an error.
-    ///
-    /// If you're using a database that already checks for integrity by itself,
-    /// this can safely be a no-op.
-    fn check_integrity(&self) -> Result<(), Self::Error>;
 }
 
 #[derive(Debug, Clone)]
