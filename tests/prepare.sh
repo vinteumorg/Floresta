@@ -133,12 +133,7 @@ check_installed go
 check_installed cargo
 check_installed uv
 
-# Check if florestad is already built or if --build is passed
-if [ ! -f $FLORESTA_TEMP_DIR/binaries/florestad ] || [ "$1" == "--build" ]; then
-    build_floresta
-else
-    echo "Florestad already built, skipping..."
-fi
+build_floresta
 
 # Check if utreexod is already built or if --build is passed
 if [ ! -f $FLORESTA_TEMP_DIR/binaries/utreexod ] || [ "$1" == "--build" ]; then
