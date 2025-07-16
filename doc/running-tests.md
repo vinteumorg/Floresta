@@ -79,19 +79,29 @@ So a basic usage would be:
 ./tests/prepare.sh && ./tests/run.sh
 ```
 
+##### Utreexod
+
 By default, the tool will build `utreexod` on its [latest release](https://github.com/utreexo/utreexod/releases/latest).
-If you want to build a specific release, you can set the
-`UTREEXO_REVISION` environment variable before running the script.
+If you want to build a specific release, you can set the `UTREEXO_REVISION` environment variable before running the script.
 It must be a [valid tag](https://github.com/utreexo/utreexod/tags) without the `v` prefix. For example:
 
 ```bash
 UTREEXO_REVISION=0.1.0 ./tests/prepare.sh && ./tests/run.sh
 ```
 
+##### Bitcoin-core
+
+By default, the tool will build `bitcoind` on its latest release using 4 CPU cores. Starting with Bitcoin Core 29.0, `bitcoind` uses the `CMake` build system. If you want to use a previous version, configure it with the `BITCOIN_REVISION` environment variable. Also, if you need to change the number of CPU cores, use
+`BUILD_CORE_NPROCS`. If `BITCOIN_REVISION < 29.0`, it will be passed as argument to `Make`. If `BITCOIN_REVISION >= 29.0`, it will be passed to as argument to `CMake`. For example:
+
+```bash
+BITCOIN_REVISION=28.0 BUILD_BITCOIND_NPROCS=2 ./tests/prepare.sh && ./tests/run.sh
+```
+
 Additionally, you can use some arguments in those scripts:
 
 ```bash
-UTREEXO_REVISION=0.1.0 ./tests/prepare.sh --build && ./tests/run.sh --preserve-data-dir
+./tests/prepare.sh --build && ./tests/run.sh --preserve-data-dir
 ```
 
 The `--build` argument will force the script to build `utreexod` even if it is already built.
