@@ -10,3 +10,6 @@ Available fuzz targets:
 - `local_address_str`
 - `utreexo_block_des`
 - `addrman`
+- `flat_chainstore_header_insertion`
+- `flat_chainstore_memory_access`
+- `flat_chainstore_reorg`
