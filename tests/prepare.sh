@@ -71,7 +71,8 @@ build_core() {
             -DCMAKE_BUILD_TYPE=MinSizeRel \
             -DENABLE_EXTERNAL_SIGNER=OFF \
             -DINSTALL_MAN=OFF
-        cmake --build build --target bitcoind -j"$(nproc)"
+        cmake_nprocs="${BUILD_BITCOIND_NPROCS:-4}"
+        cmake --build build --target bitcoind -j"${cmake_nprocs}"
         mv $FLORESTA_TEMP_DIR/binaries/build/bitcoin/build/bin/bitcoind $FLORESTA_TEMP_DIR/binaries/bitcoind
     else
         ./autogen.sh
@@ -80,7 +81,8 @@ build_core() {
             --disable-tests \
             --disable-bench \
             --disable-wallet
-        make -j"$(nproc)"
+        make_nprocs="${BUILD_BITCOIND_NPROCS:-4}"
+        make -j"$(make_nprocs)"
         mv $FLORESTA_TEMP_DIR/binaries/build/bitcoin/src/bitcoind $FLORESTA_TEMP_DIR/binaries/bitcoind
     fi
 
