@@ -66,8 +66,15 @@ just test-functional-run "-t floresta-cli -k getblock"
 
 #### From helper scripts
 
+Make sure you have the following available:
+- `cargo`
+- `uv` (needed to run the python tests and build the virtual environment)
+- `go`(requirement to build `utreexod`)
+- `boost`
+- `coreutils`
+- `libevent`
+
 We provide two helper scripts to support our functional tests in this process and guarantee isolation and reproducibility.
-Since `go` is a requirement to build `utreexod`, make sure you have`go` available on your system.
 
 * [prepare.sh](https://github.com/vinteumorg/Floresta/blob/master/tests/prepare.sh) checks for build dependencies for both `utreexod` and `florestad`, builds them, and sets the `$FLORESTA_TEMP_DIR` environment variable. This variable points to where our functional tests will look for the binaries — specifically at `$FLORESTA_TEMP_DIR/binaries`.
 
