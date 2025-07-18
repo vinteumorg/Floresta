@@ -52,15 +52,17 @@ use bitcoin::block::Header;
 use bitcoin::consensus::deserialize;
 use bitcoin::p2p::message_blockdata::Inventory;
 use bitcoin::p2p::ServiceFlags;
+use bitcoin::Block;
 use bitcoin::BlockHash;
 use floresta_chain::proof_util;
 use floresta_chain::ChainBackend;
-use floresta_chain::UtreexoBlock;
+use floresta_chain::CompactLeafData;
 use floresta_common::service_flags;
 use log::debug;
 use log::info;
 use log::warn;
 use rustreexo::accumulator::node_hash::BitcoinNodeHash;
+use rustreexo::accumulator::proof::Proof;
 use rustreexo::accumulator::stump::Stump;
 use tokio::time::timeout;
 
@@ -251,7 +253,7 @@ where
     ) -> Result<Option<PeerId>, WireError> {
         let (mut height, mut hash) = self.chain.get_best_block()?;
         let mut prev_height = 0;
-        // we first norrow down the possible fork point to a couple of blocks, looking
+        // we first narrow down the possible fork point to a couple of blocks, looking
         // for all blocks in a linear search would be too slow
         loop {
             // ask both peers for the utreexo state
@@ -367,7 +369,7 @@ where
         };
 
         let block = self.chain.get_block_hash(fork + 1).unwrap();
-        self.send_to_peer(peer1, NodeRequest::GetBlock((vec![block], true)))
+        self.send_to_peer(peer1, NodeRequest::GetBlock(vec![block]))
             .await?;
 
         let NodeNotification::FromPeer(_, PeerMessages::Block(block)) =
@@ -376,8 +378,10 @@ where
             return Ok(None);
         };
 
-        let acc1 = self.update_acc(agreed, block, fork + 1)?;
-        let peer1_acc = Self::parse_acc(peer1_acc)?;
+        // let acc1 = self.update_acc(agreed, block, fork + 1)?;
+        todo!()
+
+        /*let peer1_acc = Self::parse_acc(peer1_acc)?;
         let peer2_acc = Self::parse_acc(peer2_acc)?;
 
         if peer1_acc != acc1 && peer2_acc != acc1 {
@@ -387,18 +391,23 @@ where
         if peer1_acc != acc1 {
             return Ok(Some(peer1));
         }
-
         Ok(Some(peer2))
+        */
     }
 
     /// Updates a Stump, with the data from a Utreexo block
-    fn update_acc(&self, acc: Stump, block: UtreexoBlock, height: u32) -> Result<Stump, WireError> {
-        let (proof, del_hashes, _) = proof_util::process_proof(
-            block.udata.as_ref().unwrap(),
-            &block.block.txdata,
-            height,
-            |h| self.chain.get_block_hash(h),
-        )?;
+    fn update_acc(
+        &self,
+        acc: Stump,
+        block: Block,
+        proof: Proof,
+        leaf_data: &[CompactLeafData],
+        height: u32,
+    ) -> Result<Stump, WireError> {
+        let (del_hashes, _) =
+            floresta_chain::proof_util::process_proof(leaf_data, &block.txdata, height, |h| {
+                self.chain.get_block_hash(h)
+            })?;
 
         Ok(self
             .chain
@@ -523,7 +532,7 @@ where
     }
 
     async fn is_our_chain_invalid(&mut self, other_tip: BlockHash) -> Result<(), WireError> {
-        let fork = self.chain.get_fork_point(other_tip)?;
+        /*let fork = self.chain.get_fork_point(other_tip)?;
         self.send_to_random_peer(
             NodeRequest::GetBlock((vec![fork], true)),
             service_flags::UTREEXO.into(),
@@ -568,6 +577,8 @@ where
         // our chain's block is valid, therefore there's no reason for anyone be in this fork
         self.ban_peers_on_tip(other_tip).await?;
         Ok(())
+        */
+        todo!()
     }
 
     async fn ban_peers_on_tip(&mut self, tip: BlockHash) -> Result<(), WireError> {

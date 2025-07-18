@@ -6,17 +6,12 @@ use bitcoin::consensus::Decodable;
 use bitcoin::consensus::Encodable;
 use bitcoin::hashes::sha256;
 use bitcoin::hashes::Hash;
-use bitcoin::Block;
 use bitcoin::BlockHash;
 use bitcoin::OutPoint;
 use bitcoin::TxOut;
-use bitcoin::VarInt;
-use rustreexo::accumulator::node_hash::BitcoinNodeHash;
-use rustreexo::accumulator::proof::Proof;
 use sha2::Digest;
 use sha2::Sha512_256;
 
-use crate::prelude::vec;
 use crate::prelude::Box;
 use crate::prelude::Vec;
 use crate::pruned_utreexo::consensus::UTREEXO_TAG_V1;
@@ -178,128 +173,6 @@ impl Encodable for ScriptPubKeyKind {
     }
 }
 
-/// BatchProof serialization defines how the utreexo accumulator proof will be
-/// serialized both for i/o.
-///
-/// Note that this serialization format differs from the one from
-/// github.com/mit-dci/utreexo/accumulator as this serialization method uses
-/// varints and the one in that package does not.  They are not compatible and
-/// should not be used together.  The serialization method here is more compact
-/// and thus is better for wire and disk storage.
-///
-/// The serialized format is:
-/// `[<target count><targets><proof count><proofs>]`
-///
-/// All together, the serialization looks like so:
-/// Field          Type       Size
-/// target count   varint     1-8 bytes
-/// targets        []uint64   variable
-/// hash count     varint     1-8 bytes
-/// hashes         []32 byte  variable
-#[derive(PartialEq, Eq, Clone, Debug, Default)]
-pub struct BatchProof {
-    /// All targets that'll be deleted
-    pub targets: Vec<VarInt>,
-    /// The inner hashes of a proof
-    pub hashes: Vec<BlockHash>,
-}
-
-impl From<&BatchProof> for Proof {
-    fn from(batch_proof: &BatchProof) -> Self {
-        let targets = batch_proof.targets.iter().map(|target| target.0).collect();
-        let proof_hashes = batch_proof
-            .hashes
-            .iter()
-            .map(|hash| BitcoinNodeHash::Some(*hash.as_byte_array()))
-            .collect();
-
-        Proof::new(targets, proof_hashes)
-    }
-}
-
-/// UData contains data needed to prove the existence and validity of all inputs
-/// for a Bitcoin block.  With this data, a full node may only keep the utreexo
-/// roots and still be able to fully validate a block.
-#[derive(PartialEq, Eq, Clone, Debug, Default)]
-pub struct UData {
-    /// All the indexes of new utxos to remember.
-    pub remember_idx: Vec<u64>,
-    /// AccProof is the utreexo accumulator proof for all the inputs.
-    pub proof: BatchProof,
-    /// LeafData are the tx validation data for every input.
-    pub leaves: Vec<CompactLeafData>,
-}
-
-/// A block plus some udata
-#[derive(PartialEq, Eq, Clone, Debug)]
-pub struct UtreexoBlock {
-    /// A actual block
-    pub block: Block,
-    /// The utreexo specific data
-    pub udata: Option<UData>,
-}
-
-impl Decodable for UtreexoBlock {
-    fn consensus_decode<R: bitcoin::io::Read + ?Sized>(
-        reader: &mut R,
-    ) -> Result<Self, consensus::encode::Error> {
-        let block = Block::consensus_decode(reader)?;
-
-        if let Err(consensus::encode::Error::Io(_remember)) = VarInt::consensus_decode(reader) {
-            return Ok(block.into());
-        };
-
-        let n_positions = VarInt::consensus_decode(reader)?;
-        let mut targets = vec![];
-        for _ in 0..n_positions.0 {
-            let pos = VarInt::consensus_decode(reader)?;
-            targets.push(pos);
-        }
-
-        let n_hashes = VarInt::consensus_decode(reader)?;
-        let mut hashes = vec![];
-        for _ in 0..n_hashes.0 {
-            let hash = BlockHash::consensus_decode(reader)?;
-            hashes.push(hash);
-        }
-
-        let n_leaves = VarInt::consensus_decode(reader)?;
-        let mut leaves = vec![];
-        for _ in 0..n_leaves.0 {
-            let header_code = u32::consensus_decode(reader)?;
-            let amount = u64::consensus_decode(reader)?;
-            let spk_ty = ScriptPubKeyKind::consensus_decode(reader)?;
-
-            leaves.push(CompactLeafData {
-                header_code,
-                amount,
-                spk_ty,
-            });
-        }
-
-        Ok(Self {
-            block,
-            udata: Some(UData {
-                remember_idx: vec![],
-                proof: BatchProof { targets, hashes },
-                leaves,
-            }),
-        })
-    }
-}
-
-impl From<UtreexoBlock> for Block {
-    fn from(block: UtreexoBlock) -> Self {
-        block.block
-    }
-}
-
-impl From<Block> for UtreexoBlock {
-    fn from(block: Block) -> Self {
-        UtreexoBlock { block, udata: None }
-    }
-}
-
 /// This module provides utility functions for working with Utreexo proofs.
 ///
 /// These functions can be used, for example, when verifying if a mempool transaction is valid;
@@ -326,7 +199,6 @@ pub mod proof_util {
     use bitcoin::WScriptHash;
     use floresta_common::impl_error_from;
     use rustreexo::accumulator::node_hash::BitcoinNodeHash;
-    use rustreexo::accumulator::proof::Proof;
     use sha2::Digest;
     use sha2::Sha512_256;
 
@@ -337,7 +209,6 @@ pub mod proof_util {
     use crate::BlockchainError;
     use crate::CompactLeafData;
     use crate::ScriptPubKeyKind;
-    use crate::UData;
 
     #[derive(Debug)]
     /// Errors that may occur while reconstructing a leaf's scriptPubKey.
@@ -519,21 +390,20 @@ pub mod proof_util {
     /// It takes a `UData`, a slice of transactions, the block height, and a function to get the block hash.
     /// It returns a Result containing a Proof, a vector of deleted hashes, and a `UtxoMap`, which is defined as `HashMap<OutPoint, UtxoData>`.
     pub fn process_proof<F, E>(
-        udata: &UData,
+        leaves: &[CompactLeafData],
         txdata: &[Transaction],
         height: u32,
         get_block_hash: F,
-    ) -> Result<(Proof, Vec<sha256::Hash>, UtxoMap), E>
+    ) -> Result<(Vec<sha256::Hash>, UtxoMap), E>
     where
         F: Fn(u32) -> Result<BlockHash, E>,
         E: From<UtreexoLeafError>,
     {
         // Initialize return values
-        let proof = Proof::from(&udata.proof);
         let mut del_hashes = Vec::new();
         let mut utxos = HashMap::new();
 
-        let mut leaves_iter = udata.leaves.iter().cloned();
+        let mut leaves_iter = leaves.iter().cloned();
 
         // Skip coinbase transaction
         for tx in txdata.iter().skip(1) {
@@ -590,7 +460,7 @@ pub mod proof_util {
             }
         }
 
-        Ok((proof, del_hashes, utxos))
+        Ok((del_hashes, utxos))
     }
 
     /// Reconstructs the output script, also called scriptPubKey, from a [CompactLeafData] and
@@ -706,7 +576,6 @@ mod test {
     use crate::BlockchainError;
     use crate::ChainState;
     use crate::KvChainStore;
-    use crate::UtreexoBlock;
 
     fn setup_test_chain<'a>(
         network: Network,

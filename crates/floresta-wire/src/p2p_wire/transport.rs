@@ -17,7 +17,6 @@ use bitcoin::p2p::message::NetworkMessage;
 use bitcoin::p2p::message::RawNetworkMessage;
 use bitcoin::p2p::Magic;
 use bitcoin::Network;
-use floresta_chain::UtreexoBlock;
 use log::debug;
 use log::info;
 use serde::Deserialize;
@@ -55,12 +54,6 @@ pub enum TransportError {
     SerdeV1(#[from] bitcoin::consensus::encode::Error),
     #[error("Proxy error: {0}")]
     Proxy(#[from] Socks5Error),
-}
-
-/// UTreeXO p2p message extensions to the base bitcoin protocol.
-pub enum UtreexoMessage {
-    Standard(NetworkMessage),
-    Block(UtreexoBlock),
 }
 
 pub enum ReadTransport<R: AsyncRead + Unpin + Send> {
@@ -305,24 +298,14 @@ where
     R: AsyncRead + Unpin + Send,
 {
     /// Read the next message from the transport.
-    pub async fn read_message(&mut self) -> Result<UtreexoMessage, TransportError> {
+    pub async fn read_message(&mut self) -> Result<NetworkMessage, TransportError> {
         match self {
             ReadTransport::V2(reader, protocol) => {
                 let payload = protocol.read_and_decrypt(reader).await?;
                 let contents = payload.contents();
+                let msg = deserialize_v2(contents)?;
 
-                // Check if it's a block message by looking at the short ID.
-                match contents.first() {
-                    Some(&2) => {
-                        let block: UtreexoBlock = deserialize(&contents[1..])?;
-                        Ok(UtreexoMessage::Block(block))
-                    }
-                    _ => {
-                        // Standard message
-                        let msg = deserialize_v2(contents)?;
-                        Ok(UtreexoMessage::Standard(msg))
-                    }
-                }
+                Ok(msg)
             }
             ReadTransport::V1(reader) => {
                 let mut data: Vec<u8> = vec![0; 24];
@@ -332,18 +315,8 @@ where
                 data.resize(24 + header.length as usize, 0);
                 reader.read_exact(&mut data[24..]).await?;
 
-                match header._command[0..5] {
-                    [0x62, 0x6c, 0x6f, 0x63, 0x6b] => {
-                        let mut block_data = vec![0; header.length as usize];
-                        block_data.copy_from_slice(&data[24..]);
-                        let block: UtreexoBlock = deserialize(&block_data)?;
-                        Ok(UtreexoMessage::Block(block))
-                    }
-                    _ => {
-                        let msg: RawNetworkMessage = deserialize(&data)?;
-                        Ok(UtreexoMessage::Standard(msg.payload().clone()))
-                    }
-                }
+                let msg: RawNetworkMessage = deserialize(&data)?;
+                Ok(msg.into_payload())
             }
         }
     }
