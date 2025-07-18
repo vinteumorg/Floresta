@@ -57,14 +57,13 @@ pub trait FlorestaRPC {
     /// The rescan parameter is the height at which to start the rescan, and should be at least
     /// as old as the oldest transaction this descriptor could have been used in.
     fn load_descriptor(&self, descriptor: String) -> Result<bool>;
-    /// Trigger a rescan of the wallet
-    ///
-    /// This method triggers a rescan of the wallet. If you have compact block filters enabled,
-    /// this process will be much faster and use less bandwidth. If you don't have compact block
-    /// filters, we'll need to download the entire blockchain again, which will take a while.
-    /// The rescan parameter is the height at which to start the rescan, and should be at least
-    /// as old as the oldest transaction this descriptor could have been used in.
-    fn rescanblockchain(&self, start_height: u32) -> Result<bool>;
+    #[doc = include_str!("../../../doc/rpc/rescanblockchain.md")]
+    fn rescanblockchain(
+        &self,
+        start_height: Option<u32>,
+        stop_heigth: Option<u32>,
+        use_timestamp: bool,
+    ) -> Result<bool>;
     /// Returns the current height of the blockchain
     fn get_block_count(&self) -> Result<u32>;
     /// Sends a hex-encoded transaction to the network
@@ -190,10 +189,44 @@ impl<T: JsonRPCClient> FlorestaRPC for T {
         self.call("stop", &[])
     }
 
-    fn rescanblockchain(&self, start_height: u32) -> Result<bool> {
+    fn rescanblockchain(
+        &self,
+        start_height: Option<u32>,
+        stop_height: Option<u32>,
+        use_timestamp: bool,
+    ) -> Result<bool> {
+        pub const GENESIS_TIMESTAMP: u32 = 1231006505; // The u32 representation of 03 Jan 2009, 18:15:05. The salvation of human kind.
+
+        let start_height = start_height.unwrap_or(0u32);
+
+        let stop_height = stop_height.unwrap_or(0u32);
+
+        // We need to check some constraints before sending the request.
+        // The same constraints are checked server side to maintain api consistency.
+        if stop_height != 0 && start_height >= stop_height {
+            // When stop height is a non zero value it needs atleast to be greater than start_height.
+            return Err(Error::InvalidRescanVal);
+        }
+
+        println!("{start_height}, {stop_height}");
+
+        // When timestamp values are inserted we need to check some contraints only in case
+        // theyre non zero.
+        if use_timestamp
+            && (stop_height != 0 && start_height != 0)
+            && start_height < GENESIS_TIMESTAMP
+        {
+            // We dont need to check stop height because at this point it is atleast greater than start_height
+            return Err(Error::InvalidRescanVal);
+        }
+
         self.call(
             "rescanblockchain",
-            &[Value::Number(Number::from(start_height))],
+            &[
+                Value::Number(Number::from(start_height)),
+                Value::Number(Number::from(stop_height)),
+                Value::Bool(use_timestamp),
+            ],
         )
     }
 
