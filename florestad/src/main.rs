@@ -106,7 +106,15 @@ fn main() {
 
     let florestad = Florestad::from(config);
     _rt.block_on(async {
-        florestad.start().await;
+        florestad
+            .start()
+            .await
+            .map(|_| info!("Florestad started successfully"))
+            .map_err(|e| {
+                eprintln!("Failed to start Florestad:\n\n{e}");
+                std::process::exit(1);
+            })
+            .unwrap();
 
         // wait for shutdown
         loop {
