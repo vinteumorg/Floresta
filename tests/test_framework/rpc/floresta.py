@@ -151,3 +151,10 @@ class FlorestaRPC(BaseRPC):
         `perform_request('uptime')`
         """
         return self.perform_request("uptime")
+
+    def get_bestblockhash(self) -> str:
+        """
+        Get the hash of the best block in the chain performing
+        `perform_request('getbestblockhash')`
+        """
+        return self.perform_request("getbestblockhash")
