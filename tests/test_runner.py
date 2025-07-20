@@ -65,6 +65,7 @@ BASE_TEST_SUITE = [
     ("floresta-cli", "getblockchaininfo"),
     ("example", "bitcoin"),
     ("example", "utreexod"),
+    ("floresta-cli", "getbestblockhash"),
 ]
 
 # Before running the tests, we check if the number of tests
