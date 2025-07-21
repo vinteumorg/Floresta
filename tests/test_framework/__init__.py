@@ -766,6 +766,18 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
             raise AssertionError(f"Actual: {condition}\nExpected: {expected}")
 
     # pylint: disable=invalid-name
+    def assertNotEqual(self, condition: Any, expected: Any):
+        """
+        Assert if the condition is True, otherwise
+        all nodes will be stopped and an AssertionError will
+        be raised.
+        """
+
+        if condition == expected:
+            self.stop()
+            raise AssertionError(f"Actual: {condition}\nExpected: !{expected}")
+
+    # pylint: disable=invalid-name
     def assertIn(self, element: Any, listany: List[Any]):
         """
         Assert if the element is in listany , otherwise
