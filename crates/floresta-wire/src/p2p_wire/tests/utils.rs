@@ -12,7 +12,6 @@ use bitcoin::hex::FromHex;
 use bitcoin::p2p::ServiceFlags;
 use bitcoin::BlockHash;
 use bitcoin::Network;
-use floresta_chain::UtreexoBlock;
 use floresta_common::bhash;
 use floresta_common::service_flags;
 use floresta_common::service_flags::UTREEXO;
