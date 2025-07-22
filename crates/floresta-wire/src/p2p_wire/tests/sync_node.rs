@@ -81,7 +81,6 @@ mod tests_utils {
         timeout(Duration::from_secs(100), node.run(|_| {}))
             .await
             .unwrap();
-
         chain
     }
 }
@@ -141,7 +140,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_sync_block_without_udata() {
-        // THIS SIMUATION WILL TEST 2 THINGS:
+        // THIS SIMULATION WILL TEST 2 THINGS:
         //
         // 1) SENDING IN THE 3RD BLOCK WITHOUT PROOF: THIS WILL BANN THE PEER
         //
