@@ -5,12 +5,12 @@ use floresta_chain::BlockValidationErrors;
 use floresta_chain::BlockchainError;
 #[cfg(feature = "flat-chainstore")]
 use floresta_chain::FlatChainstoreError;
+use floresta_common::descriptor_internals::DescriptorError;
+use floresta_common::slip132;
 #[cfg(feature = "compact-filters")]
 use floresta_compact_filters::IterableFilterStoreError;
 use floresta_watch_only::kv_database::KvDatabaseError;
 use floresta_watch_only::WatchOnlyError;
-use floresta_common::descriptor_internals::DescriptorError;
-use floresta_common::slip132;
 use tokio_rustls::rustls::pki_types;
 #[derive(Debug)]
 pub enum FlorestadError {
@@ -51,7 +51,7 @@ pub enum FlorestadError {
     AddressParsing(bitcoin::address::ParseError),
 
     DescriptorParsing(DescriptorError),
-    
+
     /// Parsing miniscript error.
     Miniscript(miniscript::Error),
 
@@ -110,9 +110,6 @@ pub enum FlorestadError {
     /// Failed to create the TLS data directory.
     CouldNotCreateTLSDataDir(String, std::io::Error),
 
-    /// Failed to provide a valid xpub.
-    InvalidProvidedXpub(String, crate::slip132::Error),
-
     /// Failed to obtain the wallet cache.
     CouldNotObtainWalletCache(WatchOnlyError<KvDatabaseError>),
 
@@ -147,6 +144,7 @@ pub enum FlorestadError {
 impl std::fmt::Display for FlorestadError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            FlorestadError::DescriptorParsing(err) => write!(f, "Desc Parsing error: {err:?}"),
             FlorestadError::Encode(err) => write!(f, "Encode error: {err}"),
             FlorestadError::Db(err) => write!(f, "Database error {err}"),
             FlorestadError::ParseNum(err) => write!(f, "int parse error: {err}"),
@@ -222,9 +220,6 @@ impl std::fmt::Display for FlorestadError {
             }
             FlorestadError::CouldNotCreateTLSDataDir(path, err) => {
                 write!(f, "Could not create TLS data directory {path}: {err}")
-            }
-            FlorestadError::InvalidProvidedXpub(xpub, err) => {
-                write!(f, "Invalid provided xpub {xpub}: {err:?}")
             }
             FlorestadError::CouldNotObtainWalletCache(err) => {
                 write!(f, "Could not obtain wallet cache: {err}")

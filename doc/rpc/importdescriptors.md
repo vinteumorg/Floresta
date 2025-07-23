@@ -57,5 +57,5 @@
 
  - A descriptor request may yield more than one descriptor but, they are all deduped before being added to the wallet, the comparison factor is the descriptors miniscript.
  - While entering more than one request the timestamp can be overridden by another request. The priority is Full > Ignore > SpecifiedTime  (a lesser one) > SpecifiedTime.
- - If the node is during its IBD phase the rescan request will be skipped but the descriptor will be added sucessfully. You might see the warning in the node logs and rescan later with "rescanblockchain"
+ - If the node is during its IBD phase the rescan request will be skipped but the descriptor will be added successfully. You might see the warning in the node logs and rescan later with "rescanblockchain"
  - Related RPC methods "deletedescriptor", "listdescriptors"

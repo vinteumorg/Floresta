@@ -120,10 +120,8 @@ pub fn convert_to_internal(
     Ok((desc_ret, addr_ret))
 }
 
-/// Since, precisely, Rust Bitcoin's ['Descriptor<DefiniteDescriptorKey>'] doesn't directly implement
+/// Since, precisely, Rust Bitcoin's [`Descriptor<DefiniteDescriptorKey>`] doesn't directly implement
 /// serde we need this helper function so [`ConcreteDescriptor`] implements serde.
-///
-/// Wrapper around [`Descriptor::<DefiniteDescriptorKey>::to_string`].
 fn serialize_descriptor<S>(
     descriptor: &Descriptor<DefiniteDescriptorKey>,
     serializer: S,
@@ -136,7 +134,7 @@ where
     serializer.serialize_str(&descriptor_str)
 }
 
-/// Since, precisely, Rust Bitcoin's ['Descriptor<DefiniteDescriptorKey>'] doesn't directly implement
+/// Since, precisely, Rust Bitcoin's [`Descriptor<DefiniteDescriptorKey>`] doesn't directly implement
 /// serde we need this helper function so [`ConcreteDescriptor`] implements serde.
 ///
 /// Wrapper around [`Descriptor::<DefiniteDescriptorKey>::from_str`].
@@ -167,7 +165,7 @@ pub const DESCRIPTOR_STRING_KEY: &str = "Descriptors";
 ///
 /// Rescan requests are overridden as necessary, you can read further on [`RescanRequest::check_override`].
 ///
-/// If a single descriptor raise any error the function will discard the descriptors and return all the colected errors.
+/// If a single descriptor raise any error the function will discard the descriptors and return all the collected errors.
 pub fn handle_descriptors_requests(
     requests: Vec<DescriptorRequest>,
 ) -> Result<(Vec<ConcreteDescriptor>, RescanRequest), Vec<DescriptorError>> {
@@ -189,10 +187,10 @@ pub fn handle_descriptors_requests(
     }
 
     if deriving_errors.is_empty() {
-        Ok((descriptors, rescan_request))
-    } else {
-        Err(deriving_errors)
+        return Ok((descriptors, rescan_request));
     }
+
+    Err(deriving_errors)
 }
 
 /// Given a [`Vec<ConcreteDescriptor>`] finds those with [`&[DescriptorId]`] in a list of ids.
@@ -327,7 +325,7 @@ pub struct DescriptorRequest {
     #[serde(default)]
     pub active: bool,
 
-    /// (numeric or array) If a ranged descriptor is used, this specifies the end or the range (in the form [begin,end]) to import
+    /// (numeric or array) If a ranged descriptor is used, this specifies the end or the range (in the form "begin,end") to import
     #[serde(default)]
     pub range: DerivationRange,
 
