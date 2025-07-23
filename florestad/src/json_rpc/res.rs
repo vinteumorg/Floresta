@@ -20,8 +20,9 @@ pub struct GetBlockchainInfoRes {
     pub difficulty: u64,
 }
 
-#[derive(Deserialize, Serialize)]
-pub struct RawTxJson {
+/// A raw transaction with some metadata as defined in "getrawtransaction"
+#[derive(Deserialize, Serialize, Debug)]
+pub struct RawTxRes {
     pub in_active_chain: bool,
     pub hex: String,
     pub txid: String,
@@ -39,14 +40,14 @@ pub struct RawTxJson {
     pub time: u32,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Debug)]
 pub struct TxOutJson {
     pub value: u64,
     pub n: u32,
     pub script_pub_key: ScriptPubKeyJson,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Debug)]
 pub struct ScriptPubKeyJson {
     pub asm: String,
     pub hex: String,
@@ -56,7 +57,7 @@ pub struct ScriptPubKeyJson {
     pub address: String,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Debug)]
 pub struct TxInJson {
     pub txid: String,
     pub vout: u32,
@@ -65,17 +66,10 @@ pub struct TxInJson {
     pub witness: Vec<String>,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Debug)]
 pub struct ScriptSigJson {
     pub asm: String,
     pub hex: String,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(untagged)]
-pub enum GetBlockRes {
-    Verbose(Box<GetBlockResVerbose>),
-    Serialized(String),
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -91,9 +85,8 @@ pub struct RpcError {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct GetTxOutProof(pub Vec<u8>);
 
-/// A full bitcoin block, returned by get_block
 #[derive(Debug, Deserialize, Serialize)]
-pub struct GetBlockResVerbose {
+pub struct GetBlockResOne {
     /// This block's hash.
     pub hash: String,
 
@@ -102,11 +95,11 @@ pub struct GetBlockResVerbose {
     /// then it increments to 2 and so on...
     pub confirmations: u32,
 
-    /// The size of this block, without the witness
-    pub strippedsize: usize,
-
     /// This block's size, with the witness
     pub size: usize,
+
+    /// The size of this block, without the witness
+    pub strippedsize: usize,
 
     /// This block's weight.
     ///
@@ -169,6 +162,9 @@ pub struct GetBlockResVerbose {
     /// decided to make consensus critical :/
     pub bits: String,
 
+    /// The difficulty target.
+    pub target: String,
+
     /// The difficulty is derived from the current target and is defined as how many hashes, on
     /// average, one has to make before finding a valid block
     ///
@@ -183,15 +179,25 @@ pub struct GetBlockResVerbose {
     /// This is a estimate of how many hashes the network has ever made to produce this chain
     pub chainwork: String,
 
+    #[serde(rename = "nTx")]
     /// How many transactions in this block
     pub n_tx: usize,
 
+    #[serde(skip_serializing_if = "Option::is_none")]
     /// The hash of the block coming before this one
-    pub previousblockhash: String,
+    pub previousblockhash: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     /// The hash of the block coming after this one, if any
     pub nextblockhash: Option<String>,
+}
+
+/// A full bitcoin block, returned by get_block
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum GetBlockRes {
+    Zero(String),
+    One(Box<GetBlockResOne>),
 }
 
 #[derive(Debug)]
