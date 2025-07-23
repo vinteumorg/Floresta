@@ -120,10 +120,8 @@ pub fn convert_to_internal(
     Ok((desc_ret, addr_ret))
 }
 
-/// Since, precisely, Rust Bitcoin's ['Descriptor<DefiniteDescriptorKey>'] doesn't directly implement
+/// Since, precisely, Rust Bitcoin's [`Descriptor<DefiniteDescriptorKey>`] doesn't directly implement
 /// serde we need this helper function so [`ConcreteDescriptor`] implements serde.
-///
-/// Wrapper around [`Descriptor::<DefiniteDescriptorKey>::to_string`].
 fn serialize_descriptor<S>(
     descriptor: &Descriptor<DefiniteDescriptorKey>,
     serializer: S,
@@ -136,7 +134,7 @@ where
     serializer.serialize_str(&descriptor_str)
 }
 
-/// Since, precisely, Rust Bitcoin's ['Descriptor<DefiniteDescriptorKey>'] doesn't directly implement
+/// Since, precisely, Rust Bitcoin's [`Descriptor<DefiniteDescriptorKey>`] doesn't directly implement
 /// serde we need this helper function so [`ConcreteDescriptor`] implements serde.
 ///
 /// Wrapper around [`Descriptor::<DefiniteDescriptorKey>::from_str`].
@@ -327,7 +325,7 @@ pub struct DescriptorRequest {
     #[serde(default)]
     pub active: bool,
 
-    /// (numeric or array) If a ranged descriptor is used, this specifies the end or the range (in the form [begin,end]) to import
+    /// (numeric or array) If a ranged descriptor is used, this specifies the end or the range (in the form "begin,end") to import
     #[serde(default)]
     pub range: DerivationRange,
 

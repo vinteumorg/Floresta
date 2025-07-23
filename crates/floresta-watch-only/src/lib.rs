@@ -841,8 +841,6 @@ where
         Ok(())
     }
 
-    /// Delete descriptors from the wallet returning the deleted ones and the indexes of the
-    /// [`DescriptorId`] that wasn't found.
     pub fn delete_descriptors(
         &self,
         ids: &[DescriptorId],

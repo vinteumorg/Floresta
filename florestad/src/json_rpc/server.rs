@@ -137,28 +137,26 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
                 .map_err(|e| JsonRpcError::Wallet(e.to_string()))?;
         }
 
+        // Im sure theres a smarter way to do these checks below but im not the one that will figure it out. TODO™.
+
         if self.chain.is_in_ibd() {
             warn!("Skipped rescan, the node is in IBD you might need to request another rescan after IBD if its needed.");
             Ok(true)
         } else {
             match rescan_timestamp {
-                RescanRequest::Full => self.rescan(0, 0, false, RescanConfidence::None).await,
+                RescanRequest::Full => self.rescan_blockchain(None, None, false, Some(RescanConfidence::Raw)).await, 
+                RescanRequest::SpecifiedTime(time) => {
+                    self.rescan_blockchain(Some(time), None, true, Some(RescanConfidence::Medium)).await
+                }
                 RescanRequest::Now => {
                     warn!("Skipped Rescan, found RescanReques::Now");
                     Ok(true)
-                },
-                RescanRequest::SpecifiedTime(time) => self.rescan(time , 0, true, RescanConfidence::Medium).await,
+                }
             }
         }
     }
 
-    /// "deletedescriptors", that search into the wallet for the [`BlowDescriptors`] that matches
-    /// the given [`Vec<DescriptorId>`].
-    ///
-    /// Pull defines if the returning [`DeleteDescriptorRes`] should contain the deleted [`BlowDescriptors`].
-    ///
-    /// Strict defines whether we should yield an error and abort the deletion the descriptors if some
-    /// of the given Ids doesn't match.
+    // TODO: make the rpc docs for delete_descriptors
     fn delete_descriptors(
         &self,
         ids: Vec<DescriptorId>,
@@ -176,7 +174,7 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
 
         Ok(DeleteDescriptorRes { pulled })
     }
-    
+
     #[doc = include_str!("../../../doc/rpc/rescanblockchain.md")]
     async fn rescan_blockchain(
         &self,
@@ -453,7 +451,8 @@ async fn handle_json_rpc_request(
             let requests: Vec<DescriptorRequest> = serde_json::from_value(params[0].clone())
                 .map_err(|e| JsonRpcError::DecodeDescRequest(e, params[0].to_string()))?;
             state
-                .import_descriptors(requests).await
+                .import_descriptors(requests)
+                .await
                 .map(|v| ::serde_json::to_value(v).unwrap())
         }
 
