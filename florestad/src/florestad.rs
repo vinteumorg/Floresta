@@ -917,7 +917,7 @@ impl Florestad {
     /// Scraps the defined xpubs, descriptors and addresses directly from
     /// florestad's config file and cli configuration.
     ///
-    /// The returning array of Vec<String> is organized to separate the
+    /// The returning array of `Vec<String>` is organized to separate the
     /// collected xpubs, descriptors and addresses, in this exact order.
     fn get_pre_defined_xda(&self, config_file: ConfigFile) -> [Vec<String>; 3] {
         let config = &self.config;

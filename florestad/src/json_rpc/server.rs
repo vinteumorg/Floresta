@@ -126,7 +126,7 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
     /// Server side handle of "importdescriptors",
     ///
     /// Import the descriptor from the given [`DescriptorRequest`].
-    fn import_descriptors(&self, requests: Vec<DescriptorRequest>) -> Result<bool> {
+    async fn import_descriptors(&self, requests: Vec<DescriptorRequest>) -> Result<bool> {
         info!("Importing {requests:?} and rescanning");
 
         let (descriptors, rescan_timestamp) =
@@ -138,26 +138,17 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
                 .map_err(|e| JsonRpcError::Wallet(e.to_string()))?;
         }
 
-        let rescan_heigth: Option<usize> = match rescan_timestamp {
-            RescanRequest::Full => Some(0),
-            RescanRequest::Now => None,
-            RescanRequest::SpecifiedTime(time) => Some(time as usize),
-        };
-        if !self.chain.is_in_ibd() {
-            self.rescan(rescan_heigth)
-        } else {
-            warn!("Skipped rescan, the node is in IBD you might need to request another rescan after IBD if its needed.");
-            Ok(true)
+        match rescan_timestamp {
+            RescanRequest::Full => self.rescan(self.get_block_count()?, 0, false).await,
+            RescanRequest::SpecifiedTime(time) => self.rescan(time, 0, true).await,
+            RescanRequest::Now => {
+                warn!("Skipped rescan");
+                Ok(true)
+            }
         }
     }
 
-    /// "deletedescriptors", that search into the wallet for the [`BlowDescriptors`] that matches
-    /// the given [`Vec<DescriptorId>`].
-    ///
-    /// Pull defines if the returning [`DeleteDescriptorRes`] should contain the deleted [`BlowDescriptors`].
-    ///
-    /// Strict defines whether we should yield an error and abort the deletion the descriptors if some
-    /// of the given Ids doesn't match.
+    // TODO: make the rpc docs for delete_descriptors
     fn delete_descriptors(
         &self,
         ids: Vec<DescriptorId>,
@@ -175,7 +166,7 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
 
         Ok(DeleteDescriptorRes { pulled })
     }
-    
+
     #[doc = include_str!("../../../doc/rpc/rescanblockchain.md")]
     async fn rescan(
         &self,
@@ -434,6 +425,7 @@ async fn handle_json_rpc_request(
                 .map_err(|e| JsonRpcError::DecodeDescRequest(e, params[0].to_string()))?;
             state
                 .import_descriptors(requests)
+                .await
                 .map(|v| ::serde_json::to_value(v).unwrap())
         }
 

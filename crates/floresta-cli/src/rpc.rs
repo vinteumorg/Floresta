@@ -55,22 +55,6 @@ pub trait FlorestaRPC {
     fn get_txout_proof(&self, txids: Vec<Txid>, blockhash: Option<BlockHash>) -> Option<String>;
     /// TODO same as in `floresta-cli/main.rs`
     fn import_descriptors(&self, requests: Vec<DescriptorRequest>) -> Result<bool>;
-    /// Trigger a rescan of the wallet
-    ///
-    /// This method triggers a rescan of the wallet. If you have compact block filters enabled,
-    /// this process will be much faster and use less bandwidth. If you don't have compact block
-    /// filters, we'll need to download the entire blockchain again, which will take a while.
-    /// The rescan parameter is the height at which to start the rescan, and should be at least
-    /// as old as the oldest transaction this descriptor could have been used in.
-    fn rescanblockchain(&self, start_height: u32) -> Result<bool>;
-    /// Loads up a descriptor into the wallet
-    ///
-    /// This method loads up a descriptor into the wallet. If the rescan option is not None,
-    /// the wallet will be rescanned for transactions matching the descriptor. If you have
-    /// compact block filters enabled, this process will be much faster and use less bandwidth.
-    /// The rescan parameter is the height at which to start the rescan, and should be at least
-    /// as old as the oldest transaction this descriptor could have been used in.
-    fn load_descriptor(&self, descriptor: String) -> Result<bool>;
     #[doc = include_str!("../../../doc/rpc/rescanblockchain.md")]
     fn rescanblockchain(
         &self,
