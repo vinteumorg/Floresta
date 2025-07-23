@@ -891,7 +891,7 @@ impl Florestad {
             self.config.network,
             20,
         )
-        .expect("Could not parse some of the pre-defined Xpub, descriptors or Adresses.");
+        .expect("Could not parse some of the pre-defined Xpub, descriptors or Addresses.");
 
         for descriptor in initial_batch.0 {
             if !wallet
@@ -912,7 +912,7 @@ impl Florestad {
     /// Scraps the defined xpubs, descriptors and addresses directly from
     /// florestad's config file and cli configuration.
     ///
-    /// The returning array of Vec<String> is organized to separate the
+    /// The returning array of `Vec<String>` is organized to separate the
     /// collected xpubs, descriptors and addresses, in this exact order.
     fn get_pre_defined_xda(&self, config_file: ConfigFile) -> [Vec<String>; 3] {
         let config = &self.config;

@@ -11,7 +11,6 @@ use bitcoin::hashes::sha256d;
 use bitcoin::ScriptBuf;
 use floresta_chain::BlockConsumer;
 use floresta_chain::UtxoData;
-use floresta_chain::DatabaseError;
 use floresta_common::descriptor_internals::extract_matching_one;
 use floresta_common::descriptor_internals::extract_matching_ones;
 use floresta_common::descriptor_internals::ConcreteDescriptor;
@@ -35,46 +34,21 @@ use bitcoin::Block;
 use bitcoin::OutPoint;
 use bitcoin::Transaction;
 use bitcoin::TxOut;
-use floresta_common::impl_error_from;
 use floresta_common::prelude::*;
-use kv_database::KvDatabaseError;
-#[cfg(any(test, feature = "memory-database"))]
-use memory_database::MemoryDatabaseError;
 use merkle::MerkleProof;
 use serde::Deserialize;
 use serde::Serialize;
 use sync::RwLock;
 
-use crate::kv_database::KvDatabase;
-#[cfg(any(test, feature = "memory-database"))]
-use crate::memory_database::MemoryDatabase;
-
 #[derive(Debug)]
-pub enum WatchOnlyError {
+pub enum WatchOnlyError<DatabaseError: fmt::Debug> {
     WalletNotInitialized,
     TransactionNotFound,
-    #[cfg(any(test, feature = "memory-database"))]
-    MemoryDatabaseError(MemoryDatabaseError),
-    KvDatabaseError(KvDatabaseError),
-    DatabaseError(Box<dyn DatabaseError>),
+    DatabaseError(DatabaseError),
     DescriptorError(DescriptorError),
 }
 
-impl_error_from!(WatchOnlyError, DescriptorError, DescriptorError);
-impl_error_from!(WatchOnlyError, Box<dyn DatabaseError>, DatabaseError);
-#[cfg(any(test, feature = "memory-database"))]
-impl_error_from!(
-    WatchOnlyError,
-    <MemoryDatabase as AddressCacheDatabase>::Error,
-    MemoryDatabaseError
-);
-impl_error_from!(
-    WatchOnlyError,
-    <KvDatabase as AddressCacheDatabase>::Error,
-    KvDatabaseError
-);
-
-impl Display for WatchOnlyError {
+impl<DatabaseError: fmt::Debug> Display for WatchOnlyError<DatabaseError> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             WatchOnlyError::WalletNotInitialized => {
@@ -89,16 +63,17 @@ impl Display for WatchOnlyError {
             WatchOnlyError::DescriptorError(e) => {
                 write!(f, "Descriptor error: {e:?}")
             }
-            #[cfg(any(test, feature = "memory-database"))]
-            WatchOnlyError::MemoryDatabaseError(e) => {
-                write!(f, "MDb ${e:?}")
-            }
-            WatchOnlyError::KvDatabaseError(e) => {
-                write!(f, "KvDb Error ${e:?}")
-            }
         }
     }
 }
+
+impl<DatabaseError: fmt::Debug> From<DatabaseError> for WatchOnlyError<DatabaseError> {
+    fn from(e: DatabaseError) -> Self {
+        WatchOnlyError::DatabaseError(e)
+    }
+}
+
+impl<T: Debug> floresta_common::prelude::Error for WatchOnlyError<T> {}
 
 /// Every address contains zero or more associated transactions, this struct defines what
 /// data we store for those.
@@ -232,10 +207,7 @@ struct AddressCacheInner<D: AddressCacheDatabase> {
     utxo_index: HashMap<OutPoint, Hash>,
 }
 
-impl<D: AddressCacheDatabase> AddressCacheInner<D>
-where
-    WatchOnlyError: From<<D as AddressCacheDatabase>::Error>,
-{
+impl<D: AddressCacheDatabase> AddressCacheInner<D> {
     /// Iterates through a block, finds transactions destined to ourselves.
     /// Returns all transactions we found.
     fn block_process(&mut self, block: &Block, height: u32) -> Vec<(Transaction, TxOut)> {
@@ -404,14 +376,14 @@ where
 
     /// Setup is the first command that should be executed. In a new cache. It sets our wallet's
     /// state, like the height we should start scanning and the wallet's descriptor.
-    fn setup(&self) -> Result<(), WatchOnlyError> {
+    fn setup(&self) -> Result<(), WatchOnlyError<D::Error>> {
         if self.database.desc_get_batch(&[]).is_err() {
             self.database.set_cache_height(0)?;
         }
         Ok(())
     }
 
-    fn derive_addresses(&mut self) -> Result<(), WatchOnlyError> {
+    fn derive_addresses(&mut self) -> Result<(), WatchOnlyError<D::Error>> {
         let mut stats = self.database.get_stats()?;
 
         let descriptors = self.database.desc_get_batch(&[])?;
@@ -438,7 +410,7 @@ where
         }
     }
 
-    fn find_unconfirmed(&self) -> Result<Vec<Transaction>, WatchOnlyError> {
+    fn find_unconfirmed(&self) -> Result<Vec<Transaction>, WatchOnlyError<D::Error>> {
         let transactions = self.database.list_transactions()?;
         let mut unconfirmed = Vec::new();
 
@@ -643,10 +615,7 @@ impl<D: AddressCacheDatabase + Sync + Send + 'static> BlockConsumer for AddressC
     }
 }
 
-impl<D: AddressCacheDatabase> AddressCache<D>
-where
-    WatchOnlyError: From<<D as AddressCacheDatabase>::Error>,
-{
+impl<D: AddressCacheDatabase> AddressCache<D> {
     pub fn new(database: D) -> AddressCache<D> {
         AddressCache {
             inner: RwLock::new(AddressCacheInner::new(database)),
@@ -697,7 +666,10 @@ where
     }
 
     /// Tells whether a descriptor is already cached
-    pub fn is_descriptor_cached(&self, desc: &DescriptorId) -> Result<bool, WatchOnlyError> {
+    pub fn is_descriptor_cached(
+        &self,
+        desc: &DescriptorId,
+    ) -> Result<bool, WatchOnlyError<D::Error>> {
         let found = extract_matching_one(&self.get_descriptors()?, desc);
         Ok(found.is_some())
     }
@@ -724,7 +696,7 @@ where
         Some(serialize_hex(&tx.tx))
     }
 
-    pub fn setup(&self) -> Result<(), WatchOnlyError> {
+    pub fn setup(&self) -> Result<(), WatchOnlyError<D::Error>> {
         let inner = self.inner.read().expect("poisoned lock");
         inner.setup()
     }
@@ -757,12 +729,12 @@ where
         inner.get_merkle_proof(txid)
     }
 
-    pub fn derive_addresses(&self) -> Result<(), WatchOnlyError> {
+    pub fn derive_addresses(&self) -> Result<(), WatchOnlyError<D::Error>> {
         let mut inner = self.inner.write().expect("poisoned lock");
         inner.derive_addresses()
     }
 
-    pub fn get_stats(&self) -> Result<Stats, WatchOnlyError> {
+    pub fn get_stats(&self) -> Result<Stats, WatchOnlyError<D::Error>> {
         let inner = self.inner.read().expect("poisoned lock");
         Ok(inner.database.get_stats()?)
     }
@@ -772,7 +744,7 @@ where
         inner.maybe_derive_addresses()
     }
 
-    pub fn find_unconfirmed(&self) -> Result<Vec<Transaction>, WatchOnlyError> {
+    pub fn find_unconfirmed(&self) -> Result<Vec<Transaction>, WatchOnlyError<D::Error>> {
         let inner = self.inner.read().expect("poisoned lock");
         inner.find_unconfirmed()
     }
@@ -813,7 +785,7 @@ where
     }
 
     /// Return all the [`ConcreteDescriptor`]s that we have cached.
-    pub fn get_descriptors(&self) -> Result<Vec<ConcreteDescriptor>, WatchOnlyError> {
+    pub fn get_descriptors(&self) -> Result<Vec<ConcreteDescriptor>, WatchOnlyError<D::Error>> {
         Ok(self
             .inner
             .read()
@@ -823,7 +795,10 @@ where
     }
 
     /// Inserts a [`ConcreteDescriptor`] into the wallet
-    pub fn cache_descriptor(&self, one: ConcreteDescriptor) -> Result<(), WatchOnlyError> {
+    pub fn cache_descriptor(
+        &self,
+        one: ConcreteDescriptor,
+    ) -> Result<(), WatchOnlyError<D::Error>> {
         // TODO: reduce the clones.
         let mut inner = self.inner.write().expect("poisoned lock");
 
@@ -848,12 +823,10 @@ where
         Ok(())
     }
 
-    /// Delete descriptors from the wallet returning the deleted ones and the indexes of the
-    /// [`DescriptorId`] that wasn't found.
     pub fn delete_descriptors(
         &self,
         ids: &[DescriptorId],
-    ) -> Result<Vec<ConcreteDescriptor>, WatchOnlyError> {
+    ) -> Result<Vec<ConcreteDescriptor>, WatchOnlyError<D::Error>> {
         let mut inner = self.inner.write().expect("poisoned lock");
 
         let index_to_remove = extract_matching_ones(&inner.descriptor_set, ids);

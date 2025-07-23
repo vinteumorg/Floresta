@@ -56,7 +56,7 @@ pub trait FlorestaRPC {
 
     #[doc = include_str!("../../../doc/rpc/importdescriptors.md")]
     fn import_descriptors(&self, requests: Vec<DescriptorRequest>) -> Result<bool>;
-    
+
     #[doc = include_str!("../../../doc/rpc/rescanblockchain.md")]
     fn rescanblockchain(
         &self,
