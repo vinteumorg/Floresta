@@ -3,6 +3,7 @@ use std::fmt::Debug;
 use bitcoin::block::Header as BlockHeader;
 use bitcoin::BlockHash;
 use bitcoin::Txid;
+use serde_json::from_value;
 use serde_json::Number;
 use serde_json::Value;
 
@@ -204,30 +205,17 @@ impl<T: JsonRPCClient> FlorestaRPC for T {
     fn get_block(&self, hash: BlockHash, verbosity: Option<u32>) -> Result<GetBlockRes> {
         let verbosity = verbosity.unwrap_or(0);
 
+        let res: Value = self.call(
+            "getblock",
+            &[
+                Value::String(hash.to_string()),
+                Value::Number(Number::from(verbosity)),
+            ],
+        )?;
         match verbosity {
-            0 => {
-                let block = self.call(
-                    "getblock",
-                    &[
-                        Value::String(hash.to_string()),
-                        Value::Number(Number::from(verbosity)),
-                    ],
-                )?;
-                Ok(GetBlockRes::Serialized(block))
-            }
-
-            1 => {
-                let block = self.call(
-                    "getblock",
-                    &[
-                        Value::String(hash.to_string()),
-                        Value::Number(Number::from(verbosity)),
-                    ],
-                )?;
-                Ok(GetBlockRes::Verbose(block))
-            }
-
-            _ => Err(rpc_types::Error::InvalidVerbosity),
+            0 => Ok(GetBlockRes::Zero(from_value(res).unwrap())),
+            1 => Ok(GetBlockRes::One(from_value(res).unwrap())),
+            _ => Err(Error::InvalidVerbosity),
         }
     }
 
