@@ -47,6 +47,8 @@ BASE_TEST_SUITE = [
     ("floresta-cli", "addnode-v2"),
     ("floresta-cli", "addnode-v1"),
     ("florestad", "reorg-chain"),
+    ("floresta-cli", "getbestblockhash"),
+    ("floresta-cli", "getblockcount"),
     ("floresta-cli", "uptime"),
     ("florestad", "restart"),
     ("florestad", "connect"),
@@ -67,7 +69,6 @@ BASE_TEST_SUITE = [
     ("floresta-cli", "getblockchaininfo"),
     ("example", "bitcoin"),
     ("example", "utreexod"),
-    ("floresta-cli", "getbestblockhash"),
 ]
 
 # Before running the tests, we check if the number of tests
