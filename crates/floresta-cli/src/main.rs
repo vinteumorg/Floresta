@@ -10,6 +10,7 @@ use floresta_cli::jsonrpc_client::Client;
 use floresta_cli::rpc::FlorestaRPC;
 use floresta_cli::rpc_types::AddNodeCommand;
 use floresta_cli::rpc_types::GetBlockRes;
+
 // Main function that runs the CLI application
 fn main() -> anyhow::Result<()> {
     // Parse command line arguments into a Cli struct
@@ -62,9 +63,15 @@ fn do_request(cmd: &Cli, client: Client) -> anyhow::Result<String> {
         Methods::GetTransaction { txid, .. } => {
             serde_json::to_string_pretty(&client.get_transaction(txid, Some(true))?)?
         }
-        Methods::RescanBlockchain { start_height } => {
-            serde_json::to_string_pretty(&client.rescanblockchain(start_height)?)?
-        }
+        Methods::RescanBlockchain {
+            start_height,
+            stop_height,
+            use_timestamp,
+        } => serde_json::to_string_pretty(&client.rescanblockchain(
+            Some(start_height),
+            Some(stop_height),
+            use_timestamp,
+        )?)?,
         Methods::SendRawTransaction { tx } => {
             serde_json::to_string_pretty(&client.send_raw_transaction(tx)?)?
         }
@@ -170,9 +177,31 @@ pub enum Methods {
     #[command(name = "gettransaction")]
     GetTransaction { txid: Txid, verbose: Option<bool> },
 
-    /// Ask the node to rescan the blockchain for transactions
-    #[command(name = "rescanblockchain")]
-    RescanBlockchain { start_height: u32 },
+    #[doc = include_str!("../../../doc/rpc/rescanblockchain.md")]
+    #[command(
+        name = "rescanblockchain",
+        about = "Sends a request to the node to rescan the blockchain searching for transactions related to the wallets cached addresses.",
+        long_about = Some(include_str!("../../../doc/rpc/rescanblockchain.md")),
+        disable_help_subcommand = true
+    )]
+    RescanBlockchain {
+        /// The starting point for the rescan. (optional)
+        #[arg(required = false, default_value_t = 0)]
+        start_height: u32,
+
+        /// The stopping height for the rescan. (optional)
+        #[arg(required = false, default_value_t = 0)]
+        stop_height: u32,
+
+        /// Treat the start parameter as a UNIX timestamp instead of block height.
+        #[arg(
+            short = 't',
+            long = "timestamp",
+            required = false,
+            default_value_t = false
+        )]
+        use_timestamp: bool,
+    },
 
     /// Submits a raw transaction to the network
     #[command(name = "sendrawtransaction")]
@@ -215,10 +244,12 @@ pub enum Methods {
     Stop,
 
     #[doc = include_str!("../../../doc/rpc/addnode.md")]
-    #[command(name = "addnode",
+    #[command(
+        name = "addnode",
         about = "Attempts to add or remove a node from the list of addnodes",
         long_about = Some(include_str!("../../../doc/rpc/addnode.md")),
-        disable_help_subcommand = true)]
+        disable_help_subcommand = true
+    )]
     AddNode {
         node: String,
         command: AddNodeCommand,
