@@ -109,3 +109,9 @@ class UtreexoRPC(BaseRPC):
             return self.perform_request("addnode", params=[node, command, v2transport])
 
         return self.perform_request("addnode", params=[node, command])
+
+    def get_block_count(self) -> int:
+        """
+        Get block count of the node by performing `perform_request('getblockcount')
+        """
+        return self.perform_request("getblockcount")
