@@ -11,6 +11,20 @@ use serde::Serialize;
 pub struct GetTxOutProof(pub Vec<u8>);
 
 #[derive(Debug, Deserialize, Serialize)]
+/// Return type for the "listdescriptors" rpc command to hold
+/// extra info about concrete descriptors
+pub struct ListDescriptorRes(pub Vec<VerboseDescriptor>);
+
+#[derive(Debug, Deserialize, Serialize)]
+/// The struct to hold info from the listdescriptors products.
+pub struct VerboseDescriptor {
+    pub label: String,
+    pub desc: String,
+    pub internal: bool,
+    pub hash: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct GetBlockchainInfoRes {
     /// The best block we know about
     ///
@@ -278,15 +292,22 @@ pub struct GetBlockResVerbose {
 pub enum Error {
     /// An error while deserializing our response
     Serde(serde_json::Error),
+
     #[cfg(feature = "with-jsonrpc")]
     /// An internal reqwest error
     JsonRpc(jsonrpc::Error),
+
     /// An error internal to our jsonrpc server
     Api(serde_json::Value),
+
     /// The server sent an empty response
     EmptyResponse,
+
     /// The provided verbosity level is invalid
     InvalidVerbosity,
+
+    /// The user requested a rescan based on invalid values.
+    InvalidRescanVal,
 }
 
 impl From<serde_json::Error> for Error {
@@ -311,6 +332,7 @@ impl Display for Error {
             Error::Serde(e) => write!(f, "error while deserializing the response: {e}"),
             Error::EmptyResponse => write!(f, "got an empty response from server"),
             Error::InvalidVerbosity => write!(f, "invalid verbosity level"),
+            Error::InvalidRescanVal => write!(f, "Invalid rescan values"),
         }
     }
 }
