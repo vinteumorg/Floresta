@@ -205,6 +205,39 @@ impl ChainParams {
             },
         }
     }
+
+    #[cfg(feature = "bitcoinconsensus")]
+    /// Returns the validation flags for a given block hash and height
+    pub fn get_validation_flags(&self, height: u32, hash: BlockHash) -> c_uint {
+        if let Some(flag) = self.exceptions.get(&hash) {
+            return *flag;
+        }
+
+        // From Bitcoin Core:
+        // BIP16 didn't become active until Apr 1 2012 (on mainnet, and
+        // retroactively applied to testnet)
+        // However, only one historical block violated the P2SH rules (on both
+        // mainnet and testnet).
+        // Similarly, only one historical block violated the TAPROOT rules on
+        // mainnet.
+        // For simplicity, always leave P2SH+WITNESS+TAPROOT on except for the two
+        // violating blocks.
+        let mut flags = bitcoinconsensus::VERIFY_P2SH | bitcoinconsensus::VERIFY_WITNESS;
+
+        if height >= self.params.bip65_height {
+            flags |= bitcoinconsensus::VERIFY_CHECKLOCKTIMEVERIFY;
+        }
+        if height >= self.params.bip66_height {
+            flags |= bitcoinconsensus::VERIFY_DERSIG;
+        }
+        if height >= self.csv_activation_height {
+            flags |= bitcoinconsensus::VERIFY_CHECKSEQUENCEVERIFY;
+        }
+        if height >= self.segwit_activation_height {
+            flags |= bitcoinconsensus::VERIFY_NULLDUMMY;
+        }
+        flags
+    }
 }
 
 #[cfg(feature = "bitcoinconsensus")]
