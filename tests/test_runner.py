@@ -3,16 +3,13 @@ test_runner.py
 
 Command Line Interface to run an individual test or multiple tests in a suite.
 
-The test-suite should be placed as a subfolder at `./tests` folder and the
-test-name should be a file with the suffix `-test.py` inside the test-suite
-folder.
+New test suites should be added as a subdirectory of `./tests`.
 
-It's recommended that you run it through `uv` package management, but you can run
-it with `python` if you installed the packages properly, in a isolated or not
-isolated environment (althought we recommend the isolated environment).
+Running tests using the `uv` Python package manager is recommended, although you can run them
+using your system's Python directly (the use of a virtual environment is highly advised).
 
-All tests will run as a spwaned subprocess and what happens will be logged to
-a temporary directory.
+Test running is parallelized: each test will spawn a new thread as a subprocess of the main test
+thread, and their logs will be written to a temporary directory.
 
 For more information about how to run the tests, see
 [doc/running_tests.md](doc/running_tests.md).
@@ -41,6 +38,11 @@ ALLDONE_EMOJI = "🎉"
 # to favor running tests in parallel.
 # We use this like those in  the
 # Bitcoin Core tests/functional/test_runner.py:89
+
+# Tests that are ran by default. The longest running tests should be ran first,
+# so parallelization is used most effectively. This structure is copied from
+# Bitcoin Core's functional tests:
+# https://github.com/bitcoin/bitcoin/blob/master/test/functional/test_runner.py#L89
 BASE_TEST_SUITE = [
     ("floresta-cli", "addnode-v2"),
     ("floresta-cli", "addnode-v1"),
@@ -70,13 +72,13 @@ BASE_TEST_SUITE = [
 
 # Before running the tests, we check if the number of tests
 # in the base test suite matches the number of tests in the
-# example, floresta-cli, and florestad directories.
+# `example`, `floresta-cli`, and `florestad` directories.
 COUNT = 0
 for testdir in ("example", "floresta-cli", "florestad"):
     dirname = os.path.abspath(os.path.dirname(__file__))
     tests_path = os.path.join(dirname, testdir)
     for test_name in os.listdir(tests_path):
-        if test_name.endswith("-test.py"):
+        if test_name.endswith(".py"):
             COUNT += 1
 
 # If the number of tests in the base test suite is not equal
@@ -98,7 +100,7 @@ def list_test_suites(test_dir: str):
     organized_suites: dict[str, list[str]] = defaultdict(list)
 
     for folder, name in BASE_TEST_SUITE:
-        fullpath = os.path.join(test_dir, folder, f"{name}-test.py")
+        fullpath = os.path.join(test_dir, folder, f"{name}.py")
         if os.path.exists(fullpath):
             organized_suites[folder].append(name)
 
@@ -142,13 +144,13 @@ def setup_test_suite(args: argparse.Namespace, test_dir: str) -> Queue:
                 )
 
             for file in os.listdir(full_path):
-                if file.endswith("-test.py"):
+                if file.endswith(".py"):
                     if args.test_name and not any(
                         file.startswith(name) for name in args.test_name
                     ):
                         continue
 
-                    name = file.split("-test.py")[0]
+                    name = file.split(".py")[0]
                     task_queue.put((full_path, name))
 
     return task_queue
@@ -190,9 +192,7 @@ def run_test_worker(task_queue: Queue, results_queue: Queue, args: argparse.Name
         test_suite_dir, name = task
         os.makedirs(args.log_dir, exist_ok=True)
 
-        test_filename = os.path.normpath(
-            os.path.join(test_suite_dir, f"{name}-test.py")
-        )
+        test_filename = os.path.normpath(os.path.join(test_suite_dir, f"{name}.py"))
         test_log_name = os.path.normpath(os.path.join(args.log_dir, f"{name}.log"))
 
         cli = ["python", test_filename]
@@ -204,7 +204,7 @@ def run_test_worker(task_queue: Queue, results_queue: Queue, args: argparse.Name
             test_log_name, "wt", encoding="utf-8", buffering=args.log_buffer
         ) as log_file:
 
-            # Avoid using 'with' for subprocess.Popen here, as we need the
+            # Avoid using 'with' for `subprocess.Popen` here, as we need the
             # process to start and stream output immediately for port detection
             # to work correctly. Using 'with' might delay output flushing,
             # which breaks log-based detection of random ports in tests.
@@ -225,7 +225,7 @@ def main():
 
     usage: test_runner [-h,-l] [-L DATA_DIR] [-t TEST_SUITE] [-k TEST_NAME] [-T THREADS] [-b BUFFER_SIZE]
 
-    Tool to help with function testing of Floresta.
+    Functional test runner for Floresta.
 
     Options:
         -h, --help                    Show this help message and exit.
@@ -281,7 +281,7 @@ def main():
         help="Number of threads to run tests in parallel (default: 4).",
     )
 
-    # see these links for more information:
+    # See these links for more information:
     # https://docs.python.org/3/library/io.html#io.DEFAULT_BUFFER_SIZE
     # https://stackoverflow.com/questions/29712445/what-is-the-use-of-buffering-in-pythons-built-in-open-function
     parser.add_argument(
