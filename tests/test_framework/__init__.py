@@ -4,10 +4,10 @@ tests/test_framework/__init__.py
 Adapted from
 https://github.com/bitcoin/bitcoin/blob/master/test/functional/test_framework/test_framework.py
 
-BitcoinCore functional tests define a metaclass that checks if some important
-methods are defined or not defined. Floresta functional tests will follow this
-since it is a good practice for a framework. The difference is that our node
-will run withing a `cargo run` subprocess, defined at `add_node_settings`.
+Bitcoin Core's functional tests define a metaclass that checks wheter the required
+methods are defined or not. Floresta's functional tests will follow this battle tested structure.
+The difference is that `florestad` will run under a `cargo run` subprocess, which is defined at
+`add_node_settings`.
 """
 
 import os
@@ -38,7 +38,7 @@ from test_framework.rpc.utreexo import REGTEST_RPC_SERVER as utreexod_rpc_server
 class Node:
     """
     A node object to be used in the test framework.
-    It contains the daemon, rpc and rpc_config objects.
+    It contains the `daemon`, `rpc` and `rpc_config` objects.
     """
 
     def __init__(self, daemon, rpc, rpc_config, variant):
@@ -69,7 +69,7 @@ class Node:
 
     def get_host(self) -> str:
         """
-        Get the host of the node.
+        Get the host address of the node.
         """
         return self.rpc_config["host"]
 
@@ -80,7 +80,7 @@ class Node:
     def get_port(self, port_type: str) -> int:
         """
         Get the port of the node based on the port type.
-        This is a convenience method for get_ports.
+        This is a convenience method for `get_ports`.
         """
         if port_type not in self.rpc_config["ports"]:
             raise ValueError(
@@ -93,11 +93,10 @@ class FlorestaTestMetaClass(type):
     """
     Metaclass for FlorestaTestFramework.
 
-    Ensures that any attempt to register a subclass of `FlorestaTestFramework`
-    adheres to a standard whereby the subclass override `set_test_params` and
-    `run_test but DOES NOT override either `__init__` or `main`.
-
-    If any of those standards are violated, a `TypeError` is raised.
+    This metaclass ensures that any subclass of `FlorestaTestFramework`
+    adheres to a standard whereby the subclass overrides `set_test_params` and
+    `run_test, but DOES NOT override `__init__` or `main`. If those standards
+    are violated, a `TypeError` is raised.
     """
 
     def __new__(mcs, clsname, bases, dct):
@@ -166,7 +165,7 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
 
     At the end of file, you should execute `MyTest().main()` method.
 
-    For more details, see the tests/example/*-test.py file to see how
+    For more details, see the tests/example/*.py file to see how
     the Floresta team thought the test framework should be used and
     test/test_framework/{crypto,daemon,rpc,electrum}/*.py to see
     how the test framework was structured.
@@ -292,7 +291,7 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
         # Get the class's base filename
         filename = sys.modules[self.__class__.__module__].__file__
         filename = os.path.basename(filename)
-        filename = filename.replace("-test.py", "")
+        filename = filename.replace(".py", "")
 
         return os.path.join(tempdir, "logs", f"{filename}.log")
 
