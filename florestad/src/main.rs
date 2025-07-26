@@ -17,6 +17,7 @@
 #![deny(non_upper_case_globals)]
 
 mod cli;
+use std::process::exit;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -106,7 +107,10 @@ fn main() {
 
     let florestad = Florestad::from(config);
     _rt.block_on(async {
-        florestad.start().await;
+        florestad.start().await.unwrap_or_else(|e| {
+            eprintln!("Failed to start florestad: {e}");
+            exit(1);
+        });
 
         // wait for shutdown
         loop {
