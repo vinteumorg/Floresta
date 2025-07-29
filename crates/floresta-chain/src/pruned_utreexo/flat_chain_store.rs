@@ -106,7 +106,7 @@ use crate::DiskBlockHeader;
 const FLAT_CHAINSTORE_MAGIC: u32 = 0x74_73_6C_66; // "flst" backwards
 
 /// The version of our flat chain store
-const FLAT_CHAINSTORE_VERSION: u32 = 0;
+const FLAT_CHAINSTORE_VERSION: u32 = 1;
 
 /// We use a LRU cache to keep the last n blocks we've touched, so we don't need to do a map search
 /// again. This is the type of our cache
@@ -320,9 +320,6 @@ struct Metadata {
     /// or has too little work if compared to our best one
     alternative_tips: [BlockHash; 64], // we hope to never have more than 64 alt-chains
 
-    /// Saves the height occupied by the assume valid block
-    assume_valid_index: u32,
-
     /// How many blocks we have that are not in our main chain
     fork_count: u32,
 
@@ -357,14 +354,14 @@ pub enum FlatChainstoreError {
     /// The index is full, we can't add more blocks to it
     IndexIsFull,
 
-    /// Tried to open a database that is too new for us
-    DbTooNew,
+    /// Tried to open a database with an unsupported version number
+    UnsupportedDbVersion(u32),
 
     /// Our cache lock is poisoned
     Poisoned,
 
-    /// We encountered an invalid magic value. Possibly a database corruption
-    InvalidMagic,
+    /// We encountered an invalid magic value, possibly database corruption
+    InvalidMagic(u32),
 
     /// The provided accumulator is too big
     AccumulatorTooBig,
@@ -629,7 +626,6 @@ impl FlatChainStore {
         _metadata.fork_file_size = fork_size;
         _metadata.index_capacity = index_size;
         _metadata.block_index_occupancy = 0;
-        _metadata.assume_valid_index = 0;
         _metadata.best_block = BlockHash::all_zeros();
         _metadata.depth = 0;
         _metadata.validation_index = BlockHash::all_zeros();
@@ -690,12 +686,12 @@ impl FlatChainStore {
         };
 
         // check the magic number and version
-        if metadata.version > FLAT_CHAINSTORE_VERSION {
-            return Err(FlatChainstoreError::DbTooNew);
+        if metadata.version != FLAT_CHAINSTORE_VERSION {
+            return Err(FlatChainstoreError::UnsupportedDbVersion(metadata.version));
         }
 
         if metadata.magic != FLAT_CHAINSTORE_MAGIC {
-            return Err(FlatChainstoreError::InvalidMagic);
+            return Err(FlatChainstoreError::InvalidMagic(metadata.magic));
         }
 
         let index_path = format!("{}/blocks_index.bin", config.path);
@@ -901,7 +897,6 @@ impl FlatChainStore {
     unsafe fn do_save_height(&mut self, best_block: &BestChain) -> Result<(), FlatChainstoreError> {
         let metadata = self.get_metadata_mut()?;
 
-        metadata.assume_valid_index = best_block.assume_valid_index;
         metadata.best_block = best_block.best_block;
         metadata.depth = best_block.depth;
         metadata.validation_index = best_block.validation_index;
@@ -931,7 +926,6 @@ impl FlatChainStore {
                 .into_iter()
                 .take_while(|tip| *tip != BlockHash::all_zeros())
                 .collect(),
-            assume_valid_index: metadata.assume_valid_index,
         })
     }
 
@@ -1244,6 +1238,8 @@ mod tests {
     use super::FlatChainStore;
     use super::FlatChainstoreError;
     use super::Index;
+    use super::FLAT_CHAINSTORE_MAGIC;
+    use super::FLAT_CHAINSTORE_VERSION;
     use crate::pruned_utreexo::UpdatableChainstate;
     use crate::AssumeValidArg;
     use crate::BestChain;
@@ -1280,7 +1276,7 @@ mod tests {
         );
     }
 
-    fn get_test_chainstore(id: Option<u64>) -> FlatChainStore {
+    fn get_test_chainstore(id: Option<u64>) -> Result<FlatChainStore, FlatChainstoreError> {
         let test_id = id.unwrap_or_else(rand::random::<u64>);
 
         let config = super::FlatChainStoreConfig {
@@ -1292,14 +1288,53 @@ mod tests {
             path: format!("./tmp-db/{test_id}/"),
         };
 
-        FlatChainStore::new(config).unwrap()
+        FlatChainStore::new(config)
     }
 
     #[test]
     fn test_create_chainstore() {
-        let store = get_test_chainstore(None);
+        // Helper to tweak the database identifiers while persisting the changes
+        fn tweak_version_and_magic(version: u32, magic: u32) -> u64 {
+            let store_id = rand::random();
+            let mut store = get_test_chainstore(Some(store_id)).unwrap();
 
-        store.check_integrity().unwrap();
+            let metadata = unsafe { store.get_metadata_mut().unwrap() };
+            metadata.version = version;
+            metadata.magic = magic;
+
+            store.flush().unwrap();
+            store_id
+        }
+
+        {
+            let store = get_test_chainstore(None).expect("Should create a chainstore");
+            store.check_integrity().unwrap();
+        }
+
+        // Tweak the version and check we get the expected error while loading the db
+        for version in (0..32).filter(|v| *v != FLAT_CHAINSTORE_VERSION) {
+            let store_id = tweak_version_and_magic(version, FLAT_CHAINSTORE_MAGIC);
+
+            match get_test_chainstore(Some(store_id)) {
+                Err(FlatChainstoreError::UnsupportedDbVersion(v)) if v == version => {},
+                Err(e) => panic!("Should have failed with `FlatChainstoreError::UnsupportedDbVersion({version})`, instead we got {e:?}"),
+                Ok(_) => panic!("Should have failed with `FlatChainstoreError::UnsupportedDbVersion({version})`, instead we got `Ok`"),
+            }
+        }
+
+        // Tweak the magic number and check we get the expected error while loading the db
+        for magic in std::iter::repeat_with(rand::random)
+            .filter(|m| *m != FLAT_CHAINSTORE_MAGIC)
+            .take(32)
+        {
+            let store_id = tweak_version_and_magic(FLAT_CHAINSTORE_VERSION, magic);
+
+            match get_test_chainstore(Some(store_id)) {
+                Err(FlatChainstoreError::InvalidMagic(m)) if m == magic => {},
+                Err(e) => panic!("Should have failed with `FlatChainstoreError::InvalidMagic({magic})`, instead we got {e:?}"),
+                Ok(_) => panic!("Should have failed with `FlatChainstoreError::InvalidMagic({magic})`, instead we got `Ok`"),
+            }
+        }
     }
 
     #[test]
@@ -1318,7 +1353,7 @@ mod tests {
 
     #[test]
     fn test_save_and_retrieve_headers() {
-        let mut store = get_test_chainstore(None);
+        let mut store = get_test_chainstore(None).unwrap();
         let blocks = include_str!("../../testdata/blocks.txt");
 
         for (i, line) in blocks.lines().enumerate() {
@@ -1431,10 +1466,9 @@ mod tests {
 
     #[test]
     fn test_save_height() {
-        let mut store = get_test_chainstore(None);
+        let mut store = get_test_chainstore(None).unwrap();
         let height = BestChain {
             alternative_tips: Vec::new(),
-            assume_valid_index: 0,
             validation_index: genesis_block(Network::Signet).block_hash(),
             depth: 1,
             best_block: genesis_block(Network::Signet).block_hash(),
@@ -1448,7 +1482,7 @@ mod tests {
 
     #[test]
     fn test_index() {
-        let mut store = get_test_chainstore(None);
+        let mut store = get_test_chainstore(None).unwrap();
         let mut hashes = Vec::new();
         let blocks = include_str!("../../testdata/blocks.txt");
 
@@ -1481,7 +1515,7 @@ mod tests {
         // Accepts the first 10235 mainnet headers
         let file = include_bytes!("../../testdata/headers.zst");
         let uncompressed: Vec<u8> = zstd::decode_all(std::io::Cursor::new(file)).unwrap();
-        let store = get_test_chainstore(None);
+        let store = get_test_chainstore(None).unwrap();
         let chain = ChainState::new(store, Network::Bitcoin, AssumeValidArg::Hardcoded);
         let mut buffer = uncompressed.as_slice();
 
@@ -1495,7 +1529,7 @@ mod tests {
         // Accepts the first 2016 signet headers
         let file = include_bytes!("../../testdata/signet_headers.zst");
         let uncompressed: Vec<u8> = zstd::decode_all(std::io::Cursor::new(file)).unwrap();
-        let store = get_test_chainstore(None);
+        let store = get_test_chainstore(None).unwrap();
         let chain = ChainState::new(store, Network::Signet, AssumeValidArg::Hardcoded);
         let mut buffer = uncompressed.as_slice();
 
@@ -1506,7 +1540,7 @@ mod tests {
 
     #[test]
     fn test_fork_blocks() {
-        let mut store = get_test_chainstore(None);
+        let mut store = get_test_chainstore(None).unwrap();
         let file = include_str!("../../testdata/blocks.txt");
         let headers = file
             .lines()
@@ -1547,7 +1581,7 @@ mod tests {
     #[test]
     fn test_recover_acc() {
         let test_id = rand::random::<u64>();
-        let mut store = get_test_chainstore(Some(test_id));
+        let mut store = get_test_chainstore(Some(test_id)).unwrap();
 
         // Save the genesis block and the best chain data
         let genesis = genesis_block(Network::Regtest);
@@ -1562,7 +1596,6 @@ mod tests {
                 depth: 0,
                 validation_index: genesis.block_hash(),
                 alternative_tips: vec![],
-                assume_valid_index: 0,
             })
             .unwrap();
 
@@ -1577,7 +1610,7 @@ mod tests {
 
         drop(store);
 
-        let mut store = get_test_chainstore(Some(test_id));
+        let mut store = get_test_chainstore(Some(test_id)).unwrap();
 
         let recovered = store.load_roots_for_block(0).unwrap().unwrap();
         assert_eq!(recovered, acc);
