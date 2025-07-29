@@ -158,3 +158,9 @@ class FlorestaRPC(BaseRPC):
         `perform_request('getbestblockhash')`
         """
         return self.perform_request("getbestblockhash")
+
+    def get_block_count(self) -> int:
+        """
+        Get block count of the node by performing `perform_request('getblockcount')
+        """
+        return self.perform_request("getblockcount")
