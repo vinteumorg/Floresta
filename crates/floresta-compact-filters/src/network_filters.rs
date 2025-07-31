@@ -22,15 +22,26 @@ impl<Storage: IterableFilterStore> NetworkFilters<Storage> {
     pub fn match_any(
         &self,
         query: Vec<&[u8]>,
-        start_height: Option<usize>,
+        start_height: Option<u32>,
+        stop_height: Option<u32>,
         chain: impl BlockchainInterface,
     ) -> Result<Vec<BlockHash>, IterableFilterStoreError> {
         let mut blocks = Vec::new();
         let iter = query.into_iter();
+
+        let start_height = start_height.map(|n| n as usize);
+
         for (height, filter) in self.filters.iter(start_height)? {
             let hash = chain.get_block_hash(height).unwrap();
+
             if filter.match_any(&hash, &mut iter.clone()).unwrap() {
                 blocks.push(hash);
+            }
+
+            if let Some(stop_at) = stop_height {
+                if height >= stop_at {
+                    break;
+                };
             }
         }
         Ok(blocks)
