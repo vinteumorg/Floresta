@@ -234,9 +234,6 @@ pub struct BestChain {
     /// tips we know about, but are not the best one. We don't keep tips that are too deep
     /// or have too little work if compared to our best one
     pub alternative_tips: Vec<BlockHash>,
-
-    /// Saves the height occupied by the assume valid block
-    pub assume_valid_index: u32,
 }
 
 impl BestChain {
@@ -256,7 +253,6 @@ impl From<(BlockHash, u32)> for BestChain {
             best_block,
             depth,
             validation_index: best_block,
-            assume_valid_index: 0,
             alternative_tips: Vec::new(),
         }
     }
@@ -271,7 +267,6 @@ impl Encodable for BestChain {
         len += self.best_block.consensus_encode(writer)?;
         len += self.depth.consensus_encode(writer)?;
         len += self.validation_index.consensus_encode(writer)?;
-        len += self.assume_valid_index.consensus_encode(writer)?;
         len += self.alternative_tips.consensus_encode(writer)?;
         Ok(len)
     }
@@ -284,7 +279,6 @@ impl Decodable for BestChain {
         let best_block = BlockHash::consensus_decode(reader)?;
         let depth = u32::consensus_decode(reader)?;
         let validation_index = BlockHash::consensus_decode(reader)?;
-        let assume_valid_index = u32::consensus_decode(reader)?;
 
         let alternative_tips = <Vec<BlockHash>>::consensus_decode(reader)?;
         Ok(Self {
@@ -292,7 +286,6 @@ impl Decodable for BestChain {
             best_block,
             depth,
             validation_index,
-            assume_valid_index,
         })
     }
 }
