@@ -17,6 +17,8 @@ import copy
 import time
 import random
 import socket
+import signal
+import contextlib
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Pattern, TextIO
 
@@ -87,6 +89,12 @@ class Node:
                 f"Port type '{port_type}' not found in node ports: {self.rpc_config['ports']}"
             )
         return self.rpc_config["ports"][port_type]
+
+    def send_kill_signal(self, sigcode="SIGTERM"):
+        """Send a signal to kill the daemon process."""
+        with contextlib.suppress(ProcessLookupError):
+            pid = self.daemon.process.pid
+            os.kill(pid, getattr(signal, sigcode, signal.SIGTERM))
 
 
 class FlorestaTestMetaClass(type):
@@ -229,8 +237,31 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
 
         This should not be overridden by the subclass test scripts.
         """
-        self.set_test_params()
-        self.run_test()
+        try:
+            self.set_test_params()
+            self.run_test()
+        except Exception as err:
+            processes = []
+            for node in self._nodes:
+
+                # If the node has an RPC server, stop it gracefully
+                # otherwise (maybe the error occured before the RPC server
+                # is started), try to kill the process with SIGTERM. If that
+                # fails, try to force kill it with SIGKILL.
+                processes.append(str(node.daemon.process.pid))
+                if getattr(node, "rpc", None):
+                    node.rpc.stop()
+                    node.rpc.wait_for_connections(opened=False)
+                else:
+                    # pylint: disable=broad-exception-caught
+                    try:
+                        node.send_kill_signal("SIGTERM")
+                    except Exception:
+                        node.send_kill_signal("SIGKILL")
+
+            raise RuntimeError(
+                f"Process with pids {', '.join(processes)} failed to start: {err}"
+            ) from err
 
     # Should be overrided by individual tests
     def set_test_params(self):
