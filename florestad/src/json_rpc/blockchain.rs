@@ -2,6 +2,9 @@ use bitcoin::block::Header;
 use bitcoin::consensus::encode::serialize_hex;
 use bitcoin::consensus::Encodable;
 use bitcoin::constants::genesis_block;
+use bitcoin::hashes::Hash;
+use bitcoin::hex::DisplayHex;
+use bitcoin::params::Params;
 use bitcoin::Block;
 use bitcoin::BlockHash;
 use bitcoin::MerkleBlock;
@@ -11,14 +14,18 @@ use bitcoin::Txid;
 use serde_json::json;
 use serde_json::Value;
 
-use super::res::GetBlockResVerbose;
+use super::res::GetBlockRes;
 use super::res::GetBlockchainInfoRes;
 use super::res::GetTxOutProof;
 use super::res::JsonRpcError;
+use super::res::RawTxRes;
 use super::server::RpcChain;
 use super::server::RpcImpl;
+use crate::json_rpc::res::GetBlockResOne;
+use crate::json_rpc::res::GetBlockResTwo;
 
 impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
+    /// Ask the block related to the given hash to the network.
     async fn get_block_inner(&self, hash: BlockHash) -> Result<Block, JsonRpcError> {
         let is_genesis = self.chain.get_block_hash(0).unwrap().eq(&hash);
 
@@ -59,8 +66,22 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
     pub(super) async fn get_block(
         &self,
         hash: BlockHash,
-    ) -> Result<GetBlockResVerbose, JsonRpcError> {
+        verbosity: Option<u8>,
+    ) -> Result<GetBlockRes, JsonRpcError> {
+        let verbosity = verbosity.unwrap_or(0);
+
+        // early return to avoid processing data from an invalid request.
+        if verbosity > 2 {
+            return Err(JsonRpcError::InvalidVerbosityLevel);
+        }
+
         let block = self.get_block_inner(hash).await?;
+
+        // early return for the verbosity level 0.
+        if verbosity == 0u8 {
+            return Ok(GetBlockRes::Zero(serialize_hex(&block)));
+        }
+
         let tip = self.chain.get_height().map_err(|_| JsonRpcError::Chain)?;
         let height = self
             .chain
@@ -83,45 +104,144 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
             block.header.time
         };
 
-        let block = GetBlockResVerbose {
-            bits: serialize_hex(&block.header.bits),
-            chainwork: block.header.work().to_string(),
-            confirmations: (tip - height) + 1,
-            difficulty: block.header.difficulty(self.chain.get_params()),
-            hash: block.header.block_hash().to_string(),
-            height,
-            merkleroot: block.header.merkle_root.to_string(),
-            nonce: block.header.nonce,
-            previousblockhash: block.header.prev_blockhash.to_string(),
-            size: block.total_size(),
-            time: block.header.time,
-            tx: block
-                .txdata
-                .iter()
-                .map(|tx| tx.compute_txid().to_string())
-                .collect(),
-            version: block.header.version.to_consensus(),
-            version_hex: serialize_hex(&block.header.version),
-            weight: block.weight().to_wu() as usize,
-            mediantime: median_time_past,
-            n_tx: block.txdata.len(),
-            nextblockhash: self
-                .chain
-                .get_block_hash(height + 1)
-                .ok()
-                .map(|h| h.to_string()),
-            strippedsize: block.total_size(),
-        };
+        if verbosity == 1 {
+            return Ok(GetBlockRes::One(GetBlockResOne {
+                bits: block
+                    .header
+                    .bits
+                    .to_consensus()
+                    .to_be_bytes()
+                    .to_lower_hex_string(),
+                chainwork: format!("{:0>64}", block.header.work().to_string()),
+                confirmations: (tip - height) + 1,
+                difficulty: block.header.difficulty(Params::MAINNET),
+                hash: block.header.block_hash().to_string(),
+                height,
+                merkleroot: block.header.merkle_root.to_string(),
+                nonce: block.header.nonce,
+                previousblockhash: block.header.prev_blockhash.to_string(),
+                size: block.total_size(),
+                time: block.header.time,
+                tx: block
+                    .txdata
+                    .iter()
+                    .map(|tx| tx.compute_txid().to_string())
+                    .collect(),
+                version: block.header.version.to_consensus(),
+                version_hex: block
+                    .header
+                    .version
+                    .to_consensus()
+                    .to_be_bytes()
+                    .to_lower_hex_string(),
+                weight: block.weight().to_wu() as usize,
+                target: block.header.target().to_be_bytes().to_lower_hex_string(),
+                mediantime: median_time_past,
+                n_tx: block.txdata.len(),
+                nextblockhash: self
+                    .chain
+                    .get_block_hash(height + 1)
+                    .ok()
+                    .map(|h| h.to_string()),
+                strippedsize: block.total_size(),
+            }));
+        }
 
-        Ok(block)
+        if verbosity == 2 {
+            return Ok(GetBlockRes::Two(GetBlockResTwo {
+                bits: block
+                    .header
+                    .bits
+                    .to_consensus()
+                    .to_be_bytes()
+                    .to_lower_hex_string(),
+                chainwork: format!("{:0>64}", block.header.work().to_string()),
+                confirmations: (tip - height) + 1,
+                difficulty: block.header.difficulty(Params::MAINNET),
+                hash: block.header.block_hash().to_string(),
+                height,
+                merkleroot: block.header.merkle_root.to_string(),
+                nonce: block.header.nonce,
+                previousblockhash: block.header.prev_blockhash.to_string(),
+                size: block.total_size(),
+                time: block.header.time,
+                tx: self.make_raw_transactions_from_block(&block, height),
+                version: block.header.version.to_consensus(),
+                version_hex: block
+                    .header
+                    .version
+                    .to_consensus()
+                    .to_be_bytes()
+                    .to_lower_hex_string(),
+                weight: block.weight().to_wu() as usize,
+                target: block.header.target().to_be_bytes().to_lower_hex_string(),
+                mediantime: median_time_past,
+                n_tx: block.txdata.len(),
+                nextblockhash: self
+                    .chain
+                    .get_block_hash(height + 1)
+                    .ok()
+                    .map(|h| h.to_string()),
+                strippedsize: block.total_size(),
+            }));
+        }
+
+        // This is mostly unreachable
+        Err(JsonRpcError::InvalidRequest)
     }
 
-    pub(super) async fn get_block_serialized(
-        &self,
-        hash: BlockHash,
-    ) -> Result<String, JsonRpcError> {
-        let block = self.get_block_inner(hash).await?;
-        Ok(serialize_hex(&block))
+    fn make_raw_transactions_from_block(&self, block: &Block, height: u32) -> Vec<RawTxRes> {
+        block
+            .txdata
+            .iter()
+            .map(|tx| {
+                let raw_tx = tx.clone();
+                let in_active_chain = true;
+                let hex = serialize_hex(&raw_tx);
+                let txid = serialize_hex(&raw_tx.compute_txid());
+                let block_hash = self
+                    .chain
+                    .get_block_hash(height)
+                    .unwrap_or(BlockHash::all_zeros());
+                let tip = self.chain.get_height().unwrap();
+                let confirmations = if in_active_chain { tip - height + 1 } else { 0 };
+
+                RawTxRes {
+                    in_active_chain,
+                    hex,
+                    txid,
+                    hash: serialize_hex(&raw_tx.compute_wtxid()),
+                    size: raw_tx.total_size() as u32,
+                    vsize: raw_tx.vsize() as u32,
+                    weight: raw_tx.weight().to_wu() as u32,
+                    version: raw_tx.version.0 as u32,
+                    locktime: raw_tx.lock_time.to_consensus_u32(),
+                    vin: raw_tx
+                        .input
+                        .iter()
+                        .map(|input| self.make_vin(input.clone()))
+                        .collect(),
+                    vout: raw_tx
+                        .output
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, output)| self.make_vout(output, i as u32))
+                        .collect(),
+                    blockhash: serialize_hex(&block_hash),
+                    confirmations,
+                    blocktime: self
+                        .chain
+                        .get_block_header(&block_hash)
+                        .map(|h| h.time)
+                        .unwrap_or(0),
+                    time: self
+                        .chain
+                        .get_block_header(&block_hash)
+                        .map(|h| h.time)
+                        .unwrap_or(0),
+                }
+            })
+            .collect()
     }
 
     // getblockchaininfo

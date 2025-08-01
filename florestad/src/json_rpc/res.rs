@@ -20,8 +20,9 @@ pub struct GetBlockchainInfoRes {
     pub difficulty: u64,
 }
 
-#[derive(Deserialize, Serialize)]
-pub struct RawTxJson {
+/// A raw transaction with some metadata as defined in "getrawtransaction"
+#[derive(Deserialize, Serialize, Debug)]
+pub struct RawTxRes {
     pub in_active_chain: bool,
     pub hex: String,
     pub txid: String,
@@ -39,14 +40,14 @@ pub struct RawTxJson {
     pub time: u32,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Debug)]
 pub struct TxOutJson {
     pub value: u64,
     pub n: u32,
     pub script_pub_key: ScriptPubKeyJson,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Debug)]
 pub struct ScriptPubKeyJson {
     pub asm: String,
     pub hex: String,
@@ -56,7 +57,7 @@ pub struct ScriptPubKeyJson {
     pub address: String,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Debug)]
 pub struct TxInJson {
     pub txid: String,
     pub vout: u32,
@@ -65,17 +66,10 @@ pub struct TxInJson {
     pub witness: Vec<String>,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Debug)]
 pub struct ScriptSigJson {
     pub asm: String,
     pub hex: String,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(untagged)]
-pub enum GetBlockRes {
-    Verbose(Box<GetBlockResVerbose>),
-    Serialized(String),
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -91,9 +85,8 @@ pub struct RpcError {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct GetTxOutProof(pub Vec<u8>);
 
-/// A full bitcoin block, returned by get_block
 #[derive(Debug, Deserialize, Serialize)]
-pub struct GetBlockResVerbose {
+pub struct GetBlockResOne {
     /// This block's hash.
     pub hash: String,
 
@@ -102,11 +95,11 @@ pub struct GetBlockResVerbose {
     /// then it increments to 2 and so on...
     pub confirmations: u32,
 
-    /// The size of this block, without the witness
-    pub strippedsize: usize,
-
     /// This block's size, with the witness
     pub size: usize,
+
+    /// The size of this block, without the witness
+    pub strippedsize: usize,
 
     /// This block's weight.
     ///
@@ -169,6 +162,9 @@ pub struct GetBlockResVerbose {
     /// decided to make consensus critical :/
     pub bits: String,
 
+    /// The difficulty target.
+    pub target: String,
+
     /// The difficulty is derived from the current target and is defined as how many hashes, on
     /// average, one has to make before finding a valid block
     ///
@@ -192,6 +188,120 @@ pub struct GetBlockResVerbose {
     #[serde(skip_serializing_if = "Option::is_none")]
     /// The hash of the block coming after this one, if any
     pub nextblockhash: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct GetBlockResTwo {
+    /// This block's hash.
+    pub hash: String,
+
+    /// How many blocks have been added to the chain, after this one have been found. This is
+    /// inclusive, so it starts with one when this block is the latest. If another one is found,
+    /// then it increments to 2 and so on...
+    pub confirmations: u32,
+
+    /// This block's size, with the witness
+    pub size: usize,
+
+    /// The size of this block, without the witness
+    pub strippedsize: usize,
+
+    /// This block's weight.
+    ///
+    /// Data inside a segwit block is counted differently, 'base data' has a weight of 4, while
+    /// witness only counts 1. This is (3 * base_size) + size
+    pub weight: usize,
+
+    /// How many blocks there are before this block
+    pub height: u32,
+
+    /// This block's version field
+    ///
+    /// Currently, blocks have version 2 (see BIP34), but it may also flip some of the LSB for
+    /// either consensus reason (see BIPs 8 and 9) or for version rolling mining, usually bits
+    /// after the 24th are not touched. Therefore, the actual version is likely the result of
+    /// version & ~(1 << 24).
+    /// This is encoded as a number, see `version_hex` for a hex-encoded version
+    pub version: i32,
+
+    #[serde(rename = "versionHex")]
+    /// Same as `version` by hex-encoded
+    pub version_hex: String,
+
+    /// This block's merkle root
+    ///
+    /// A Merkle Tree is a binary tree where every leaf is some data, and the branches are pairwise
+    /// hashes util reaching the root. This allows for compact proof of inclusion in the original
+    /// set. This merkle tree commits to the txid of all transactions in a block, and is used by
+    /// some light clients to determine whether a transaction is in a given block
+    pub merkleroot: String,
+
+    /// The transactions in the format of the getrawtransaction RPC.
+    pub tx: Vec<RawTxRes>,
+
+    /// The timestamp committed to in this block's header
+    ///
+    /// Since there's no central clock that can tell time precisely in Bitcoin, this value is
+    /// reported by miners and only constrained by a couple of consensus rules. More sensibly, it
+    /// is **not** guaranteed to be monotonical. So a block n might have a lower timestamp than
+    /// block `n - 1`.
+    /// If you need it to be monotonical, see `mediantime` instead
+    pub time: u32,
+
+    /// The meadian of the last 11 blocktimes.
+    ///
+    /// This is a monotonically increasing number that bounds how old a block can be. Blocks may
+    /// not have a timestamp less than the current `mediantime`. This is also used in relative
+    /// timelocks.
+    pub mediantime: u32,
+
+    /// The nonce used to mine this block.
+    ///
+    /// Blocks are mined by increasing this value until you find a hash that is less than a network
+    /// defined target. This number has no meaning in itself and is just a random u32.
+    pub nonce: u32,
+
+    /// Bits is a compact representation for the target.
+    ///
+    /// This is a exponential format (with well-define rounding) used by openssl that Satoshi
+    /// decided to make consensus critical :/
+    pub bits: String,
+
+    /// The difficulty target.
+    pub target: String,
+
+    /// The difficulty is derived from the current target and is defined as how many hashes, on
+    /// average, one has to make before finding a valid block
+    ///
+    /// This is computed as 1 / (target / 2 ^ 256). In most software (this one included) the
+    /// difficulty is a multiple of the smallest possible difficulty. So to find the actual
+    /// difficulty you have to multiply this by the min_diff.
+    /// For mainnet, mindiff is 2 ^ 32
+    pub difficulty: u128,
+
+    /// Commullative work in this network
+    ///
+    /// This is a estimate of how many hashes the network has ever made to produce this chain
+    pub chainwork: String,
+
+    /// How many transactions in this block
+    pub n_tx: usize,
+
+    /// The hash of the block coming before this one
+    pub previousblockhash: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    /// The hash of the block coming after this one, if any
+    pub nextblockhash: Option<String>,
+}
+
+/// A full bitcoin block, returned by get_block
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum GetBlockRes {
+    Zero(String),
+    One(GetBlockResOne),
+    Two(GetBlockResTwo),
 }
 
 #[derive(Debug)]
