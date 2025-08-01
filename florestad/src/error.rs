@@ -1,9 +1,9 @@
 use bitcoin::consensus::encode;
 use floresta_chain::BlockValidationErrors;
 use floresta_chain::BlockchainError;
+use floresta_common::descriptor_internals::DescriptorError;
+use floresta_common::slip132;
 use tokio_rustls::rustls::pki_types;
-
-use crate::slip132;
 #[derive(Debug)]
 pub enum Error {
     Encode(encode::Error),
@@ -18,6 +18,7 @@ pub enum Error {
     TomlParsing(toml::de::Error),
     WalletInput(slip132::Error),
     AddressParsing(bitcoin::address::ParseError),
+    DescriptorParsing(DescriptorError),
     Miniscript(miniscript::Error),
     InvalidPrivKey(pki_types::pem::Error),
     InvalidCert(pki_types::pem::Error),
@@ -37,6 +38,7 @@ impl std::fmt::Display for Error {
             Error::Rustreexo(err) => write!(f, "Rustreexo error: {err}"),
             Error::Io(err) => write!(f, "Io error {err}"),
             Error::ScriptValidation(err) => write!(f, "Error during script evaluation: {err}"),
+            Error::DescriptorParsing(err) => write!(f, "Error while parsing descriptors: {err:?}"),
             Error::Blockchain(err) => write!(f, "Error with our blockchain backend: {err:?}"),
             Error::SerdeJson(err) => write!(f, "Error serializing object {err}"),
             Error::WalletInput(err) => write!(f, "Error while parsing user input {err:?}"),
@@ -88,6 +90,7 @@ impl_from_error!(ScriptValidation, bitcoin::blockdata::script::Error);
 impl_from_error!(Blockchain, BlockchainError);
 impl_from_error!(SerdeJson, serde_json::Error);
 impl_from_error!(WalletInput, slip132::Error);
+impl_from_error!(DescriptorParsing, DescriptorError);
 impl_from_error!(TomlParsing, toml::de::Error);
 impl_from_error!(BlockValidation, BlockValidationErrors);
 impl_from_error!(AddressParsing, bitcoin::address::ParseError);
