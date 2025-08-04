@@ -65,10 +65,16 @@ florestad --no-backfill
 
 ## Compact Filters
 
-Floresta supports compact block filters, which can be used to scan for transactions in a block without downloading the entire block. You can start the node with the `--cfilters` flag to download the filters for the blocks that you're interested in. You can also use the `--filters-start-height` flag to specify the block height that you want to start downloading the filters from. This is useful if you want to download only the filters for a specific range of blocks.
+Floresta supports compact block filters, which can be used to scan for transactions in a block without downloading the entire block. By default, the node will download filters for all blocks. You can also use the `--filters-start-height` flag to specify the block height that you want to start downloading the filters from. This is useful if you want to download only the filters for a specific range of blocks.
 
 ```bash
-florestad --cfilters --filters-start-height 800000
+florestad --filters-start-height 800000
+```
+
+To disable compact block filters, start the node with the `--no-cfilters` flag. This will prevent the node from downloading filters.
+
+```bash
+florestad --no-cfilters
 ```
 
 ## Getting Help
@@ -101,7 +107,7 @@ The rescan assumes that you have compact block filters for the blocks that you'r
 using the `--filters-start-height` option. Let's you know that none of your wallets are older than block 800,000. Just start the node with.
 
 ```bash
-./target/release/florestad --cfilters --filters-start-height 800000
+./target/release/florestad --filters-start-height 800000
 ```
 
 if you add a wallet and want to rescan the blocks from 800,000 to the current height, you can use the `rescan` rpc.
