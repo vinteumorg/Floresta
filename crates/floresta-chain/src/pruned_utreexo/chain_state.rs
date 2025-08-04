@@ -137,6 +137,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             let best_height = self.get_best_block()?.0;
 
             if *height > best_height {
+                warn!("Found block with height {height}, while the current best chain is at {best_height}. Reindexing.");
                 self.reindex_chain()?;
             }
         }
@@ -603,6 +604,9 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             inner.acc = acc;
             inner.best_block = best_chain.clone();
             inner.best_block.validation_index = last_acc_header.block_hash();
+        } else {
+            // We may reindex as well during chain selection (no acc nor validation index)
+            write_lock!(self).best_block = best_chain.clone();
         }
 
         debug!(
@@ -667,6 +671,8 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             .load_height()?
             .ok_or(BlockchainError::ChainNotInitialized)?;
 
+        debug!("Loaded best block: {best_block:#?}");
+
         let validation_index_height = chainstore
             .get_header(&best_block.validation_index)?
             .ok_or(BlockchainError::BlockNotPresent)?
@@ -693,7 +699,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         };
 
         info!(
-            "Chainstate loaded at height: {}, checking if we have all blocks",
+            "ChainState loaded at height: {}, checking if we have all blocks",
             inner.best_block.depth,
         );
 
@@ -716,7 +722,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         };
 
         if res.is_err() {
-            warn!("We had a data corruption in our database, reindexing");
+            warn!("We had a data corruption in our database: {res:?}. Reindexing.");
             self.reindex_chain()?;
         }
 
@@ -731,20 +737,28 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         let best_disk_height = self.get_disk_block_header(&best_hash)?.try_height()?;
 
         if best_height != best_disk_height {
+            warn!(
+                "Best height {best_height} != disk header height {best_disk_height}. Reindexing."
+            );
             self.reindex_chain()?;
             return Ok(());
         }
 
         // make sure our validation index is pointing to a valid block
-        let Ok(validation_index) = self.get_validation_index() else {
-            self.reindex_chain()?;
-            return Ok(());
+        let validation_index = match self.get_validation_index() {
+            Ok(idx) => idx,
+            Err(e) => {
+                warn!("Error with our validation index: {e}. Reindexing.");
+                self.reindex_chain()?;
+                return Ok(());
+            }
         };
 
         let last_valid_block = self.get_block_hash(validation_index)?;
         let last_valid_header = self.get_disk_block_header(&last_valid_block)?;
 
         if !matches!(last_valid_header, DiskBlockHeader::FullyValid(_, _)) {
+            warn!("The validation index header is not `FullyValid`: {last_valid_header:?}, fetched with validation index {validation_index}. Reindexing.");
             self.reindex_chain()?;
             return Ok(());
         }

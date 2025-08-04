@@ -677,6 +677,12 @@ where
                         break;
                     }
                 }
+
+                // Shutdown if needed while in the notifications loop
+                if *self.kill_signal.read().await {
+                    self.shutdown().await;
+                    return Ok(());
+                }
             }
 
             // Checks if we need to open a new connection
@@ -729,6 +735,7 @@ where
             try_and_log!(self.check_for_timeout().await);
 
             if *self.kill_signal.read().await {
+                self.shutdown().await;
                 break;
             }
         }
