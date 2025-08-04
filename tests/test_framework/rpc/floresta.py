@@ -66,7 +66,7 @@ class FlorestaRPC(BaseRPC):
         The returns for this rpc are identical to bitcoin core's getblock rpc
         as of version 27.0.
 
-        the `str` param should be a valid 32 bytes hex formated string
+        the `str` param should be a valid 32 bytes hex formatted string
         the `int` param should be a integer verbosity level
         """
         if len(blockhash) != 64:

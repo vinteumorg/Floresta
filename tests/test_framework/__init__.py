@@ -4,7 +4,7 @@ tests/test_framework/__init__.py
 Adapted from
 https://github.com/bitcoin/bitcoin/blob/master/test/functional/test_framework/test_framework.py
 
-Bitcoin Core's functional tests define a metaclass that checks wheter the required
+Bitcoin Core's functional tests define a metaclass that checks whether the required
 methods are defined or not. Floresta's functional tests will follow this battle tested structure.
 The difference is that `florestad` will run under a `cargo run` subprocess, which is defined at
 `add_node_settings`.
@@ -245,7 +245,7 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
             for node in self._nodes:
 
                 # If the node has an RPC server, stop it gracefully
-                # otherwise (maybe the error occured before the RPC server
+                # otherwise (maybe the error occurred before the RPC server
                 # is started), try to kill the process with SIGTERM. If that
                 # fails, try to force kill it with SIGKILL.
                 processes.append(str(node.daemon.process.pid))
@@ -263,7 +263,7 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
                 f"Process with pids {', '.join(processes)} failed to start: {err}"
             ) from err
 
-    # Should be overrided by individual tests
+    # Should be overridden by individual tests
     def set_test_params(self):
         """
         Tests must override this method to change default values for number of nodes, topology, etc

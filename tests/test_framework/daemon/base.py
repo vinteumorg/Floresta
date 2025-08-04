@@ -64,7 +64,7 @@ class BaseDaemon(metaclass=BaseDaemonMetaClass):
     is a parent process of the test process, that is a parent of daemon
     processes. If a test fail and the daemon process isnt properly
     stopped, the `tests/run_test.py` and the test itself will be killed,
-    but the daemon process will be reparented before the ports beign closed,
+    but the daemon process will be reparented before the ports being closed,
     therefore, the ports will remain opened.
 
     For example:
@@ -232,7 +232,7 @@ class BaseDaemon(metaclass=BaseDaemonMetaClass):
         Add node settings to the list of settings.
 
         settings are the CLI arguments to be passed to the node and
-        are based on the `valid_deamon_args` method.
+        are based on the `valid_daemon_args` method.
 
         Not all possible arguments are valid for tests
         (for example, "--version" or "--help" are not valid).

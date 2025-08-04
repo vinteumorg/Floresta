@@ -43,7 +43,7 @@ class GetMemoryInfoTest(FlorestaTestFramework):
             self.assertTrue(result["locked"]["used"] >= 0)
         else:
             self.log(
-                f"Skiping test: 'getmemoryinfo stats' not implemented for '{sys.platform}'"
+                f"Skipping test: 'getmemoryinfo stats' not implemented for '{sys.platform}'"
             )
 
     def test_mode_mallocinfo_ibd(self, node):
@@ -70,7 +70,7 @@ class GetMemoryInfoTest(FlorestaTestFramework):
             self.assertMatch(result, pattern)
         else:
             self.log(
-                f"Skiping test: 'getmemoryinfo malloc' not implemented for '{sys.platform}'"
+                f"Skipping test: 'getmemoryinfo malloc' not implemented for '{sys.platform}'"
             )
 
     def run_test(self):
