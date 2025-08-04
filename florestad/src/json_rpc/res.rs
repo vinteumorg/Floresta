@@ -295,7 +295,7 @@ impl Display for JsonRpcError {
             JsonRpcError::InvalidPort => write!(f, "Invalid port"),
             JsonRpcError::InvalidAddress => write!(f, "Invalid address"),
             JsonRpcError::Node(e) => write!(f, "Node error: {e}"),
-            JsonRpcError::NoBlockFilters => write!(f, "You don't have block filters enabled, please start florestad with --cfilters to run this RPC"),
+            JsonRpcError::NoBlockFilters => write!(f, "You don't have block filters enabled, please start florestad without --no-cfilters to run this RPC"),
             JsonRpcError::InvalidNetwork => write!(f, "Invalid network"),
             JsonRpcError::InInitialBlockDownload => write!(f, "Node is in initial block download, wait until it's finished"),
             JsonRpcError::Encode => write!(f, "Error encoding response"),

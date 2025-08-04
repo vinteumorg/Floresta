@@ -72,7 +72,7 @@ show_usage() {
     echo "                                   (default: '')"
     echo "  -v  --assume-valid <BLOCK_HASH>  Pass --assume-valid=<BLOCK_HASH> onto built service"
     echo "                                   (default: '')"
-    echo "  -f, --filters <HEIGHT>           Pass --cfilters and --filters-start-height=<HEIGHT> onto"
+    echo "  -f, --filters <HEIGHT>           Pass --filters-start-height=<HEIGHT> onto"
     echo "                                   built service. If the value is negative, it's relative"
     echo "                                   to the current tip; e.g., if the current tip is 1000 and"
     echo "                                   we set this value to -100, we will start downloading"
@@ -428,7 +428,7 @@ After=network-online.target time-set.target
 Wants=network-online.target
 
 [Service]
-ExecStart=/usr/local/bin/florestad --daemon --network $network --data-dir $florestaDir --config-file $florestaLib/config.toml --pid-file $florestaRun/florestad.pid --log-to-file$([ -n "$proxy" ] && echo " --proxy $proxy ")$([ -n "$connect" ] && echo " --connect $connect ")$([ -n "$zeromq" ] && echo " --zmq-address $zeromq ")$([ -n "$assume_valid" ] && echo " --assume-valid $assume_valid ")$([ "$assume_utreexo" = true ] && echo " --assume-utreexo ")$([ "$enable_cfilters" = true ] && echo " --cfilters ")$([ -n "$filters_start_height" ] && echo " --filters-start-height \"$filters_start_height\" ")$([ "$enable_tls" == true ] && echo " --generate-cert --enable-electrum-tls")
+ExecStart=/usr/local/bin/florestad --daemon --network $network --data-dir $florestaDir --config-file $florestaLib/config.toml --pid-file $florestaRun/florestad.pid --log-to-file$([ -n "$proxy" ] && echo " --proxy $proxy ")$([ -n "$connect" ] && echo " --connect $connect ")$([ -n "$zeromq" ] && echo " --zmq-address $zeromq ")$([ -n "$assume_valid" ] && echo " --assume-valid $assume_valid ")$([ "$assume_utreexo" = true ] && echo " --assume-utreexo ")$([ "$enable_cfilters" = false ] && echo " --no-cfilters ")$([ -n "$filters_start_height" ] && echo " --filters-start-height \"$filters_start_height\" ")$([ "$enable_tls" == true ] && echo " --generate-cert --enable-electrum-tls")
 
 # Ensure that the service is ready after the MainPID exists
 Type=forking
@@ -1017,7 +1017,7 @@ interactive_zeromq() {
 
 # func: interactive_filters
 #
-# Ask if user want to use --cfilters or not
+# Ask if user want to use --no-cfilters or not
 interactive_filters() {
     local filters_start_height_regex="^-?[0-9]+$"
 
