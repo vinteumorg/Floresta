@@ -224,7 +224,7 @@ impl PartialChainState {
     /// [PartialChainState] is through our APIs, and we make sure this [UnsafeCell] is
     /// always valid.
     /// The reference returned here **should not** leak through the API, as there's no
-    /// synchronization mechanims for it.
+    /// synchronization mechanisms for it.
     #[inline(always)]
     #[must_use]
     #[doc(hidden)]
@@ -239,7 +239,7 @@ impl PartialChainState {
     /// [PartialChainState] is through our APIs, and we make sure this [UnsafeCell] is
     /// always valid.
     /// The reference returned here **should not** leak through the API, as there's no
-    /// synchronization mechanims for it.
+    /// synchronization mechanisms for it.
     #[inline(always)]
     #[allow(clippy::mut_from_ref)]
     #[must_use]
