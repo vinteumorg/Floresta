@@ -1102,6 +1102,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "spin",
+ "tempfile",
  "xxhash-rust",
  "zstd",
 ]

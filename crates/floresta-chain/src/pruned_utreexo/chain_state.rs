@@ -518,7 +518,6 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
                     depth: 0,
                     validation_index: genesis.block_hash(),
                     alternative_tips: Vec::new(),
-                    assume_valid_index: 0,
                 },
                 broadcast_queue: Vec::new(),
                 subscribers: Vec::new(),
@@ -654,7 +653,6 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             depth,
             validation_index,
             alternative_tips: Vec::new(),
-            assume_valid_index: 0,
         }
     }
 

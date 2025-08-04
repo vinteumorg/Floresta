@@ -106,7 +106,7 @@ use crate::DiskBlockHeader;
 const FLAT_CHAINSTORE_MAGIC: u32 = 0x74_73_6C_66; // "flst" backwards
 
 /// The version of our flat chain store
-const FLAT_CHAINSTORE_VERSION: u32 = 0;
+const FLAT_CHAINSTORE_VERSION: u32 = 1;
 
 /// We use a LRU cache to keep the last n blocks we've touched, so we don't need to do a map search
 /// again. This is the type of our cache
@@ -295,7 +295,7 @@ struct HashedDiskHeader {
 }
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 /// Metadata about our chainstate and the blocks we have. We need this to keep track of the
 /// network state, our local validation state and accumulator state
 struct Metadata {
@@ -319,9 +319,6 @@ struct Metadata {
     /// tips we know about, but are not the best one. We don't keep tips that are too deep
     /// or has too little work if compared to our best one
     alternative_tips: [BlockHash; 64], // we hope to never have more than 64 alt-chains
-
-    /// Saves the height occupied by the assume valid block
-    assume_valid_index: u32,
 
     /// How many blocks we have that are not in our main chain
     fork_count: u32,
@@ -357,14 +354,14 @@ pub enum FlatChainstoreError {
     /// The index is full, we can't add more blocks to it
     IndexIsFull,
 
-    /// Tried to open a database that is too new for us
-    DbTooNew,
+    /// Tried to open a database with an unsupported version number
+    DbTooNew(u32),
 
     /// Our cache lock is poisoned
     Poisoned,
 
-    /// We encountered an invalid magic value. Possibly a database corruption
-    InvalidMagic,
+    /// We encountered an invalid magic value, possibly database corruption
+    InvalidMagic(u32),
 
     /// The provided accumulator is too big
     AccumulatorTooBig,
@@ -629,7 +626,6 @@ impl FlatChainStore {
         _metadata.fork_file_size = fork_size;
         _metadata.index_capacity = index_size;
         _metadata.block_index_occupancy = 0;
-        _metadata.assume_valid_index = 0;
         _metadata.best_block = BlockHash::all_zeros();
         _metadata.depth = 0;
         _metadata.validation_index = BlockHash::all_zeros();
@@ -669,8 +665,11 @@ impl FlatChainStore {
     pub fn new(config: FlatChainStoreConfig) -> Result<Self, FlatChainstoreError> {
         let dir = &config.path;
         let metadata_path = format!("{dir}/metadata.bin");
-
         let file_mode = config.file_permission.unwrap_or(0o600);
+
+        // Maybe migrate our database if it's the old version 0
+        migrate_v0_to_v1::maybe_migrate(&metadata_path, file_mode)?;
+
         let metadata = unsafe { Self::init_file(&metadata_path, size_of::<Metadata>(), file_mode) };
 
         let Ok(metadata_file) = metadata else {
@@ -691,11 +690,11 @@ impl FlatChainStore {
 
         // check the magic number and version
         if metadata.version > FLAT_CHAINSTORE_VERSION {
-            return Err(FlatChainstoreError::DbTooNew);
+            return Err(FlatChainstoreError::DbTooNew(metadata.version));
         }
 
         if metadata.magic != FLAT_CHAINSTORE_MAGIC {
-            return Err(FlatChainstoreError::InvalidMagic);
+            return Err(FlatChainstoreError::InvalidMagic(metadata.magic));
         }
 
         let index_path = format!("{}/blocks_index.bin", config.path);
@@ -901,7 +900,6 @@ impl FlatChainStore {
     unsafe fn do_save_height(&mut self, best_block: &BestChain) -> Result<(), FlatChainstoreError> {
         let metadata = self.get_metadata_mut()?;
 
-        metadata.assume_valid_index = best_block.assume_valid_index;
         metadata.best_block = best_block.best_block;
         metadata.depth = best_block.depth;
         metadata.validation_index = best_block.validation_index;
@@ -931,7 +929,6 @@ impl FlatChainStore {
                 .into_iter()
                 .take_while(|tip| *tip != BlockHash::all_zeros())
                 .collect(),
-            assume_valid_index: metadata.assume_valid_index,
         })
     }
 
@@ -1229,8 +1226,102 @@ impl ChainStore for FlatChainStore {
     }
 }
 
+pub mod migrate_v0_to_v1 {
+    use std::fs;
+    use std::fs::OpenOptions;
+    use std::io;
+    use std::path::Path;
+
+    use memmap2::Mmap;
+    use memmap2::MmapOptions;
+
+    use super::*;
+
+    #[repr(C)]
+    #[derive(Debug, Clone, Copy)]
+    struct MetadataV0 {
+        magic: u32,
+        version: u32,
+        best_block: BlockHash,
+        depth: u32,
+        validation_index: BlockHash,
+        alternative_tips: [BlockHash; 64],
+        assume_valid_index: u32, // DEPRECATED FIELD
+        fork_count: u32,
+        headers_file_size: usize,
+        fork_file_size: usize,
+        block_index_occupancy: usize,
+        index_capacity: usize,
+        checksum: DbCheckSum,
+    }
+
+    impl From<MetadataV0> for Metadata {
+        fn from(value: MetadataV0) -> Self {
+            Metadata {
+                magic: value.magic,
+                version: FLAT_CHAINSTORE_VERSION, // bump version
+                best_block: value.best_block,
+                depth: value.depth,
+                validation_index: value.validation_index,
+                alternative_tips: value.alternative_tips,
+                // assume_valid_index is skipped
+                fork_count: value.fork_count,
+                headers_file_size: value.headers_file_size,
+                fork_file_size: value.fork_file_size,
+                block_index_occupancy: value.block_index_occupancy,
+                index_capacity: value.index_capacity,
+                checksum: value.checksum,
+            }
+        }
+    }
+
+    /// If `metadata.bin` is exactly the old size, rename to `.bin.old`, mmap it as `MetadataV0`,
+    /// then create a fresh v1 file and copy all fields except the deprecated u32. Returns a bool
+    /// indicating whether a migration was performed or not.
+    pub fn maybe_migrate(path: &str, mode: u32) -> Result<bool, FlatChainstoreError> {
+        match fs::metadata(path) {
+            // No db found, nothing to migrate from
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(false),
+            // Propagate the rest of errors
+            Err(e) => return Err(e.into()),
+            // Found but doesn't have the v0 size
+            Ok(meta) if meta.len() != size_of::<MetadataV0>() as u64 => return Ok(false),
+            Ok(_) => {}
+        }
+
+        // 1) back up
+        let backup = Path::new(path).with_extension("bin.old");
+        fs::rename(path, &backup)?;
+
+        // 2) read old struct
+        let mmap = init_mmap(&backup, size_of::<MetadataV0>())?;
+        let old_meta = unsafe { &*(mmap.as_ptr() as *const MetadataV0) };
+
+        // 3) create new v1 mmap
+        let mut new_mmap = unsafe { FlatChainStore::init_file(path, size_of::<Metadata>(), mode)? };
+        let new_meta = unsafe { &mut *(new_mmap.as_mut_ptr() as *mut Metadata) };
+
+        // 4) copy everything but the deprecated u32, bump version
+        *new_meta = Metadata::from(*old_meta);
+        log::info!("Migrated FlatChainStore from v0 to v1!");
+
+        Ok(true)
+    }
+
+    /// Initialize a read-only mmap
+    pub(super) fn init_mmap(file_path: &Path, size: usize) -> Result<Mmap, FlatChainstoreError> {
+        let file = OpenOptions::new().read(true).open(file_path)?;
+        let mmap = unsafe { MmapOptions::new().len(size).map(&file)? };
+        Ok(mmap)
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use core::mem::size_of;
+    use std::fs;
+    use std::str::FromStr;
+
     use bitcoin::block::Header;
     use bitcoin::consensus::deserialize;
     use bitcoin::consensus::Decodable;
@@ -1239,16 +1330,26 @@ mod tests {
     use bitcoin::Block;
     use bitcoin::BlockHash;
     use bitcoin::Network;
+    use floresta_common::bhash;
+    use tempfile::TempDir;
     use xxhash_rust::xxh3;
 
     use super::FlatChainStore;
+    use super::FlatChainStoreConfig;
     use super::FlatChainstoreError;
     use super::Index;
+    use super::FLAT_CHAINSTORE_MAGIC;
+    use super::FLAT_CHAINSTORE_VERSION;
+    use crate::migrate_v0_to_v1::init_mmap;
+    use crate::migrate_v0_to_v1::maybe_migrate;
+    use crate::pruned_utreexo::flat_chain_store::FileChecksum;
+    use crate::pruned_utreexo::flat_chain_store::Metadata;
     use crate::pruned_utreexo::UpdatableChainstate;
     use crate::AssumeValidArg;
     use crate::BestChain;
     use crate::ChainState;
     use crate::ChainStore;
+    use crate::DbCheckSum;
     use crate::DiskBlockHeader;
 
     #[test]
@@ -1280,10 +1381,10 @@ mod tests {
         );
     }
 
-    fn get_test_chainstore(id: Option<u64>) -> FlatChainStore {
+    fn get_test_chainstore(id: Option<u64>) -> Result<FlatChainStore, FlatChainstoreError> {
         let test_id = id.unwrap_or_else(rand::random::<u64>);
 
-        let config = super::FlatChainStoreConfig {
+        let config = FlatChainStoreConfig {
             block_index_size: Some(32_768),
             headers_file_size: Some(32_768),
             fork_file_size: Some(10_000), // Will be rounded up to 16,384
@@ -1292,14 +1393,100 @@ mod tests {
             path: format!("./tmp-db/{test_id}/"),
         };
 
-        FlatChainStore::new(config).unwrap()
+        FlatChainStore::new(config)
     }
 
     #[test]
     fn test_create_chainstore() {
-        let store = get_test_chainstore(None);
+        // Helper to tweak the database identifiers while persisting the changes
+        fn tweak_version_and_magic(version: u32, magic: u32) -> u64 {
+            let store_id = rand::random();
+            let mut store = get_test_chainstore(Some(store_id)).unwrap();
 
-        store.check_integrity().unwrap();
+            let metadata = unsafe { store.get_metadata_mut().unwrap() };
+            metadata.version = version;
+            metadata.magic = magic;
+
+            store.flush().unwrap();
+            store_id
+        }
+
+        {
+            let store = get_test_chainstore(None).expect("Should create a chainstore");
+            store.check_integrity().unwrap();
+        }
+
+        // Tweak the version and check we get the expected error while loading the db
+        for version in (FLAT_CHAINSTORE_VERSION + 1)..(FLAT_CHAINSTORE_VERSION + 32) {
+            let store_id = tweak_version_and_magic(version, FLAT_CHAINSTORE_MAGIC);
+
+            match get_test_chainstore(Some(store_id)) {
+                Err(FlatChainstoreError::DbTooNew(v)) if v == version => {},
+                Err(e) => panic!("Should have failed with `FlatChainstoreError::DbTooNew({version})`, instead we got {e:?}"),
+                Ok(_) => panic!("Should have failed with `FlatChainstoreError::DbTooNew({version})`, instead we got `Ok`"),
+            }
+        }
+
+        // Tweak the magic number and check we get the expected error while loading the db
+        for magic in std::iter::repeat_with(rand::random)
+            .filter(|m| *m != FLAT_CHAINSTORE_MAGIC)
+            .take(32)
+        {
+            let store_id = tweak_version_and_magic(FLAT_CHAINSTORE_VERSION, magic);
+
+            match get_test_chainstore(Some(store_id)) {
+                Err(FlatChainstoreError::InvalidMagic(m)) if m == magic => {},
+                Err(e) => panic!("Should have failed with `FlatChainstoreError::InvalidMagic({magic})`, instead we got {e:?}"),
+                Ok(_) => panic!("Should have failed with `FlatChainstoreError::InvalidMagic({magic})`, instead we got `Ok`"),
+            }
+        }
+    }
+
+    #[test]
+    fn test_migrate_v0_to_v1() {
+        let tmp = TempDir::new().expect("Failed to create temp dir");
+        // Sanity check
+        let did_migrate = maybe_migrate(tmp.path().to_str().unwrap(), 0o600).unwrap();
+        assert!(!did_migrate, "Should not migrate: empty directory");
+
+        // Copy the v0 metadata file to the temporal directory (we will rename it to .bin.old)
+        let src = "./testdata/v0_flat_metadata.bin";
+        let dst = tmp.path().join("metadata.bin");
+        fs::copy(src, &dst).unwrap();
+
+        let did_migrate = maybe_migrate(dst.to_str().unwrap(), 0o600).unwrap();
+        assert!(did_migrate, "Expected a migration to happen");
+
+        // Check that the length is now the expected one
+        let new_len = fs::metadata(&dst).unwrap().len();
+        assert_eq!(new_len, size_of::<Metadata>() as u64);
+
+        // Mmap the file and read the metadata
+        let mmap = init_mmap(&dst, size_of::<Metadata>()).unwrap();
+        let metadata = unsafe { &*(mmap.as_ptr() as *const Metadata) };
+
+        let expected = Metadata {
+            magic: FLAT_CHAINSTORE_MAGIC,
+            version: FLAT_CHAINSTORE_VERSION,
+            best_block: bhash!("000000004f74d42205b9d7ae1cb5c1591e723894a71358fce73b7e0919628161"),
+            depth: 10_236,
+            validation_index: bhash!(
+                "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f"
+            ),
+            alternative_tips: [BlockHash::all_zeros(); 64],
+            fork_count: 0,
+            headers_file_size: 32_768,
+            fork_file_size: 16_384,
+            block_index_occupancy: 10_236,
+            index_capacity: 32_768,
+            checksum: DbCheckSum {
+                headers_checksum: FileChecksum(4430534975455841125),
+                index_checksum: FileChecksum(9017076313313378046),
+                fork_headers_checksum: FileChecksum(10728257719073392722),
+            },
+        };
+
+        assert_eq!(metadata, &expected);
     }
 
     #[test]
@@ -1318,7 +1505,7 @@ mod tests {
 
     #[test]
     fn test_save_and_retrieve_headers() {
-        let mut store = get_test_chainstore(None);
+        let mut store = get_test_chainstore(None).unwrap();
         let blocks = include_str!("../../testdata/blocks.txt");
 
         for (i, line) in blocks.lines().enumerate() {
@@ -1431,10 +1618,9 @@ mod tests {
 
     #[test]
     fn test_save_height() {
-        let mut store = get_test_chainstore(None);
+        let mut store = get_test_chainstore(None).unwrap();
         let height = BestChain {
             alternative_tips: Vec::new(),
-            assume_valid_index: 0,
             validation_index: genesis_block(Network::Signet).block_hash(),
             depth: 1,
             best_block: genesis_block(Network::Signet).block_hash(),
@@ -1448,7 +1634,7 @@ mod tests {
 
     #[test]
     fn test_index() {
-        let mut store = get_test_chainstore(None);
+        let mut store = get_test_chainstore(None).unwrap();
         let mut hashes = Vec::new();
         let blocks = include_str!("../../testdata/blocks.txt");
 
@@ -1481,7 +1667,7 @@ mod tests {
         // Accepts the first 10235 mainnet headers
         let file = include_bytes!("../../testdata/headers.zst");
         let uncompressed: Vec<u8> = zstd::decode_all(std::io::Cursor::new(file)).unwrap();
-        let store = get_test_chainstore(None);
+        let store = get_test_chainstore(None).unwrap();
         let chain = ChainState::new(store, Network::Bitcoin, AssumeValidArg::Hardcoded);
         let mut buffer = uncompressed.as_slice();
 
@@ -1495,7 +1681,7 @@ mod tests {
         // Accepts the first 2016 signet headers
         let file = include_bytes!("../../testdata/signet_headers.zst");
         let uncompressed: Vec<u8> = zstd::decode_all(std::io::Cursor::new(file)).unwrap();
-        let store = get_test_chainstore(None);
+        let store = get_test_chainstore(None).unwrap();
         let chain = ChainState::new(store, Network::Signet, AssumeValidArg::Hardcoded);
         let mut buffer = uncompressed.as_slice();
 
@@ -1506,7 +1692,7 @@ mod tests {
 
     #[test]
     fn test_fork_blocks() {
-        let mut store = get_test_chainstore(None);
+        let mut store = get_test_chainstore(None).unwrap();
         let file = include_str!("../../testdata/blocks.txt");
         let headers = file
             .lines()
@@ -1547,7 +1733,7 @@ mod tests {
     #[test]
     fn test_recover_acc() {
         let test_id = rand::random::<u64>();
-        let mut store = get_test_chainstore(Some(test_id));
+        let mut store = get_test_chainstore(Some(test_id)).unwrap();
 
         // Save the genesis block and the best chain data
         let genesis = genesis_block(Network::Regtest);
@@ -1562,7 +1748,6 @@ mod tests {
                 depth: 0,
                 validation_index: genesis.block_hash(),
                 alternative_tips: vec![],
-                assume_valid_index: 0,
             })
             .unwrap();
 
@@ -1577,7 +1762,7 @@ mod tests {
 
         drop(store);
 
-        let mut store = get_test_chainstore(Some(test_id));
+        let mut store = get_test_chainstore(Some(test_id)).unwrap();
 
         let recovered = store.load_roots_for_block(0).unwrap().unwrap();
         assert_eq!(recovered, acc);
