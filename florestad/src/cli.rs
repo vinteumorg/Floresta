@@ -39,7 +39,7 @@ pub struct Cli {
     /// Defaults to `~/.floresta`. The passed value should be an absolute path.
     pub data_dir: Option<String>,
 
-    #[arg(long, default_value_t = true)]
+    #[arg(long)]
     /// Whether to build Compact Block Filters
     ///
     /// Those filters let you query for chain data after IBD, like wallet rescan,
