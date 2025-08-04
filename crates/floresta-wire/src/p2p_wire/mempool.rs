@@ -39,8 +39,8 @@ type ShortTxid = u64;
 /// A transaction in the mempool.
 ///
 /// This struct holds the transaction itself, the time when we added it to the mempool, the
-/// transactions that depend on it, and the transactions that it depends on. We need those extra
-/// informations to make decisions when to include or not a transaction in mempool or in a block.
+/// transactions that depend on it, and the transactions that it depends on. We need that extra
+/// information to make decisions when to include or not a transaction in mempool or in a block.
 struct MempoolTransaction {
     transaction: Transaction,
     time: Instant,
@@ -203,7 +203,7 @@ impl Mempool {
                 .get(&input.previous_output)
                 .ok_or(AcceptToMempoolError::PrevoutNotFound)?;
 
-            // The block hash of the block that commited the prevout.
+            // The block hash of the block that committed the prevout.
             let block_hash = block_hash.get_block_hash(prevout.header_code >> 1).unwrap();
             let leaf_data: LeafData = proof_util::reconstruct_leaf_data(prevout, input, block_hash)
                 .map_err(|_| AcceptToMempoolError::InvalidPrevout)?;
@@ -397,7 +397,7 @@ impl Mempool {
 
     /// Checks if a outpoint is already spent in the mempool.
     ///
-    /// This can be used to find conficts before adding a transaction to the mempool.
+    /// This can be used to find conflicts before adding a transaction to the mempool.
     fn is_already_spent(&self, outpoint: &OutPoint) -> bool {
         let short_txid = self.hasher.hash_one(outpoint.txid);
         let Some(tx) = self.transactions.get(&short_txid) else {
@@ -839,15 +839,15 @@ mod tests {
 
         let transactions = build_transactions(21, true);
 
-        let mut did_confict = false;
+        let mut did_conflict = false;
         for tx in transactions {
             if mempool.accept_to_mempool_no_acc(tx).is_ok() {
-                did_confict = true;
+                did_conflict = true;
             }
         }
 
         // we expect at least one conflict
-        assert!(did_confict);
+        assert!(did_conflict);
 
         let target = Target::MAX_ATTAINABLE_REGTEST;
         let block = mempool.get_block_template(
