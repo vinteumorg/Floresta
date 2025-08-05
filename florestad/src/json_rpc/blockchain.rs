@@ -180,35 +180,31 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
     pub(super) fn get_blockchain_info(&self) -> Result<GetBlockchainInfoRes, JsonRpcError> {
         let (height, hash) = self.chain.get_best_block().unwrap();
         let validated = self.chain.get_validation_index().unwrap();
-        let ibd = self.chain.is_in_ibd();
         let latest_header = self.chain.get_block_header(&hash).unwrap();
         let latest_work = latest_header.work();
         let latest_block_time = latest_header.time;
-        let leaf_count = self.chain.acc().leaves as u32;
-        let root_count = self.chain.acc().roots.len() as u32;
-        let root_hashes = self
-            .chain
-            .acc()
-            .roots
-            .into_iter()
-            .map(|r| r.to_string())
-            .collect();
 
-        let validated_blocks = self.chain.get_validation_index().unwrap();
+        let disk_size = self.chain.disk_size().unwrap();
 
         Ok(GetBlockchainInfoRes {
-            best_block: hash.to_string(),
-            height,
-            ibd,
-            validated,
-            latest_work: latest_work.to_string(),
-            latest_block_time,
-            leaf_count,
-            root_count,
-            root_hashes,
             chain: self.network.to_string(),
-            difficulty: latest_header.difficulty(self.chain.get_params()) as u64,
-            progress: validated_blocks as f32 / height as f32,
+            blocks: height,
+            headers: validated,
+            bestblockhash: hash.to_string(),
+            bits: serialize_hex(&latest_header.bits),
+            target: latest_header.target().to_string(),
+            difficulty: latest_header.difficulty(self.network),
+            time: latest_block_time,
+            mediantime: self.get_mtp_for(height)?,
+            verificationprogress: (height as f32).div(validated as f32),
+            initialblockdownload: self.chain.is_in_ibd(),
+            chainwork: latest_work.to_string(),
+            size_on_disk: disk_size,
+            pruned: true,
+            pruneheight: height,
+            automatic_prunning: true,
+            prune_target_size: disk_size,
+            warnings: vec![],
         })
     }
 

@@ -6,18 +6,59 @@ use serde::Serialize;
 
 #[derive(Deserialize, Serialize)]
 pub struct GetBlockchainInfoRes {
-    pub best_block: String,
-    pub height: u32,
-    pub ibd: bool,
-    pub validated: u32,
-    pub latest_work: String,
-    pub latest_block_time: u32,
-    pub leaf_count: u32,
-    pub root_count: u32,
-    pub root_hashes: Vec<String>,
+    /// (string) current network name (main, test, testnet4, signet, regtest).
     pub chain: String,
-    pub progress: f32,
-    pub difficulty: u64,
+
+    /// (numeric) the height of the most-work fully-validated chain. The genesis block has height 0.
+    pub blocks: u32,
+
+    /// (numeric) the current number of headers we have validated.
+    pub headers: u32,
+
+    /// (string) the hash of the currently best block.
+    pub bestblockhash: String,
+
+    /// (string) nBits: compact representation of the block difficulty target.
+    pub bits: String,
+
+    /// (string) The difficulty target.
+    pub target: String,
+
+    /// (numeric) the current difficulty.
+    pub difficulty: u128,
+
+    /// (numeric) The block time expressed in UNIX epoch time.
+    pub time: u32,
+
+    /// (numeric) The median block time expressed in UNIX epoch time.
+    pub mediantime: u32,
+
+    /// (numeric) estimate of verification progress [0..1].
+    pub verificationprogress: f32,
+
+    /// (boolean) Estimate of whether this node is in Initial Block Download mode.
+    pub initialblockdownload: bool,
+
+    /// (string) total amount of work in active chain, in hexadecimal.
+    pub chainwork: String,
+
+    /// (numeric) the estimated size of the block and undo files on disk.
+    pub size_on_disk: u32,
+
+    /// (boolean) if the blocks are subject to pruning. (always true, Florestad doesnt store transactions).
+    pub pruned: bool,
+
+    /// (numeric) height of the last block pruned. (Florestad is always pruned so this should be equal to the tip height).
+    pub pruneheight: u32,
+
+    /// (boolean) whether automatic pruning is enabled. (always true, Florestad doesnt store transactions).
+    pub automatic_prunning: bool,
+
+    /// (numeric) the target size used by pruning. (Florestad doesnt store transactions so this are equal to size_on_disk).
+    pub prune_target_size: u32,
+
+    /// (json array) any network and blockchain warnings.
+    pub warnings: Vec<String>,
 }
 
 /// A raw transaction with some metadata as defined in "getrawtransaction"
