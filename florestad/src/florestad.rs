@@ -838,6 +838,7 @@ impl Florestad {
             Ok(chainstate) => chainstate,
             Err(err) => match err {
                 BlockchainError::ChainNotInitialized => {
+                    info!("Initializing ChainState for the first time");
                     let db = Self::load_chain_store(data_dir);
 
                     ChainState::<ChainStore>::new(db, network, assume_valid)
