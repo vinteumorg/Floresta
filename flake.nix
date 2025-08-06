@@ -199,14 +199,15 @@
             testBinaries = [
               self.packages.${system}.florestad
               utreexod-flake.packages.${system}.utreexod
+              pkgs.bitcoind
             ];
+
           in
           {
             default = mkShell {
-              #TO-DO: Use the standard way to include things inside the shell.
-              nativeBuildInputs = basicDevTools;
+              buildInputs = basicDevTools;
 
-              shellHook = "\n";
+              shellHook = "";
             };
             func-tests-env =
               let
