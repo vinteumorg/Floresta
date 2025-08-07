@@ -73,6 +73,9 @@ pub trait ChainStore {
     /// If you're using a database that already checks for integrity by itself,
     /// this can safely be a no-op.
     fn check_integrity(&self) -> Result<(), Self::Error>;
+
+    /// Returns the size in disk that this chainstore is ocupying.
+    fn get_size(&self) -> Result<u32, Self::Error>;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

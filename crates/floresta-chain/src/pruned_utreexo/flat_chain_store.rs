@@ -1076,6 +1076,20 @@ impl FlatChainStore {
 impl ChainStore for FlatChainStore {
     type Error = FlatChainstoreError;
 
+    fn get_size(&self) -> Result<u32, Self::Error> {
+        let headers_size = self.headers.len() as u32;
+
+        let index_size = self.block_index.index_map.len() as u32;
+
+        let fork_headers_size = self.fork_headers.len() as u32;
+
+        let metadata_size = self.metadata.len() as u32;
+
+        let acc_size = self.accumulator_file.metadata()?.len() as u32;
+
+        Ok(headers_size + index_size + fork_headers_size + metadata_size + acc_size)
+    }
+
     fn check_integrity(&self) -> Result<(), Self::Error> {
         self.check_integrity()
     }

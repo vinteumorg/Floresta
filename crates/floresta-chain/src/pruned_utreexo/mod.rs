@@ -105,6 +105,9 @@ pub trait BlockchainInterface {
     fn get_fork_point(&self, block: BlockHash) -> Result<BlockHash, Self::Error>;
     fn get_params(&self) -> bitcoin::params::Params;
     fn acc(&self) -> Stump;
+
+    /// Returns the disksize in bytes that this Chainstate is ocupying.
+    fn disk_size(&self) -> Result<u32, Self::Error>;
 }
 
 /// [UpdatableChainstate] is a contract that a is expected from a chainstate
@@ -341,6 +344,10 @@ impl<T: BlockchainInterface> BlockchainInterface for Arc<T> {
 
     fn get_fork_point(&self, block: BlockHash) -> Result<BlockHash, Self::Error> {
         T::get_fork_point(self, block)
+    }
+
+    fn disk_size(&self) -> Result<u32, Self::Error> {
+        T::disk_size(self)
     }
 }
 
