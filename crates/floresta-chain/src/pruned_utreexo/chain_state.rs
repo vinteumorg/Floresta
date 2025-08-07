@@ -1485,6 +1485,7 @@ mod test {
     use crate::pruned_utreexo::consensus::Consensus;
     use crate::pruned_utreexo::utxo_data::UtxoData;
     use crate::AssumeValidArg;
+    use crate::BlockchainError;
     #[cfg(feature = "flat-chainstore")]
     use crate::FlatChainStore;
     #[cfg(feature = "kv-chainstore")]
@@ -1583,14 +1584,64 @@ mod test {
 
     #[test]
     fn accept_mainnet_headers() {
-        // Accepts the first 10235 mainnet headers
+        // Accepts the first 10,237 mainnet headers
         let file = include_bytes!("../../testdata/headers.zst");
         let uncompressed: Vec<u8> = zstd::decode_all(Cursor::new(file)).unwrap();
         let mut buffer = uncompressed.as_slice();
 
+        let mut headers = Vec::new();
         let chain = setup_test_chain(Network::Bitcoin, AssumeValidArg::Hardcoded);
+
         while let Ok(header) = BlockHeader::consensus_decode(&mut buffer) {
             chain.accept_header(header).unwrap();
+            headers.push(header);
+        }
+        assert_eq!(headers.len(), 10_237);
+
+        // Check that our `BestChain` is correct
+        assert_eq!(
+            chain.get_best_block().unwrap(),
+            (
+                10_236,
+                bhash!("000000004f74d42205b9d7ae1cb5c1591e723894a71358fce73b7e0919628161")
+            ),
+        );
+        assert_eq!(chain.get_validation_index().unwrap(), 0);
+
+        // Check all headers that we have
+        for i in 0..=10_236 {
+            let hash = chain.get_block_hash(i).unwrap();
+            let header = chain.get_disk_block_header(&hash).unwrap();
+
+            match header {
+                DiskBlockHeader::FullyValid(h, height) if i == 0 => {
+                    assert_eq!(height, 0);
+                    assert_eq!(h.block_hash(), hash);
+                    assert_eq!(
+                        hash,
+                        bhash!("000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f")
+                    );
+                }
+                // Non-genesis blocks have not been validated, only accepted in the best chain
+                DiskBlockHeader::HeadersOnly(h, height) => {
+                    assert_eq!(height, i);
+                    assert_eq!(h.block_hash(), hash);
+                }
+                _ => panic!("Header at height {i} should be `HeadersOnly`: {header:?}"),
+            }
+            assert_eq!(&*header, headers.get(i as usize).unwrap());
+        }
+
+        // Check that we don't have more headers (nor indexed hashes)
+        for i in 10_237..11_000 {
+            match chain.get_block_hash(i) {
+                Err(BlockchainError::BlockNotPresent) => {}
+                _ => panic!("Should not have found a hash for height {i}"),
+            }
+            match chain.get_header_by_height(i) {
+                Err(BlockchainError::BlockNotPresent) => {}
+                _ => panic!("Should not have found a header at height {i}"),
+            }
         }
     }
 
