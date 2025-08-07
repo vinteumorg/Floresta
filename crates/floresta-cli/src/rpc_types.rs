@@ -144,7 +144,7 @@ pub struct TxIn {
 
 /// A representation for the transaction ScriptSig, returned by some rpcs
 /// like gettransaction and getblock
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Debug)]
 pub struct ScriptSigJson {
     /// A ASM representation for this scriptSig
     ///
@@ -181,33 +181,31 @@ pub struct PeerInfo {
     /// The transport protocol used with peer.
     pub transport_protocol: String,
 }
-
 #[derive(Debug, Deserialize, Serialize)]
-pub enum GetBlockRes {
-    Verbose(Box<GetBlockResVerbose>),
-    Serialized(String),
-}
-
-/// A full bitcoin block, returned by get_block
-#[derive(Debug, Deserialize, Serialize)]
-pub struct GetBlockResVerbose {
+pub struct GetBlockResOne {
     /// This block's hash.
     pub hash: String,
+
     /// How many blocks have been added to the chain, after this one have been found. This is
     /// inclusive, so it starts with one when this block is the latest. If another one is found,
     /// then it increments to 2 and so on...
     pub confirmations: u32,
-    /// The size of this block, without the witness
-    pub strippedsize: usize,
+
     /// This block's size, with the witness
     pub size: usize,
+
+    /// The size of this block, without the witness
+    pub strippedsize: usize,
+
     /// This block's weight.
     ///
     /// Data inside a segwit block is counted differently, 'base data' has a weight of 4, while
     /// witness only counts 1. This is (3 * base_size) + size
     pub weight: usize,
+
     /// How many blocks there are before this block
     pub height: u32,
+
     /// This block's version field
     ///
     /// Currently, blocks have version 2 (see BIP34), but it may also flip some of the LSB for
@@ -216,9 +214,11 @@ pub struct GetBlockResVerbose {
     /// version & ~(1 << 24).
     /// This is encoded as a number, see `version_hex` for a hex-encoded version
     pub version: i32,
+
     #[serde(rename = "versionHex")]
     /// Same as `version` by hex-encoded
     pub version_hex: String,
+
     /// This block's merkle root
     ///
     /// A Merkle Tree is a binary tree where every leaf is some data, and the branches are pairwise
@@ -226,8 +226,10 @@ pub struct GetBlockResVerbose {
     /// set. This merkle tree commits to the txid of all transactions in a block, and is used by
     /// some light clients to determine whether a transaction is in a given block
     pub merkleroot: String,
+
     /// A list of hex-encoded transaction id for the tx's in this block
     pub tx: Vec<String>,
+
     /// The timestamp committed to in this block's header
     ///
     /// Since there's no central clock that can tell time precisely in Bitcoin, this value is
@@ -236,22 +238,29 @@ pub struct GetBlockResVerbose {
     /// block `n - 1`.
     /// If you need it to be monotonical, see `mediantime` instead
     pub time: u32,
+
     /// The meadian of the last 11 blocktimes.
     ///
     /// This is a monotonically increasing number that bounds how old a block can be. Blocks may
     /// not have a timestamp less than the current `mediantime`. This is also used in relative
     /// timelocks.
     pub mediantime: u32,
+
     /// The nonce used to mine this block.
     ///
     /// Blocks are mined by increasing this value until you find a hash that is less than a network
     /// defined target. This number has no meaning in itself and is just a random u32.
     pub nonce: u32,
+
     /// Bits is a compact representation for the target.
     ///
     /// This is a exponential format (with well-define rounding) used by openssl that Satoshi
     /// decided to make consensus critical :/
     pub bits: String,
+
+    /// The difficulty target.
+    pub target: String,
+
     /// The difficulty is derived from the current target and is defined as how many hashes, on
     /// average, one has to make before finding a valid block
     ///
@@ -260,17 +269,77 @@ pub struct GetBlockResVerbose {
     /// difficulty you have to multiply this by the min_diff.
     /// For mainnet, mindiff is 2 ^ 32
     pub difficulty: u128,
+
     /// Commullative work in this network
     ///
     /// This is a estimate of how many hashes the network has ever made to produce this chain
     pub chainwork: String,
+
+    #[serde(rename = "nTx")]
     /// How many transactions in this block
     pub n_tx: usize,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     /// The hash of the block coming before this one
-    pub previousblockhash: String,
+    pub previousblockhash: Option<String>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     /// The hash of the block coming after this one, if any
     pub nextblockhash: Option<String>,
+}
+
+/// A full bitcoin block, returned by get_block
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum GetBlockRes {
+    Zero(String),
+    One(Box<GetBlockResOne>),
+}
+
+/// A raw transaction with some metadata as defined in "getrawtransaction"
+#[derive(Deserialize, Serialize, Debug)]
+pub struct RawTxRes {
+    pub in_active_chain: bool,
+    pub hex: String,
+    pub txid: String,
+    pub hash: String,
+    pub size: u32,
+    pub vsize: u32,
+    pub weight: u32,
+    pub version: u32,
+    pub locktime: u32,
+    pub vin: Vec<TxInJson>,
+    pub vout: Vec<TxOutJson>,
+    pub blockhash: String,
+    pub confirmations: u32,
+    pub blocktime: u32,
+    pub time: u32,
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+pub struct TxOutJson {
+    pub value: u64,
+    pub n: u32,
+    pub script_pub_key: ScriptPubKeyJson,
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+pub struct ScriptPubKeyJson {
+    pub asm: String,
+    pub hex: String,
+    pub req_sigs: u32,
+    #[serde(rename = "type")]
+    pub type_: String,
+    pub address: String,
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+pub struct TxInJson {
+    pub txid: String,
+    pub vout: u32,
+    pub script_sig: ScriptSigJson,
+    pub sequence: u32,
+    pub witness: Vec<String>,
 }
 
 #[derive(Debug)]
