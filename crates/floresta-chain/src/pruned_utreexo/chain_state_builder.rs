@@ -15,6 +15,7 @@ use rustreexo::accumulator::stump::Stump;
 
 use super::chain_state::ChainState;
 use super::chainparams::ChainParams;
+use crate::prelude::Vec;
 use crate::pruned_utreexo::Box;
 use crate::AssumeValidArg;
 use crate::BestChain;
@@ -169,14 +170,24 @@ impl<T: ChainStore> ChainStateBuilder<T> {
     }
 
     /// Get the specified best tip as a `BestChain`, or fall back to the genesis block if unset.
-    /// Returns an error if chain parameters are missing when determining the genesis block.
+    /// The returned validation index is always the genesis block (to skip script validation, you
+    /// must specify an `assume_valid` hash).
+    ///
+    /// Returns an error if the chain parameters are missing.
     pub(super) fn best_block(&self) -> Result<BestChain, BlockchainBuilderError> {
-        let block = match self.tip {
+        let genesis_hash = self.chain_params()?.genesis.header.block_hash();
+
+        let (best_block, depth) = match self.tip {
             Some(value) => value,
-            None => (self.chain_params()?.genesis.header.block_hash(), 0),
+            None => (genesis_hash, 0),
         };
 
-        Ok(BestChain::from(block))
+        Ok(BestChain {
+            best_block,
+            depth,
+            validation_index: genesis_hash,
+            alternative_tips: Vec::new(),
+        })
     }
 
     /// Returns the block hash of the assume-valid option, if enabled.

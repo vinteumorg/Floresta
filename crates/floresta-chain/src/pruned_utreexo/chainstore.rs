@@ -7,6 +7,7 @@
 //! - [BestChain]: Tracks the current best chain, last valid block, and fork tips
 
 use bitcoin::block::Header as BlockHeader;
+use bitcoin::consensus::encode;
 use bitcoin::consensus::Decodable;
 use bitcoin::consensus::Encodable;
 use bitcoin::BlockHash;
@@ -143,7 +144,7 @@ impl Decodable for DiskBlockHeader {
     /// Decodes a `DiskBlockHeader` from a reader.
     fn consensus_decode<R: bitcoin::io::Read + ?Sized>(
         reader: &mut R,
-    ) -> core::result::Result<Self, bitcoin::consensus::encode::Error> {
+    ) -> Result<Self, encode::Error> {
         let tag = u8::consensus_decode(reader)?;
         let header = BlockHeader::consensus_decode(reader)?;
 
@@ -167,7 +168,7 @@ impl Decodable for DiskBlockHeader {
                 let height = u32::consensus_decode(reader)?;
                 Ok(Self::AssumedValid(header, height))
             }
-            _ => unreachable!(),
+            _ => Err(encode::Error::ParseFailed("DiskBlockHeader: invalid tag")),
         }
     }
 }
@@ -247,17 +248,6 @@ impl BestChain {
     }
 }
 
-impl From<(BlockHash, u32)> for BestChain {
-    fn from((best_block, depth): (BlockHash, u32)) -> Self {
-        Self {
-            best_block,
-            depth,
-            validation_index: best_block,
-            alternative_tips: Vec::new(),
-        }
-    }
-}
-
 impl Encodable for BestChain {
     fn consensus_encode<W: bitcoin::io::Write + ?Sized>(
         &self,
@@ -275,7 +265,7 @@ impl Encodable for BestChain {
 impl Decodable for BestChain {
     fn consensus_decode<R: bitcoin::io::Read + ?Sized>(
         reader: &mut R,
-    ) -> Result<Self, bitcoin::consensus::encode::Error> {
+    ) -> Result<Self, encode::Error> {
         let best_block = BlockHash::consensus_decode(reader)?;
         let depth = u32::consensus_decode(reader)?;
         let validation_index = BlockHash::consensus_decode(reader)?;
@@ -287,5 +277,173 @@ impl Decodable for BestChain {
             depth,
             validation_index,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Cursor;
+
+    use bitcoin::block::Header as BlockHeader;
+    use bitcoin::block::Version;
+    use bitcoin::consensus::Decodable;
+    use bitcoin::consensus::Encodable;
+    use bitcoin::hashes::Hash;
+    use bitcoin::BlockHash;
+    use bitcoin::CompactTarget;
+    use bitcoin::TxMerkleNode;
+    use rand;
+    use rand::Rng;
+
+    use super::*;
+
+    /// Build a header with random values
+    fn gen_header() -> BlockHeader {
+        let mut rng = rand::thread_rng();
+
+        BlockHeader {
+            version: Version::from_consensus(2),
+            prev_blockhash: BlockHash::from_byte_array(rng.gen()),
+            merkle_root: TxMerkleNode::from_byte_array(rng.gen()),
+            time: rng.gen(),
+            bits: CompactTarget::from_consensus(rng.gen()),
+            nonce: rng.gen(),
+        }
+    }
+
+    #[test]
+    fn disk_block_header_height() {
+        let header = gen_header();
+        let h = 100;
+
+        // fully valid
+        let fv = DiskBlockHeader::FullyValid(header, h);
+        assert_eq!(fv.height(), Some(h));
+        assert_eq!(fv.try_height().unwrap(), h);
+
+        // assumed valid
+        let av = DiskBlockHeader::AssumedValid(header, h);
+        assert_eq!(av.height(), Some(h));
+        assert_eq!(av.try_height().unwrap(), h);
+
+        // headers only
+        let ho = DiskBlockHeader::HeadersOnly(header, h);
+        assert_eq!(ho.height(), Some(h));
+        assert_eq!(ho.try_height().unwrap(), h);
+
+        // in‐fork
+        let ifk = DiskBlockHeader::InFork(header, h);
+        assert_eq!(ifk.height(), Some(h));
+        assert_eq!(ifk.try_height().unwrap(), h);
+
+        // orphaned → no height
+        let orp = DiskBlockHeader::Orphan(header);
+        assert_eq!(orp.height(), None);
+        assert!(matches!(
+            orp.try_height(),
+            Err(BlockchainError::OrphanOrInvalidBlock)
+        ));
+
+        // invalid chain → no height
+        let inv = DiskBlockHeader::InvalidChain(header);
+        assert_eq!(inv.height(), None);
+        assert!(matches!(
+            inv.try_height(),
+            Err(BlockchainError::OrphanOrInvalidBlock)
+        ));
+    }
+
+    #[test]
+    fn disk_block_header_deref() {
+        let header = gen_header();
+        let disk_header = DiskBlockHeader::FullyValid(header, 1);
+        // Must dereference to the same `BlockHeader`
+        assert_eq!(*disk_header, header);
+        assert_eq!(disk_header.block_hash(), header.block_hash());
+    }
+
+    #[test]
+    fn encode_decode_disk_block_header() {
+        let header = gen_header();
+        let h = 123_456;
+        let all_variants = vec![
+            DiskBlockHeader::FullyValid(header, h),
+            DiskBlockHeader::AssumedValid(header, h),
+            DiskBlockHeader::HeadersOnly(header, h),
+            DiskBlockHeader::InFork(header, h),
+            DiskBlockHeader::Orphan(header),
+            DiskBlockHeader::InvalidChain(header),
+        ];
+
+        for original in all_variants {
+            let mut buf = Vec::new();
+            let written = original.consensus_encode(&mut buf).unwrap();
+            assert_eq!(buf.len(), written, "length matches returned size");
+
+            let mut cursor = Cursor::new(&buf);
+            let decoded = DiskBlockHeader::consensus_decode(&mut cursor).unwrap();
+            assert_eq!(decoded, original);
+        }
+    }
+
+    #[test]
+    fn best_chain_methods() {
+        let hash = BlockHash::from_byte_array(rand::random());
+
+        let mut best = BestChain {
+            best_block: hash,
+            depth: 10,
+            validation_index: BlockHash::all_zeros(),
+            alternative_tips: Vec::new(),
+        };
+
+        // new_block(...)
+        let new_hash = BlockHash::from_byte_array(rand::random());
+        let new_depth = 20;
+        best.new_block(new_hash, new_depth);
+        assert_eq!(
+            best,
+            BestChain {
+                best_block: new_hash,
+                depth: new_depth,
+                validation_index: BlockHash::all_zeros(),
+                alternative_tips: Vec::new(),
+            }
+        );
+
+        // valid_block(...)
+        best.valid_block(hash);
+        assert_eq!(
+            best,
+            BestChain {
+                best_block: new_hash,
+                depth: new_depth,
+                validation_index: hash,
+                alternative_tips: Vec::new(),
+            }
+        );
+    }
+
+    #[test]
+    fn encode_decode_best_chain() {
+        let mut rng = rand::thread_rng();
+        let alternative_tips = (0..64)
+            .map(|_| BlockHash::from_byte_array(rng.gen()))
+            .collect();
+
+        let best = BestChain {
+            best_block: BlockHash::from_byte_array(rng.gen()),
+            depth: rng.gen(),
+            validation_index: BlockHash::from_byte_array(rng.gen()),
+            alternative_tips,
+        };
+
+        let mut buf = Vec::new();
+        let written = best.consensus_encode(&mut buf).unwrap();
+        assert_eq!(buf.len(), written, "written length matches buffer");
+
+        let mut cursor = Cursor::new(&buf);
+        let decoded = BestChain::consensus_decode(&mut cursor).unwrap();
+        assert_eq!(decoded, best);
     }
 }

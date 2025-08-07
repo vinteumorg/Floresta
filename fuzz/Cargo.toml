@@ -9,6 +9,7 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
+arbitrary = { version = "1.4.2", features = ["derive"] }
 bitcoin = { version = "0.32", features = ["serde", "std"] }
 floresta-wire = { path = "../crates/floresta-wire" }
 floresta-chain = { path = "../crates/floresta-chain" }
@@ -30,6 +31,34 @@ bench = false
 [[bin]]
 name = "addrman"
 path = "fuzz_targets/addrman.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "best_chain_decode"
+path = "fuzz_targets/best_chain_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "best_chain_roundtrip"
+path = "fuzz_targets/best_chain_roundtrip.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "disk_block_header_decode"
+path = "fuzz_targets/disk_block_header_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "disk_block_header_roundtrip"
+path = "fuzz_targets/disk_block_header_roundtrip.rs"
 test = false
 doc = false
 bench = false
