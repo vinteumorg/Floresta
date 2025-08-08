@@ -1,6 +1,7 @@
 use std::fmt::Display;
 
 use axum::response::IntoResponse;
+use floresta_common::descriptor_internals::DescriptorError;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -18,6 +19,49 @@ pub struct GetBlockchainInfoRes {
     pub chain: String,
     pub progress: f32,
     pub difficulty: u64,
+}
+
+/// A confidence enum to auxiliate rescan timestamp values.
+///
+/// Serves to tell how much confidence you need in such a rescan request. That is, the need for a high confidence rescan
+/// will make the rescan to start in a block that have an lower timestamp than the given in order to be more secure
+/// about finding addresses and relevant transactions, a lower confidence will make the rescan to be closer to the given value.
+///
+/// This input is necessary to cover network variancy specially in testnet, for mainnet you can safely use low or medium confidences
+/// depending on how much sure you are about the given timestamp covering the addresses you need.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(rename_all = "lowercase")]
+pub enum RescanConfidence {
+    /// `high`: 99% confidence interval. Returning 46 minutes in seconds for `val`.
+    High,
+
+    /// `medium` (default): 95% confidence interval. Returning 30 minutes in seconds for `val`.
+    Medium,
+
+    /// `low`: 90% confidence interval. Returning 23 minutes in seconds for `val`.
+    Low,
+
+    /// `raw`: Removes any lookback addition. Returning 0 for `val`
+    Raw,
+}
+
+impl RescanConfidence {
+    /// In cases where `use_timestamp` is set, tells how much confidence the user wants for finding its addresses from this rescan request, a higher confidence will add more lookback seconds to the targeted timestamp and rescanning more blocks.
+    /// Under the hood this uses an [Exponential distribution](https://en.wikipedia.org/wiki/Exponential_distribution) [cumulative distribution function (CDF)](https:///en.wikipedia.org/wiki/Cumulative_distribution_function) where the parameter $\lambda$ (rate) is $\frac{1}{600}$ (1 block every 600 seconds, 10 minutes).
+    ///   The supplied string can be one of:
+    ///
+    ///   - `high`: 99% confidence interval. Returning 46 minutes in seconds for `val`.
+    ///   - `medium` (default): 95% confidence interval. Returning 30 minutes in seconds for `val`.
+    ///   - `low`: 90% confidence interval. Returning 23 minutes in seconds for `val`.
+    ///   - `raw`: Removes any lookback addition. Returning 0 for `val`
+    pub const fn val(&self) -> u32 {
+        match self {
+            Self::Raw => 0,
+            Self::Low => 1_380,
+            Self::Medium => 1_800,
+            Self::High => 2_760,
+        }
+    }
 }
 
 #[derive(Deserialize, Serialize)]
@@ -196,6 +240,9 @@ pub struct GetBlockResVerbose {
 
 #[derive(Debug)]
 pub enum JsonRpcError {
+    /// There was a rescan request with invalid values
+    InvalidRescanVal,
+
     /// The request is missing some params field, which is required for most RPC calls
     MissingParams,
 
@@ -211,14 +258,14 @@ pub enum JsonRpcError {
     /// The provided script is invalid, e.g., if it is not a valid P2PKH or P2SH script
     InvalidScript,
 
-    /// The provided descriptor is invalid, e.g., if it does not match the expected format
-    InvalidDescriptor,
-
     /// The requested block is not found in the blockchain
     BlockNotFound,
 
     /// There is an error with the chain, e.g., if the chain is not synced or when the chain is not valid
     Chain,
+
+    /// The returned batch while deriving descriptors.
+    BatchDescriptor(Vec<DescriptorError>),
 
     /// The provided vout is invalid, e.g., if it is not a valid output
     InvalidVout,
@@ -273,14 +320,22 @@ pub enum JsonRpcError {
     /// This error is returned when there is an error with block filters, e.g., if the filters are not available or when there is an issue with the filter data
     Filters(String),
 
+    /// Returned when tried to decode a mal formatted descriptor.
+    DecodeDescRequest(serde_json::Error, String),
+
     /// This error is returned when the addnode command is invalid, e.g., if the command is not recognized or when the parameters are incorrect
     InvalidAddnodeCommand,
+
+    /// Raised if when the rescanblockchain command, with the timestamp flag activated, contains some timestamp thats less than the genesis one and not zero which is the default value for this arg.
+    InvalidTimestamp,
 }
 
 impl Display for JsonRpcError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             JsonRpcError::InvalidBlockHash => write!(f, "Provided a invalid BlockHash"),
+            JsonRpcError::InvalidTimestamp => write!(f, "Invalid timestamp, ensure that it is between the genesis and the tip."),
+            JsonRpcError::InvalidRescanVal => write!(f, "You rescan request contains invalid values"),
             JsonRpcError::InvalidRequest => write!(f, "Invalid request"),
             JsonRpcError::InvalidHeight => write!(f, "Invalid height"),
             JsonRpcError::InvalidHash =>  write!(f, "Invalid hash"),
@@ -289,7 +344,8 @@ impl Display for JsonRpcError {
             JsonRpcError::MethodNotFound =>  write!(f, "Method not found"),
             JsonRpcError::Decode(e) =>  write!(f, "error decoding request: {e}"),
             JsonRpcError::TxNotFound =>  write!(f, "Transaction not found"),
-            JsonRpcError::InvalidDescriptor =>  write!(f, "Invalid descriptor"),
+            JsonRpcError::DecodeDescRequest(e, one) =>  write!(f, "Couldn't parse {one} into a Descriptor request; {e}"),
+            JsonRpcError::BatchDescriptor(b) =>  write!(f, "{b:?}"),
             JsonRpcError::BlockNotFound =>  write!(f, "Block not found"),
             JsonRpcError::Chain => write!(f, "Chain error"),
             JsonRpcError::InvalidPort => write!(f, "Invalid port"),
