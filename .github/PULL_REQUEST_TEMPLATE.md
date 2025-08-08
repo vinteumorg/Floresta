@@ -19,15 +19,16 @@
 - [ ] florestad
 - [ ] Other: <!-- Please describe it -->
 
-### Description
+### Description and Notes
 
 <!-- Describe the purpose of this PR, what's being added and/or fixed. If there's an open issue for it, link it here -->
+<!-- In this section you can also include notes directed to the reviewers, like explaining why some parts of the PR were done in a specific way -->
 
-### Notes to the reviewers
+### How to verify the changes you have done?
 
-<!-- In this section you can include notes directed to the reviewers, like explaining why some parts of the PR were done in a specific way -->
+<!--If applicable, this section will help reviewers to understand your changes, and how to assert it's working as intended. You may also add steps that helps to reproduce some results, like commands that you've used during your development. -->
 
-### Author Checklist
+### Contributor Checklist
 
 <!-- Feel free to remove this section once you've confirmed all items -->
 
