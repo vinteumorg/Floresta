@@ -41,7 +41,7 @@ let
 
         # We need to get a different toml for different packages
         #
-        # Since we only use this instrospection of Cargo.toml for getting package
+        # Since we only use this introspection of Cargo.toml for getting package
         # version, this ones gets the version from florestad which is the one we
         # track major progress of the project.
         cargoToml = builtins.fromTOML (builtins.readFile "${src}/florestad/Cargo.toml");

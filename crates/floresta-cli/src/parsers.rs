@@ -22,7 +22,7 @@ impl Display for ParseError {
                 "Couldnt parse the inserted as an Array, please refer to the docs"
             ),
             ParseError::InvalidTarget(target) => {
-                write!(f, "Could parse itens to {target}")
+                write!(f, "Could parse items to {target}")
             }
         }
     }

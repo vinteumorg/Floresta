@@ -128,7 +128,7 @@ class BaseRPC(metaclass=BaseRpcMetaClass):
     stuff = myrpc.get_stuff("stuff")
 
     # this will send a stop JSON-RPC request to the daemon
-    # and stop the daemon process throught the RPC connection.
+    # and stop the daemon process through the RPC connection.
     stop_msg = myrpc.stop()
     """
 

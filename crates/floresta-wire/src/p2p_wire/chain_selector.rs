@@ -24,7 +24,7 @@
 //! block, everyone comparing the same chain, be on earth, on mars; in 2020 or 2100, they will
 //! choose the exact same chain, always.
 //!
-//! The most critial part of syncing-up a Bitcoin node is making sure you know about the most-work
+//! The most critical part of syncing-up a Bitcoin node is making sure you know about the most-work
 //! chain. If someone can eclypse you, they can make you start following a chain that only you and
 //! the attacker care about. If you get paid in this chain, you can't pay someone else outside this
 //! chain, because they will be following other chains. Luckily, we only need one honest peer, to
@@ -81,7 +81,7 @@ use crate::node_interface::NodeResponse;
 #[derive(Debug, Default, Clone)]
 /// A p2p driver that attempts to connect with multiple peers, ask which chain are them following
 /// and download and verify the headers, **not** the actual blocks. This is the first part of a
-/// loger IBD pipeline.
+/// logger IBD pipeline.
 /// The actual blocks should be downloaded by a SyncPeer.
 pub struct ChainSelector {
     /// The state we are in
@@ -463,7 +463,7 @@ where
         Self::parse_acc(candidate_accs.pop().unwrap().1)
     }
 
-    /// If we get an empty `haders` message, our next action depends on which state are
+    /// If we get an empty `headers` message, our next action depends on which state are
     /// we in:
     ///   - If we are downloading headers for the first time, this means we've just
     ///     finished and should go to the next phase

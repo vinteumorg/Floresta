@@ -21,6 +21,9 @@ jobs:
         with:
           components: rustfmt, clippy
 
+      - name: Spell check
+        uses: crate-ci/typos@v1
+
       - name: Run cargo fmt
         run: cargo +nightly fmt --all --check
 

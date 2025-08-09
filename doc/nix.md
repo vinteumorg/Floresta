@@ -121,7 +121,7 @@ You can find more information about our tests in [running tests](./running-tests
 This project also integrates some checks for CI.
 
 ```Bash
-# This command will run all the checks setted by flake.nix
+# This command will run all the checks set by flake.nix
 $ nix flake check
 ```
 Checks enabled:

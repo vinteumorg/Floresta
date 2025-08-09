@@ -15,7 +15,7 @@ class GetBlockCountTest(FlorestaTestFramework):
     """
     Test florestad's `getbestblockhash` by running three nodes in
     a "semi-triangle" network structure, where florestad and bitcoind
-    nodes are connected to utreexod, but not coneected between them.
+    nodes are connected to utreexod, but not connected between them.
     Then assert that the same blockcount in three nodes, before mining
     and after mining.
     """
