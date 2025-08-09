@@ -459,6 +459,10 @@ impl BlockchainInterface for PartialChainState {
         unimplemented!("partialChainState::subscribe")
     }
 
+    fn subscribe_with_spent_utxos(&self, _tx: sync::Arc<dyn crate::BlockWithSpentUtxosConsumer>) {
+        unimplemented!("partialChainState::subscribe_with_spent_utxos")
+    }
+
     fn estimate_fee(&self, _target: usize) -> Result<f64, Self::Error> {
         unimplemented!("partialChainState::estimate_fee")
     }
