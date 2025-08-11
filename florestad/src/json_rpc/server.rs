@@ -55,7 +55,7 @@ pub(super) struct InflightRpc {
 
 /// Utility trait to ensure that the chain implements all the necessary traits
 ///
-/// Instead of using this very complext trait bound declaration on every impl block
+/// Instead of using this very complex trait bound declaration on every impl block
 /// and function, this trait makes sure everything we need is implemented.
 pub trait RpcChain: ThreadSafeChain + Clone {}
 

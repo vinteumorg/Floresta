@@ -63,7 +63,7 @@ impl<T> Channel<T> {
     }
     /// Reads from a channel
     ///
-    /// This method returns an iterator over all alements inside a [Channel]
+    /// This method returns an iterator over all elements inside a [Channel]
     pub fn recv(&self) -> RecvIter<T> {
         let inner = take(&mut *self.content.lock());
         RecvIter { inner }

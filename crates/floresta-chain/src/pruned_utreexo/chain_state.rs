@@ -345,9 +345,9 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
     }
 
     /// Changes the acc we are using to validate blocks.
-    fn reorg_acc(&self, fork_pont: &BlockHeader) -> Result<(), BlockchainError> {
+    fn reorg_acc(&self, fork_point: &BlockHeader) -> Result<(), BlockchainError> {
         let height = self
-            .get_block_height(&fork_pont.block_hash())?
+            .get_block_height(&fork_point.block_hash())?
             .ok_or(BlockchainError::BlockNotPresent)?;
 
         let acc = self.get_roots_for_block(height)?.unwrap_or_default();

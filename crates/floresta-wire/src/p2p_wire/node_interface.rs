@@ -109,7 +109,7 @@ impl NodeInterface {
 
     /// Sends a request to the node.
     ///
-    /// This is an iternal utility function that will be used to send requests to the node. It will
+    /// This is an internal utility function that will be used to send requests to the node. It will
     /// send the request to the node and return a oneshot receiver that will be used to get the
     /// response back.
     async fn send_request(

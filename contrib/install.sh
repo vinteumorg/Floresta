@@ -706,7 +706,7 @@ interactive_greeting() {
 # interactive_setup, interactive_greeting
 # interactive_wallet, interactive_advanced_setup
 # and all interactive_ask_* functions
-# and imediately after a dialog command.
+# and immediately after a dialog command.
 check_dialog_escape() {
     code=$?
     if [ "$code" -eq 255 ]; then
@@ -1155,7 +1155,7 @@ interactive_ask_for_add_xpubs() {
 # func: interactive_add_xpub
 #
 # Ask to user add a valid xpub. If a valid one is provided, add to wallet_xpubs array, show the
-# xpub to user confirm it and back to interactive_ask_for_add_xpubs function (thourgh returning true).
+# xpub to user confirm it and back to interactive_ask_for_add_xpubs function (through returning true).
 # If user provided an invalid one, clean the wallet_xpubs list and back to interactive_ask_for_add_xpubs
 # to do all again.
 interactive_add_xpub() {

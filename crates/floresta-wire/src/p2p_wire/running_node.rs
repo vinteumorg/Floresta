@@ -119,7 +119,7 @@ where
     /// - At least one utreexo peer
     /// - At least one compact filters peer
     ///
-    /// If we are missing the speciall peers but have 10 connections, we should disconnect one
+    /// If we are missing the special peers but have 10 connections, we should disconnect one
     /// random peer and try to connect to a utreexo and a compact filters peer.
     async fn check_connections(&mut self) -> Result<(), WireError> {
         // retry the added peers connections

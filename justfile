@@ -78,6 +78,7 @@ doc-check:
 
 # Format code and run configured linters
 lint:
+    @just spell-check
     @just fmt
     @just doc-check
 
@@ -119,6 +120,7 @@ test-features arg="":
 
 # Format code and run clippy for all feature combinations in each crate (arg: optional, e.g., '-- -D warnings')
 lint-features arg="":
+    @just spell-check
     @just fmt
     @just doc-check
     @just test-functional-uv-fmt
@@ -141,3 +143,7 @@ pcc:
 # Convert all markdown files on /doc/rpc/ to man pages on /doc/rpc_man/
 gen-manpages path="":
     ./contrib/dist/gen_manpages.sh {{path}}
+
+spell-check:
+    cargo +nightly install typos-cli --locked
+    typos

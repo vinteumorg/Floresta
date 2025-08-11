@@ -152,7 +152,7 @@ class TxOutput:
 
     @staticmethod
     def from_dict(data: dict):
-        """Convert a dictionary to a TxOuput object"""
+        """Convert a dictionary to a TxOutput object"""
         return TxOutput(data["value"], data["script_pub_key"])
 
 

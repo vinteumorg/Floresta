@@ -196,7 +196,7 @@ pub struct Config {
     pub generate_cert: bool,
     /// Whether to allow fallback to v1 transport if v2 connection fails.
     pub allow_v1_fallback: bool,
-    /// Whehter we should backfill
+    /// Whether we should backfill
     ///
     /// If we assumeutreexo or use pow fraud proofs, you have the option to download and validate
     /// the blocks that were skipped. This will take a long time, but will run on the background

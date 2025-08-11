@@ -529,7 +529,7 @@ impl AddressMan {
         }
     }
 
-    /// Attept to find one random peer that advertises the required service
+    /// Attempt to find one random peer that advertises the required service
     ///
     /// If we cannot find a peer that advertises the required service, we return any peer
     /// that we have in our list of known peers. Luckily, either we'll connect to a peer that has

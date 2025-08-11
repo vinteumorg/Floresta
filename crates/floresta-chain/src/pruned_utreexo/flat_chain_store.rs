@@ -135,7 +135,7 @@ pub struct FlatChainStoreConfig {
     /// The size of the headers file map, in headers
     ///
     /// This is the size of the flat file that holds all of our block headers. We keep all headers
-    /// in a simple flat file, one after the other. That file then gets mmaped into RAM, so we can
+    /// in a simple flat file, one after the other. That file then gets mapped into RAM, so we can
     /// use pointer arithmetic to find specific block, since pos(h) = h * size_of(DiskBlockHeader)
     /// The default value is having space for 10 million blocks.
     ///
@@ -764,7 +764,7 @@ impl FlatChainStore {
     /// This function will check the integrity of our database by comparing the checksum of the
     /// headers file, index map, and fork headers file with the checksum stored in the metadata.
     ///
-    /// As checksum, the [xxHash] of the memory-maped region is used. This is a fast hash function that
+    /// As checksum, the [xxHash] of the memory-mapped region is used. This is a fast hash function that
     /// is very good at detecting errors in memory. It is not cryptographically secure, but it is
     /// enough for random errors in a file.
     ///

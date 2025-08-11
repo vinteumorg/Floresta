@@ -47,7 +47,7 @@ man-in-the-middle (MITM) attacks because they
 
 ## Assume Utreexo
 
-If you want to start your node and get up and running quickly, you can use the Assume Utreexo feature. This is enabled by defalt, but you can disable it with the `--no-assume-utreexo` flag.
+If you want to start your node and get up and running quickly, you can use the Assume Utreexo feature. This is enabled by default, but you can disable it with the `--no-assume-utreexo` flag.
 
 ```bash
 florestad --no-assume-utreexo

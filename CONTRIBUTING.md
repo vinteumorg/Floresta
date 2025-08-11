@@ -94,7 +94,7 @@ pub struct Foo {
   bar: u32,
 
   /// Another awesome comment
-  foor: u32
+  foo: u32
 }
 
 impl Foo {
@@ -146,7 +146,7 @@ All new features require testing. Tests should be unique and self-describing. If
 
 If you have `just`, we have a script that performs all the checks we do on CI (test, linting, docker...) use `just pcc` (pre commit check) before pushing your changes.
 
-When it comes error handling, we prefer exact and meaningful error handling to deliver consumers(developers and users) an accurate error that describes exatcly what happened wrong.
+When it comes error handling, we prefer exact and meaningful error handling to deliver consumers(developers and users) an accurate error that describes exactly what happened wrong.
 
 Instead of:
 

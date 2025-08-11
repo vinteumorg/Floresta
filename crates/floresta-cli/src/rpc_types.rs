@@ -60,7 +60,7 @@ pub struct RawTx {
     pub in_active_chain: bool,
     /// The hex-encoded tx
     pub hex: String,
-    /// Tha sha256d of the serialized transaction without witness
+    /// The sha256d of the serialized transaction without witness
     pub txid: String,
     /// The sha256d of the serialized transaction including witness
     pub hash: String,
