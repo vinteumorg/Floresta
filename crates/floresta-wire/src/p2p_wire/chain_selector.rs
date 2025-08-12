@@ -256,7 +256,7 @@ where
     /// fork point. Once we find the last agreed accumulator, we ask for the block and proof
     /// that comes after it, update the accumulator from that point, and find who is lying.
     ///
-    /// If successfull returns the [PeerCheck] enum, representing whether peers are:
+    /// If successful returns the [PeerCheck] enum, representing whether peers are:
     ///
     /// - Lying
     /// - Unresponsive
@@ -396,11 +396,18 @@ where
         self.send_to_peer(peer2, NodeRequest::GetBlock((vec![block_hash], true)))
             .await?;
 
-        let NodeNotification::FromPeer(_, PeerMessages::Block(block)) =
+        let NodeNotification::FromPeer(peer, PeerMessages::Block(block)) =
             self.node_rx.recv().await.unwrap()
         else {
             return Ok(PeerCheck::BothUnresponsivePeers);
         };
+
+        if block.block.block_hash() != block_hash
+            || !block.block.check_merkle_root()
+            || !block.block.check_witness_commitment()
+        {
+            return Ok(PeerCheck::OneLying(peer));
+        }
 
         let acc1 = self.update_acc(agreed, block, fork + 1)?;
         let peer1_acc = Self::parse_acc(peer1_acc)?;
