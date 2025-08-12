@@ -15,7 +15,6 @@ use log::warn;
 use tokio::time::timeout;
 
 use super::error::WireError;
-use super::node::PeerStatus;
 use super::node_interface::UserRequest;
 use super::peer::PeerMessages;
 use crate::node::periodic_job;
@@ -77,11 +76,13 @@ where
             .filter(|inflight| matches!(inflight, InflightRequests::Blocks(_)))
             .count();
 
+        let unprocessed_blocks = inflight_blocks + self.blocks.len();
+
         // if we do a request, this will be the new inflight blocks count
-        let next_inflight_count = inflight_blocks + SyncNode::BLOCKS_PER_GETDATA;
+        let next_unprocessed_count = unprocessed_blocks + SyncNode::BLOCKS_PER_GETDATA;
 
         // if this request would make our inflight queue too long, postpone it
-        if next_inflight_count > max_inflight_blocks {
+        if next_unprocessed_count > max_inflight_blocks {
             return;
         }
 
@@ -130,20 +131,36 @@ where
     /// While in sync phase, we don't want any non-utreexo connections. This function checks
     /// if we have any non-utreexo peers and disconnects them.
     async fn check_connections(&mut self) -> Result<(), WireError> {
-        let to_remove = self.peers.iter().filter_map(|(_, peer)| {
-            if !peer.services.has(UTREEXO.into()) && peer.state == PeerStatus::Ready {
-                return Some(peer);
+        if self.peers.len() > SyncNode::MAX_OUTGOING_PEERS {
+            // if we have more than the maximum number of outgoing peers, disconnect
+            // some non-utreexo peers.
+            //
+            // FIXME: We should actually disconnect the slowest non-utreexo peer, to
+            // make sure we can download blocks faster.
+            let mut non_utreexo_peers = Vec::new();
+            for (id, peer) in self.peers.iter() {
+                if !peer.services.has(UTREEXO.into()) {
+                    non_utreexo_peers.push(*id);
+                }
             }
 
-            None
-        });
+            let peer_to_disconnect = *non_utreexo_peers
+                .choose(&mut thread_rng())
+                .expect("infallible: the `if` clause implies we have some non-utreexo peers");
 
-        for peer in to_remove {
-            info!("Disconnecting non-utreexo peer {}", peer.address);
-            peer.channel.send(NodeRequest::Shutdown)?;
+            info!("Disconnecting non-utreexo peer {peer_to_disconnect} to open up more space for utreexo peers");
+            self.send_to_peer(peer_to_disconnect, NodeRequest::Shutdown)
+                .await?;
         }
 
-        self.maybe_open_connection(UTREEXO.into()).await
+        if self.peer_by_service.len() < 2 {
+            // if we have less than two utreexo peers, we need to open a new connection
+            info!("Not enough utreexo peers, opening a new connection");
+            self.maybe_open_connection(UTREEXO.into()).await?;
+            return Ok(());
+        }
+
+        self.maybe_open_connection(ServiceFlags::NETWORK).await
     }
 
     /// Starts the sync node by updating the last block requested and starting the main loop.
