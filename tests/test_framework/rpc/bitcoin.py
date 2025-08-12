@@ -98,3 +98,16 @@ class BitcoinRPC(BaseRPC):
             raise ValueError(f"Invalid command '{command}'")
 
         return self.perform_request("addnode", params=[node, command, v2transport])
+
+    def get_blockhash(self, height: int) -> str:
+        """
+        Get the block hash at a given height by performing
+        `perform_request('getblockhash', params=[int])`
+
+        Args:
+            height: The height of the block to get the hash for
+
+        Returns:
+            The block hash as a string
+        """
+        return self.perform_request("getblockhash", params=[height])
