@@ -397,23 +397,30 @@ where
 
         let block_hash = self.chain.get_block_hash(fork + 1)?;
 
-        let block = self.get_block_and_proof(peer1, block_hash).await?;
-        let proof = block.proof.expect("Block proof should be present");
-        let leaf_data = block.leaf_data.expect("Leaf data should be present");
+        let inflight_block = self.get_block_and_proof(peer1, block_hash).await?;
+        let proof = inflight_block.proof.expect("Block proof should be present");
+        let leaf_data = inflight_block
+            .leaf_data
+            .expect("Leaf data should be present");
 
-        let acc1 = self.update_acc(agreed, block.block, proof, &leaf_data, fork + 1)?;
+        let acc1 = self.update_acc(agreed, inflight_block.block, proof, &leaf_data, fork + 1)?;
 
         self.send_to_peer(peer1, NodeRequest::GetBlock(vec![block_hash]))
-            .await?;
-
-        self.send_to_peer(peer2, NodeRequest::GetBlock(vec![block_hash]))
             .await?;
 
         let NodeNotification::FromPeer(_, PeerMessages::Block(block)) =
             self.node_rx.recv().await.unwrap()
         else {
-            return Ok(PeerCheck::BothUnresponsivePeers);
+            return Ok(PeerCheck::UnresponsivePeer(peer1));
         };
+
+        // Check that the received block is the expected one
+        if block.block_hash() != block_hash
+            || !block.check_merkle_root()
+            || !block.check_witness_commitment()
+        {
+            return Ok(PeerCheck::OneLying(peer1));
+        }
 
         let peer1_acc = Self::parse_acc(peer1_acc)?;
         let peer2_acc = Self::parse_acc(peer2_acc)?;
