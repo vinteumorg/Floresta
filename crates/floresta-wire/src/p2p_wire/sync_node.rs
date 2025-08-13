@@ -237,7 +237,7 @@ where
                 continue;
             }
 
-            // Ask for missed blocks if they are no longer inflight or pending
+            // Ask for missed blocks or proofs if they are no longer inflight or pending
             try_and_log!(self.ask_for_missed_blocks().await);
             try_and_log!(self.ask_for_missed_proofs().await);
 
