@@ -127,11 +127,24 @@ pub enum NodeRequest {
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone)]
 pub(crate) enum InflightRequests {
+    /// Requests the peer to send us the next block headers in their main chain
     Headers,
+
+    /// Requests the peer to send us the utreexo state for a given peer
     UtreexoState(PeerId),
+
+    /// Requests the peer to send us the block data for a given block hash
     Blocks(BlockHash),
+
+    /// We've opened a connection with a peer, and are waiting for them to complete
+    /// the handshake.
     Connect(u32),
+
+    /// Requests the peer to send us the compact filters for blocks,
     GetFilters,
+
+    /// Requests the peer to send us the utreexo proof for a given block
+    UtreexoProof(BlockHash),
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -728,8 +741,14 @@ where
         )
         .await?;
 
+        self.inflight.insert(
+            InflightRequests::UtreexoProof(inflight_block.block.block_hash()),
+            (peer, Instant::now()),
+        );
+
         self.blocks
             .insert(inflight_block.block.block_hash(), inflight_block);
+
         Ok(())
     }
 
@@ -1114,11 +1133,87 @@ where
         Ok(())
     }
 
+    /// Asks all utreexo peers for proofs of blocks that we have, but haven't received proofs
+    /// for yet, and don't have any GetProofs inflight. This may be caused by a peer disconnecting
+    /// while we didn't have more utreexo peers to redo the request.
+    pub(crate) async fn ask_for_missed_proofs(&mut self) -> Result<(), WireError> {
+        // If we have no peers, we can't ask for proofs
+        if !self.has_utreexo_peers() {
+            return Ok(());
+        }
+
+        let blocks = self
+            .blocks
+            .iter()
+            .filter_map(|(hash, block)| {
+                if block.proof.is_some() && block.leaf_data.is_some() {
+                    return None;
+                }
+
+                if !self
+                    .inflight
+                    .contains_key(&InflightRequests::UtreexoProof(*hash))
+                {
+                    return Some(*hash);
+                }
+
+                None
+            })
+            .collect::<Vec<_>>();
+
+        for block_hash in blocks {
+            let peer = self
+                .send_to_random_peer(
+                    NodeRequest::GetBlockProof((block_hash, Bitmap::new(), Bitmap::new())),
+                    service_flags::UTREEXO.into(),
+                )
+                .await?;
+
+            self.inflight.insert(
+                InflightRequests::UtreexoProof(block_hash),
+                (peer, Instant::now()),
+            );
+        }
+
+        Ok(())
+    }
+
     pub(crate) async fn redo_inflight_request(
         &mut self,
         req: InflightRequests,
     ) -> Result<(), WireError> {
         match req {
+            InflightRequests::UtreexoProof(block_hash) => {
+                if !self.has_utreexo_peers() {
+                    return Ok(());
+                }
+
+                if !self.blocks.contains_key(&block_hash) {
+                    // If we don't have the block anymore, we can't ask for the proof
+                    return Ok(());
+                }
+
+                if self
+                    .inflight
+                    .contains_key(&InflightRequests::UtreexoProof(block_hash))
+                {
+                    // If we already have an inflight request for this block, we don't need to redo it
+                    return Ok(());
+                }
+
+                let peer = self
+                    .send_to_random_peer(
+                        NodeRequest::GetBlockProof((block_hash, Bitmap::new(), Bitmap::new())),
+                        service_flags::UTREEXO.into(),
+                    )
+                    .await?;
+
+                self.inflight.insert(
+                    InflightRequests::UtreexoProof(block_hash),
+                    (peer, Instant::now()),
+                );
+            }
+
             InflightRequests::Blocks(block) => {
                 if !self.has_utreexo_peers() {
                     return Ok(());

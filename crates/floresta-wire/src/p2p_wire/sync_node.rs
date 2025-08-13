@@ -262,6 +262,16 @@ where
 
                 match notification {
                     PeerMessages::Block(block) => {
+                        if self.blocks.contains_key(&block.block_hash()) {
+                            debug!(
+                                "Received block {} from peer {}, but we already have it",
+                                block.block_hash(),
+                                peer
+                            );
+
+                            return Ok(());
+                        }
+
                         self.handle_block_data(block, peer).await?;
                         self.get_blocks_to_download().await;
                     }
@@ -332,6 +342,10 @@ where
 
                     PeerMessages::UtreexoProof(uproof) => {
                         debug!("Received utreexo proof for block {}", uproof.block_hash);
+
+                        self.inflight
+                            .remove(&InflightRequests::UtreexoProof(uproof.block_hash));
+
                         let Some(block) = self.blocks.get_mut(&uproof.block_hash) else {
                             warn!(
                                 "Received utreexo proof for block {}, but we don't have it",
