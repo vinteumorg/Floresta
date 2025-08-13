@@ -20,7 +20,7 @@ import socket
 import signal
 import contextlib
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Pattern, TextIO
+from typing import Any, Dict, List, Literal, Pattern, TextIO
 
 from test_framework.crypto.pkcs8 import (
     create_pkcs8_private_key,
@@ -832,9 +832,23 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
         if not re.fullmatch(pattern, actual):
             self.stop()
             raise AssertionError(
-                f"Actual: {actual} !~ {pattern} \nExpected: {actual} ~ {set}"
+                f"Actual: {actual} !~ {pattern} \nExpected: {actual} ~ {pattern}"
             )
 
     def assertRaises(self, expected_exception):
         """Assert that the expected exception is raised."""
         return self._AssertRaisesContext(self, expected_exception)
+
+    def assertHasAny(self, actual: Any, pattern: Pattern) -> None:
+        """
+        Assert if the actual has any fully matched pattern,
+        otherwise all nodes will be stopped and an AssertionError will
+        be raised.
+        """
+        values = [str(v) for obj in actual for v in obj.values()]
+
+        if not any(re.fullmatch(pattern, v) for v in values):
+            self.stop()
+            raise AssertionError(
+                f"Actual: any({values}) !~ {pattern}\n Expected: any({values}) ~ {pattern}"
+            )
