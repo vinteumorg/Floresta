@@ -311,9 +311,6 @@ pub enum JsonRpcError {
     /// This error is returned when the node is in initial block download, which means it is still syncing the blockchain
     InInitialBlockDownload,
 
-    /// This error is returned when there is an error encoding the response, e.g., if the response is not valid JSON
-    Encode,
-
     InvalidMemInfoMode,
 
     /// This error is returned when there is an error with the wallet, e.g., if the wallet is not loaded or when the wallet is not available
@@ -353,7 +350,6 @@ impl Display for JsonRpcError {
             JsonRpcError::NoBlockFilters => write!(f, "You don't have block filters enabled, please start florestad without --no-cfilters to run this RPC"),
             JsonRpcError::InvalidNetwork => write!(f, "Invalid network"),
             JsonRpcError::InInitialBlockDownload => write!(f, "Node is in initial block download, wait until it's finished"),
-            JsonRpcError::Encode => write!(f, "Error encoding response"),
             JsonRpcError::InvalidScript => write!(f, "Invalid script"),
             JsonRpcError::MissingParams => write!(f, "Missing params field"),
             JsonRpcError::MissingReq => write!(f, "Missing request field"),
