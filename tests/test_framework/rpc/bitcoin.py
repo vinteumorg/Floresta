@@ -98,3 +98,16 @@ class BitcoinRPC(BaseRPC):
             raise ValueError(f"Invalid command '{command}'")
 
         return self.perform_request("addnode", params=[node, command, v2transport])
+
+    def get_blockheader(self, block_hash: str) -> dict:
+        """
+        Get the block header for a given block hash by performing
+        `perform_request('getblockheader', params=[str])`
+
+        Args:
+            block_hash: The hash of the block to get the header for.
+
+        Returns:
+            A dictionary containing the block header information.
+        """
+        return self.perform_request("getblockheader", params=[block_hash])

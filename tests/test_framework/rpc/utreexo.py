@@ -115,3 +115,16 @@ class UtreexoRPC(BaseRPC):
         Get block count of the node by performing `perform_request('getblockcount')
         """
         return self.perform_request("getblockcount")
+
+    def get_blockheader(self, block_hash: str) -> dict:
+        """
+        Get the block header for a given block hash by performing
+        `perform_request('getblockheader', params=[str])`
+
+        Args:
+            block_hash: The hash of the block to get the header for.
+
+        Returns:
+            A dictionary containing the block header information.
+        """
+        return self.perform_request("getblockheader", params=[block_hash])
