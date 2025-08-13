@@ -433,6 +433,7 @@ fn get_http_error_code(err: &JsonRpcError) -> u16 {
         | JsonRpcError::InvalidPort
         | JsonRpcError::InvalidHeight
         | JsonRpcError::InvalidDescriptor
+        | JsonRpcError::BadDescriptor(_)
         | JsonRpcError::InvalidNetwork
         | JsonRpcError::InvalidVerbosityLevel
         | JsonRpcError::Decode(_)
@@ -441,6 +442,7 @@ fn get_http_error_code(err: &JsonRpcError) -> u16 {
         | JsonRpcError::NoBlockFilters
         | JsonRpcError::InvalidMemInfoMode
         | JsonRpcError::InvalidAddnodeCommand
+        | JsonRpcError::InvalidBitcoinAddress(_)
         | JsonRpcError::Wallet(_) => 400,
 
         // idunnolol
@@ -474,12 +476,14 @@ fn get_json_rpc_error_code(err: &JsonRpcError) -> i32 {
         | JsonRpcError::InvalidPort
         | JsonRpcError::InvalidHeight
         | JsonRpcError::InvalidDescriptor
+        | JsonRpcError::BadDescriptor(_)
         | JsonRpcError::InvalidNetwork
         | JsonRpcError::InvalidVerbosityLevel
         | JsonRpcError::TxNotFound
         | JsonRpcError::BlockNotFound
         | JsonRpcError::InvalidMemInfoMode
         | JsonRpcError::InvalidAddnodeCommand
+        | JsonRpcError::InvalidBitcoinAddress(_)
         | JsonRpcError::Wallet(_) => -32600,
 
         // server error

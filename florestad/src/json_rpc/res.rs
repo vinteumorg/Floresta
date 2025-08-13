@@ -1,6 +1,7 @@
 use std::fmt::Display;
 
 use axum::response::IntoResponse;
+use bitcoin::address::FromScriptError;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -214,6 +215,9 @@ pub enum JsonRpcError {
     /// The provided descriptor is invalid, e.g., if it does not match the expected format
     InvalidDescriptor,
 
+    /// The provided descriptor is in a bad format
+    BadDescriptor(miniscript::Error),
+
     /// The requested block is not found in the blockchain
     BlockNotFound,
 
@@ -275,6 +279,8 @@ pub enum JsonRpcError {
 
     /// This error is returned when the addnode command is invalid, e.g., if the command is not recognized or when the parameters are incorrect
     InvalidAddnodeCommand,
+
+    InvalidBitcoinAddress(FromScriptError),
 }
 
 impl Display for JsonRpcError {
@@ -290,6 +296,7 @@ impl Display for JsonRpcError {
             JsonRpcError::Decode(e) =>  write!(f, "error decoding request: {e}"),
             JsonRpcError::TxNotFound =>  write!(f, "Transaction not found"),
             JsonRpcError::InvalidDescriptor =>  write!(f, "Invalid descriptor"),
+            JsonRpcError::BadDescriptor(e) => write!(f, "Bad descriptor: {e}"),
             JsonRpcError::BlockNotFound =>  write!(f, "Block not found"),
             JsonRpcError::Chain => write!(f, "Chain error"),
             JsonRpcError::InvalidPort => write!(f, "Invalid port"),
@@ -307,6 +314,7 @@ impl Display for JsonRpcError {
             JsonRpcError::Wallet(e) => write!(f, "Wallet error: {e}"),
             JsonRpcError::Filters(e) => write!(f, "Error with filters: {e}"),
             JsonRpcError::InvalidAddnodeCommand => write!(f, "Invalid addnode command"),
+            JsonRpcError::InvalidBitcoinAddress(e) => write!(f, "Invalid bitcoin address: {e}"),
         }
     }
 }

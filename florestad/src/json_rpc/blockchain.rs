@@ -2,12 +2,14 @@ use bitcoin::block::Header;
 use bitcoin::consensus::encode::serialize_hex;
 use bitcoin::consensus::Encodable;
 use bitcoin::constants::genesis_block;
+use bitcoin::Address;
 use bitcoin::Block;
 use bitcoin::BlockHash;
 use bitcoin::MerkleBlock;
 use bitcoin::OutPoint;
 use bitcoin::ScriptBuf;
 use bitcoin::Txid;
+use miniscript::descriptor::checksum;
 use serde_json::json;
 use serde_json::Value;
 
@@ -193,18 +195,104 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
     // getmempoolentry
     // getmempoolinfo
     // getrawmempool
-    // gettxout
+
+    /// gettxout: returns details about an unspent transaction output compliant with bitcoin-core,
     pub(super) fn get_tx_out(&self, txid: Txid, outpoint: u32) -> Result<Value, JsonRpcError> {
+        // lets check first if it's a coinbase
+        // so if the wallet do not have the transaction,
+        // it will return an error to user.
+        let is_coinbase = self
+            .wallet
+            .get_transaction(&txid)
+            .ok_or(JsonRpcError::TxNotFound)?
+            .tx
+            .is_coinbase();
+
         let utxo = self.wallet.get_utxo(&OutPoint {
             txid,
             vout: outpoint,
         });
 
         let res = match utxo {
-            Some(utxo) => ::serde_json::to_value(utxo),
+            Some(utxo) => {
+                // Get the heights to calculate the confirmations
+                let height = self
+                    .wallet
+                    .get_height(&txid)
+                    .ok_or(JsonRpcError::InvalidHash)?;
+
+                let (bestblock_height, bestblock_hash) = self
+                    .chain
+                    .get_best_block()
+                    .map_err(|_| JsonRpcError::InvalidBlockHash)?;
+
+                // extract script,
+                let script = utxo.script_pubkey.as_script();
+                let network = self.chain.get_params().network;
+                let address = Address::from_script(script, network)
+                    .map_err(JsonRpcError::InvalidBitcoinAddress)?;
+
+                // Check the proper types and descriptors analyzing the scriptPubKey
+                let (type_field, desc) = if script.is_p2pk() {
+                    ("pubkey".to_string(), format!("pk({})", &address))
+                } else if script.is_p2pkh() {
+                    ("pubkeyhash".to_string(), format!("addr({})", &address))
+                } else if script.is_multisig() {
+                    ("multisig".to_string(), format!("addr({})", &address)) // Bare multisig
+                } else if script.is_op_return() {
+                    let hex = script.to_hex_string();
+                    ("nulldata".to_string(), format!("raw({hex})"))
+                } else if script.is_p2sh() {
+                    ("scripthash".to_string(), format!("addr({})", &address))
+                } else if script.is_p2wpkh() {
+                    (
+                        "witness_v0_keyhash".to_string(),
+                        format!("addr({})", &address),
+                    )
+                } else if script.is_p2wsh() {
+                    (
+                        "witness_v0_scripthash".to_string(),
+                        format!("addr({})", &address),
+                    )
+                } else if script.is_p2tr() {
+                    (
+                        "witness_v1_taproot".to_string(),
+                        format!("addr({})", &address),
+                    )
+                } else {
+                    // P2A (bc1pfeessrawgf in mainnet or bcrt1pfeesnyr2tx in regtest)
+                    // - OP_PUSHNUM_1 (0x51)
+                    // - OP_PUSHBYTES_2 (0x2)
+                    // - 0x4e
+                    // - 0x73
+                    // see https://bitcoinops.org/en/bitcoin-core-28-wallet-integration-guide/
+                    let script_bytes = script.as_bytes();
+                    if script_bytes.starts_with(&[0x51, 0x02, 0x4e, 0x73]) {
+                        ("anchor".to_string(), format!("addr({})", &address))
+                    } else {
+                        let hex = script.to_hex_string();
+                        ("nonstandard".to_string(), format!("raw({hex})"))
+                    }
+                };
+
+                ::serde_json::to_value(json!({
+                    "bestblock": bestblock_hash,
+                    "confirmations": bestblock_height - height + 1,
+                    "value": utxo.value.to_float_in(bitcoin::Denomination::Bitcoin),
+                    "scriptPubKey": json!({
+                        "asm": utxo.script_pubkey.to_asm_string(),
+                        "hex": utxo.script_pubkey.to_hex_string(),
+                        "desc": checksum::desc_checksum(&desc)
+                            .map(|checksum_string| format!("{desc}#{checksum_string}"))
+                            .map_err(JsonRpcError::BadDescriptor)?,
+                        "address": address,
+                        "type": type_field
+                    }),
+                    "coinbase": is_coinbase
+                }))
+            }
             None => Ok(json!({})),
         };
-
         res.map_err(|_e| JsonRpcError::Encode)
     }
 
