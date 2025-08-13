@@ -235,8 +235,9 @@ where
                 continue;
             }
 
-            // Ask for missed blocks if they are no longer inflight or pending
+            // Ask for missed blocks or proofs if they are no longer inflight or pending
             try_and_log!(self.ask_for_missed_blocks().await);
+            try_and_log!(self.ask_for_missed_proofs().await);
 
             self.get_blocks_to_download().await;
         }
@@ -263,6 +264,8 @@ where
                 match notification {
                     PeerMessages::Block(block) => {
                         self.handle_block_data(block, peer).await?;
+
+                        self.process_pending_blocks().await?;
                         self.get_blocks_to_download().await;
                     }
 
@@ -355,6 +358,7 @@ where
                         block.leaf_data = Some(uproof.leaf_data);
 
                         self.process_pending_blocks().await?;
+                        self.get_blocks_to_download().await;
                     }
 
                     _ => {}
