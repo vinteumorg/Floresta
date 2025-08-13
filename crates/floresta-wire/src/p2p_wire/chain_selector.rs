@@ -873,9 +873,6 @@ where
                     }
 
                     NodeNotification::FromUser(request, responder) => {
-                        // During chain selection we don't ask for blocks, unless it's an explicit
-                        // user request made through the node handle. If it isn't, we punish this
-                        // peer for sending an unrequested block.
                         self.perform_user_request(request, responder).await;
                     }
                 }
@@ -944,6 +941,9 @@ where
             }
 
             PeerMessages::Block(block) => {
+                // During chain selection we don't ask for blocks, unless it's an explicit
+                // user request made through the node handle. If it isn't, we punish this
+                // peer for sending an unrequested block.
                 if self.check_is_user_block_and_reply(block).await?.is_some() {
                     log::error!("peer {peer} sent us a block we didn't request");
                     self.increase_banscore(peer, 5).await?;
