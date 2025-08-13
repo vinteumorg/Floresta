@@ -332,6 +332,10 @@ where
 
                     PeerMessages::UtreexoProof(uproof) => {
                         debug!("Received utreexo proof for block {}", uproof.block_hash);
+
+                        self.inflight
+                            .remove(&InflightRequests::UtreexoProof(uproof.block_hash));
+
                         let Some(block) = self.blocks.get_mut(&uproof.block_hash) else {
                             warn!(
                                 "Received utreexo proof for block {}, but we don't have it",
