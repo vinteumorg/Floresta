@@ -75,10 +75,10 @@ pub trait NodeContext {
     const CONNECTION_TIMEOUT: u64 = 30; // 30 seconds
 
     /// How many blocks we can ask in the same request
-    const BLOCKS_PER_GETDATA: usize = 4;
+    const BLOCKS_PER_GETDATA: usize = 5;
 
     /// How many concurrent GETDATA packages we can send at the same time
-    const MAX_CONCURRENT_GETDATA: usize = 2;
+    const MAX_CONCURRENT_GETDATA: usize = 10;
 
     fn get_required_services(&self) -> ServiceFlags {
         ServiceFlags::NETWORK
