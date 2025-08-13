@@ -12,6 +12,8 @@ use floresta_common::service_flags::UTREEXO;
 use log::debug;
 use log::info;
 use log::warn;
+use rand::seq::SliceRandom;
+use rand::thread_rng;
 use tokio::time::timeout;
 
 use super::error::WireError;
@@ -237,6 +239,7 @@ where
 
             // Ask for missed blocks if they are no longer inflight or pending
             try_and_log!(self.ask_for_missed_blocks().await);
+            try_and_log!(self.ask_for_missed_proofs().await);
 
             self.get_blocks_to_download().await;
         }
