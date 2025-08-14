@@ -176,6 +176,7 @@ impl Serialize for ConnectionKind {
 
 #[derive(Debug, Clone)]
 pub struct LocalPeerView {
+    pub(crate) message_times: FractionAvg,
     pub(crate) state: PeerStatus,
     pub(crate) address_id: u32,
     pub(crate) channel: UnboundedSender<NodeRequest>,
@@ -693,6 +694,32 @@ where
         Ok(Some(block))
     }
 
+    fn get_fastest_peer(&self, service: ServiceFlags) -> Option<(&u32, &LocalPeerView)> {
+        let should_send = |(_, peer): &(&PeerId, &LocalPeerView)| {
+            peer.services.has(service) && peer.state == PeerStatus::Ready
+        };
+
+        self.peers
+            .iter()
+            .filter(should_send)
+            .min_by_key(|(_, peer)| peer.message_times.value().round() as u64)
+    }
+
+    pub(crate) fn send_to_fastest_peer(
+        &self,
+        request: NodeRequest,
+        required_service: ServiceFlags,
+    ) -> Result<PeerId, WireError> {
+        let fastest_peer = self
+            .get_fastest_peer(required_service)
+            .ok_or(WireError::NoPeersAvailable)?;
+
+        let (peer_id, peer) = fastest_peer;
+        peer.channel.send(request)?;
+
+        Ok(*peer_id)
+    }
+
     pub(crate) fn attach_proof(
         &mut self,
         uproof: UtreexoProof,
@@ -923,14 +950,12 @@ where
         }
     }
 
-    #[cfg(feature = "metrics")]
     /// Register a message on `self.inflights` hooking it to metrics
     pub(crate) fn register_message_time(
-        &self,
+        &mut self,
         notification: &PeerMessages,
         peer: PeerId,
     ) -> Option<()> {
-        use metrics::get_metrics;
         let now = Instant::now();
 
         let when = match notification {
@@ -965,9 +990,20 @@ where
             _ => return None,
         };
 
-        let metrics = get_metrics();
-        let elapsed = now.duration_since(when).as_secs_f64();
-        metrics.message_times.observe(elapsed);
+        let elapsed = now.duration_since(when).as_secs();
+        let peer = self.peers.get_mut(&peer);
+        if let Some(peer) = peer {
+            peer.message_times.add(elapsed);
+        }
+
+        #[cfg(feature = "metrics")]
+        {
+            use metrics::get_metrics;
+            let metrics = get_metrics();
+
+            metrics.message_times.observe(elapsed as f64);
+        }
+
         Some(())
     }
 
@@ -2011,6 +2047,7 @@ where
         self.peers.insert(
             peer_count,
             LocalPeerView {
+                message_times: FractionAvg::new(0, 1),
                 address: address.get_net_address(),
                 port: address.get_port(),
                 user_agent: "".to_string(),
