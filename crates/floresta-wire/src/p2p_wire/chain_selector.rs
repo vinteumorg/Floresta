@@ -90,11 +90,10 @@ use crate::node_interface::NodeResponse;
 pub struct ChainSelector {
     /// The state we are in
     state: ChainSelectorState,
-    /// To save in bandwi****, we download headers from only one peer, and then look for forks
-    /// afterwards. This is the peer we are using during this phase
-    sync_peer: PeerId,
+
     /// Peers that already sent us a message we are waiting for
     done_peers: HashSet<PeerId>,
+
     /// Keep track each peer's tip
     tip_cache: HashMap<PeerId, BlockHash>,
 }
@@ -176,7 +175,7 @@ where
             .and_modify(|e| *e = last)
             .or_insert(last);
 
-        self.request_headers(last, peer).await
+        self.request_headers(last)
     }
 
     /// Takes a serialized accumulator and parses it into a Stump
@@ -681,15 +680,14 @@ where
     /// peer is following a chain with `tip` inside it. We use this in case some of
     /// our peer is in a fork, so we can learn about all blocks in that fork and
     /// compare the candidate chains to pick the best one.
-    async fn request_headers(&mut self, tip: BlockHash, peer: PeerId) -> Result<(), WireError> {
+    fn request_headers(&mut self, tip: BlockHash) -> Result<(), WireError> {
         let locator = self
             .chain
             .get_block_locator_for_tip(tip)
             .unwrap_or_default();
-        self.send_to_peer(peer, NodeRequest::GetHeaders(locator))
-            .await?;
+        let peer =
+            self.send_to_fastest_peer(NodeRequest::GetHeaders(locator), ServiceFlags::NONE)?;
 
-        let peer = self.context.sync_peer;
         self.inflight
             .insert(InflightRequests::Headers, (peer, Instant::now()));
 
@@ -769,15 +767,7 @@ where
             if self.context.state == ChainSelectorState::CreatingConnections {
                 // If we have enough peers, try to download headers
                 if !self.peer_ids.is_empty() {
-                    let new_sync_peer = rand::random::<usize>() % self.peer_ids.len();
-                    self.context.sync_peer = *self.peer_ids.get(new_sync_peer).unwrap();
-                    try_and_log!(
-                        self.request_headers(
-                            self.chain.get_best_block()?.1,
-                            self.context.sync_peer
-                        )
-                        .await
-                    );
+                    try_and_log!(self.request_headers(self.chain.get_best_block()?.1,));
 
                     self.context.state = ChainSelectorState::DownloadingHeaders;
                 }
@@ -900,9 +890,10 @@ where
             }
 
             PeerMessages::Disconnected(idx) => {
-                if peer == self.context.sync_peer {
+                if self.peers.is_empty() {
                     self.context.state = ChainSelectorState::CreatingConnections;
                 }
+
                 self.handle_disconnection(peer, idx).await?;
             }
 
