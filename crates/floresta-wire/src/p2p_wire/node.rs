@@ -3,7 +3,6 @@
 //! A node should not care about peer-specific messages, peers'll handle things like pings.
 use std::collections::BTreeMap;
 use std::collections::HashMap;
-use std::collections::HashSet;
 use std::fmt::Debug;
 use std::net::IpAddr;
 use std::net::SocketAddr;
@@ -21,7 +20,6 @@ use bitcoin::p2p::ServiceFlags;
 use bitcoin::Block;
 use bitcoin::BlockHash;
 use bitcoin::Network;
-use bitcoin::OutPoint;
 use bitcoin::Txid;
 use floresta_chain::proof_util;
 use floresta_chain::proof_util::UtreexoLeafError;
@@ -551,36 +549,6 @@ where
             .await
     }
 
-    pub(crate) fn get_block_bitmap(&self, block: &Block) -> Result<Bitmap, WireError> {
-        let mut block_spends = HashSet::new();
-        for tx in block.txdata.iter() {
-            if tx.is_coinbase() {
-                // Coinbase transactions don't spend any outputs, so we can skip them
-                continue;
-            }
-
-            let txid = tx.compute_txid();
-            for input in tx.input.iter() {
-                block_spends.insert(input.previous_output);
-            }
-
-            // remove same-block spends
-            for (vout, _) in tx.output.iter().enumerate() {
-                let outpoint = OutPoint {
-                    txid,
-                    vout: vout as u32,
-                };
-
-                block_spends.remove(&outpoint);
-            }
-        }
-
-        let mut bitmap = Bitmap::new();
-        block_spends.iter().for_each(|_| bitmap.push_input(true));
-
-        Ok(bitmap)
-    }
-
     /// Sends the same request to all connected peers
     ///
     /// This function is best-effort, meaning that some peers may not receive the request if they
@@ -688,7 +656,7 @@ where
             }
         };
 
-        let peer = self.send_to_random_peer(req, ServiceFlags::NONE).await;
+        let peer = self.send_to_fastest_peer(req, ServiceFlags::NONE);
         if let Ok(peer) = peer {
             self.inflight_user_requests
                 .insert(user_req, (peer, Instant::now(), responder));
@@ -1271,46 +1239,35 @@ where
                     return Ok(());
                 }
 
-                let peer = self
-                    .send_to_random_peer(
-                        NodeRequest::GetBlock(vec![block]),
-                        service_flags::UTREEXO.into(),
-                    )
-                    .await?;
+                let peer = self.send_to_fastest_peer(
+                    NodeRequest::GetBlock(vec![block]),
+                    service_flags::UTREEXO.into(),
+                )?;
 
                 self.inflight
                     .insert(InflightRequests::Blocks(block), (peer, Instant::now()));
             }
             InflightRequests::Headers => {
-                let peer = self
-                    .send_to_random_peer(
-                        NodeRequest::GetHeaders(vec![]),
-                        service_flags::UTREEXO.into(),
-                    )
-                    .await?;
+                let peer = self.send_to_fastest_peer(
+                    NodeRequest::GetHeaders(vec![]),
+                    service_flags::UTREEXO.into(),
+                )?;
+
                 self.inflight
                     .insert(InflightRequests::Headers, (peer, Instant::now()));
             }
             InflightRequests::UtreexoState(_) => {
-                let peer = self
-                    .send_to_random_peer(
-                        NodeRequest::GetUtreexoState((self.chain.get_block_hash(0).unwrap(), 0)),
-                        service_flags::UTREEXO.into(),
-                    )
-                    .await?;
-                self.inflight
-                    .insert(InflightRequests::UtreexoState(peer), (peer, Instant::now()));
+                // we only ask this to a specific peer, if they bail out, we don't need to redo it
             }
             InflightRequests::GetFilters => {
                 if !self.has_compact_filters_peer() {
                     return Ok(());
                 }
-                let peer = self
-                    .send_to_random_peer(
-                        NodeRequest::GetFilter((self.chain.get_block_hash(0).unwrap(), 0)),
-                        ServiceFlags::COMPACT_FILTERS,
-                    )
-                    .await?;
+                let peer = self.send_to_fastest_peer(
+                    NodeRequest::GetFilter((self.chain.get_block_hash(0).unwrap(), 0)),
+                    ServiceFlags::COMPACT_FILTERS,
+                )?;
+
                 self.inflight
                     .insert(InflightRequests::GetFilters, (peer, Instant::now()));
             }
@@ -1829,18 +1786,15 @@ where
 
             !(is_inflight || is_pending)
         };
+
         let blocks: Vec<_> = blocks.into_iter().filter(should_request).collect();
         // if there's no block to request, don't propagate any message
         if blocks.is_empty() {
             return Ok(());
         }
 
-        let peer = self
-            .send_to_random_peer(
-                NodeRequest::GetBlock(blocks.clone()),
-                service_flags::UTREEXO.into(),
-            )
-            .await?;
+        let peer =
+            self.send_to_fastest_peer(NodeRequest::GetBlock(blocks.clone()), ServiceFlags::NONE)?;
 
         for block in blocks.iter() {
             self.inflight
