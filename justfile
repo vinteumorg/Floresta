@@ -78,7 +78,6 @@ doc-check:
 
 # Format code and run configured linters
 lint:
-    @just spell-check
     @just fmt
     @just doc-check
 
@@ -102,6 +101,7 @@ lint:
     cargo +nightly clippy -p florestad --all-targets \
         --features compact-filters,zmq-server,json-rpc,metrics,flat-chainstore
 
+    @just spell-check
     # Lint the functional tests
     @just test-functional-uv-fmt
 
@@ -120,13 +120,15 @@ test-features arg="":
 
 # Format code and run clippy for all feature combinations in each crate (arg: optional, e.g., '-- -D warnings')
 lint-features arg="":
-    @just spell-check
     @just fmt
     @just doc-check
-    @just test-functional-uv-fmt
-
+    
     cargo install cargo-hack --locked
     ./contrib/feature_matrix.sh clippy '{{arg}}'
+    
+    @just spell-check
+    @just test-functional-uv-fmt
+
 
 # Remove test-generated data
 clean-data:
@@ -145,8 +147,11 @@ gen-manpages path="":
     ./contrib/dist/gen_manpages.sh {{path}}
 
 spell-check:
-    cargo +nightly install typos-cli --locked
-    typos
+    if [ ! -x ./contrib/dev_bin/bin/typos ]; then \
+        cargo +nightly install --root ./contrib/dev_bin/ typos-cli --locked; \
+    fi
+
+    ./contrib/dev_bin/bin/typos
 
 # Usage:
 #   just install                   # installs both florestad and floresta-cli
