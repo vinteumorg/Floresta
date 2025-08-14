@@ -9,6 +9,7 @@ use core::fmt::Debug;
 use bitcoin::hashes::sha256;
 use bitcoin::ScriptBuf;
 use floresta_chain::BlockConsumer;
+use floresta_chain::UtxoData;
 use floresta_common::get_spk_hash;
 use floresta_common::parse_descriptors;
 
@@ -554,7 +555,16 @@ pub struct AddressCache<D: AddressCacheDatabase> {
 }
 
 impl<D: AddressCacheDatabase + Sync + Send + 'static> BlockConsumer for AddressCache<D> {
-    fn consume_block(&self, block: &Block, height: u32) {
+    fn wants_spent_utxos(&self) -> bool {
+        false
+    }
+
+    fn on_block(
+        &self,
+        block: &Block,
+        height: u32,
+        _spent_utxos: Option<&HashMap<OutPoint, UtxoData>>,
+    ) {
         self.block_process(block, height);
     }
 }
