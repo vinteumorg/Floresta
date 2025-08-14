@@ -129,10 +129,18 @@ where
         self.request_blocks(range_blocks).await
     }
 
-    /// While in sync phase, we don't want any non-utreexo connections. This function checks
-    /// if we have any non-utreexo peers and disconnects them.
+    /// This function will periodically check our connections, to ensure that:
+    ///   - we have enough utreexo peers to download proofs from (at least 2)
+    ///   - we have enough peers to download blocks from (at most `MAX_OUTGOING_PEERS`)
+    ///   - if some of peers are too slow, and potentially stalling our block download (TODO)
     async fn check_connections(&mut self) -> Result<(), WireError> {
-        if self.peers.len() > SyncNode::MAX_OUTGOING_PEERS {
+        let total_peers = self.peers.len();
+        let utreexo_peers = self
+            .peer_by_service
+            .get(&UTREEXO.into())
+            .map_or(0, |peers| peers.len());
+
+        if utreexo_peers < 2 && total_peers >= SyncNode::MAX_OUTGOING_PEERS {
             // if we have more than the maximum number of outgoing peers, disconnect
             // some non-utreexo peers.
             //
@@ -154,11 +162,9 @@ where
                 .await?;
         }
 
-        if self.peer_by_service.len() < 2 {
-            // if we have less than two utreexo peers, we need to open a new connection
-            info!("Not enough utreexo peers, opening a new connection");
+        if utreexo_peers < 2 {
+            info!("Not enough utreexo peers (we have {utreexo_peers}), opening a new connection");
             self.maybe_open_connection(UTREEXO.into()).await?;
-            return Ok(());
         }
 
         self.maybe_open_connection(ServiceFlags::NETWORK).await
