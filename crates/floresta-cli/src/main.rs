@@ -10,6 +10,10 @@ use floresta_cli::jsonrpc_client::Client;
 use floresta_cli::rpc::FlorestaRPC;
 use floresta_cli::rpc_types::AddNodeCommand;
 use floresta_cli::rpc_types::GetBlockRes;
+use floresta_cli::rpc_types::RescanConfidence;
+use floresta_common::descriptor_internals::DescriptorId;
+use floresta_common::descriptor_internals::DescriptorRequest;
+
 // Main function that runs the CLI application
 fn main() -> anyhow::Result<()> {
     // Parse command line arguments into a Cli struct
@@ -62,18 +66,24 @@ fn do_request(cmd: &Cli, client: Client) -> anyhow::Result<String> {
         Methods::GetTransaction { txid, .. } => {
             serde_json::to_string_pretty(&client.get_transaction(txid, Some(true))?)?
         }
-        Methods::RescanBlockchain { start_height } => {
-            serde_json::to_string_pretty(&client.rescanblockchain(start_height)?)?
-        }
+        Methods::RescanBlockchain {
+            start_height,
+            stop_height,
+            use_timestamp,
+            confidence,
+        } => serde_json::to_string_pretty(&client.rescanblockchain(
+            Some(start_height),
+            Some(stop_height),
+            use_timestamp,
+            confidence,
+        )?)?,
         Methods::SendRawTransaction { tx } => {
             serde_json::to_string_pretty(&client.send_raw_transaction(tx)?)?
         }
         Methods::GetBlockHeader { hash } => {
             serde_json::to_string_pretty(&client.get_block_header(hash)?)?
         }
-        Methods::LoadDescriptor { desc } => {
-            serde_json::to_string_pretty(&client.load_descriptor(desc)?)?
-        }
+
         Methods::GetRoots => serde_json::to_string_pretty(&client.get_roots()?)?,
         Methods::GetBlock { hash, verbosity } => {
             let block = client.get_block(hash, verbosity)?;
@@ -112,6 +122,12 @@ fn do_request(cmd: &Cli, client: Client) -> anyhow::Result<String> {
         Methods::GetRpcInfo => serde_json::to_string_pretty(&client.get_rpc_info()?)?,
         Methods::Uptime => serde_json::to_string_pretty(&client.uptime()?)?,
         Methods::ListDescriptors => serde_json::to_string_pretty(&client.list_descriptors()?)?,
+        Methods::ImportDescriptors { requests } => {
+            serde_json::to_string_pretty(&client.import_descriptors(requests)?)?
+        }
+        Methods::DeleteDescriptors { ids, pull } => {
+            serde_json::to_string_pretty(&client.delete_descriptors(ids, pull)?)?
+        }
         Methods::Ping => serde_json::to_string_pretty(&client.ping()?)?,
     })
 }
@@ -158,7 +174,7 @@ pub enum Methods {
     #[command(name = "gettxoutproof")]
     GetTxOutProof {
         /// The transaction IDs to prove
-        #[arg( required = true, value_parser = floresta_cli::parsers::parse_json_array::<Txid>)]
+        #[arg(required = true, value_parser = floresta_cli::parsers::parse_json_array::<Txid>)]
         txids: std::vec::Vec<Txid>, // you need to specify the path of Vec https://github.com/clap-rs/clap/discussions/4695
 
         /// The block in which to look for the transactions
@@ -170,9 +186,40 @@ pub enum Methods {
     #[command(name = "gettransaction")]
     GetTransaction { txid: Txid, verbose: Option<bool> },
 
-    /// Ask the node to rescan the blockchain for transactions
-    #[command(name = "rescanblockchain")]
-    RescanBlockchain { start_height: u32 },
+    #[doc = include_str!("../../../doc/rpc/rescanblockchain.md")]
+    #[command(
+        name = "rescanblockchain",
+        about = "Sends a request to the node to rescan the blockchain searching for transactions related to the wallets cached addresses.",
+        long_about = Some(include_str!("../../../doc/rpc/rescanblockchain.md")),
+        disable_help_subcommand = true
+    )]
+    RescanBlockchain {
+        /// The starting point for the rescan. (optional)
+        #[arg(required = false, default_value_t = 0)]
+        start_height: u32,
+
+        /// The stopping height for the rescan. (optional)
+        #[arg(required = false, default_value_t = 0)]
+        stop_height: u32,
+
+        /// Treat the start parameter as a UNIX timestamp instead of block height.
+        #[arg(
+            short = 't',
+            long = "timestamp",
+            required = false,
+            default_value_t = false
+        )]
+        use_timestamp: bool,
+
+        #[arg(
+            short = 'c',
+            long = "confidence",
+            required = false,
+            default_value_t = RescanConfidence::Medium,
+            value_enum
+        )]
+        confidence: RescanConfidence,
+    },
 
     /// Submits a raw transaction to the network
     #[command(name = "sendrawtransaction")]
@@ -182,19 +229,27 @@ pub enum Methods {
     #[command(name = "getblockheader")]
     GetBlockHeader { hash: BlockHash },
 
-    /// Loads a new descriptor to the watch only wallet
-    #[command(name = "loaddescriptor")]
-    LoadDescriptor { desc: String },
-
     /// Returns the roots of the current utreexo forest
     #[command(name = "getroots")]
     GetRoots,
-
     /// Returns a block
     #[command(name = "getblock")]
     GetBlock {
         hash: BlockHash,
         verbosity: Option<u32>,
+    },
+
+    #[doc = include_str!("../../../doc/rpc/importdescriptors.md")]
+    #[command(
+        name = "importdescriptors",
+        about = "Imports the given descriptor requests into the watch-only wallet.",
+        long_about = Some(include_str!("../../../doc/rpc/importdescriptors.md")),
+        disable_help_subcommand = true
+    )]
+    ImportDescriptors {
+        #[arg( required = true, value_parser = floresta_cli::parsers::parse_json_array::<DescriptorRequest>
+        )]
+        requests: std::vec::Vec<DescriptorRequest>, // you need to specify the path of Vec https://github.com/clap-rs/clap/discussions/4695
     },
 
     /// Returns information about the peers we are connected to
@@ -215,10 +270,12 @@ pub enum Methods {
     Stop,
 
     #[doc = include_str!("../../../doc/rpc/addnode.md")]
-    #[command(name = "addnode",
+    #[command(
+        name = "addnode",
         about = "Attempts to add or remove a node from the list of addnodes",
         long_about = Some(include_str!("../../../doc/rpc/addnode.md")),
-        disable_help_subcommand = true)]
+        disable_help_subcommand = true
+    )]
     AddNode {
         node: String,
         command: AddNodeCommand,
@@ -256,8 +313,13 @@ pub enum Methods {
     #[command(name = "uptime")]
     Uptime,
 
-    /// Returns a list of all descriptors currently loaded in the wallet
-    #[command(name = "listdescriptors")]
+    #[doc = include_str!("../../../doc/rpc/listdescriptors.md")]
+    #[command(
+        name = "listdescriptors",
+        about = "List the wallet descriptors",
+        long_about = Some(include_str!("../../../doc/rpc/listdescriptors.md")),
+        disable_help_subcommand = true
+    )]
     ListDescriptors,
 
     /// Sends a ping to all peers, checking if they are still alive
@@ -265,4 +327,19 @@ pub enum Methods {
     /// Result: json null
     #[command(name = "ping")]
     Ping,
+
+    #[doc = include_str!("../../../doc/rpc/deletedescriptors.md")]
+    #[command(
+        name = "deletedescriptors",
+        about = "From a given array of DescriptorId's, find and delete the identified ones.",
+        long_about = Some(include_str!("../../../doc/rpc/deletedescriptors.md")),
+        disable_help_subcommand = true
+    )]
+    DeleteDescriptors {
+        #[arg( required = true, value_parser = floresta_cli::parsers::parse_json_array::<DescriptorId>
+        )]
+        ids: std::vec::Vec<DescriptorId>, // you need to specify the path of Vec https://github.com/clap-rs/clap/discussions/4695
+        #[arg(short = 'p', long = "pull", default_value_t = false)]
+        pull: bool,
+    },
 }

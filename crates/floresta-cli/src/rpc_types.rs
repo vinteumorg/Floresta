@@ -11,6 +11,20 @@ use serde::Serialize;
 pub struct GetTxOutProof(pub Vec<u8>);
 
 #[derive(Debug, Deserialize, Serialize)]
+/// Return type for the "listdescriptors" rpc command to hold
+/// extra info about concrete descriptors
+pub struct ListDescriptorRes(pub Vec<VerboseDescriptor>);
+
+#[derive(Debug, Deserialize, Serialize)]
+/// The struct to hold info from the listdescriptors products.
+pub struct VerboseDescriptor {
+    pub label: String,
+    pub desc: String,
+    pub internal: bool,
+    pub hash: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct GetBlockchainInfoRes {
     /// The best block we know about
     ///
@@ -273,20 +287,51 @@ pub struct GetBlockResVerbose {
     pub nextblockhash: Option<String>,
 }
 
+/// A confidence enum to auxiliate rescan timestamp values.
+///
+/// Serves to tell how much confidence you need in such a rescan request. That is, the need for a high confidence rescan
+/// will make the rescan to start in a block that have an lower timestamp than the given in order to be more secure
+/// about finding addresses and relevant transactions, a lower confidence will make the rescan to be closer to the given value.
+///
+/// This input is necessary to cover network variancy specially in testnet, for mainnet you can safely use low or medium confidences
+/// depending on how much sure you are about the given timestamp covering the addresses you need.
+#[derive(Debug, Deserialize, Serialize, Clone, ValueEnum)]
+#[serde(rename_all = "lowercase")]
+pub enum RescanConfidence {
+    /// `high`: 99% confidence interval. Meaning 46 minutes in seconds.
+    High,
+
+    /// `medium` (default): 95% confidence interval. Meaning 30 minutes in seconds.
+    Medium,
+
+    /// `low`: 90% confidence interval. Meaning 23 minutes in seconds.
+    Low,
+
+    /// `raw`: Removes any lookback addition. Meaning 0 in seconds.
+    Raw,
+}
+
 #[derive(Debug)]
 /// All possible errors returned by the jsonrpc
 pub enum Error {
     /// An error while deserializing our response
     Serde(serde_json::Error),
+
     #[cfg(feature = "with-jsonrpc")]
     /// An internal reqwest error
     JsonRpc(jsonrpc::Error),
+
     /// An error internal to our jsonrpc server
     Api(serde_json::Value),
+
     /// The server sent an empty response
     EmptyResponse,
+
     /// The provided verbosity level is invalid
     InvalidVerbosity,
+
+    /// The user requested a rescan based on invalid values.
+    InvalidRescanVal,
 }
 
 impl From<serde_json::Error> for Error {
@@ -311,6 +356,7 @@ impl Display for Error {
             Error::Serde(e) => write!(f, "error while deserializing the response: {e}"),
             Error::EmptyResponse => write!(f, "got an empty response from server"),
             Error::InvalidVerbosity => write!(f, "invalid verbosity level"),
+            Error::InvalidRescanVal => write!(f, "Invalid rescan values"),
         }
     }
 }
