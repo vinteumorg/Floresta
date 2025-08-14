@@ -147,3 +147,22 @@ gen-manpages path="":
 spell-check:
     cargo +nightly install typos-cli --locked
     typos
+
+# Usage:
+#   just install                   # installs both florestad and floresta-cli
+#   just install florestad         # installs only florestad
+#   just install floresta-cli      # installs only floresta-cli
+#
+# Floresta recipe to help installing the binaries without versioning problems.
+install bin="all":
+    if [ "{{bin}}" = "all" ]; then \
+        cargo install --path florestad --locked && \
+        cargo install --path crates/floresta-cli --locked; \
+    elif [ "{{bin}}" = "florestad" ]; then \
+        cargo install --path florestad --locked; \
+    elif [ "{{bin}}" = "floresta-cli" ]; then \
+        cargo install --path crates/floresta-cli --locked; \
+    else \
+        printf "Unknown binary: %s\n" "{{bin}}" >&2; \
+        exit 1; \
+    fi
