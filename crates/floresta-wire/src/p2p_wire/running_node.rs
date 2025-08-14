@@ -483,12 +483,10 @@ where
         let stop_hash = self.chain.get_block_hash(stop)?;
         self.last_filter = stop_hash;
 
-        let peer = self
-            .send_to_random_peer(
-                NodeRequest::GetFilter((stop_hash, height + 1)),
-                ServiceFlags::COMPACT_FILTERS,
-            )
-            .await?;
+        let peer = self.send_to_fastest_peer(
+            NodeRequest::GetFilter((stop_hash, height + 1)),
+            ServiceFlags::COMPACT_FILTERS,
+        )?;
 
         self.inflight
             .insert(InflightRequests::GetFilters, (peer, Instant::now()));
@@ -601,7 +599,6 @@ where
             }
 
             NodeNotification::FromPeer(peer, message) => {
-                #[cfg(feature = "metrics")]
                 self.register_message_time(&message, peer);
 
                 match message {
