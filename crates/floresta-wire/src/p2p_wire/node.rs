@@ -660,7 +660,7 @@ where
             }
         };
 
-        let peer = self.send_to_random_peer(req, ServiceFlags::NONE);
+        let peer = self.send_to_fastest_peer(req, ServiceFlags::NONE);
         if let Ok(peer) = peer {
             self.inflight_user_requests
                 .insert(user_req, (peer, Instant::now(), responder));
@@ -1257,7 +1257,7 @@ where
                     return Ok(());
                 }
 
-                let peer = self.send_to_random_peer(
+                let peer = self.send_to_fastest_peer(
                     NodeRequest::GetBlockProof((block_hash, Bitmap::new(), Bitmap::new())),
                     service_flags::UTREEXO.into(),
                 )?;
@@ -1272,10 +1272,11 @@ where
                 self.request_blocks(vec![block])?;
             }
             InflightRequests::Headers => {
-                let peer = self.send_to_random_peer(
+                let peer = self.send_to_fastest_peer(
                     NodeRequest::GetHeaders(vec![]),
                     service_flags::UTREEXO.into(),
                 )?;
+
                 self.inflight
                     .insert(InflightRequests::Headers, (peer, Instant::now()));
             }
@@ -1291,10 +1292,11 @@ where
                 if !self.has_compact_filters_peer() {
                     return Ok(());
                 }
-                let peer = self.send_to_random_peer(
+                let peer = self.send_to_fastest_peer(
                     NodeRequest::GetFilter((self.chain.get_block_hash(0).unwrap(), 0)),
                     ServiceFlags::COMPACT_FILTERS,
                 )?;
+
                 self.inflight
                     .insert(InflightRequests::GetFilters, (peer, Instant::now()));
             }
@@ -1817,14 +1819,15 @@ where
 
             !(is_inflight || is_pending)
         };
+
         let blocks: Vec<_> = blocks.into_iter().filter(should_request).collect();
         // if there's no block to request, don't propagate any message
         if blocks.is_empty() {
             return Ok(());
         }
 
-        let peer =
-            self.send_to_random_peer(NodeRequest::GetBlock(blocks.clone()), ServiceFlags::NETWORK)?;
+        let peer = self
+            .send_to_fastest_peer(NodeRequest::GetBlock(blocks.clone()), ServiceFlags::NETWORK)?;
 
         for block in blocks.iter() {
             self.inflight
