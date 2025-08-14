@@ -66,12 +66,46 @@ use crate::UtreexoBlock;
 
 /// Trait for components that need to receive notifications about new blocks.
 pub trait BlockConsumer: Sync + Send + 'static {
-    fn consume_block(&self, block: &Block, height: u32);
+    /// Return true if this consumer wants the set of spent UTXOs.
+    fn wants_spent_utxos(&self) -> bool;
+
+    /// Called whenever a valid block is connected. `spent_utxos` is None unless consumer `wants_spent_utxos()`.
+    fn on_block(
+        &self,
+        block: &Block,
+        height: u32,
+        spent_utxos: Option<&HashMap<OutPoint, UtxoData>>,
+    );
 }
 
 impl BlockConsumer for Channel<(Block, u32)> {
-    fn consume_block(&self, block: &Block, height: u32) {
+    fn wants_spent_utxos(&self) -> bool {
+        false
+    }
+
+    fn on_block(
+        &self,
+        block: &Block,
+        height: u32,
+        _spent_utxos: Option<&HashMap<OutPoint, UtxoData>>,
+    ) {
         self.send((block.to_owned(), height));
+    }
+}
+
+impl BlockConsumer for Channel<(Block, u32, HashMap<OutPoint, UtxoData>)> {
+    fn wants_spent_utxos(&self) -> bool {
+        true
+    }
+
+    fn on_block(
+        &self,
+        block: &Block,
+        height: u32,
+        spent_utxos: Option<&HashMap<OutPoint, UtxoData>>,
+    ) {
+        let spent_utxos = spent_utxos.expect("Safe to unwrap because wants_spent_utxos()");
+        self.send((block.to_owned(), height, spent_utxos.to_owned()));
     }
 }
 
@@ -90,7 +124,7 @@ pub struct ChainStateInner<PersistedState: ChainStore> {
     /// We may have multiple modules that needs to receive and process blocks as they come, to
     /// be notified of new blocks, a module should implement the [BlockConsumer] trait, and
     /// subscribe by passing an [Arc] of itself to chainstate.
-    /// When a new block is accepted (as valid) we call `consume_block` from [BlockConsumer].
+    /// When a new block is accepted (as valid) we call `on_block` from [BlockConsumer].
     /// If a module just wants pass in a channel, `Sender` implements [BlockConsumer], and can
     /// be used during subscription (just keep the `Receiver` side.
     subscribers: Vec<Arc<dyn BlockConsumer>>,
@@ -480,11 +514,14 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             .ok_or(BlockchainError::BlockNotPresent)
     }
 
-    fn notify(&self, block: &Block, height: u32) {
+    fn notify(&self, block: &Block, height: u32, inputs: Option<&HashMap<OutPoint, UtxoData>>) {
         let inner = self.inner.read();
-        let subs = inner.subscribers.iter();
-        for client in subs {
-            client.consume_block(block, height);
+        for client in &inner.subscribers {
+            if client.wants_spent_utxos() {
+                client.on_block(block, height, inputs);
+            } else {
+                client.on_block(block, height, None);
+            }
         }
     }
 
@@ -1287,6 +1324,15 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
             }
         };
 
+        // Clone inputs only if a subscriber wants spent utxos
+        let inputs_for_notifications = self
+            .inner
+            .read()
+            .subscribers
+            .iter()
+            .any(|subscriber| subscriber.wants_spent_utxos())
+            .then(|| inputs.clone());
+
         self.validate_block_no_acc(block, height, inputs)?;
         let acc = Consensus::update_acc(&self.acc(), block, height, proof, del_hashes)?;
 
@@ -1306,7 +1352,7 @@ impl<PersistedState: ChainStore> UpdatableChainstate for ChainState<PersistedSta
         }
 
         // Notify others we have a new block
-        self.notify(block, height);
+        self.notify(block, height, inputs_for_notifications.as_ref());
         Ok(height)
     }
 

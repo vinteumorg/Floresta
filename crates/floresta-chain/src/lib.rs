@@ -27,6 +27,8 @@ pub use pruned_utreexo::flat_chain_store::*;
 #[cfg(feature = "kv-chainstore")]
 pub use pruned_utreexo::kv_chainstore::*;
 pub use pruned_utreexo::udata::*;
+pub use pruned_utreexo::utxo_data::*;
+pub use pruned_utreexo::BlockchainInterface;
 pub use pruned_utreexo::ChainBackend;
 pub use pruned_utreexo::Notification;
 pub use pruned_utreexo::ThreadSafeChain;

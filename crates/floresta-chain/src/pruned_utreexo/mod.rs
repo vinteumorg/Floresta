@@ -63,7 +63,7 @@ pub trait BlockchainInterface {
     /// Register for receiving notifications for some event. Right now it only works for
     /// new blocks, but may work with transactions in the future too.
     /// if a module performs some heavy-lifting on the block's data, it should pass in a
-    /// vector or a channel where data can be  transferred to the atual worker, otherwise
+    /// vector or a channel where data can be transferred to the actual worker, otherwise
     /// chainstate will be stuck for as long as you have work to do.
     fn subscribe(&self, tx: Arc<dyn BlockConsumer>);
     /// Tells whether or not we are on IBD
