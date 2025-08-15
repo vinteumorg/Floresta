@@ -1,9 +1,14 @@
 # Installing Floresta
 
-If you prefer skipping the [build-unix](./build-unix.md) and [run](./run.md) steps, you can use this [`bash` script to install and configure](../contrib/install.sh).
+If you prefer skipping the [build-unix](./build-unix.md) and [run](./run.md) steps to directly install our binaries you have the below options.
 
-> ⚠️ Currently, this script only works for debian-based systems. Also it aims to run on fresh servers, since it can uninstall some build dependencies (
-if running on development machine, it could delete what you have).
+1. If you have [`just`](https://just.systems/) you can simply do `just install` to install both `florestad` and `floresta-cli` or you can specify one of them to install only the specified. Refer to the [command's docs written in the justfile](../justfile) if you clarification about the process.
+
+or if you prefer a guided installation process, that will help you to configure your daemon with your own needs:
+
+2. with this  [`bash` script to install and configure](../contrib/install.sh).
+
+> ⚠️ Currently, this script only works for debian-based systems. Also it aims to run on fresh servers, since it does some package manager operations, that is `cargo` and `apt` removing or adding dependencies. If you are insecure about the process is strongly advised to understand how the script works.
 
 ## About the script
 

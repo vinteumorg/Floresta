@@ -4,6 +4,7 @@ This folder contains the general documentation for building, running, testing an
 
 You can check the files below for guidance.
 
+- [Installing](installing.md)
 - [Building-Unix](build-unix.md)
 - [Building-MacOS](build-macos.md)
 - [Running](run.md)
