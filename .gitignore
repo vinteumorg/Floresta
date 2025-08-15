@@ -4,6 +4,9 @@
 /result
 /bin
 
+# Some binaries necessary for our recipes.
+contrib/dev_bin
+
 # Man-pages
 doc/rpc_man/*.gz
 
