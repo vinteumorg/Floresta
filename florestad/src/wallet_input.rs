@@ -7,6 +7,8 @@ use bitcoin::Network;
 use miniscript::Descriptor;
 use miniscript::DescriptorPublicKey;
 
+use crate::error::FlorestadError;
+
 pub mod extended_pub_key {
     use bitcoin::bip32::Xpub;
 
@@ -17,16 +19,11 @@ pub mod extended_pub_key {
     }
 }
 
-fn parse_xpubs(
-    xpubs: &[String],
-) -> Result<Vec<Descriptor<DescriptorPublicKey>>, crate::error::Error> {
+fn parse_xpubs(xpubs: &[String]) -> Result<Vec<Descriptor<DescriptorPublicKey>>, FlorestadError> {
     let mut descriptors = Vec::new();
     for key in xpubs {
         // Parses the descriptor and get an external and change descriptors
-        let xpub = extended_pub_key::from_str(key.as_str()).map_err(|e| {
-            log::error!("Invalid xpub provided: {key} \nReason: {e:?}");
-            e
-        })?;
+        let xpub = extended_pub_key::from_str(key.as_str())?;
         let main_desc = format!("wpkh({xpub}/0/*)");
         let change_desc = format!("wpkh({xpub}/1/*)");
         descriptors.push(Descriptor::<DescriptorPublicKey>::from_str(&main_desc)?);
@@ -48,7 +45,7 @@ impl InitialWalletSetup {
         addresses: &[String],
         network: Network,
         addresses_per_descriptor: u32,
-    ) -> Result<Self, crate::error::Error> {
+    ) -> Result<Self, FlorestadError> {
         let mut descriptors = parse_xpubs(xpubs)?;
         descriptors.extend(parse_descriptors(initial_descriptors)?);
         descriptors.sort();
@@ -83,7 +80,7 @@ impl InitialWalletSetup {
 
 pub fn parse_descriptors(
     descriptors: &[String],
-) -> Result<Vec<Descriptor<DescriptorPublicKey>>, crate::error::Error> {
+) -> Result<Vec<Descriptor<DescriptorPublicKey>>, FlorestadError> {
     let descriptors = descriptors
         .iter()
         .map(|descriptor| {
