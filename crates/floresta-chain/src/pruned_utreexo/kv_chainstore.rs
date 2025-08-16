@@ -62,6 +62,15 @@ impl ChainStore for KvChainStore<'_> {
         Ok(())
     }
 
+    fn get_size(&self) -> Result<u32, Self::Error> {
+        let headers_size = self.headers.len() as u32;
+        let roots_size = self.roots.len() as u32;
+        let index_size = self.index.len() as u32;
+        let store_size = self._store.size_on_disk()? as u32;
+
+        Ok(headers_size + roots_size + index_size + store_size)
+    }
+
     /// Loads the utreexo roots for a given block.
     fn load_roots_for_block(&mut self, height: u32) -> Result<Option<Vec<u8>>, Self::Error> {
         let key = format!("roots_{height}");

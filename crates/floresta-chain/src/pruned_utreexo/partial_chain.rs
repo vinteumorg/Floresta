@@ -26,6 +26,7 @@ use rustreexo::accumulator::node_hash::BitcoinNodeHash;
 extern crate alloc;
 
 use core::cell::UnsafeCell;
+use core::mem::size_of_val;
 
 use bitcoin::block::Header as BlockHeader;
 use log::info;
@@ -469,6 +470,10 @@ impl BlockchainInterface for PartialChainState {
 
     fn get_unbroadcasted(&self) -> Vec<bitcoin::Transaction> {
         unimplemented!("partialChainState::get_unbroadcasted")
+    }
+
+    fn disk_size(&self) -> Result<u32, Self::Error> {
+        Ok(size_of_val(self) as u32)
     }
 }
 

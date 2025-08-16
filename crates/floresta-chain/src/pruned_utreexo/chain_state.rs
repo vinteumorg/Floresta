@@ -1012,6 +1012,10 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
 impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedState> {
     type Error = BlockchainError;
 
+    fn disk_size(&self) -> Result<u32, Self::Error> {
+        Ok(self.inner.read().chainstore.get_size()?)
+    }
+
     fn get_params(&self) -> bitcoin::params::Params {
         self.chain_params().params
     }
