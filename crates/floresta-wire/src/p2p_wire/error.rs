@@ -4,6 +4,7 @@ use std::fmt::{self};
 use std::io;
 use std::net::IpAddr;
 
+use floresta_chain::proof_util::UtreexoLeafError;
 use floresta_chain::BlockchainError;
 use floresta_common::impl_error_from;
 use floresta_compact_filters::IterableFilterStoreError;
@@ -17,46 +18,78 @@ use crate::node::NodeRequest;
 pub enum WireError {
     #[error("Blockchain error")]
     Blockchain(BlockchainError),
+
     #[error("Error while writing into a channel")]
     ChannelSend(tokio::sync::mpsc::error::SendError<NodeRequest>),
+
     #[error("Peer error")]
     PeerError(PeerError),
+
     #[error("Coinbase didn't mature")]
     CoinbaseNotMatured,
+
     #[error("Peer not found in our current connections")]
     PeerNotFound,
+
     #[error("We don't have any peers")]
     NoPeersAvailable,
+
     #[error("Our peer is misbehaving")]
     PeerMisbehaving,
+
     #[error("Failed to init Utreexo peers: anchors.json does not exist yet")]
     AnchorFileNotFound,
+
     #[error("Peer {0}:{1} already exists")]
     PeerAlreadyExists(IpAddr, u16),
+
     #[error("Peer {0}:{1} not found")]
     PeerNotFoundAtAddress(IpAddr, u16),
+
     #[error("Generic io error: {0}")]
     Io(std::io::Error),
+
     #[error("{0}")]
     Serde(serde_json::Error),
+
     #[error("Failed to save Utreexo peers: no peers to save to anchors.json")]
     NoUtreexoPeersAvailable,
+
     #[error("We couldn't find a peer to send the request")]
     NoPeerToSendRequest,
+
     #[error("Peer timed out")]
     PeerTimeout,
+
     #[error("Compact block filters error")]
     CompactBlockFiltersError(IterableFilterStoreError),
+
     #[error("Poisoned lock")]
     PoisonedLock,
+
     #[error("We couldn't parse the provided address due to: {0}")]
     InvalidAddress(AddrParseError),
+
     #[error("Transport error: {0}")]
     Transport(TransportError),
+
     #[error("Can't send back response for user request")]
     ResponseSendError,
+
     #[error("No addresses available")]
     NoAddressesAvailable,
+
+    #[error("We tried to work on block we don't have. This is a bug!")]
+    BlockNotFound,
+
+    #[error("We tried to work on block that we don't have a proof for it yet. This is a bug!")]
+    BlockProofNotFound,
+
+    #[error("Invalid proof for block {0}")]
+    InvalidBlockProof(UtreexoLeafError),
+
+    #[error("Couldn't find the leaf data for a block")]
+    LeafDataNotFound,
 }
 
 impl_error_from!(WireError, PeerError, PeerError);
@@ -67,6 +100,7 @@ impl_error_from!(
     CompactBlockFiltersError
 );
 impl_error_from!(WireError, AddrParseError, InvalidAddress);
+impl_error_from!(WireError, UtreexoLeafError, InvalidBlockProof);
 
 impl From<tokio::sync::mpsc::error::SendError<NodeRequest>> for WireError {
     fn from(error: tokio::sync::mpsc::error::SendError<NodeRequest>) -> Self {
