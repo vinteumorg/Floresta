@@ -11,7 +11,7 @@ cargo-fuzz = true
 libfuzzer-sys = "0.4"
 bitcoin = { version = "0.32", features = ["serde", "std"] }
 floresta-wire = { path = "../crates/floresta-wire" }
-floresta-chain = { path = "../crates/floresta-chain" }
+floresta-chain = { path = "../crates/floresta-chain", features = ["experimental-db"] }
 
 [[bin]]
 name = "local_address_str"
@@ -30,6 +30,27 @@ bench = false
 [[bin]]
 name = "addrman"
 path = "fuzz_targets/addrman.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "flat_chainstore_header_insertion"
+path = "fuzz_targets/flat_chainstore_header_insertion.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "flat_chainstore_reorg"
+path = "fuzz_targets/flat_chainstore_reorg.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "flat_chainstore_memory_access"
+path = "fuzz_targets/flat_chainstore_memory_access.rs"
 test = false
 doc = false
 bench = false
