@@ -311,7 +311,7 @@ async fn handle_json_rpc_request(
             .expect("GetTxOutProof implements serde"))
         }
 
-        "gettransaction" => {
+        "getrawtransaction" => {
             let txid = Txid::from_str(params[0].as_str().ok_or(JsonRpcError::InvalidHash)?)
                 .map_err(|_| JsonRpcError::InvalidHash)?;
             let verbosity = params.get(1).map(|v| v.as_bool().unwrap());
