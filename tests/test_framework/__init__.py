@@ -14,13 +14,13 @@ import os
 import re
 import sys
 import copy
-import time
 import random
 import socket
+import shutil
 import signal
 import contextlib
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Literal, Pattern, TextIO
+from typing import Any, Dict, List, Pattern
 
 from test_framework.crypto.pkcs8 import (
     create_pkcs8_private_key,
@@ -141,7 +141,6 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
     - not override the main() method;
     - implement set_test_params();
     - implement run_test();
-
 
     The `set_test_params` method is called before the test starts
     and aims to configure the node variant, its daemon parameters
@@ -325,6 +324,11 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
                 if s.connect_ex(("127.0.0.1", port)) != 0:
                     return port
 
+    @staticmethod
+    def get_random_port():
+        """Get a random port in the range [2000, 65535]"""
+        return FlorestaTestFramework.get_available_random_port(2000, 65535)
+
     def get_test_log_path(self) -> str:
         """
         Get the path for the test name log file, which is the class name in lowercase.
@@ -372,10 +376,34 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
         """
         Check if an option is set in extra_args
         """
-        for arg in extra_args:
-            if arg.startswith(option):
-                return True
-        return False
+
+        return any(arg.startswith(option) for arg in extra_args)
+
+    def extract_port_from_args(self, extra_args: list[str], option: str) -> int:
+        """Extract port number from command-line arguments."""
+        return any(arg.startswith(option) for arg in extra_args)
+
+    def should_enable_electrum_for_utreexod(self, extra_args: list[str]) -> bool:
+        """Determine if electrum should be enabled for utreexod."""
+        electrum_disabled_options = [
+            "--noelectrum",
+            "--disable-electrum",
+            "--electrum=false",
+            "--electrum=0",
+        ]
+        if any(
+            arg.startswith(opt)
+            for arg in extra_args
+            for opt in electrum_disabled_options
+        ):
+            return False
+
+        electrum_listener_options = ["--electrumlisteners", "--tlselectrumlisteners"]
+        return any(
+            arg.startswith(opt)
+            for arg in extra_args
+            for opt in electrum_listener_options
+        )
 
     # pylint: disable=too-many-arguments,too-many-positional-arguments
     def create_data_dir_for_daemon(
@@ -412,48 +440,53 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
         testname: str,
         extra_args: List[str],
         tls: bool,
-    ) -> FlorestaDaemon:
-        """Add default args to a florestad node settings to be run."""
+    ) -> Node:
+        """Add default args to a florestad node settings to be run and return a Node object."""
         daemon = FlorestaDaemon()
         daemon.create(target=targetdir)
         default_args = []
+        ports = {}
 
-        # Add a default data-dir if not set
         self.create_data_dir_for_daemon(
             "--data-dir", default_args, extra_args, tempdir, testname
         )
 
-        # Add a random rpc address if not set
         if not self.is_option_set(extra_args, "--rpc-address"):
-            port = FlorestaTestFramework.get_available_random_port(18443, 19443)
-            default_args.append(f"--rpc-address=127.0.0.1:{port}")
+            ports["rpc"] = self.get_random_port()
+            default_args.append(f"--rpc-address=127.0.0.1:{ports['rpc']}")
+        else:
+            ports["rpc"] = self.extract_port_from_args(extra_args, "--rpc-address")
 
-        # Add a random electrum address if not set
         if not self.is_option_set(extra_args, "--electrum-address"):
-            electrum_port = FlorestaTestFramework.get_available_random_port(
-                20001, 21001
+            ports["electrum-server"] = self.get_random_port()
+            default_args.append(
+                f"--electrum-address=127.0.0.1:{ports['electrum-server']}"
             )
-            default_args.append(f"--electrum-address=127.0.0.1:{electrum_port}")
+        else:
+            ports["electrum-server"] = self.extract_port_from_args(
+                extra_args, "--electrum-address"
+            )
 
-        # configure (or not) the ssl keys
         if tls:
             key, cert = self.create_tls_key_cert()
             default_args.append("--enable-electrum-tls")
             default_args.append(f"--tls-key-path={key}")
             default_args.append(f"--tls-cert-path={cert}")
 
-            # Add a random tls electrum address if not set
             if not self.is_option_set(extra_args, "--electrum-address-tls"):
-                tls_electrum_port = FlorestaTestFramework.get_available_random_port(
-                    20002, 21002
-                )
+                ports["electrum-server-tls"] = self.get_random_port()
                 default_args.append(
-                    f"--electrum-address-tls=127.0.0.1:{tls_electrum_port}"
+                    f"--electrum-address-tls=127.0.0.1:{ports['electrum-server-tls']}"
+                )
+            else:
+                ports["electrum-server-tls"] = self.extract_port_from_args(
+                    extra_args, "--electrum-address-tls"
                 )
 
-        daemon.add_daemon_settings(default_args)
-        daemon.add_daemon_settings(extra_args)
-        return daemon
+        daemon.add_daemon_settings(default_args + extra_args)
+        rpcserver = copy.deepcopy(florestad_rpc_server)
+        rpcserver["ports"] = ports
+        return Node(daemon, None, rpcserver, "florestad")
 
     # pylint: disable=too-many-arguments,too-many-positional-arguments
     def setup_utreexod_daemon(
@@ -463,52 +496,52 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
         testname: str,
         extra_args: List[str],
         tls: bool,
-    ):
-        """Add default args to a utreexod node settings to be run."""
+    ) -> Node:
+        """Add default args to a utreexod node settings to be run and return a Node object."""
         daemon = UtreexoDaemon()
         daemon.create(target=targetdir)
         default_args = []
+        ports = {}
 
-        # Add a default data-dir if not set
         self.create_data_dir_for_daemon(
             "--datadir", default_args, extra_args, tempdir, testname
         )
-
-        # Add a default p2p listen address if not set
         if not self.is_option_set(extra_args, "--listen"):
-            port = FlorestaTestFramework.get_available_random_port(18444, 19444)
-            default_args.append(f"--listen=127.0.0.1:{port}")
-
-        # Add a default rpc listen address if not set
-        if not self.is_option_set(extra_args, "--rpclisten"):
-            port = FlorestaTestFramework.get_available_random_port(18443, 19443)
-            default_args.append(f"--rpclisten=127.0.0.1:{port}")
-
-        if not self.is_option_set(extra_args, "--electrumlisteners"):
-            # Add a default electrum address if not set
-            electrum_port = FlorestaTestFramework.get_available_random_port(
-                20001, 21001
-            )
-            default_args.append(f"--electrumlisteners=127.0.0.1:{electrum_port}")
-
-        # configure (or not) the ssl keys
-        if not tls:
-            default_args.append("--notls")
+            ports["p2p"] = self.get_random_port()
+            default_args.append(f"--listen=127.0.0.1:{ports['p2p']}")
         else:
+            ports["p2p"] = self.extract_port_from_args(extra_args, "--listen")
+
+        if not self.is_option_set(extra_args, "--rpclisten"):
+            ports["rpc"] = self.get_random_port()
+            default_args.append(f"--rpclisten=127.0.0.1:{ports['rpc']}")
+        else:
+            ports["rpc"] = self.extract_port_from_args(extra_args, "--rpclisten")
+
+        electrum_enabled = self.should_enable_electrum_for_utreexod(extra_args)
+
+        if electrum_enabled and self.is_option_set(extra_args, "--electrumlisteners"):
+            ports["electrum-server"] = self.extract_port_from_args(
+                extra_args, "--electrumlisteners"
+            )
+
+        if tls:
             key, cert = self.create_tls_key_cert()
-            default_args.append(f"--rpckey={key}")
-            default_args.append(f"--rpccert={cert}")
+            default_args.extend([f"--rpckey={key}", f"--rpccert={cert}"])
 
-            # Add a random tls electrum address if not set
-            if not self.is_option_set(extra_args, "--tlselectrumlisteners"):
-                tls_electrum_port = FlorestaTestFramework.get_available_random_port(
-                    20002, 21002
+            if electrum_enabled and self.is_option_set(
+                extra_args, "--tlselectrumlisteners"
+            ):
+                ports["electrum-server-tls"] = self.extract_port_from_args(
+                    extra_args, "--tlselectrumlisteners"
                 )
-                default_args.append(f"--tlselectrumlisteners={tls_electrum_port}")
+        else:
+            default_args.append("--notls")
 
-        daemon.add_daemon_settings(default_args)
-        daemon.add_daemon_settings(extra_args)
-        return daemon
+        daemon.add_daemon_settings(default_args + extra_args)
+        rpcserver = copy.deepcopy(utreexod_rpc_server)
+        rpcserver["ports"] = ports
+        return Node(daemon, None, rpcserver, "utreexod")
 
     # pylint: disable=too-many-arguments,too-many-positional-arguments
     def setup_bitcoind_daemon(
@@ -517,34 +550,35 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
         tempdir: str,
         testname: str,
         extra_args: List[str],
-    ) -> BitcoinDaemon:
-        """Add default args to a bitcoind node settings to be run."""
+    ) -> Node:
+        """Add default args to a bitcoind node settings to be run and return a Node object."""
         daemon = BitcoinDaemon()
         daemon.create(target=targetdir)
         default_args = []
+        ports = {}
 
-        # Add a default data-dir if not set
         self.create_data_dir_for_daemon(
             "-datadir", default_args, extra_args, tempdir, testname
         )
 
         if not self.is_option_set(extra_args, "-bind"):
-            # Add a default rpc bind address if not set
-            port = FlorestaTestFramework.get_available_random_port(18445, 19445)
-            default_args.append(f"-bind=127.0.0.1:{port}")
+            ports["p2p"] = self.get_random_port()
+            default_args.append(f"-bind=127.0.0.1:{ports['p2p']}")
+        else:
+            ports["p2p"] = self.extract_port_from_args(extra_args, "-bind")
 
         if not self.is_option_set(extra_args, "-rpcbind"):
-            # Add a default rpc bind address if not set
-            port = FlorestaTestFramework.get_available_random_port(20443, 21443)
+            ports["rpc"] = self.get_random_port()
+            default_args.extend(
+                ["-rpcallowip=127.0.0.1", f"-rpcbind=127.0.0.1:{ports['rpc']}"]
+            )
+        else:
+            ports["rpc"] = self.extract_port_from_args(extra_args, "-rpcbind")
 
-            # option -rpcbind is ignored if -rpcallowip isnt specified,
-            # refusing to allow everyone to connect
-            default_args.append("-rpcallowip=127.0.0.1")
-            default_args.append(f"-rpcbind=127.0.0.1:{port}")
-
-        daemon.add_daemon_settings(default_args)
-        daemon.add_daemon_settings(extra_args)
-        return daemon
+        daemon.add_daemon_settings(default_args + extra_args)
+        rpcserver = copy.deepcopy(bitcoind_rpc_server)
+        rpcserver["ports"] = ports
+        return Node(daemon, None, rpcserver, "bitcoind")
 
     # pylint: disable=dangerous-default-value
     def add_node(
@@ -559,38 +593,23 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
         --key=value strings (see florestad --help for a list of available
         commands)
         """
-        # PR #331 introduced a preparatory environment at
-        # /tmp/floresta-integration-tests.$(git rev-parse HEAD).
-        # So, check for it first before define the florestad path.
-        tempdir = str(FlorestaTestFramework.get_integration_test_dir())
-        targetdir = os.path.normpath(os.path.join(tempdir, "binaries"))
-
-        # Daemon can be a variant of Floresta, Utreexo or Bitcoin Core
+        tempdir = str(self.get_integration_test_dir())
+        targetdir = os.path.join(tempdir, "binaries")
         testname = self.__class__.__name__.lower()
 
-        # If the variant is florestad or utreexod, maybe we need to
-        # create a TLS key and certificate. Bitcoind does not need to
-        # be testsd with TLS, so it does not need to create it.
-        # Also, Setup the RPC server configuration based on the variant
         if variant == "florestad":
-            setup_daemon = getattr(self, "setup_florestad_daemon")
-            daemon = setup_daemon(targetdir, tempdir, testname, extra_args, tls)
-            rpcserver = copy.deepcopy(florestad_rpc_server)
-        elif variant == "utreexod":
-            setup_daemon = getattr(self, "setup_utreexod_daemon")
-            daemon = setup_daemon(targetdir, tempdir, testname, extra_args, tls)
-            rpcserver = copy.deepcopy(utreexod_rpc_server)
-        elif variant == "bitcoind":
-            setup_daemon = getattr(self, "setup_bitcoind_daemon")
-            daemon = setup_daemon(targetdir, tempdir, testname, extra_args)
-            rpcserver = copy.deepcopy(bitcoind_rpc_server)
-        else:
-            raise ValueError(
-                f"Unsupported variant: {variant}. Use 'florestad', 'utreexod' or 'bitcoind'."
+            node = self.setup_florestad_daemon(
+                targetdir, tempdir, testname, extra_args, tls
             )
+        elif variant == "utreexod":
+            node = self.setup_utreexod_daemon(
+                targetdir, tempdir, testname, extra_args, tls
+            )
+        elif variant == "bitcoind":
+            node = self.setup_bitcoind_daemon(targetdir, tempdir, testname, extra_args)
+        else:
+            raise ValueError(f"Unsupported variant: {variant}")
 
-        # Node has been setup, now we can create the Node object
-        node = Node(daemon, rpc=None, rpc_config=rpcserver, variant=variant)
         self._nodes.append(node)
         return node
 
@@ -605,143 +624,19 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
             )
         return self._nodes[index]
 
-    # pylint: disable=too-many-branches too-many-locals
-    def detect_ports(
-        self, mode: str, log_file: TextIO, timeout: int = 20
-    ) -> Dict[str, int]:
-        """Generic port detector for florestad, utreexod, and bitcoind logs."""
-        required_patterns: Dict[str, re.Pattern]
-        optional_patterns: Dict[str, re.Pattern] = {}
-
-        # Rpc and electrum ports are required for florestad while the
-        # tls electrum port is optional.
-        if mode == "florestad":
-            required_patterns = {
-                "rpc": re.compile(r"RPC server is running at [0-9.]+:(\d+)"),
-                "electrum-server": re.compile(
-                    r"Electrum Server is running at [0-9.]+:(\d+)"
-                ),
-            }
-            optional_patterns = {
-                "electrum-server-tls": re.compile(
-                    r"Electrum TLS Server is running at [0-9.]+:(\d+)"
-                )
-            }
-
-        # Rpc and p2p ports are required for utreexod while the
-        # tls electrum port is optional (TODO: add it).
-        elif mode == "utreexod":
-            required_patterns = {
-                "rpc": re.compile(r".*RPCS: RPC server listening on [\d.]+:(\d+)"),
-                "p2p": re.compile(r".*CMGR: Server listening on [\d.]+:(\d+)"),
-            }
-
-        # The rpc and p2p ports are required for bitcoind
-        elif mode == "bitcoind":
-            required_patterns = {
-                "rpc": re.compile(r"Binding RPC on address [0-9.]+ port (\d+)"),
-                "p2p": re.compile(r"Bound to [0-9.]+:(\d+)"),
-            }
-        else:
-            raise ValueError(f"Unsupported mode: {mode}")
-
-        # Initialize the ports dictionary with None
-        # for each required and optional pattern
-        ports: Dict[str, int] = {}
-
-        # Read the log file until we find the required ports
-        start_time = time.time()
-        time_tls = None
-        tls_period = 0.5
-        readlines = []
-
-        # Read the log file line by line until we find all required ports
-        while time.time() - start_time <= timeout:
-            loglines = log_file.readlines()
-            lines = [line.strip() for line in loglines if line.strip() not in readlines]
-            readlines = loglines
-            if not lines:
-                time.sleep(0.5)
-                continue
-            for line in lines:
-                for name, pattern in required_patterns.items():
-                    if name not in ports:
-                        match = pattern.search(line)
-                        if match:
-                            ports[name] = int(match.group(1))
-                            self.log(f"Detected {mode} {name} port: {ports[name]}")
-
-                for name, pattern in optional_patterns.items():
-                    if name not in ports:
-                        match = pattern.search(line)
-                        if match:
-                            ports[name] = int(match.group(1))
-                            self.log(
-                                f"Detected {mode} optional {name} port: {ports[name]}"
-                            )
-
-            # If we find all required ports, we need to wait a little
-            # bit to see if there's any TLS port that could have not
-            # found yet
-            if all(name in ports for name in required_patterns):
-                if not optional_patterns:
-                    return ports
-                if time_tls is None:
-                    time_tls = time.time()
-                elif (time.time() - time_tls) >= tls_period:
-                    return ports
-
-        raise TimeoutError(
-            f"Timeout waiting for {mode} ports: {list(required_patterns)}"
-        )
-
     def run_node(self, node: Node, timeout: int = 180):
-        """
-        Run a node given an index on self._tests.
-
-        If the node not exists raise a IndexError. At the time
-        the tests will only run nodes configured to run on regtest.
-
-        This will start with open a file in read mode that was created
-        in the parent process in write mode (something similar to the
-        `tail` command behavior) and will allow capturing the RPC,
-        P2P port and Electrum ports from the log file.
-
-        It will read the log file until it finds a line with the
-        "RPC server running on:" pattern and return the port.
-        """
+        """Start a node and initialize its RPC connection."""
         node.daemon.start()
-
-        # Open the log file for reading and detect the RPC port
-        log_path = self.get_test_log_path()
-
-        # This could use resource-allocating operations.
-        # But since the log file is created by the parent process
-        # with `open(log_path, "w")` and closed in the parent process,
-        # and we read the file while it is in writing mode,
-        # do not ever call close here
-        #
-        # pylint: disable=R1732
-        log_file = open(log_path, "r", encoding="utf-8")
-
-        # Capture the RPC port from the log file
-        # This is a workaround for multiple nodes running on
-        # multithreaded mode, where the same rpc ports could
-        # not be shared.
-        node.rpc_config["ports"] = self.detect_ports(node.variant, log_file)
-        self.log(node.rpc_config)
 
         if node.variant == "florestad":
             node.rpc = FlorestaRPC(node.daemon.process, node.rpc_config)
-
-        if node.variant == "utreexod":
+        elif node.variant == "utreexod":
             node.rpc = UtreexoRPC(node.daemon.process, node.rpc_config)
-
-        if node.variant == "bitcoind":
+        elif node.variant == "bitcoind":
             node.rpc = BitcoinRPC(node.daemon.process, node.rpc_config)
 
         node.rpc.wait_for_connections(opened=True, timeout=timeout)
-        self.log(f"Node '{node.variant}' started")
+        self.log(f"Node '{node.variant}' started on ports: {node.rpc_config['ports']}")
 
     def stop_node(self, index: int):
         """
