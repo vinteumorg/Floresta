@@ -5,7 +5,6 @@ use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::path::PathBuf;
-use std::process::exit;
 use std::sync::Arc;
 use std::sync::Mutex;
 #[cfg(feature = "json-rpc")]
@@ -35,7 +34,6 @@ use floresta_electrum::electrum_protocol::client_accept_loop;
 use floresta_electrum::electrum_protocol::ElectrumServer;
 use floresta_watch_only::kv_database::KvDatabase;
 use floresta_watch_only::AddressCache;
-use floresta_watch_only::AddressCacheDatabase;
 use floresta_wire::address_man::AddressMan;
 use floresta_wire::mempool::Mempool;
 use floresta_wire::node::UtreexoNode;
@@ -65,7 +63,7 @@ use tokio_rustls::rustls::ServerConfig;
 use tokio_rustls::TlsAcceptor;
 
 use crate::config_file::ConfigFile;
-use crate::error;
+use crate::error::FlorestadError;
 #[cfg(feature = "json-rpc")]
 use crate::json_rpc;
 use crate::wallet_input::InitialWalletSetup;
@@ -90,6 +88,7 @@ compile_error!("You must enable either the flat-chainstore or kv-chainstore feat
 pub struct Config {
     /// Whether we should disable dns seeds
     pub disable_dns_seeds: bool,
+
     /// Where we should place our data
     ///
     /// This directory must be readable and writable by our process. We'll use this dir to store
@@ -98,6 +97,7 @@ pub struct Config {
     ///
     /// If not set, it defaults to $HOME/.floresta
     pub data_dir: Option<String>,
+
     /// We consider blocks prior to this one to have a valid signature
     ///
     /// This is an optimization mirrored from Core, where blocks before this one are considered to
@@ -106,6 +106,7 @@ pub struct Config {
     /// accumulator until this point (unless running on PoW-fraud proof or assumeutreexo mode) so
     /// there's still some work to do.
     pub assume_valid: Option<String>,
+
     /// A vector of xpubs to cache
     ///
     /// This is a list of SLIP-132-encoded extended public key that we should add to our Watch-only
@@ -113,11 +114,13 @@ pub struct Config {
     /// cached address, that will be a no-op. After a xpub is cached, we derive multiple addresses
     /// from it and try to find transactions involving it.
     pub wallet_xpub: Option<Vec<String>>,
+
     /// An output descriptor to cache
     ///
     /// This should be a list of output descriptors that we should add to our watch-only wallet.
     /// This works just like wallet_xpub, but with a descriptor.
     pub wallet_descriptor: Option<Vec<String>>,
+
     /// Where should we read from a config file
     ///
     /// This is a toml-encoded file with floresta's configs. For a sample of how this file looks
@@ -128,13 +131,16 @@ pub struct Config {
     ///     - For vectors, we use the combination of both vectors
     ///     - for mutually exclusive options, this struct has precedence over the config file
     pub config_file: Option<String>,
+
     /// A proxy that we should use to connect with others
     ///
     /// This should be a socks5 proxy, like Tor's socks. If provided, all our outgoing connections
     /// will be made through this one, except dns seed connections.
     pub proxy: Option<String>,
+
     /// The network we are running in, it may be one of: bitcoin, signet, regtest or testnet.
     pub network: Network,
+
     /// Whether we should build and store compact block filters
     ///
     /// Those filters are used for rescanning our wallet for historical transactions. If you don't
@@ -142,6 +148,7 @@ pub struct Config {
     /// is very inefficient and resource/time consuming. But keep in mind that filters will take
     /// up disk space.
     pub cfilters: bool,
+
     /// If we are using block filters, we may not need to download the whole chain of filters, as
     /// our wallets may not have been created at the beginning of the chain. With this option, we
     /// can make a rough estimate of the block height we need to start downloading filters.
@@ -150,34 +157,50 @@ pub struct Config {
     /// is at height 1000, and we set this value to -100, we will start downloading filters from
     /// height 900.
     pub filters_start_height: Option<i32>,
+
     #[cfg(feature = "zmq-server")]
     /// The address to listen to for our ZMQ server
     ///
     /// We have an (optional) ZMQ server, that pushes new blocks over a PUSH/PULL ZMQ queue, this
     /// is the address that we'll listen for incoming connections.
     pub zmq_address: Option<String>,
+
+    /// A node to connect to
+    ///
+    /// If this option is provided, we'll connect **only** to this node.
     pub connect: Option<String>,
+
     #[cfg(feature = "json-rpc")]
     /// The address our json-rpc should listen to
     pub json_rpc_address: Option<String>,
+
     /// Whether we should write logs to `stdout`.
     pub log_to_stdout: bool,
+
     /// Whether we should log to a fs file
     pub log_to_file: bool,
+
     /// Whether we should use assume utreexo
     pub assume_utreexo: bool,
+
     /// Whether we should post debug information to the console
     pub debug: bool,
+
     /// The user agent that we will advertise to our peers
     pub user_agent: String,
+
     /// The value to use for assumeutreexo
     pub assumeutreexo_value: Option<AssumeUtreexoValue>,
+
     /// Address the Electrum Server will listen to.
     pub electrum_address: Option<String>,
+
     /// Whether to enable the Electrum TLS server.
     pub enable_electrum_tls: bool,
+
     /// Address the Electrum TLS Server will listen to.
     pub electrum_address_tls: Option<String>,
+
     /// TLS private key path (defaults to `{data_dir}/tls/key.pem`).
     /// It must be PKCS#8-encoded. You can use `openssl` to generate it:
     ///
@@ -185,6 +208,7 @@ pub struct Config {
     /// openssl genpkey -algorithm RSA -out key.pem -pkeyopt rsa_keygen_bits:2048
     /// ```
     pub tls_key_path: Option<String>,
+
     /// TLS certificate path (defaults to `{data_dir}/tls/cert.pem`).
     /// It must be PKCS#8-encoded. You can use `openssl` to generate it from a PKCS#8-encoded private key:
     ///
@@ -192,8 +216,10 @@ pub struct Config {
     /// openssl req -x509 -new -key key.pem -out cert.pem -days 365 -subj "/CN=localhost"
     /// ```
     pub tls_cert_path: Option<String>,
+
     /// Whether to create self signed certificate for `tls_key_path` and `tls_cert_path`.
     pub generate_cert: bool,
+
     /// Whether to allow fallback to v1 transport if v2 connection fails.
     pub allow_v1_fallback: bool,
     /// Whether we should backfill
@@ -244,11 +270,14 @@ impl Default for Config {
 pub struct Florestad {
     /// The config used by this node, see [Config] for more details
     config: Config,
+
     /// A channel that tells others to stop what they are doing because we
     /// are about to die
     stop_signal: Arc<RwLock<bool>>,
+
     /// A channel that notifies we are done, and it's safe to die now
     stop_notify: Arc<Mutex<Option<tokio::sync::oneshot::Receiver<()>>>>,
+
     #[cfg(feature = "json-rpc")]
     /// A handle to our json-rpc server
     json_rpc: OnceLock<tokio::task::JoinHandle<()>>,
@@ -290,38 +319,36 @@ impl Florestad {
     /// Parses an address in the format `<hostname>[<:port>]` and returns a
     /// `SocketAddr` with the resolved IP address. If a hostname is provided,
     /// it will be resolved using the system's DNS resolver. This function will
-    /// exit the program if it fails to resolve the hostname or the provided
-    /// address is invalid.
-    fn resolve_hostname(hostname: &str, default_port: u16) -> SocketAddr {
+    /// propagate a [FlorestadError] if it fails to resolve the hostname or the
+    /// provided address is invalid.
+    fn resolve_hostname(hostname: &str, default_port: u16) -> Result<SocketAddr, FlorestadError> {
         if !hostname.contains(':') {
-            let Ok(ip) = hostname.parse() else {
-                error!("Invalid IP address: {hostname}");
-                exit(1);
-            };
-
-            return SocketAddr::new(ip, default_port);
+            return hostname
+                .parse()
+                .map(|ip| SocketAddr::new(ip, default_port))
+                .map_err(FlorestadError::InvalidIpAddress);
         }
 
         let ip = hostname.parse();
-        match ip {
+        let sock = match ip {
             Ok(ip) => ip,
             Err(_) => {
                 let mut split = hostname.split(':');
-                let hostname = split.next().unwrap();
+                let hostname = split
+                    .next()
+                    .expect("First element of the iterator is `Some`");
 
                 debug!("Resolving hostname: {hostname}");
 
                 let ips: Vec<_> = match dns_lookup::lookup_host(hostname) {
                     Ok(ips) => ips,
                     Err(e) => {
-                        error!("Could not resolve hostname: {e}");
-                        exit(1);
+                        return Err(FlorestadError::CouldNotResolveHostname(e));
                     }
                 };
 
                 if ips.is_empty() {
-                    error!("No IP addresses found for hostname: {hostname}");
-                    exit(1);
+                    return Err(FlorestadError::NoIPAddressesFound(hostname.to_string()));
                 }
 
                 let port = split
@@ -331,17 +358,20 @@ impl Florestad {
 
                 SocketAddr::new(ips[0], port)
             }
-        }
+        };
+
+        Ok(sock)
     }
 
     /// Actually runs florestad, spawning all modules and waiting until
     /// someone asks to stop.
-    pub async fn start(&self) {
-        let data_dir = Self::data_dir_path(&self.config);
+    pub async fn start(&self) -> Result<(), FlorestadError> {
+        let data_dir = Self::data_dir_path(&self.config)?;
 
         // Create the data directory if it doesn't exist
         if !Path::new(&data_dir).exists() {
-            fs::create_dir_all(&data_dir).expect("Could not create data directory");
+            fs::create_dir_all(&data_dir)
+                .map_err(|e| FlorestadError::CouldNotCreateDataDir(data_dir.clone(), e))?;
         }
 
         // Setup global logger
@@ -352,39 +382,43 @@ impl Florestad {
                 self.config.log_to_stdout,
                 self.config.debug,
             )
-            .expect("Failure to setup logger");
+            .map_err(FlorestadError::CouldNotInitializeLogger)?;
         }
 
         info!("Loading watch-only wallet");
-        let mut wallet = Self::load_wallet(&data_dir);
-        wallet.setup().expect("Could not initialize wallet");
-        debug!("Done loading wallet");
+        let mut wallet = Self::load_wallet(&data_dir)?;
+        wallet
+            .setup()
+            .map_err(FlorestadError::CouldNotInitializeWallet)?;
 
         // Try to add more wallets to watch if needed
-        if let Err(e) = self.setup_wallet(&data_dir, &mut wallet) {
-            log::error!("Something went wrong while setting wallet up: {e}");
-            return;
-        }
+        self.setup_wallet(&data_dir, &mut wallet)?;
 
         info!("Loading blockchain database");
+        let assume_valid = self
+            .config
+            .assume_valid
+            .as_ref()
+            .map(|value| value.parse().map_err(FlorestadError::InvalidAssumeValid))
+            .transpose()?;
+
         let blockchain_state = Arc::new(Self::load_chain_state(
             data_dir.clone(),
             self.config.network,
-            self.config
-                .assume_valid
-                .as_ref()
-                .map(|value| value.parse().expect("Invalid assumevalid")),
-        ));
+            assume_valid,
+        )?);
 
         #[cfg(feature = "compact-filters")]
         let cfilters = if self.config.cfilters {
             // Block Filters
             let filter_store = FlatFiltersStore::new((data_dir.clone() + "/cfilters").into());
             let cfilters = Arc::new(NetworkFilters::new(filter_store));
-            info!(
-                "Loaded compact filters store at height: {:?}",
-                cfilters.get_height().unwrap()
-            );
+
+            let height = cfilters
+                .get_height()
+                .map_err(FlorestadError::CouldNotLoadCompactFiltersStore)?;
+
+            info!("Loaded compact filters store at height {height}");
             Some(cfilters)
         } else {
             None
@@ -415,10 +449,8 @@ impl Florestad {
             .config
             .proxy
             .as_ref()
-            .map(|host| match host.parse::<SocketAddr>() {
-                Ok(parsed) => parsed,
-                Err(_) => Self::resolve_hostname(host, 9050),
-            });
+            .map(|addr| Self::resolve_hostname(addr, 9050))
+            .transpose()?;
 
         let config = UtreexoNodeConfig {
             disable_dns_seeds: self.config.disable_dns_seeds,
@@ -450,7 +482,7 @@ impl Florestad {
             kill_signal.clone(),
             AddressMan::default(),
         )
-        .expect("Could not create a chain provider");
+        .map_err(|e| FlorestadError::CouldNotCreateChainProvider(format!("{e}")))?;
 
         // ZMQ
         #[cfg(feature = "zmq-server")]
@@ -485,7 +517,8 @@ impl Florestad {
                 self.config
                     .json_rpc_address
                     .as_ref()
-                    .map(|x| Self::resolve_hostname(x, 8332)),
+                    .map(|x| Self::resolve_hostname(x, 8332))
+                    .transpose()?,
                 format!("{data_dir}/output.log"),
             ));
 
@@ -497,20 +530,14 @@ impl Florestad {
         // Electrum Server configuration.
 
         // Instantiate the Electrum Server.
-        let electrum_server = match ElectrumServer::new(
+        let electrum_server = ElectrumServer::new(
             wallet,
             blockchain_state,
             cfilters,
             chain_provider.get_handle(),
         )
         .await
-        {
-            Ok(server) => server,
-            Err(e) => {
-                error!("Could not create an Electrum Server: {e}");
-                std::process::exit(1);
-            }
-        };
+        .map_err(FlorestadError::CouldNotCreateElectrumServer)?;
 
         // Default Electrum Server port.
         let default_electrum_port: u16 =
@@ -522,22 +549,18 @@ impl Florestad {
             .electrum_address
             .as_ref()
             .map(|addr| Self::resolve_hostname(addr, default_electrum_port))
+            .transpose()?
             .unwrap_or(
-                format!("0.0.0.0:{default_electrum_port}")
+                format!("127.0.0.1:{default_electrum_port}")
                     .parse()
                     .expect("Hardcoded address"),
             );
-
         // sans-TLS Electrum listener.
-        let non_tls_listener = match TcpListener::bind(electrum_addr).await {
-            Ok(listener) => Arc::new(listener),
-            Err(_) => {
-                error!(
-                    "Failed to bind Electrum Server. Something is already bound to {electrum_addr}"
-                );
-                std::process::exit(1);
-            }
-        };
+        let non_tls_listener = TcpListener::bind(electrum_addr)
+            .await
+            .map(Arc::new)
+            .map_err(FlorestadError::FailedToBindElectrumServer)?;
+
         task::spawn(client_accept_loop(
             non_tls_listener,
             electrum_server.message_transmitter.clone(),
@@ -545,19 +568,20 @@ impl Florestad {
         ));
         info!("Electrum Server is running at {electrum_addr}");
 
+        // with-TLS Electrum listener.
         if self.config.enable_electrum_tls {
             // Default Electrum TLS port.
             let default_electrum_port_tls: u16 =
                 Self::get_default_electrum_port(self.config.network, true);
 
-            // Electrum TLS address.
-            let electrum_addr_tls: SocketAddr = self
+            let electrum_addr_tls = self
                 .config
                 .electrum_address_tls
                 .as_ref()
                 .map(|addr| Self::resolve_hostname(addr, default_electrum_port_tls))
+                .transpose()?
                 .unwrap_or(
-                    format!("0.0.0.0:{default_electrum_port_tls}")
+                    format!("127.0.0.1:{default_electrum_port_tls}")
                         .parse()
                         .expect("Hardcoded address"),
                 );
@@ -567,7 +591,9 @@ impl Florestad {
                 // Create TLS directory, if it does not exist.
                 let tls_dir = format!("{data_dir}/tls");
                 if !Path::new(&tls_dir).exists() {
-                    fs::create_dir_all(&tls_dir).expect("Could not create the TLS data directory");
+                    fs::create_dir_all(&tls_dir).map_err(|e| {
+                        FlorestadError::CouldNotCreateTLSDataDir(tls_dir.clone(), e)
+                    })?;
                     info!("Created TLS directory at {tls_dir}");
                 }
 
@@ -579,48 +605,27 @@ impl Florestad {
                 let tls_cert_path = format!("{data_dir}/tls/cert.pem");
 
                 // Create the certificate.
-                match Self::generate_self_signed_certificate(
+                Self::generate_self_signed_certificate(
                     tls_key_path.clone(),
                     tls_cert_path.clone(),
                     subject_alt_names,
-                ) {
-                    Ok(()) => {
-                        info!("TLS private key saved to {tls_key_path}");
-                        info!("TLS certificate saved to {tls_cert_path}");
-                    }
-                    Err(e) => {
-                        error!("Failed to generate TLS certificate: {e}");
-                        std::process::exit(1);
-                    }
-                }
+                )?;
+
+                info!("TLS private key saved to {tls_key_path}");
+                info!("TLS certificate saved to {tls_cert_path}");
             }
 
             // Assemble TLS configuration from file.
-            let tls_config = match self.create_tls_config(&data_dir) {
-                Ok(config) => config,
-                Err(e) => {
-                    error!("Failed to create TLS configuration from file: {e}");
-                    error!(
-                        "You must create the certificate manually or pass the --generate-cert flag"
-                    );
-                    std::process::exit(1);
-                }
-            };
+            let tls_config = self.create_tls_config(&data_dir)?;
 
             // Electrum TLS accept loop.
-            let tls_listener = match TcpListener::bind(electrum_addr_tls).await {
-                Ok(listener) => Arc::new(listener),
-                Err(_) => {
-                    error!(
-                    "Failed to bind Electrum TLS Server. Something is already bound to {electrum_addr_tls}"
-                );
-                    std::process::exit(1);
-                }
-            };
+            let tls_listener = TcpListener::bind(electrum_addr_tls)
+                .await
+                .map(Arc::new)
+                .map_err(FlorestadError::FailedToBindElectrumServer)?;
 
             // TLS Acceptor.
             let tls_acceptor: TlsAcceptor = TlsAcceptor::from(tls_config);
-
             task::spawn(client_accept_loop(
                 tls_listener,
                 electrum_server.message_transmitter.clone(),
@@ -660,9 +665,12 @@ impl Florestad {
                 }
             });
         }
+
+        // All done, return Ok
+        Ok(())
     }
 
-    fn data_dir_path(config: &Config) -> String {
+    fn data_dir_path(config: &Config) -> Result<String, FlorestadError> {
         // base dir: config.data_dir or $HOME/.floresta or "./.floresta"
         let mut base: PathBuf = config
             .data_dir
@@ -681,11 +689,10 @@ impl Florestad {
             Network::Testnet => base.push("testnet3"),
             Network::Testnet4 => base.push("testnet4"),
             Network::Regtest => base.push("regtest"),
-            // TODO: handle possible Err
-            _ => panic!("This network is not supported: {}", config.network),
+            _ => return Err(FlorestadError::UnsupportedNetwork(config.network)),
         }
 
-        base.to_string_lossy().into_owned()
+        Ok(base.to_string_lossy().into_owned())
     }
 
     fn setup_logger(
@@ -766,12 +773,12 @@ impl Florestad {
             data
         } else {
             match data.unwrap_err() {
-                crate::error::Error::TomlParsing(e) => {
+                FlorestadError::TomlParsing(e) => {
                     warn!("Could not parse config file, ignoring it");
                     debug!("{e}");
                     ConfigFile::default()
                 }
-                crate::error::Error::Io(e) => {
+                FlorestadError::Io(e) => {
                     warn!("Could not read config file, ignoring it");
                     debug!("{e}");
                     ConfigFile::default()
@@ -795,32 +802,30 @@ impl Florestad {
     }
 
     #[cfg(feature = "flat-chainstore")]
-    fn load_chain_store(data_dir: String) -> ChainStore {
+    fn load_chain_store(data_dir: String) -> Result<ChainStore, FlorestadError> {
         let config = FlatChainStoreConfig::new(data_dir + "/chaindata");
-        ChainStore::new(config).expect("failure while creating chainstate")
+        ChainStore::new(config).map_err(FlorestadError::CouldNotCreateFlatChainStore)
     }
 
     #[cfg(all(feature = "kv-chainstore", not(doc)))]
-    fn load_chain_state(
+    fn load_chain_state<'a>(
         data_dir: String,
         network: Network,
         assume_valid: Option<bitcoin::BlockHash>,
-    ) -> ChainState<ChainStore<'static>> {
-        let db = ChainStore::new(data_dir.clone()).expect("Could not read db");
-        let assume_valid =
-            assume_valid.map_or(AssumeValidArg::Hardcoded, AssumeValidArg::UserInput);
+    ) -> Result<ChainState<ChainStore<'a>>, FlorestadError> {
+        let assume_valid = assume_valid
+            .map(AssumeValidArg::UserInput)
+            .unwrap_or(AssumeValidArg::Hardcoded);
 
-        match ChainState::<ChainStore>::load_chain_state(db, network, assume_valid) {
-            Ok(chainstate) => chainstate,
-            Err(err) => match err {
-                BlockchainError::ChainNotInitialized => {
-                    let db = ChainStore::new(data_dir).expect("Could not read db");
+        let db = ChainStore::new(data_dir.clone())?;
 
-                    ChainState::<ChainStore>::new(db, network, assume_valid)
-                }
-                _ => unreachable!(),
-            },
-        }
+        ChainState::load_chain_state(db, network, assume_valid).or_else(|err| match err {
+            BlockchainError::ChainNotInitialized => {
+                let db = ChainStore::new(data_dir)?;
+                Ok(ChainState::new(db, network, assume_valid))
+            }
+            anyerr => Err(FlorestadError::CouldNotLoadKvChainStore(anyerr)),
+        })
     }
 
     #[cfg(feature = "flat-chainstore")]
@@ -828,41 +833,33 @@ impl Florestad {
         data_dir: String,
         network: Network,
         assume_valid: Option<bitcoin::BlockHash>,
-    ) -> ChainState<ChainStore> {
-        let db = Self::load_chain_store(data_dir.clone());
+    ) -> Result<ChainState<ChainStore>, FlorestadError> {
+        let assume_v = assume_valid
+            .map(AssumeValidArg::UserInput)
+            .unwrap_or(AssumeValidArg::Hardcoded);
 
-        let assume_valid =
-            assume_valid.map_or(AssumeValidArg::Hardcoded, AssumeValidArg::UserInput);
+        let db = Self::load_chain_store(data_dir.clone())?;
 
-        match ChainState::<ChainStore>::load_chain_state(db, network, assume_valid) {
-            Ok(chainstate) => chainstate,
-            Err(err) => match err {
-                BlockchainError::ChainNotInitialized => {
-                    info!("Initializing ChainState for the first time");
-                    let db = Self::load_chain_store(data_dir);
-
-                    ChainState::<ChainStore>::new(db, network, assume_valid)
-                }
-                _ => unreachable!(),
-            },
-        }
-    }
-
-    fn load_wallet(data_dir: &String) -> AddressCache<KvDatabase> {
-        match KvDatabase::new(data_dir.to_owned()) {
-            Ok(database) => AddressCache::new(database),
-            Err(_) => {
-                error!("Cannot obtain a lock on data directory {data_dir}. Floresta is probably already running.");
-                std::process::exit(1);
+        ChainState::<ChainStore>::load_chain_state(db, network, assume_v).or_else(|e| match e {
+            BlockchainError::ChainNotInitialized => {
+                let db = Self::load_chain_store(data_dir)?;
+                Ok(ChainState::new(db, network, assume_v))
             }
-        }
+            anyerr => Err(FlorestadError::CouldNotLoadFlatChainStore(anyerr)),
+        })
     }
 
-    fn setup_wallet<D: AddressCacheDatabase>(
+    fn load_wallet(data_dir: &String) -> Result<AddressCache<KvDatabase>, FlorestadError> {
+        let database =
+            KvDatabase::new(data_dir.to_owned()).map_err(FlorestadError::CouldNotOpenKvDatabase)?;
+        Ok(AddressCache::new(database))
+    }
+
+    fn setup_wallet(
         &self,
         data_dir: &str,
-        wallet: &mut AddressCache<D>,
-    ) -> anyhow::Result<()> {
+        wallet: &mut AddressCache<KvDatabase>,
+    ) -> Result<(), FlorestadError> {
         // The config file inside our data directory or inside the specified directory
         let config_file = match self.config.config_file {
             Some(ref path) => Self::get_config_file(path),
@@ -876,7 +873,9 @@ impl Florestad {
         // Add the configured descriptors and addresses to the wallet
         for descriptor in setup.descriptors {
             let descriptor = descriptor.to_string();
-            if !wallet.is_cached(&descriptor)? {
+            let is_cached = wallet.is_cached(&descriptor)?;
+
+            if !is_cached {
                 wallet.push_descriptor(&descriptor)?;
             }
         }
@@ -885,7 +884,7 @@ impl Florestad {
         }
 
         info!("Wallet setup completed!");
-        anyhow::Ok(())
+        Ok(())
     }
 
     /// Parses the configured list of xpubs, output descriptors and addresses to watch for, and
@@ -893,7 +892,7 @@ impl Florestad {
     fn prepare_wallet_setup(
         &self,
         config_file: ConfigFile,
-    ) -> Result<InitialWalletSetup, error::Error> {
+    ) -> Result<InitialWalletSetup, FlorestadError> {
         let config = &self.config;
 
         let mut xpubs = Vec::new();
@@ -939,31 +938,31 @@ impl Florestad {
         tls_key_path: String,
         tls_cert_path: String,
         subject_alt_names: Vec<String>,
-    ) -> Result<(), error::Error> {
+    ) -> Result<(), FlorestadError> {
         // Generate a key pair
-        let tls_key_pair = KeyPair::generate().map_err(error::Error::CouldNotGenerateKeypair)?;
+        let tls_key_pair = KeyPair::generate().map_err(FlorestadError::CouldNotGenerateKeypair)?;
 
         // Generate self-signed certificate
         let mut cert_params = CertificateParams::new(subject_alt_names)
-            .map_err(error::Error::CouldNotGenerateCertParam)?;
+            .map_err(FlorestadError::CouldNotGenerateCertParam)?;
 
         cert_params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
         let certificate = cert_params
             .self_signed(&tls_key_pair)
-            .map_err(error::Error::CouldNotGenerateSelfSignedCert)?;
+            .map_err(FlorestadError::CouldNotGenerateSelfSignedCert)?;
 
         // Create files
         fs::write(&tls_key_path, tls_key_pair.serialize_pem())
-            .map_err(|err| error::Error::CouldNotWriteFile(tls_key_path, err))?;
+            .map_err(|err| FlorestadError::CouldNotWriteFile(tls_key_path, err))?;
 
         fs::write(&tls_cert_path, certificate.pem())
-            .map_err(|err| error::Error::CouldNotWriteFile(tls_cert_path, err))?;
+            .map_err(|err| FlorestadError::CouldNotWriteFile(tls_cert_path, err))?;
 
         Ok(())
     }
 
     /// Create the TLS configuration from a PKCS#8 private key and certificate.
-    fn create_tls_config(&self, data_dir: &str) -> Result<Arc<ServerConfig>, error::Error> {
+    fn create_tls_config(&self, data_dir: &str) -> Result<Arc<ServerConfig>, FlorestadError> {
         // Use an agnostic way to build paths for platforms and fix the differences
         // in how Unix and Windows represent strings, maybe a user could use a weird
         // string on his/her path.
@@ -991,17 +990,17 @@ impl Florestad {
 
         // Parse the certificate's chain from the file.
         let tls_cert_chain =
-            CertificateDer::from_pem_file(tls_cert_path).map_err(error::Error::InvalidCert)?;
+            CertificateDer::from_pem_file(tls_cert_path).map_err(FlorestadError::InvalidCert)?;
 
         // Parse the private key from the file.
         let tls_key =
-            PrivateKeyDer::from_pem_file(tls_key_path).map_err(error::Error::InvalidPrivKey)?;
+            PrivateKeyDer::from_pem_file(tls_key_path).map_err(FlorestadError::InvalidPrivKey)?;
 
         // Assemble the TLS configuration.
         let tls_config = ServerConfig::builder()
             .with_no_client_auth()
             .with_single_cert(vec![tls_cert_chain], tls_key)
-            .map_err(error::Error::CouldNotConfigureTLS)?;
+            .map_err(FlorestadError::CouldNotConfigureTLS)?;
 
         Ok(Arc::new(tls_config))
     }
@@ -1038,22 +1037,22 @@ mod tests {
             .join(".floresta");
 
         assert_eq!(
-            Florestad::data_dir_path(&config),
+            Florestad::data_dir_path(&config).unwrap(),
             expected.display().to_string(),
         );
 
         // Using other made-up directories
         config.data_dir = Some("path/to/dir".to_string());
-        assert_eq!(Florestad::data_dir_path(&config), "path/to/dir");
+        assert_eq!(Florestad::data_dir_path(&config).unwrap(), "path/to/dir");
 
         config.data_dir = Some("path/to/dir/".to_string());
-        assert_eq!(Florestad::data_dir_path(&config), "path/to/dir");
+        assert_eq!(Florestad::data_dir_path(&config).unwrap(), "path/to/dir");
 
         config.data_dir = Some(format!("path{}", '\\')); // test removing the \ separator
-        assert_eq!(Florestad::data_dir_path(&config), "path");
+        assert_eq!(Florestad::data_dir_path(&config).unwrap(), "path");
 
         config.data_dir = Some("path///".to_string()); // test removing many separators
-        assert_eq!(Florestad::data_dir_path(&config), "path");
+        assert_eq!(Florestad::data_dir_path(&config).unwrap(), "path");
 
         // Using other networks
         for &(net, suffix) in &[
@@ -1066,7 +1065,7 @@ mod tests {
             config.network = net;
 
             assert_eq!(
-                Florestad::data_dir_path(&config),
+                Florestad::data_dir_path(&config).unwrap(),
                 expected.display().to_string(),
             );
         }
