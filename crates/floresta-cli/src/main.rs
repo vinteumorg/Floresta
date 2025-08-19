@@ -59,8 +59,8 @@ fn do_request(cmd: &Cli, client: Client) -> anyhow::Result<String> {
         Methods::GetTxOutProof { txids, blockhash } => {
             serde_json::to_string_pretty(&client.get_txout_proof(txids, blockhash))?
         }
-        Methods::GetRawTransaction { txid, .. } => {
-            serde_json::to_string_pretty(&client.get_raw_transaction(txid, Some(true))?)?
+        Methods::GetRawTransaction { txid, verbose } => {
+            serde_json::to_string_pretty(&client.get_raw_transaction(txid, verbose)?)?
         }
         Methods::RescanBlockchain { start_height } => {
             serde_json::to_string_pretty(&client.rescanblockchain(start_height)?)?
