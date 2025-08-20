@@ -39,14 +39,14 @@ use serde_json::Value;
 use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
 
-use super::res::GetBlockRes;
 use super::res::JsonRpcError;
-use super::res::RawTxJson;
+use super::res::RawTxRes;
 use super::res::RpcError;
 use super::res::ScriptPubKeyJson;
 use super::res::ScriptSigJson;
 use super::res::TxInJson;
 use super::res::TxOutJson;
+use crate::json_rpc::res::GetBlockRes;
 
 pub(super) struct InflightRpc {
     pub method: String,
@@ -111,12 +111,16 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
                 .wallet
                 .get_transaction(&tx_id)
                 .ok_or(JsonRpcError::TxNotFound);
-            return tx.map(|tx| serde_json::to_value(self.make_raw_transaction(tx)).unwrap());
+            return tx.map(|tx| {
+                serde_json::to_value(self.make_raw_transaction_from_cachedtransaction(tx)).unwrap()
+            });
         }
 
         self.wallet
             .get_transaction(&tx_id)
-            .and_then(|tx| serde_json::to_value(self.make_raw_transaction(tx)).ok())
+            .and_then(|tx| {
+                serde_json::to_value(self.make_raw_transaction_from_cachedtransaction(tx)).ok()
+            })
             .ok_or(JsonRpcError::TxNotFound)
     }
 
@@ -232,21 +236,19 @@ async fn handle_json_rpc_request(
                 .map_err(|_| JsonRpcError::InvalidHash)?;
             let verbosity = params.get(1).map(|v| v.as_u64().unwrap() as u8);
 
-            match verbosity {
-                Some(0) => {
-                    let block = state.get_block_serialized(hash).await?;
+            let res = state.get_block(hash, verbosity).await?;
 
-                    let block = GetBlockRes::Serialized(block);
-                    Ok(serde_json::to_value(block).unwrap())
+            // This workaround is to avoid type errors with SerDe json on untagged enums.
+            let inner_value = match res {
+                GetBlockRes::Zero(str) => {
+                    serde_json::to_value(str).expect("GetBlockRes Implements serde")
                 }
-                Some(1) => {
-                    let block = state.get_block(hash).await?;
+                GetBlockRes::One(one) => {
+                    serde_json::to_value(one).expect("GetBlockRes Implements serde")
+                }
+            };
 
-                    let block = GetBlockRes::Verbose(block.into());
-                    Ok(serde_json::to_value(block).unwrap())
-                }
-                _ => Err(JsonRpcError::InvalidVerbosityLevel),
-            }
+            Ok(inner_value)
         }
 
         "getblockchaininfo" => state
@@ -261,7 +263,7 @@ async fn handle_json_rpc_request(
             let hash = BlockHash::from_str(params[0].as_str().ok_or(JsonRpcError::InvalidHash)?)
                 .map_err(|_| JsonRpcError::InvalidHash)?;
             state
-                .get_block(hash)
+                .get_block(hash, None)
                 .await
                 .map(|v| ::serde_json::to_value(v).unwrap())
         }
@@ -593,7 +595,7 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
         Ok(())
     }
 
-    fn make_vin(&self, input: TxIn) -> TxInJson {
+    pub(super) fn make_vin(&self, input: TxIn) -> TxInJson {
         let txid = serialize_hex(&input.previous_output.txid);
         let vout = input.previous_output.vout;
         let sequence = input.sequence.0;
@@ -629,7 +631,7 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
         None
     }
 
-    fn make_vout(&self, output: TxOut, n: u32) -> TxOutJson {
+    pub(super) fn make_vout(&self, output: TxOut, n: u32) -> TxOutJson {
         let value = output.value;
         TxOutJson {
             value: value.to_sat(),
@@ -648,7 +650,8 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
         }
     }
 
-    fn make_raw_transaction(&self, tx: CachedTransaction) -> RawTxJson {
+    /// Constructs
+    fn make_raw_transaction_from_cachedtransaction(&self, tx: CachedTransaction) -> RawTxRes {
         let raw_tx = tx.tx;
         let in_active_chain = tx.height != 0;
         let hex = serialize_hex(&raw_tx);
@@ -664,7 +667,7 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
             0
         };
 
-        RawTxJson {
+        RawTxRes {
             in_active_chain,
             hex,
             txid,

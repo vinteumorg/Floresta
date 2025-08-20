@@ -179,7 +179,7 @@ mod tests {
                 .unwrap();
 
         let block = client.get_block(block_hash, Some(1)).unwrap();
-        let GetBlockRes::Verbose(block) = block else {
+        let GetBlockRes::One(block) = block else {
             panic!("Expected verbose block");
         };
 
