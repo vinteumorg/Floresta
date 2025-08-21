@@ -10,6 +10,13 @@ run:
 run-release:
     cargo run --release --bin florestad
 
+# Checks whether a command is available.
+check-command cmd="" recipe="check-command":
+    @if ! command -v {{cmd}} > /dev/null; then \
+        echo "{{cmd}} is not available, {{recipe}} needs it to work properly."; \
+        exit 1; \
+    fi
+
 # Compile project with debug options
 build:
     cargo build
@@ -78,7 +85,6 @@ doc-check:
 
 # Format code and run configured linters
 lint:
-    @just spell-check
     @just fmt
     @just doc-check
 
@@ -102,6 +108,7 @@ lint:
     cargo +nightly clippy -p florestad --all-targets \
         --features compact-filters,zmq-server,json-rpc,metrics,flat-chainstore
 
+    @just spell-check
     # Lint the functional tests
     @just test-functional-uv-fmt
 
@@ -120,13 +127,15 @@ test-features arg="":
 
 # Format code and run clippy for all feature combinations in each crate (arg: optional, e.g., '-- -D warnings')
 lint-features arg="":
-    @just spell-check
     @just fmt
     @just doc-check
-    @just test-functional-uv-fmt
-
+    
     cargo install cargo-hack --locked
     ./contrib/feature_matrix.sh clippy '{{arg}}'
+    
+    @just spell-check
+    @just test-functional-uv-fmt
+
 
 # Remove test-generated data
 clean-data:
@@ -144,8 +153,9 @@ pcc:
 gen-manpages path="":
     ./contrib/dist/gen_manpages.sh {{path}}
 
+# Run typos
 spell-check:
-    cargo +nightly install typos-cli --locked
+    @just check-command typos spell-check
     typos
 
 # Usage:
