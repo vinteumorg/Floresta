@@ -47,6 +47,7 @@ use super::res::ScriptPubKeyJson;
 use super::res::ScriptSigJson;
 use super::res::TxInJson;
 use super::res::TxOutJson;
+use crate::json_rpc::res::RescanConfidence;
 
 pub(super) struct InflightRpc {
     pub method: String,
@@ -152,32 +153,60 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
         let chain = self.chain.clone();
 
         tokio::task::spawn(Self::rescan_with_block_filters(
-            addresses, chain, wallet, cfilters, node,
+            addresses, chain, wallet, cfilters, node, None, None,
         ));
 
         Ok(true)
     }
 
-    fn rescan(&self, _rescan: u32) -> Result<bool> {
+    async fn rescan_blockchain(
+        &self,
+        start: Option<u32>,
+        stop: Option<u32>,
+        use_timestamp: bool,
+        confidence: Option<RescanConfidence>,
+    ) -> Result<bool> {
+        let (start_height, stop_height) = self
+            .get_rescan_interval(use_timestamp, start, stop, confidence)
+            .await?;
+
+        if stop_height != 0 && start_height >= stop_height {
+            // When stop height is a non zero value it needs atleast to be greater than start_height.
+            return Err(JsonRpcError::InvalidRescanVal);
+        }
+
         // if we are on ibd, we don't have any filters to rescan
         if self.chain.is_in_ibd() {
             return Err(JsonRpcError::InInitialBlockDownload);
         }
 
         let addresses = self.wallet.get_cached_addresses();
+
+        if addresses.is_empty() {
+            return Err(JsonRpcError::NoAddressesToRescan);
+        }
+
         let wallet = self.wallet.clone();
+
         if self.block_filter_storage.is_none() {
-            return Err(JsonRpcError::InInitialBlockDownload);
+            return Err(JsonRpcError::NoBlockFilters);
         };
 
         let cfilters = self.block_filter_storage.as_ref().unwrap().clone();
+
         let node = self.node.clone();
+
         let chain = self.chain.clone();
 
         tokio::task::spawn(Self::rescan_with_block_filters(
-            addresses, chain, wallet, cfilters, node,
+            addresses,
+            chain,
+            wallet,
+            cfilters,
+            node,
+            (start_height != 0).then_some(start_height), // Its ugly but to maintain the API here its necessary to recast to a Option.
+            (stop_height != 0).then_some(stop_height),
         ));
-
         Ok(true)
     }
 
@@ -231,7 +260,6 @@ async fn handle_json_rpc_request(
             let hash = BlockHash::from_str(params[0].as_str().ok_or(JsonRpcError::InvalidHash)?)
                 .map_err(|_| JsonRpcError::InvalidHash)?;
             let verbosity = params.get(1).map(|v| v.as_u64().unwrap() as u8);
-
             match verbosity {
                 Some(0) => {
                     let block = state.get_block_serialized(hash).await?;
@@ -396,9 +424,20 @@ async fn handle_json_rpc_request(
         }
 
         "rescanblockchain" => {
-            let rescan = params[0].as_u64().ok_or(JsonRpcError::InvalidHeight)?;
+            let start_height = params.first().and_then(Value::as_u64).map(|h| h as u32);
+
+            let stop_height = params.get(1).and_then(Value::as_u64).map(|h| h as u32);
+
+            let use_timestamp = params.get(2).and_then(Value::as_bool).unwrap_or(false);
+
+            let confidence_str = params.get(3).and_then(Value::as_str).unwrap_or("low");
+
+            let confidence =
+                serde_json::from_str(confidence_str).map_err(|_| JsonRpcError::InvalidRequest)?;
+
             state
-                .rescan(rescan as u32)
+                .rescan_blockchain(start_height, stop_height, use_timestamp, confidence)
+                .await
                 .map(|v| ::serde_json::to_value(v).unwrap())
         }
 
@@ -441,6 +480,9 @@ fn get_http_error_code(err: &JsonRpcError) -> u16 {
         | JsonRpcError::NoBlockFilters
         | JsonRpcError::InvalidMemInfoMode
         | JsonRpcError::InvalidAddnodeCommand
+        | JsonRpcError::InvalidTimestamp
+        | JsonRpcError::InvalidRescanVal
+        | JsonRpcError::NoAddressesToRescan
         | JsonRpcError::Wallet(_) => 400,
 
         // idunnolol
@@ -478,8 +520,11 @@ fn get_json_rpc_error_code(err: &JsonRpcError) -> i32 {
         | JsonRpcError::InvalidVerbosityLevel
         | JsonRpcError::TxNotFound
         | JsonRpcError::BlockNotFound
+        | JsonRpcError::InvalidTimestamp
         | JsonRpcError::InvalidMemInfoMode
         | JsonRpcError::InvalidAddnodeCommand
+        | JsonRpcError::InvalidRescanVal
+        | JsonRpcError::NoAddressesToRescan
         | JsonRpcError::Wallet(_) => -32600,
 
         // server error
@@ -568,11 +613,14 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
         wallet: Arc<AddressCache<KvDatabase>>,
         cfilters: Arc<NetworkFilters<FlatFiltersStore>>,
         node: NodeInterface,
+        start_height: Option<u32>,
+        stop_height: Option<u32>,
     ) -> Result<()> {
         let blocks = cfilters
             .match_any(
                 addresses.iter().map(|a| a.as_bytes()).collect(),
-                Some(0),
+                start_height,
+                stop_height,
                 chain.clone(),
             )
             .unwrap();
