@@ -212,7 +212,9 @@ impl<T: JsonRPCClient> FlorestaRPC for T {
                 Value::Number(Number::from(start_height)),
                 Value::Number(Number::from(stop_height)),
                 Value::Bool(use_timestamp),
-                serde_json::to_value(&confidence).expect("RescanConfidence implements Ser/De"),
+                Value::String(
+                    serde_json::to_string(&confidence).expect("RescanConfidence implements serde"),
+                ),
             ],
         )
     }

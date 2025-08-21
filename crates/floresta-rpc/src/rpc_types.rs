@@ -279,8 +279,7 @@ pub struct GetBlockResVerbose {
 ///
 /// This input is necessary to cover network variancy specially in testnet, for mainnet you can safely use low or medium confidences
 /// depending on how much sure you are about the given timestamp covering the addresses you need.
-#[derive(Debug, Deserialize, Serialize, Clone)]
-#[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
+#[derive(Debug, Deserialize, Serialize, Clone, ValueEnum)]
 #[serde(rename_all = "lowercase")]
 pub enum RescanConfidence {
     /// `high`: 99% confidence interval. Meaning 46 minutes in seconds.
@@ -317,9 +316,6 @@ pub enum Error {
 
     /// The user requested a rescan based on invalid values.
     InvalidRescanVal,
-
-    /// The requested transaction output was not found
-    TxOutNotFound,
 }
 
 impl From<serde_json::Error> for Error {
@@ -345,7 +341,6 @@ impl Display for Error {
             Error::EmptyResponse => write!(f, "got an empty response from server"),
             Error::InvalidVerbosity => write!(f, "invalid verbosity level"),
             Error::InvalidRescanVal => write!(f, "Invalid rescan values"),
-            Error::TxOutNotFound => write!(f, "Transaction output was not found"),
         }
     }
 }

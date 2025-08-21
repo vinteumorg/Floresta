@@ -40,7 +40,7 @@ pub enum RescanConfidence {
     /// `low`: 90% confidence interval. Returning 23 minutes in seconds for `val`.
     Low,
 
-    /// `exact`: Removes any lookback addition. Returning 0 for `val`
+    /// `raw`: Removes any lookback addition. Returning 0 for `val`
     Exact,
 }
 
@@ -245,6 +245,12 @@ pub enum JsonRpcError {
     /// There was a rescan request with invalid values
     InvalidRescanVal,
 
+    /// The request is missing some params field, which is required for most RPC calls
+    MissingParams,
+
+    /// There was a rescan request with invalid values
+    InvalidRescanVal,
+
     /// Missing parameter, e.g., if a required parameter is not provided in the request
     MissingParameter(String),
 
@@ -315,12 +321,13 @@ pub enum JsonRpcError {
 impl Display for JsonRpcError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            JsonRpcError::InvalidBlockHash => write!(f, "Provided a invalid BlockHash"),
             JsonRpcError::InvalidTimestamp => write!(f, "Invalid timestamp, ensure that it is between the genesis and the tip."),
-            JsonRpcError::InvalidRescanVal => write!(f, "Your rescan request contains invalid values"),
-            JsonRpcError::NoAddressesToRescan => write!(f, "You do not have any address to proceed with the rescan"),
-            JsonRpcError::MissingParameter(opt) => write!(f, "Missing parameter: {opt}"),
-            JsonRpcError::InvalidParameterType(opt) => write!(f, "Invalid parameter type for: {opt}"),
+            JsonRpcError::InvalidRescanVal => write!(f, "You rescan request contains invalid values"),
             JsonRpcError::InvalidRequest => write!(f, "Invalid request"),
+            JsonRpcError::NoAddressesToRescan => write!(f, "You do not have any address to proceed with the rescan"),
+            JsonRpcError::InvalidHeight => write!(f, "Invalid height"),
+            JsonRpcError::InvalidHash =>  write!(f, "Invalid hash"),
             JsonRpcError::InvalidHex =>  write!(f, "Invalid hex"),
             JsonRpcError::MethodNotFound =>  write!(f, "Method not found"),
             JsonRpcError::Decode(e) =>  write!(f, "error decoding request: {e}"),

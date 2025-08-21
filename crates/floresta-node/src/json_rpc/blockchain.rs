@@ -13,6 +13,7 @@ use bitcoin::Txid;
 use corepc_types::v29::GetTxOut;
 use corepc_types::ScriptPubkey;
 use miniscript::descriptor::checksum;
+use log::debug;
 use serde_json::json;
 use serde_json::Value;
 use tracing::debug;
@@ -52,7 +53,7 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
             .map_err(|_| JsonRpcError::BlockNotFound)
     }
 
-    pub fn get_rescan_interval(
+    pub async fn get_rescan_interval(
         &self,
         use_timestamp: bool,
         start: Option<u32>,
@@ -66,9 +67,13 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
             let confidence = confidence.unwrap_or(RescanConfidence::Medium);
             // `get_block_height_by_timestamp` already does the time validity checks.
 
-            let start_height = self.get_block_height_by_timestamp(start, &confidence)?;
+            let start_height = self
+                .get_block_height_by_timestamp(start, &confidence)
+                .await?;
 
-            let stop_height = self.get_block_height_by_timestamp(stop, &RescanConfidence::Exact)?;
+            let stop_height = self
+                .get_block_height_by_timestamp(stop, &RescanConfidence::Exact)
+                .await?;
 
             return Ok((start_height, stop_height));
         }
@@ -88,7 +93,7 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
     /// Retrieves the height of the block that was mined in the given timestamp.
     ///
     /// `timestamp` has an alias, 0 will directly refer to the network's genesis timestamp.
-    pub fn get_block_height_by_timestamp(
+    pub async fn get_block_height_by_timestamp(
         &self,
         timestamp: u32,
         confidence: &RescanConfidence,
