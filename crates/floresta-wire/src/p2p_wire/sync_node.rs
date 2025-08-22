@@ -5,19 +5,17 @@ use std::time::Instant;
 
 use bitcoin::p2p::message_blockdata::Inventory;
 use bitcoin::p2p::ServiceFlags;
-use bitcoin::Block;
 use floresta_chain::proof_util;
 use floresta_chain::ThreadSafeChain;
-use floresta_chain::UData;
 use floresta_common::service_flags;
 use floresta_common::service_flags::UTREEXO;
 use log::debug;
 use log::info;
 use log::warn;
+use rustreexo::accumulator::proof::Proof;
 use tokio::time::timeout;
 
 use super::error::WireError;
-use super::node::PeerStatus;
 use super::node_interface::UserRequest;
 use super::peer::PeerMessages;
 use crate::node::periodic_job;
@@ -28,7 +26,6 @@ use crate::node::NodeNotification;
 use crate::node::NodeRequest;
 use crate::node::UtreexoNode;
 use crate::node_context::NodeContext;
-use crate::node_context::PeerId;
 use crate::node_interface::NodeResponse;
 
 /// [`SyncNode`] is a node that downloads and validates the blockchain.
@@ -45,8 +42,6 @@ impl NodeContext for SyncNode {
         ServiceFlags::WITNESS | service_flags::UTREEXO.into() | ServiceFlags::NETWORK
     }
 
-    const MAX_OUTGOING_PEERS: usize = 5; // don't need many peers, half the default
-    const TRY_NEW_CONNECTION: u64 = 60; // one minute
     const REQUEST_TIMEOUT: u64 = 10 * 60; // 10 minutes
     const MAX_INFLIGHT_REQUESTS: usize = 100; // double the default
 }
@@ -80,11 +75,13 @@ where
             .filter(|inflight| matches!(inflight, InflightRequests::Blocks(_)))
             .count();
 
+        let unprocessed_blocks = inflight_blocks + self.blocks.len();
+
         // if we do a request, this will be the new inflight blocks count
-        let next_inflight_count = inflight_blocks + SyncNode::BLOCKS_PER_GETDATA;
+        let next_unprocessed_count = unprocessed_blocks + SyncNode::BLOCKS_PER_GETDATA;
 
         // if this request would make our inflight queue too long, postpone it
-        if next_inflight_count > max_inflight_blocks {
+        if next_unprocessed_count > max_inflight_blocks {
             return;
         }
 
@@ -130,23 +127,44 @@ where
         self.request_blocks(range_blocks).await
     }
 
-    /// While in sync phase, we don't want any non-utreexo connections. This function checks
-    /// if we have any non-utreexo peers and disconnects them.
+    /// This function will periodically check our connections, to ensure that:
+    ///   - we have enough utreexo peers to download proofs from (at least 2)
+    ///   - we have enough peers to download blocks from (at most `MAX_OUTGOING_PEERS`)
+    ///   - if some of peers are too slow, and potentially stalling our block download (TODO)
     async fn check_connections(&mut self) -> Result<(), WireError> {
-        let to_remove = self.peers.iter().filter_map(|(_, peer)| {
-            if !peer.services.has(UTREEXO.into()) && peer.state == PeerStatus::Ready {
-                return Some(peer);
+        let total_peers = self.peers.len();
+        let utreexo_peers = self
+            .peer_by_service
+            .get(&UTREEXO.into())
+            .map_or(0, |peers| peers.len());
+
+        if utreexo_peers < 2 && total_peers >= SyncNode::MAX_OUTGOING_PEERS {
+            // if we have more than the maximum number of outgoing peers, disconnect
+            // some non-utreexo peers.
+            //
+            // FIXME: We should actually disconnect the slowest non-utreexo peer, to
+            // make sure we can download blocks faster.
+            let mut non_utreexo_peers = Vec::new();
+            for (id, peer) in self.peers.iter() {
+                if !peer.services.has(UTREEXO.into()) {
+                    non_utreexo_peers.push(*id);
+                }
             }
 
-            None
-        });
+            let rand = rand::random::<usize>() % non_utreexo_peers.len();
+            let peer_to_disconnect = non_utreexo_peers[rand];
+            info!("Disconnecting non-utreexo peer {peer_to_disconnect} to open up more space for utreexo peers");
 
-        for peer in to_remove {
-            info!("Disconnecting non-utreexo peer {}", peer.address);
-            peer.channel.send(NodeRequest::Shutdown)?;
+            self.send_to_peer(peer_to_disconnect, NodeRequest::Shutdown)
+                .await?;
         }
 
-        self.maybe_open_connection(UTREEXO.into()).await
+        if utreexo_peers < 2 {
+            info!("Not enough utreexo peers, opening a new connection");
+            self.maybe_open_connection(UTREEXO.into()).await?;
+        }
+
+        self.maybe_open_connection(ServiceFlags::NETWORK).await
     }
 
     /// Starts the sync node by updating the last block requested and starting the main loop.
@@ -216,58 +234,20 @@ where
                 continue;
             }
 
+            try_and_log!(self.process_pending_blocks().await);
             if !self.has_utreexo_peers() {
                 continue;
             }
 
-            // Ask for missed blocks if they are no longer inflight or pending
+            // Ask for missed blocks or proofs if they are no longer inflight or pending
             try_and_log!(self.ask_for_missed_blocks().await);
+            try_and_log!(self.ask_for_missed_proofs().await);
 
             self.get_blocks_to_download().await;
         }
 
         done_cb(&self.chain);
         self
-    }
-
-    /// This function is called every time we get a Block message from a peer.
-    ///
-    /// It validates the block, and connects it to the chain.
-    async fn handle_block_data(
-        &mut self,
-        block: &Block,
-        udata: &UData,
-        peer: PeerId,
-    ) -> Result<(), WireError> {
-        let block_height = self.chain.get_validation_index()? + 1;
-        let block_hash = block.block_hash();
-        let start = Instant::now();
-
-        // Verify the utreexo proof, validate the block, and connect it. Else ban and disconnect
-        // to the peer that sent us an invalid block or utreexo data.
-        self.process_block(block, udata, block_height, peer).await?;
-
-        let elapsed = start.elapsed().as_secs();
-        self.block_sync_avg.add(elapsed);
-
-        #[cfg(feature = "metrics")]
-        {
-            use metrics::get_metrics;
-
-            let avg = self.block_sync_avg.value();
-            let metrics = get_metrics();
-            metrics.avg_block_processing_time.set(avg);
-        }
-
-        debug!("accepted block {block_hash} in {elapsed} seconds");
-        self.last_tip_update = Instant::now();
-
-        if *self.kill_signal.read().await {
-            return Ok(());
-        }
-
-        self.get_blocks_to_download().await;
-        Ok(())
     }
 
     /// Process a message from a peer and handle it accordingly between the variants of [`PeerMessages`].
@@ -287,26 +267,10 @@ where
 
                 match notification {
                     PeerMessages::Block(block) => {
-                        self.inflight
-                            .remove(&InflightRequests::Blocks(block.block.block_hash()));
+                        self.handle_block_data(block, peer).await?;
 
-                        let Some((block, udata)) = self
-                            .check_is_user_block_and_reply(block.block, block.udata)
-                            .await?
-                        else {
-                            // if this is a user block, nothing else to do
-                            return Ok(());
-                        };
-
-                        let Some(udata) = udata else {
-                            warn!("Received block without udata from peer {peer}, ignoring");
-                            self.increase_banscore(peer, self.config.max_banscore)
-                                .await?;
-
-                            return Ok(());
-                        };
-
-                        self.handle_block_data(&block, &udata, peer).await?;
+                        self.process_pending_blocks().await?;
+                        self.get_blocks_to_download().await;
                     }
 
                     PeerMessages::Ready(version) => {
@@ -337,16 +301,6 @@ where
                                 request
                                     .2
                                     .send(NodeResponse::Block(None))
-                                    .map_err(|_| WireError::ResponseSendError)?;
-                            }
-
-                            if let Some(request) = self
-                                .inflight_user_requests
-                                .remove(&UserRequest::UtreexoBlock(block))
-                            {
-                                request
-                                    .2
-                                    .send(NodeResponse::UtreexoBlock(None))
                                     .map_err(|_| WireError::ResponseSendError)?;
                             }
                         }
@@ -381,6 +335,34 @@ where
                     PeerMessages::UtreexoState(_) => {
                         warn!("Utreexo state received from peer {peer}, but we didn't ask",);
                         self.increase_banscore(peer, 5).await?;
+                    }
+
+                    PeerMessages::UtreexoProof(uproof) => {
+                        debug!("Received utreexo proof for block {}", uproof.block_hash);
+
+                        self.inflight
+                            .remove(&InflightRequests::UtreexoProof(uproof.block_hash));
+
+                        let Some(block) = self.blocks.get_mut(&uproof.block_hash) else {
+                            warn!(
+                                "Received utreexo proof for block {}, but we don't have it",
+                                uproof.block_hash
+                            );
+                            self.increase_banscore(peer, 5).await?;
+
+                            return Ok(());
+                        };
+
+                        let proof = Proof {
+                            hashes: uproof.proof_hashes,
+                            targets: uproof.targets,
+                        };
+
+                        block.proof = Some(proof);
+                        block.leaf_data = Some(uproof.leaf_data);
+
+                        self.process_pending_blocks().await?;
+                        self.get_blocks_to_download().await;
                     }
 
                     _ => {}
