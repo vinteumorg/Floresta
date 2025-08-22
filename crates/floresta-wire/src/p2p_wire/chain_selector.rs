@@ -52,15 +52,17 @@ use bitcoin::block::Header;
 use bitcoin::consensus::deserialize;
 use bitcoin::p2p::message_blockdata::Inventory;
 use bitcoin::p2p::ServiceFlags;
+use bitcoin::Block;
 use bitcoin::BlockHash;
 use floresta_chain::proof_util;
 use floresta_chain::ChainBackend;
-use floresta_chain::UtreexoBlock;
+use floresta_chain::CompactLeafData;
 use floresta_common::service_flags;
 use log::debug;
 use log::info;
 use log::warn;
 use rustreexo::accumulator::node_hash::BitcoinNodeHash;
+use rustreexo::accumulator::proof::Proof;
 use rustreexo::accumulator::stump::Stump;
 use tokio::time::timeout;
 
@@ -68,8 +70,10 @@ use super::error::WireError;
 use super::node_interface::UserRequest;
 use super::peer::PeerMessages;
 use crate::address_man::AddressState;
+use crate::block_proof::Bitmap;
 use crate::node::periodic_job;
 use crate::node::try_and_log;
+use crate::node::InflightBlock;
 use crate::node::InflightRequests;
 use crate::node::NodeNotification;
 use crate::node::NodeRequest;
@@ -86,11 +90,10 @@ use crate::node_interface::NodeResponse;
 pub struct ChainSelector {
     /// The state we are in
     state: ChainSelectorState,
-    /// To save in bandwi****, we download headers from only one peer, and then look for forks
-    /// afterwards. This is the peer we are using during this phase
-    sync_peer: PeerId,
+
     /// Peers that already sent us a message we are waiting for
     done_peers: HashSet<PeerId>,
+
     /// Keep track each peer's tip
     tip_cache: HashMap<PeerId, BlockHash>,
 }
@@ -172,7 +175,7 @@ where
             .and_modify(|e| *e = last)
             .or_insert(last);
 
-        self.request_headers(last, peer).await
+        self.request_headers(last)
     }
 
     /// Takes a serialized accumulator and parses it into a Stump
@@ -251,7 +254,7 @@ where
     ) -> Result<Option<PeerId>, WireError> {
         let (mut height, mut hash) = self.chain.get_best_block()?;
         let mut prev_height = 0;
-        // we first norrow down the possible fork point to a couple of blocks, looking
+        // we first narrow down the possible fork point to a couple of blocks, looking
         // for all blocks in a linear search would be too slow
         loop {
             // ask both peers for the utreexo state
@@ -367,16 +370,12 @@ where
         };
 
         let block = self.chain.get_block_hash(fork + 1).unwrap();
-        self.send_to_peer(peer1, NodeRequest::GetBlock((vec![block], true)))
-            .await?;
+        let block = self.get_block_and_proof(peer1, block).await?;
+        let proof = block.proof.expect("Block proof should be present");
+        let leaf_data = block.leaf_data.expect("Leaf data should be present");
 
-        let NodeNotification::FromPeer(_, PeerMessages::Block(block)) =
-            self.node_rx.recv().await.unwrap()
-        else {
-            return Ok(None);
-        };
+        let acc1 = self.update_acc(agreed, block.block, proof, &leaf_data, fork)?;
 
-        let acc1 = self.update_acc(agreed, block, fork + 1)?;
         let peer1_acc = Self::parse_acc(peer1_acc)?;
         let peer2_acc = Self::parse_acc(peer2_acc)?;
 
@@ -391,14 +390,82 @@ where
         Ok(Some(peer2))
     }
 
+    async fn get_block_and_proof(
+        &mut self,
+        peer: PeerId,
+        block_hash: BlockHash,
+    ) -> Result<InflightBlock, WireError> {
+        self.send_to_peer(peer, NodeRequest::GetBlock(vec![block_hash]))
+            .await?;
+
+        let timeout = Instant::now() + Duration::from_secs(60);
+        let mut block = None;
+        loop {
+            if Instant::now() > timeout {
+                return Err(WireError::PeerTimeout);
+            }
+
+            let Some(notification) = self.node_rx.recv().await else {
+                continue;
+            };
+
+            if let NodeNotification::FromPeer(_, notification) = notification {
+                match notification {
+                    PeerMessages::Block(recv_block) => {
+                        if recv_block.block_hash() != block_hash {
+                            log::error!("peer {peer} sent us a block we didn't request");
+                            self.increase_banscore(peer, 5).await?;
+                        }
+
+                        block = Some(recv_block);
+                        self.send_to_peer(
+                            peer,
+                            NodeRequest::GetBlockProof((block_hash, Bitmap::new(), Bitmap::new())),
+                        )
+                        .await?;
+                    }
+
+                    PeerMessages::UtreexoProof(uproof) => {
+                        if block.is_none() {
+                            log::error!(
+                                "peer {peer} sent us a proof without sending the block first"
+                            );
+                            self.increase_banscore(peer, self.config.max_banscore)
+                                .await?;
+                            return Err(WireError::PeerMisbehaving);
+                        }
+
+                        let proof = Proof {
+                            hashes: uproof.proof_hashes,
+                            targets: uproof.targets,
+                        };
+
+                        return Ok(InflightBlock {
+                            block: block.unwrap(),
+                            proof: Some(proof),
+                            leaf_data: Some(uproof.leaf_data),
+                            peer,
+                        });
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
     /// Updates a Stump, with the data from a Utreexo block
-    fn update_acc(&self, acc: Stump, block: UtreexoBlock, height: u32) -> Result<Stump, WireError> {
-        let (proof, del_hashes, _) = proof_util::process_proof(
-            block.udata.as_ref().unwrap(),
-            &block.block.txdata,
-            height,
-            |h| self.chain.get_block_hash(h),
-        )?;
+    fn update_acc(
+        &self,
+        acc: Stump,
+        block: Block,
+        proof: Proof,
+        leaf_data: &[CompactLeafData],
+        height: u32,
+    ) -> Result<Stump, WireError> {
+        let (del_hashes, _) =
+            floresta_chain::proof_util::process_proof(leaf_data, &block.txdata, height, |h| {
+                self.chain.get_block_hash(h)
+            })?;
 
         Ok(self
             .chain
@@ -524,32 +591,22 @@ where
 
     async fn is_our_chain_invalid(&mut self, other_tip: BlockHash) -> Result<(), WireError> {
         let fork = self.chain.get_fork_point(other_tip)?;
-        self.send_to_random_peer(
-            NodeRequest::GetBlock((vec![fork], true)),
-            service_flags::UTREEXO.into(),
-        )
-        .await?;
-
-        let timeout = Instant::now() + Duration::from_secs(60);
-        let block = loop {
-            let Some(NodeNotification::FromPeer(_, PeerMessages::Block(block))) =
-                self.node_rx.recv().await
-            else {
-                if Instant::now() > timeout {
-                    return Ok(());
-                }
-                continue;
-            };
-            break block;
-        };
         let fork_height = self.chain.get_block_height(&fork)?.unwrap_or(0);
 
-        let (proof, del_hashes, inputs) = proof_util::process_proof(
-            block.udata.as_ref().unwrap(),
-            &block.block.txdata,
-            fork_height,
-            |h| self.chain.get_block_hash(h),
-        )?;
+        let peers = self
+            .peer_by_service
+            .get(&ServiceFlags::from(1 << 24))
+            .ok_or(WireError::NoPeersAvailable)?;
+        let peer = rand::random::<usize>();
+        let peer = *peers.get(peer).ok_or(WireError::NoPeersAvailable)?;
+
+        let block = self.get_block_and_proof(peer, fork).await?;
+        let leaf_data = block.leaf_data.expect("Leaf data should be present");
+        let proof = block.proof.expect("Block proof should be present");
+        let (del_hashes, inputs) =
+            proof_util::process_proof(&leaf_data, &block.block.txdata, fork_height, |h| {
+                self.chain.get_block_hash(h)
+            })?;
 
         let acc = self.find_accumulator_for_block(fork_height, fork).await?;
         let is_valid = self
@@ -623,15 +680,14 @@ where
     /// peer is following a chain with `tip` inside it. We use this in case some of
     /// our peer is in a fork, so we can learn about all blocks in that fork and
     /// compare the candidate chains to pick the best one.
-    async fn request_headers(&mut self, tip: BlockHash, peer: PeerId) -> Result<(), WireError> {
+    fn request_headers(&mut self, tip: BlockHash) -> Result<(), WireError> {
         let locator = self
             .chain
             .get_block_locator_for_tip(tip)
             .unwrap_or_default();
-        self.send_to_peer(peer, NodeRequest::GetHeaders(locator))
-            .await?;
+        let peer =
+            self.send_to_fastest_peer(NodeRequest::GetHeaders(locator), ServiceFlags::NONE)?;
 
-        let peer = self.context.sync_peer;
         self.inflight
             .insert(InflightRequests::Headers, (peer, Instant::now()));
 
@@ -711,15 +767,7 @@ where
             if self.context.state == ChainSelectorState::CreatingConnections {
                 // If we have enough peers, try to download headers
                 if !self.peer_ids.is_empty() {
-                    let new_sync_peer = rand::random::<usize>() % self.peer_ids.len();
-                    self.context.sync_peer = *self.peer_ids.get(new_sync_peer).unwrap();
-                    try_and_log!(
-                        self.request_headers(
-                            self.chain.get_best_block()?.1,
-                            self.context.sync_peer
-                        )
-                        .await
-                    );
+                    try_and_log!(self.request_headers(self.chain.get_best_block()?.1,));
 
                     self.context.state = ChainSelectorState::DownloadingHeaders;
                 }
@@ -842,9 +890,10 @@ where
             }
 
             PeerMessages::Disconnected(idx) => {
-                if peer == self.context.sync_peer {
+                if self.peers.is_empty() {
                     self.context.state = ChainSelectorState::CreatingConnections;
                 }
+
                 self.handle_disconnection(peer, idx).await?;
             }
 
@@ -854,14 +903,7 @@ where
             }
 
             PeerMessages::Block(block) => {
-                if self
-                    .check_is_user_block_and_reply(block.block, block.udata)
-                    .await?
-                    .is_some()
-                {
-                    // During chain selection we don't ask for blocks, unless it's an explicit
-                    // user request made through the node handle. If it isn't, we punish this
-                    // peer for sending an unrequested block.
+                if self.check_is_user_block_and_reply(block).await?.is_some() {
                     log::error!("peer {peer} sent us a block we didn't request");
                     self.increase_banscore(peer, 5).await?;
                 }
