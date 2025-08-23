@@ -313,8 +313,9 @@ async fn handle_json_rpc_request(
             let txid = Txid::from_str(params[0].as_str().ok_or(JsonRpcError::InvalidHash)?)
                 .map_err(|_| JsonRpcError::InvalidHash)?;
             let vout = params[1].as_u64().ok_or(JsonRpcError::InvalidVout)? as u32;
+            let include_mempool = params[2].as_bool().unwrap_or(false);
             state
-                .get_tx_out(txid, vout)
+                .get_tx_out(txid, vout, include_mempool)
                 .map(|v| ::serde_json::to_value(v).unwrap())
         }
 
@@ -494,7 +495,6 @@ fn get_http_error_code(err: &JsonRpcError) -> u16 {
         JsonRpcError::InInitialBlockDownload
         | JsonRpcError::Node(_)
         | JsonRpcError::Chain
-        | JsonRpcError::Encode
         | JsonRpcError::Filters(_) => 503,
     }
 }
@@ -531,7 +531,6 @@ fn get_json_rpc_error_code(err: &JsonRpcError) -> i32 {
         JsonRpcError::InInitialBlockDownload
         | JsonRpcError::Node(_)
         | JsonRpcError::Chain
-        | JsonRpcError::Encode
         | JsonRpcError::NoBlockFilters
         | JsonRpcError::Filters(_) => -32603,
     }
