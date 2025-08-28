@@ -2,6 +2,20 @@
 
 Brief description of what this RPC does and its primary purpose.
 
+## Usage
+
+### Command Signature
+
+floresta-cli <command> <param1, parameter_type> <param2> <optional_flag, (--f or --flag)> 
+
+### Examples
+
+```bash
+floresta-cli templatecommand -f "data"
+floresta-cli templatecommand --flag "moredata"
+floresta-cli templatecommand  123
+```
+
 ## Arguments
 
 * `param1` - (type, required or optional) Description of the first parameter
@@ -37,12 +51,6 @@ Please, always skip a line to render properly on man-pages.
 ### Error Enum `CommandError`
 
 (Command error is a well documented enum returned client side)
-
-## Usage Examples
-
-```bash
-floresta-cli <command> <param1> <param2> <optional_param>
-```
 
 ## Notes
 
