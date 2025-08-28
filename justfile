@@ -74,7 +74,7 @@ open-doc:
 # Generate the documentation for all crates, including private items, and fail on warnings
 doc-check:
     RUSTDOCFLAGS="--cfg docsrs -D warnings" \
-    cargo +nightly doc --workspace --no-deps --all-features --document-private-items
+    cargo +nightly doc --workspace --no-deps --all-features --lib --document-private-items
 
 # Format code and run configured linters
 lint:
@@ -85,12 +85,14 @@ lint:
     # 1) Run with no features
     cargo +nightly clippy --workspace --all-targets --no-default-features \
         --exclude floresta-chain \
-        --exclude florestad
+        --exclude florestad \
+        --exclude floresta-node
 
     # 2) Run with all features
     cargo +nightly clippy --workspace --all-targets --all-features \
         --exclude floresta-chain \
-        --exclude florestad
+        --exclude florestad \
+        --exclude floresta-node
 
     # Run both cases in floresta-chain (one with kv, another with flat)
     cargo +nightly clippy -p floresta-chain --all-targets --no-default-features --features kv-chainstore
@@ -100,6 +102,11 @@ lint:
     # Run both cases in florestad (one with kv, another with flat)
     cargo +nightly clippy -p florestad --all-targets --no-default-features --features kv-chainstore
     cargo +nightly clippy -p florestad --all-targets \
+        --features compact-filters,zmq-server,json-rpc,metrics,flat-chainstore
+
+    # Run both cases in florestanode (one with kv, another with flat)
+    cargo +nightly clippy -p floresta-node --all-targets --no-default-features --features kv-chainstore
+    cargo +nightly clippy -p floresta-node --all-targets \
         --features compact-filters,zmq-server,json-rpc,metrics,flat-chainstore
 
     # Lint the functional tests
