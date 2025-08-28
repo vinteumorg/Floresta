@@ -1,5 +1,5 @@
 [package]
-name = "florestad"
+name = "floresta-node"
 version = "0.8.0"
 edition = "2021"
 
@@ -19,13 +19,13 @@ bitcoin = { version = "0.32", features = ["serde", "std", "bitcoinconsensus"] }
 ctrlc = "3.2.5"
 fern = { version = "0.6", features = ["colored"] }
 chrono = "0.4.19"
-floresta-chain = { path = "../crates/floresta-chain" }
-floresta-common = { path = "../crates/floresta-common" }
-floresta-electrum = { path = "../crates/floresta-electrum" }
-floresta-watch-only = { path = "../crates/floresta-watch-only" }
-floresta-wire = { path = "../crates/floresta-wire" }
-floresta-compact-filters = { path = "../crates/floresta-compact-filters", optional = true }
-metrics = { path = "../metrics", optional = true }
+floresta-compact-filters = { path = "../floresta-compact-filters", optional = true }
+floresta-chain = { path = "../floresta-chain" }
+floresta-common = { path = "../floresta-common" }
+floresta-electrum = { path = "../floresta-electrum" }
+floresta-watch-only = { path = "../floresta-watch-only" }
+floresta-wire = { path = "../floresta-wire" }
+metrics = { path = "../../metrics", optional = true }
 axum = { version = "0.7", optional = true }
 zmq = { version = "0.10.0", optional = true }
 dns-lookup = "=2.0.4"
@@ -40,12 +40,8 @@ daemonize = { version = "0.5.0" }
 libc = "0.2.169"
 
 [lib]
-name = "florestad"
+name = "floresta_node"
 path = "src/lib.rs"
-
-[[bin]]
-name = "florestad"
-path = "src/main.rs"
 
 [dev-dependencies]
 pretty_assertions = "1"

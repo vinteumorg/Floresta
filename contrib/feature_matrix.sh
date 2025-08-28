@@ -20,8 +20,11 @@ crates="\
     floresta-electrum \
     floresta-watch-only \
     floresta-wire \
-    floresta \
+    floresta-node \
+    floresta-rpc \
+    floresta-cli \
     florestad \
+    floresta \
     fuzz \
     metrics"
 
@@ -29,8 +32,10 @@ chainstore_feats="flat-chainstore,kv-chainstore"
 
 for crate in $crates; do
     # Determine the path to the crate
-    if [ "$crate" = "florestad" ] || [ "$crate" = "fuzz" ] || [ "$crate" = "metrics" ]; then
+    if [ "$crate" = "fuzz" ] || [ "$crate" = "metrics" ]; then
         path="$crate"
+    elif [ "$crate" = "florestad" ] || [ "$crate" = "floresta-cli" ]; then
+        path="./bin/$crate"
     else
         path="crates/$crate"
     fi
@@ -48,7 +53,7 @@ for crate in $crates; do
     fi
 
     # For floresta-chain and florestad, require exactly one of 'flat-chainstore' or 'kv-chainstore'
-    if [ "$crate" = "floresta-chain" ] || [ "$crate" = "florestad" ]; then
+    if [ "$crate" = "floresta-chain" ] || [ "$crate" = "florestad" ] || [ "$crate" = "floresta-node" ]; then
         store_feature="--mutually-exclusive-features $chainstore_feats --at-least-one-of $chainstore_feats"
     else
         store_feature=""
