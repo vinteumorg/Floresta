@@ -92,11 +92,11 @@ pub struct Cli {
     /// A node to connect to
     ///
     /// If this option is provided, we'll connect **only** to this node. It should be an ipv4
-    /// address in the format <address>[:<port>]
+    /// address in the format `<address>[:<port>]`.
     pub connect: Option<String>,
 
     #[arg(long, value_name = "address[:<port>]")]
-    /// The address where our json-rpc server should listen to, in the format <address>[:<port>]
+    /// The address where our json-rpc server should listen to, in the format `<address>[:<port>]`
     pub rpc_address: Option<String>,
 
     #[arg(long, value_name = "HEIGHT")]
@@ -115,7 +115,7 @@ pub struct Cli {
     pub no_assume_utreexo: bool,
 
     #[arg(long, value_name = "address[:<port>]")]
-    /// The address where the Electrum Server should listen to, in the format <address>[:<port>]
+    /// The address where the Electrum Server should listen to, in the format `<address>[:<port>]`
     pub electrum_address: Option<String>,
 
     #[arg(long, default_value_t = false)]
@@ -123,7 +123,7 @@ pub struct Cli {
     pub enable_electrum_tls: bool,
 
     #[arg(long, value_name = "address[:<port>]")]
-    /// The address where the Electrum TLS Server should listen to, in the format <address>[:<port>]
+    /// The address where the Electrum TLS Server should listen to, in the format `<address>[:<port>]`
     pub electrum_address_tls: Option<String>,
 
     #[arg(long, default_value_t = false)]

@@ -1,6 +1,5 @@
 use std::fmt::Display;
 
-use clap::ValueEnum;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -281,7 +280,8 @@ pub struct GetBlockResVerbose {
 ///
 /// This input is necessary to cover network variancy specially in testnet, for mainnet you can safely use low or medium confidences
 /// depending on how much sure you are about the given timestamp covering the addresses you need.
-#[derive(Debug, Deserialize, Serialize, Clone, ValueEnum)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
 #[serde(rename_all = "lowercase")]
 pub enum RescanConfidence {
     /// `high`: 99% confidence interval. Meaning 46 minutes in seconds.
@@ -390,7 +390,8 @@ pub struct GetRpcInfoRes {
     logpath: String,
 }
 
-#[derive(Debug, Clone, ValueEnum, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
 #[serde(rename_all = "lowercase")]
 /// Enum to represent the different subcommands for the addnode command
 pub enum AddNodeCommand {

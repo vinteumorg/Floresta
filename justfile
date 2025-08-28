@@ -76,7 +76,7 @@ bench:
 
 # Generate the public documentation for all crates
 doc:
-    RUSTDOCFLAGS="--cfg docsrs" cargo +nightly doc --workspace --no-deps --all-features
+    RUSTDOCFLAGS="--cfg docsrs" cargo +nightly doc --workspace --no-deps --lib --all-features
 
 # Generate and open the public documentation for all crates
 open-doc:
@@ -85,7 +85,7 @@ open-doc:
 # Generate the documentation for all crates, including private items, and fail on warnings
 doc-check:
     RUSTDOCFLAGS="--cfg docsrs -D warnings" \
-    cargo +nightly doc --workspace --no-deps --all-features --document-private-items
+    cargo +nightly doc --workspace --no-deps --all-features --lib --document-private-items
 
 # Format code and run configured linters
 lint:
@@ -95,12 +95,14 @@ lint:
     # 1) Run with no features
     cargo +nightly clippy --workspace --all-targets --no-default-features \
         --exclude floresta-chain \
-        --exclude florestad
+        --exclude florestad \
+        --exclude floresta-node
 
     # 2) Run with all features
     cargo +nightly clippy --workspace --all-targets --all-features \
         --exclude floresta-chain \
-        --exclude florestad
+        --exclude florestad \
+        --exclude floresta-node
 
     # Run both cases in floresta-chain (one with kv, another with flat)
     cargo +nightly clippy -p floresta-chain --all-targets --no-default-features --features kv-chainstore
@@ -110,9 +112,15 @@ lint:
     # Run both cases in florestad (one with kv, another with flat)
     cargo +nightly clippy -p florestad --all-targets --no-default-features --features kv-chainstore
     cargo +nightly clippy -p florestad --all-targets \
+        --features compact-filters,zmq-server,json-rpc,metrics,tokio-console,flat-chainstore
+
+    # Run both cases in floresta-node (one with kv, another with flat)
+    cargo +nightly clippy -p floresta-node --all-targets --no-default-features --features kv-chainstore
+    cargo +nightly clippy -p floresta-node --all-targets \
         --features compact-filters,zmq-server,json-rpc,metrics,flat-chainstore
 
     @just spell-check
+
     # Lint the functional tests
     @just test-functional-uv-fmt
 
@@ -133,10 +141,10 @@ test-features arg="":
 lint-features arg="":
     @just fmt
     @just doc-check
-    
+
     cargo install cargo-hack --locked
     ./contrib/feature_matrix.sh clippy '{{arg}}'
-    
+
     @just spell-check
     @just test-functional-uv-fmt
 
@@ -170,12 +178,12 @@ spell-check:
 # Floresta recipe to help installing the binaries without versioning problems.
 install bin="all":
     if [ "{{bin}}" = "all" ]; then \
-        cargo install --path florestad --locked && \
-        cargo install --path crates/floresta-cli --locked; \
+        cargo install --path bin/florestad --locked && \
+        cargo install --path bin/floresta-cli --locked; \
     elif [ "{{bin}}" = "florestad" ]; then \
-        cargo install --path florestad --locked; \
+        cargo install --path bin/florestad --locked; \
     elif [ "{{bin}}" = "floresta-cli" ]; then \
-        cargo install --path crates/floresta-cli --locked; \
+        cargo install --path bin/floresta-cli --locked; \
     else \
         printf "Unknown binary: %s\n" "{{bin}}" >&2; \
         exit 1; \

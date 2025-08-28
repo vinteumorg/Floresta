@@ -561,12 +561,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
-name = "cfg_aliases"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
-
-[[package]]
 name = "chacha20-poly1305"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -891,16 +885,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ctrlc"
-version = "3.4.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "46f93780a459b7d656ef7f071fe699c4d3d2cb201c4b24d085b6ddc505276e73"
-dependencies = [
- "nix",
- "windows-sys 0.59.0",
-]
-
-[[package]]
 name = "daemonize"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1128,12 +1112,8 @@ dependencies = [
  "anyhow",
  "bitcoin 0.32.7",
  "clap",
- "jsonrpc",
- "rand",
- "rcgen",
- "serde",
+ "floresta-rpc",
  "serde_json",
- "tempfile",
 ]
 
 [[package]]
@@ -1190,6 +1170,52 @@ dependencies = [
 ]
 
 [[package]]
+name = "floresta-node"
+version = "0.8.0"
+dependencies = [
+ "axum",
+ "bitcoin 0.32.7",
+ "chrono",
+ "dirs",
+ "dns-lookup 2.0.4",
+ "fern",
+ "floresta-chain",
+ "floresta-common",
+ "floresta-compact-filters",
+ "floresta-electrum",
+ "floresta-watch-only",
+ "floresta-wire",
+ "kv",
+ "libc",
+ "log",
+ "metrics",
+ "miniscript 12.3.2",
+ "pretty_assertions",
+ "rcgen",
+ "rustreexo",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-rustls",
+ "toml 0.8.22",
+ "tower-http",
+ "zmq",
+]
+
+[[package]]
+name = "floresta-rpc"
+version = "0.4.0"
+dependencies = [
+ "bitcoin 0.32.7",
+ "clap",
+ "jsonrpc",
+ "rand",
+ "rcgen",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "floresta-watch-only"
 version = "0.4.0"
 dependencies = [
@@ -1233,37 +1259,14 @@ dependencies = [
 name = "florestad"
 version = "0.8.0"
 dependencies = [
- "axum",
  "bitcoin 0.32.7",
- "chrono",
  "clap",
  "console-subscriber",
- "ctrlc",
  "daemonize",
- "dirs",
- "dns-lookup 2.0.4",
- "fern",
- "floresta-chain",
- "floresta-common",
- "floresta-compact-filters",
- "floresta-electrum",
- "floresta-watch-only",
- "floresta-wire",
- "kv",
- "libc",
+ "floresta-node",
  "log",
- "metrics",
- "miniscript 12.3.2",
- "pretty_assertions",
- "rcgen",
- "rustreexo",
- "serde",
- "serde_json",
  "tokio",
- "tokio-rustls",
  "toml 0.8.22",
- "tower-http",
- "zmq",
 ]
 
 [[package]]
@@ -2074,18 +2077,6 @@ dependencies = [
  "libc",
  "wasi 0.11.0+wasi-snapshot-preview1",
  "windows-sys 0.59.0",
-]
-
-[[package]]
-name = "nix"
-version = "0.30.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "74523f3a35e05aba87a1d978330aef40f67b0304ac79c1c00b294c9830543db6"
-dependencies = [
- "bitflags 2.9.1",
- "cfg-if",
- "cfg_aliases",
- "libc",
 ]
 
 [[package]]

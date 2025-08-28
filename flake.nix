@@ -82,8 +82,8 @@
                 ./rust-toolchain.toml
                 ./.rustfmt.toml
                 ./crates
+                ./bin
                 ./metrics
-                ./florestad
                 ./fuzz
                 ./doc/rpc
               ];
@@ -154,7 +154,7 @@
                 ./.rustfmt.toml
                 ./crates
                 ./metrics
-                ./florestad
+                ./bin
                 ./fuzz
                 ./doc/rpc
               ];
@@ -226,12 +226,10 @@
 
                 inputsFrom = testBinaries;
 
-                shellHook =
-                  prepareHook
-                  + ''
-                    alias run_test="uv run tests/test_runner.py"
-                    echo "run_test alias is set"
-                  '';
+                shellHook = prepareHook + ''
+                  alias run_test="uv run tests/test_runner.py"
+                  echo "run_test alias is set"
+                '';
               };
           };
       }

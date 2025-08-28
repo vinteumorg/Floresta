@@ -1,27 +1,35 @@
 [workspace]
 resolver = "2"
 members = [
-    "florestad",
-    "fuzz",
-    "metrics",
+    # Libraries
     "crates/floresta",
+    "crates/floresta-node",
     "crates/floresta-chain",
-    "crates/floresta-cli",
+    "crates/floresta-rpc",
     "crates/floresta-common",
     "crates/floresta-compact-filters",
     "crates/floresta-electrum",
     "crates/floresta-watch-only",
     "crates/floresta-wire",
+
+    # Binaries
+    "bin/florestad",
+    "bin/floresta-cli",
+
+    # Tests and monitoring
+    "metrics",
+    "fuzz",
 ]
 
 default-members = [
-    "florestad",
     "crates/floresta",
     "crates/floresta-chain",
-    "crates/floresta-cli",
+    "crates/floresta-rpc",
     "crates/floresta-common",
     "crates/floresta-compact-filters",
     "crates/floresta-electrum",
     "crates/floresta-watch-only",
     "crates/floresta-wire",
+    "bin/florestad",
+    "bin/floresta-cli",
 ]

@@ -30,7 +30,7 @@ jobs:
       - name: Run cargo doc
         run: |
           RUSTDOCFLAGS="--cfg docsrs -D warnings" \
-          cargo +nightly doc --workspace --no-deps --all-features --document-private-items
+          cargo +nightly doc --workspace --no-deps --lib --all-features --document-private-items
 
       - name: Run cargo clippy
         run: ./contrib/feature_matrix.sh clippy '-- -D warnings'

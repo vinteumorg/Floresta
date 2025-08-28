@@ -2,7 +2,6 @@
 /target
 /builds
 /result
-/bin
 
 # Man-pages
 doc/rpc_man/*.gz
