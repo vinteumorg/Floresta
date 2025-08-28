@@ -25,8 +25,8 @@ use clap::Parser;
 use cli::Cli;
 #[cfg(unix)]
 use daemonize::Daemonize;
-use florestad::Config;
-use florestad::Florestad;
+use floresta_node::Config;
+use floresta_node::Florestad;
 use log::info;
 use tokio::sync::RwLock;
 use tokio::time::sleep;

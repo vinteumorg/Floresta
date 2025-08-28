@@ -9,7 +9,7 @@
 //!
 //! All data is stored in a `ChainStore` implementation, which is generic over the
 //! underlying database. See the ChainStore trait for more information. For a
-//! ready-to-use implementation, see the [KvChainStore] struct.
+//! ready-to-use implementation, see the [`FlatChainStore`] struct.
 
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 #![cfg_attr(not(test), no_std)]

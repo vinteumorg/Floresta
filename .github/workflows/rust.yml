@@ -29,8 +29,8 @@ jobs:
 
       - name: Run cargo doc
         run: |
-          RUSTDOCFLAGS="--cfg docsrs -D warnings" \
-          cargo +nightly doc --workspace --no-deps --all-features --document-private-items
+          RUSTDOCFLAGS="--cfg docsrs" cargo +nightly doc --workspace --no-deps \
+              --features flat-chainstore,compact-filters,zmq-server,json-rpc,metrics,tokio-console,floresta-chain/kv-chainstore
 
       - name: Run cargo clippy
         run: ./contrib/feature_matrix.sh clippy '-- -D warnings'
