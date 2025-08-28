@@ -2,6 +2,35 @@
 
 Sends a request to the node for rescan the blockchain searching for transactions related to the wallet's cached addresses.
 
+## Usage 
+
+### Command Signature
+```Bash
+floresta-cli rescanblockchain <--t or --timestamp> <start_block> <stop_block> <high|medium|low|exact)>
+```
+
+### Examples
+```bash
+
+# Rescan from height 100 to 200
+
+floresta-cli rescanblockchain 100 200
+
+# Rescan from height 100 to tip
+
+floresta-cli rescanblockchain 100
+
+# Rescan from timestamp 1231006505 (genesis) until 133456789
+
+floresta-cli rescanblockchain -t 1231006505 1752516460 --confidence high
+
+# Rescan from timestamp 0 (alias for genesis) until the tip
+
+floresta-cli rescanblockchain --timestamp 0 1752516460 -c high
+
+ ```
+
+
 ## Arguments
 
 * `start_block` (numeric, optional, default=`0`): The initial block to start the blockchain rescan.
@@ -36,28 +65,6 @@ This RPC command can only fail if:
 If `timestamp` is true, apart the previous rules, if any of the values is smaller than the genesis block (1231006505 for mainnet) or greater than the tip time, the execution will also fail.
 
 Furthermore, the request will be aborted if the node still syncing with the blockchain.
-
-## Usage Examples
-
-```bash
-
-# Rescan from height 100 to 200
-
-floresta-cli rescanblockchain 100 200
-
-# Rescan from height 100 to tip
-
-floresta-cli rescanblockchain 100
-
-# Rescan from timestamp 1231006505 (genesis) until 133456789
-
-floresta-cli rescanblockchain -t 1231006505 1752516460 --confidence high
-
-# Rescan from timestamp 0 (alias for genesis) until the tip
-
-floresta-cli rescanblockchain --timestamp 0 1752516460 -c high
-
- ```
 
 ## Notes
 
