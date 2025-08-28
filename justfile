@@ -152,6 +152,7 @@ pcc:
 # Needs sudo to overwrite existing man pages
 # Convert all markdown files on /doc/rpc/ to man pages on /doc/rpc_man/
 gen-manpages path="":
+    @just check-command pandoc gen-manpages "https://pandoc.org/installing.html"
     ./contrib/dist/gen_manpages.sh {{path}}
 
 # Run typos
