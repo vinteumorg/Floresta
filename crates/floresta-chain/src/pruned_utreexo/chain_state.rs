@@ -543,9 +543,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             .update_block_index(0, genesis.block_hash())
             .expect("Error updating index");
 
-        // TODO: handle possible Err
-        let assume_valid =
-            ChainParams::get_assume_valid(network, assume_valid).expect("Unsupported network");
+        let assume_valid = ChainParams::get_assume_valid(network, assume_valid);
 
         ChainState {
             inner: RwLock::new(ChainStateInner {
@@ -728,9 +726,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
                 // TODO: handle possible Err
                 parameters: network.try_into().expect("Unsupported network"),
             },
-            // TODO: handle possible Err
-            assume_valid: ChainParams::get_assume_valid(network, assume_valid)
-                .expect("Unsupported network"),
+            assume_valid: ChainParams::get_assume_valid(network, assume_valid),
         };
 
         info!(

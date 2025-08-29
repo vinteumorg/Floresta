@@ -116,10 +116,10 @@ pub struct AssumeUtreexoValue {
 
 impl ChainParams {
     /// This method is called when Assume Utreexo is set to true. It means that the user will accept the hardcoded utreexo state for the specified block, if it is found in the best chain. We can then sync rapidly from this state.
-    pub fn get_assume_utreexo(network: Network) -> Result<AssumeUtreexoValue, BlockchainError> {
+    pub fn get_assume_utreexo(network: Network) -> AssumeUtreexoValue {
         let genesis = genesis_block(Params::new(network));
         match network {
-            Network::Bitcoin => Ok(AssumeUtreexoValue {
+            Network::Bitcoin => AssumeUtreexoValue {
                 block_hash: bhash!(
                     "0000000000000000000239f2b7f982df299193bdd693f499e6b893d8276ab7ce"
                 ),
@@ -148,60 +148,55 @@ impl ChainParams {
                 ]
                 .to_vec(),
                 leaves: 2860457445,
-            }),
-            Network::Testnet => Ok(AssumeUtreexoValue {
+            },
+            Network::Testnet => AssumeUtreexoValue {
                 block_hash: genesis.block_hash(),
                 height: 0,
                 leaves: 0,
                 roots: Vec::new(),
-            }),
-            Network::Testnet4 => Ok(AssumeUtreexoValue {
+            },
+            Network::Testnet4 => AssumeUtreexoValue {
                 block_hash: genesis.block_hash(),
                 height: 0,
                 leaves: 0,
                 roots: Vec::new(),
-            }),
-            Network::Signet => Ok(AssumeUtreexoValue {
+            },
+            Network::Signet => AssumeUtreexoValue {
                 block_hash: genesis.block_hash(),
                 height: 0,
                 leaves: 0,
                 roots: Vec::new(),
-            }),
-            Network::Regtest => Ok(AssumeUtreexoValue {
+            },
+            Network::Regtest => AssumeUtreexoValue {
                 block_hash: genesis.block_hash(),
                 height: 0,
                 leaves: 0,
                 roots: Vec::new(),
-            }),
-            network => Err(BlockchainError::UnsupportedNetwork(network)),
+            },
         }
     }
 
     /// This method is used to assume all the scripts up to a specific block in the chain as valid. It can be None (we will verify all the scripts), user input or hardcoded.
-    pub fn get_assume_valid(
-        network: Network,
-        arg: AssumeValidArg,
-    ) -> Result<Option<BlockHash>, BlockchainError> {
+    pub fn get_assume_valid(network: Network, arg: AssumeValidArg) -> Option<BlockHash> {
         match arg {
-            AssumeValidArg::Disabled => Ok(None),
-            AssumeValidArg::UserInput(hash) => Ok(Some(hash)),
+            AssumeValidArg::Disabled => None,
+            AssumeValidArg::UserInput(hash) => Some(hash),
             AssumeValidArg::Hardcoded => match network {
-                Network::Bitcoin => Ok(Some(bhash!(
+                Network::Bitcoin => Some(bhash!(
                     "00000000000000000001ff36aef3a0454cf48887edefa3aab1f91c6e67fee294"
-                ))),
-                Network::Testnet => Ok(Some(bhash!(
+                )),
+                Network::Testnet => Some(bhash!(
                     "000000007df22db38949c61ceb3d893b26db65e8341611150e7d0a9cd46be927"
-                ))),
-                Network::Testnet4 => Ok(Some(bhash!(
+                )),
+                Network::Testnet4 => Some(bhash!(
                     "0000000000335c2895f02ebc75773d2ca86095325becb51773ce5151e9bcf4e0"
-                ))),
-                Network::Signet => Ok(Some(bhash!(
+                )),
+                Network::Signet => Some(bhash!(
                     "000000084ece77f20a0b6a7dda9163f4527fd96d59f7941fb8452b3cec855c2e"
-                ))),
-                Network::Regtest => Ok(Some(bhash!(
+                )),
+                Network::Regtest => Some(bhash!(
                     "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206"
-                ))),
-                network => Err(BlockchainError::UnsupportedNetwork(network)),
+                )),
             },
         }
     }
@@ -345,7 +340,6 @@ impl TryFrom<Network> for ChainParams {
                 exceptions,
                 enforce_bip94: false,
             }),
-            network => Err(BlockchainError::UnsupportedNetwork(network)),
         }
     }
 }
@@ -448,7 +442,6 @@ pub fn get_chain_dns_seeds(network: Network) -> Result<Vec<DnsSeed>, BlockchainE
         Network::Regtest => {
             // No seeds for regtest
         }
-        network => return Err(BlockchainError::UnsupportedNetwork(network)),
     };
     Ok(seeds)
 }
