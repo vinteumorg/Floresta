@@ -414,11 +414,11 @@ where
             return Ok(PeerCheck::UnresponsivePeer(peer1));
         };
 
-        // Check that the received block is the expected one
-        if block.block_hash() != block_hash
-            || !block.check_merkle_root()
-            || !block.check_witness_commitment()
-        {
+        // Check that the received block is the expected one and it has not been mutated
+        let is_expected_block = block.block_hash() == block_hash;
+        let is_mutated = !block.check_merkle_root() || !block.check_witness_commitment();
+
+        if !is_expected_block || is_mutated {
             return Ok(PeerCheck::OneLying(peer1));
         }
 
@@ -581,9 +581,9 @@ where
                     self.send_to_peer(liar, NodeRequest::Shutdown).await?;
                     if liar == peer1 {
                         invalid_accs.insert(peer[0].1.clone());
-                    } else {
-                        invalid_accs.insert(peer[1].1.clone());
+                        continue;
                     }
+                    invalid_accs.insert(peer[1].1.clone());
                 }
                 PeerCheck::UnresponsivePeer(dead_peer) => {
                     self.send_to_peer(dead_peer, NodeRequest::Shutdown).await?;
