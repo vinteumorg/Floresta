@@ -245,11 +245,12 @@ pub enum JsonRpcError {
     /// There was a rescan request with invalid values
     InvalidRescanVal,
 
-    /// The request is missing some params field, which is required for most RPC calls
-    MissingParams,
+    /// Missing parameter, e.g., if a required parameter is not provided in the request
+    MissingParameter(String),
 
-    /// The request is missing a request field, which is required for most RPC calls
-    MissingReq,
+    /// The provided parameter is of the wrong type, e.g., if a string is expected but a number is
+    /// provided
+    InvalidParameterType(String),
 
     /// Verbosity level is not 0 or 1
     InvalidVerbosityLevel,
@@ -268,18 +269,6 @@ pub enum JsonRpcError {
 
     /// There is an error with the chain, e.g., if the chain is not synced or when the chain is not valid
     Chain,
-
-    /// The provided vout is invalid, e.g., if it is not a valid output
-    InvalidVout,
-
-    /// The provided height is invalid, e.g., if it is negative or too high
-    InvalidHeight,
-
-    /// The provided hash is invalid, e.g., if it is not a valid SHA256 hash
-    InvalidHash,
-
-    /// The provided block hash is invalid, e.g., if it is not a valid SHA256 hash
-    InvalidBlockHash,
 
     /// The request is invalid, e.g., some parameters use an incorrect type
     InvalidRequest,
@@ -329,15 +318,13 @@ pub enum JsonRpcError {
 impl Display for JsonRpcError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            JsonRpcError::InvalidBlockHash => write!(f, "Provided a invalid BlockHash"),
             JsonRpcError::InvalidTimestamp => write!(f, "Invalid timestamp, ensure that it is between the genesis and the tip."),
             JsonRpcError::InvalidRescanVal => write!(f, "You rescan request contains invalid values"),
-            JsonRpcError::InvalidRequest => write!(f, "Invalid request"),
             JsonRpcError::NoAddressesToRescan => write!(f, "You do not have any address to proceed with the rescan"),
-            JsonRpcError::InvalidHeight => write!(f, "Invalid height"),
-            JsonRpcError::InvalidHash =>  write!(f, "Invalid hash"),
+            JsonRpcError::MissingParameter(opt) => write!(f, "Missing parameter: {opt}"),
+            JsonRpcError::InvalidParameterType(opt) => write!(f, "Invalid parameter type for: {opt}"),
+            JsonRpcError::InvalidRequest => write!(f, "Invalid request"),
             JsonRpcError::InvalidHex =>  write!(f, "Invalid hex"),
-            JsonRpcError::InvalidVout =>  write!(f, "Invalid vout"),
             JsonRpcError::MethodNotFound =>  write!(f, "Method not found"),
             JsonRpcError::Decode(e) =>  write!(f, "error decoding request: {e}"),
             JsonRpcError::TxNotFound =>  write!(f, "Transaction not found"),
@@ -351,8 +338,6 @@ impl Display for JsonRpcError {
             JsonRpcError::InvalidNetwork => write!(f, "Invalid network"),
             JsonRpcError::InInitialBlockDownload => write!(f, "Node is in initial block download, wait until it's finished"),
             JsonRpcError::InvalidScript => write!(f, "Invalid script"),
-            JsonRpcError::MissingParams => write!(f, "Missing params field"),
-            JsonRpcError::MissingReq => write!(f, "Missing request field"),
             JsonRpcError::InvalidVerbosityLevel => write!(f, "Invalid verbosity level"),
             JsonRpcError::InvalidMemInfoMode => write!(f, "Invalid meminfo mode, should be stats or mallocinfo"),
             JsonRpcError::Wallet(e) => write!(f, "Wallet error: {e}"),
