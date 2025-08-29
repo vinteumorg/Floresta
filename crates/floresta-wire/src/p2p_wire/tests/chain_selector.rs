@@ -73,7 +73,6 @@ mod tests_utils {
                 receiver,
                 i as u32,
             );
-            let _peer = peer.clone();
 
             node.peers.insert(i as u32, peer);
         }
@@ -90,10 +89,14 @@ mod tests_utils {
 mod tests {
     use std::str::FromStr;
 
+    use bitcoin::BlockHash;
     use bitcoin::Network;
     use floresta_chain::pruned_utreexo::BlockchainInterface;
     use floresta_chain::pruned_utreexo::UpdatableChainstate;
+    use floresta_common::acchashes;
+    use floresta_common::prelude::HashMap;
     use rustreexo::accumulator::node_hash::BitcoinNodeHash;
+    use rustreexo::accumulator::stump::Stump;
 
     use crate::p2p_wire::tests::chain_selector::tests_utils::setup_node;
     use crate::p2p_wire::tests::chain_selector::tests_utils::NUM_BLOCKS;
@@ -111,13 +114,13 @@ mod tests {
 
         let mut false_filters = true_filters.clone();
 
-        let headers_iter = headers
+        let invalid_filters_iter = headers
             .iter()
             .enumerate()
             .take(NUM_BLOCKS)
             .skip(STARTING_LIE_BLOCK_HEIGHT);
 
-        for (i, _) in headers_iter {
+        for (i, _) in invalid_filters_iter {
             false_filters.remove(&headers[i].block_hash());
             false_filters.insert(headers[i].block_hash(), create_false_acc(i));
         }
@@ -131,22 +134,25 @@ mod tests {
         let best_block = chain.get_best_block().unwrap();
         assert_eq!(best_block.1, headers[119].block_hash());
 
-        let root_hashes = chain.get_root_hashes();
+        let acc_received = chain.acc();
         // the following assert is checking the third root of the accumulator at height 119
-        assert_eq!(
-            root_hashes[3],
-            BitcoinNodeHash::from_str(
-                "bfe030a7a994b921fb2329ff085bd0f2351cb5fa251985d6646aaf57954b782b"
-            )
-            .unwrap()
-        );
-        assert_eq!(root_hashes.len(), 6);
+        let acc = Stump {
+            leaves: 119,
+            roots: acchashes![
+                "fbbff1a533f80135a0cb222859297792d5c9d1cec801a2793ac15184905e672c",
+                "42554b3aab845bf18397188fc21f1f39cfc742f36bdb1aae70dd60a39c1fd9b9",
+                "2782a7bd0f93d57efb8611c90d41a94d520bceded1fc6c0050b4133db24a15d0",
+                "bfe030a7a994b921fb2329ff085bd0f2351cb5fa251985d6646aaf57954b782b",
+                "8cac8d48a81b97cfedd5be0d97968426bd0a7a1ca699f15b7ee76eb6016ddde0",
+                "84b0e31f947859aa02afdd0ce2488cc2f966af18905b8f5d8b1de589308e0ebb"
+            ]
+            .to_vec(),
+        };
+        assert_eq!(acc, acc_received);
     }
 
     #[tokio::test]
     async fn ten_peers_one_honest() {
-        use bitcoin::BlockHash;
-        use floresta_common::prelude::HashMap;
         let essentials = get_essentials();
         let headers = essentials.headers[..NUM_BLOCKS].to_vec();
         let blocks = essentials.blocks;
@@ -178,16 +184,20 @@ mod tests {
         let best_block = chain.get_best_block().unwrap();
         assert_eq!(best_block.1, headers[119].block_hash());
 
-        let root_hashes = chain.get_root_hashes();
-
+        let acc_received = chain.acc();
         // the following assert is checking the third root of the accumulator at height 119
-        assert_eq!(
-            root_hashes[3],
-            BitcoinNodeHash::from_str(
-                "bfe030a7a994b921fb2329ff085bd0f2351cb5fa251985d6646aaf57954b782b"
-            )
-            .unwrap()
-        );
-        assert_eq!(root_hashes.len(), 6);
+        let acc = Stump {
+            leaves: 119,
+            roots: acchashes![
+                "fbbff1a533f80135a0cb222859297792d5c9d1cec801a2793ac15184905e672c",
+                "42554b3aab845bf18397188fc21f1f39cfc742f36bdb1aae70dd60a39c1fd9b9",
+                "2782a7bd0f93d57efb8611c90d41a94d520bceded1fc6c0050b4133db24a15d0",
+                "bfe030a7a994b921fb2329ff085bd0f2351cb5fa251985d6646aaf57954b782b",
+                "8cac8d48a81b97cfedd5be0d97968426bd0a7a1ca699f15b7ee76eb6016ddde0",
+                "84b0e31f947859aa02afdd0ce2488cc2f966af18905b8f5d8b1de589308e0ebb"
+            ]
+            .to_vec(),
+        };
+        assert_eq!(acc, acc_received);
     }
 }
