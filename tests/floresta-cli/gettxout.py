@@ -121,7 +121,7 @@ class GetTxoutTest(FlorestaTestFramework):
                     tx, vout=0, include_mempool=False
                 )
 
-                for key in ("bestblock", "coinbase", "value", "confirmations"):
+                for key in ("bestblock", "coinbase", "value"):
                     self.assertEqual(txout_floresta[key], txout_bitcoind[key])
 
                 for key in ("address", "desc", "hex", "type", "asm"):

@@ -14,6 +14,9 @@ use corepc_types::v29::GetTxOut;
 use corepc_types::ScriptPubkey;
 use miniscript::descriptor::checksum;
 use log::debug;
+use miniscript::descriptor::checksum;
+use serde::Deserialize;
+use serde::Serialize;
 use serde_json::json;
 use serde_json::Value;
 use tracing::debug;
@@ -25,6 +28,47 @@ use super::res::JsonRpcError;
 use super::server::RpcChain;
 use super::server::RpcImpl;
 use crate::json_rpc::res::RescanConfidence;
+
+#[derive(Debug, Serialize, Deserialize)]
+/// Struct helper for RpcGetTxOut
+pub struct ScriptPubkeyDescription {
+    /// Disassembly of the output script
+    asm: String,
+
+    /// Inferred descriptor for the output
+    desc: String,
+
+    /// The raw output script bytes, hex-encoded
+    hex: String,
+
+    /// The type, eg pubkeyhash
+    #[serde(rename = "type")]
+    type_field: String,
+
+    /// The Bitcoin address (only if a well-defined address exists)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    address: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+/// Struct helper for serialize gettxout rpc
+pub struct GetTxOut {
+    /// The hash of the block at the tip of the chain
+    bestblock: BlockHash,
+
+    /// The number of confirmations
+    confirmations: u32,
+
+    /// The transaction value in BTC
+    value: f64,
+
+    #[serde(rename = "scriptPubKey")]
+    /// Script Public Key struct
+    script_pubkey: ScriptPubkeyDescription,
+
+    /// Coinbase or not
+    coinbase: bool,
+}
 
 impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
     async fn get_block_inner(&self, hash: BlockHash) -> Result<Block, JsonRpcError> {
@@ -484,27 +528,22 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
                 let network = self.chain.get_params().network;
                 let address = Address::from_script(script, network).ok();
 
-                let base_descriptor = Self::get_script_type_descriptor(script, &address);
-                let descriptor: Option<String> = match checksum::desc_checksum(&base_descriptor) {
-                    Ok(checksum) => Some(format!("{base_descriptor}#{checksum}")),
-                    Err(_) => None,
-                };
+                let desc = Self::get_script_type_descriptor(script, &address);
+                let checksum_desc = checksum::desc_checksum(&desc)
+                    .map(|checksum| format!("{desc}#{checksum}"))
+                    .map_err(|_| JsonRpcError::InvalidDescriptor)?;
 
                 let asm = Self::to_core_asm_string(&txout.script_pubkey)?;
-                let script_pubkey = ScriptPubkey {
+                let script_pubkey = ScriptPubkeyDescription {
                     asm,
                     hex: txout.script_pubkey.to_hex_string(),
-                    descriptor,
+                    desc: checksum_desc,
                     address: address.as_ref().map(ToString::to_string),
-                    type_: Self::get_script_type_label(script).to_string(),
-                    // Deprecated in Bitcoin Core v22, require flags in Bitcoin Core.
-                    // Set to None as not required for consensus.
-                    addresses: None,
-                    required_signatures: None,
+                    type_field: Self::get_script_type_label(script).to_string(),
                 };
 
                 Some(GetTxOut {
-                    best_block: bestblock_hash.to_string(),
+                    bestblock: bestblock_hash,
                     confirmations: bestblock_height - height + 1,
                     value: txout.value.to_btc(),
                     script_pubkey,

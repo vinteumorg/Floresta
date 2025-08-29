@@ -313,14 +313,13 @@ async fn handle_json_rpc_request(
         }
 
         "gettxout" => {
-            let txid = get_hash(&params, 0, "txid")?;
-            let vout = get_numeric(&params, 1, "vout")?;
-            let include_mempool =
-                get_optional_field(&params, 2, "include_mempool", get_bool)?.unwrap_or(false);
-
+            let txid = Txid::from_str(params[0].as_str().ok_or(JsonRpcError::InvalidHash)?)
+                .map_err(|_| JsonRpcError::InvalidHash)?;
+            let vout = params[1].as_u64().ok_or(JsonRpcError::InvalidVout)? as u32;
+            let include_mempool = params[2].as_bool().unwrap_or(false);
             state
                 .get_tx_out(txid, vout, include_mempool)
-                .map(|v| serde_json::to_value(v).unwrap())
+                .map(|v| ::serde_json::to_value(v).unwrap())
         }
 
         "gettxoutproof" => {
