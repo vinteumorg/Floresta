@@ -127,8 +127,7 @@ impl<T: ChainStore> ChainStateBuilder<T> {
     /// option is used to skip script validation up to the specified block, speeding up IBD.
     pub fn with_assume_valid(mut self, arg: AssumeValidArg, network: Network) -> Self {
         // TODO: handle possible Err
-        self.assume_valid =
-            ChainParams::get_assume_valid(network, arg).expect("Unsupported network");
+        self.assume_valid = ChainParams::get_assume_valid(network, arg);
         self
     }
 

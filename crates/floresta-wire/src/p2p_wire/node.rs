@@ -747,8 +747,6 @@ where
             Network::Testnet => 18333,
             Network::Regtest => 18444,
             Network::Testnet4 => 48333,
-            // TODO: handle possible Err
-            _ => panic!("Unsupported network"),
         }
     }
 
