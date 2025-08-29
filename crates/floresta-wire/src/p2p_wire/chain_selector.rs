@@ -375,7 +375,7 @@ where
             .await?;
 
         let agreed = match acc {
-            (Some(acc1), Some(_acc2)) => Self::parse_acc(acc1)?,
+            (Some(acc1), Some(_)) => Self::parse_acc(acc1)?,
             (Some(acc1), None) => Self::parse_acc(acc1)?,
             (None, Some(acc2)) => Self::parse_acc(acc2)?,
             (None, None) => return Ok(PeerCheck::BothUnresponsivePeers),
@@ -569,9 +569,9 @@ where
                     self.send_to_peer(liar, NodeRequest::Shutdown).await?;
                     if liar == peer1 {
                         invalid_accs.insert(peer[0].1.clone());
-                    } else {
-                        invalid_accs.insert(peer[1].1.clone());
+                        continue;
                     }
+                    invalid_accs.insert(peer[1].1.clone());
                 }
                 PeerCheck::UnresponsivePeer(dead_peer) => {
                     self.send_to_peer(dead_peer, NodeRequest::Shutdown).await?;

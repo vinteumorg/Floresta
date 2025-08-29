@@ -5,7 +5,6 @@ mod tests {
     use bitcoin::BlockHash;
     use bitcoin::Network;
     use floresta_chain::pruned_utreexo::BlockchainInterface;
-    use floresta_chain::pruned_utreexo::UpdatableChainstate;
     use floresta_common::acchashes;
     use floresta_common::prelude::HashMap;
     use rustreexo::accumulator::node_hash::BitcoinNodeHash;
