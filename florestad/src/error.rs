@@ -5,13 +5,13 @@ use floresta_chain::BlockValidationErrors;
 use floresta_chain::BlockchainError;
 #[cfg(feature = "flat-chainstore")]
 use floresta_chain::FlatChainstoreError;
+use floresta_common::descriptor_internals::DescriptorError;
+use floresta_common::slip132;
 #[cfg(feature = "compact-filters")]
 use floresta_compact_filters::IterableFilterStoreError;
 use floresta_watch_only::kv_database::KvDatabaseError;
 use floresta_watch_only::WatchOnlyError;
 use tokio_rustls::rustls::pki_types;
-
-use crate::slip132;
 #[derive(Debug)]
 pub enum FlorestadError {
     /// Encoding/decoding error.
@@ -49,6 +49,8 @@ pub enum FlorestadError {
 
     /// Parsing a bitcoin address.
     AddressParsing(bitcoin::address::ParseError),
+
+    DescriptorParsing(DescriptorError),
 
     /// Parsing miniscript error.
     Miniscript(miniscript::Error),
@@ -108,9 +110,6 @@ pub enum FlorestadError {
     /// Failed to create the TLS data directory.
     CouldNotCreateTLSDataDir(String, std::io::Error),
 
-    /// Failed to provide a valid xpub.
-    InvalidProvidedXpub(String, crate::slip132::Error),
-
     /// Failed to obtain the wallet cache.
     CouldNotObtainWalletCache(WatchOnlyError<KvDatabaseError>),
 
@@ -145,6 +144,7 @@ pub enum FlorestadError {
 impl std::fmt::Display for FlorestadError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            FlorestadError::DescriptorParsing(err) => write!(f, "Desc Parsing error: {err:?}"),
             FlorestadError::Encode(err) => write!(f, "Encode error: {err}"),
             FlorestadError::Db(err) => write!(f, "Database error {err}"),
             FlorestadError::ParseNum(err) => write!(f, "int parse error: {err}"),
@@ -221,9 +221,6 @@ impl std::fmt::Display for FlorestadError {
             FlorestadError::CouldNotCreateTLSDataDir(path, err) => {
                 write!(f, "Could not create TLS data directory {path}: {err}")
             }
-            FlorestadError::InvalidProvidedXpub(xpub, err) => {
-                write!(f, "Invalid provided xpub {xpub}: {err:?}")
-            }
             FlorestadError::CouldNotObtainWalletCache(err) => {
                 write!(f, "Could not obtain wallet cache: {err}")
             }
@@ -282,6 +279,7 @@ impl_from_error!(ScriptValidation, bitcoin::blockdata::script::Error);
 impl_from_error!(Blockchain, BlockchainError);
 impl_from_error!(SerdeJson, serde_json::Error);
 impl_from_error!(WalletInput, slip132::Error);
+impl_from_error!(DescriptorParsing, DescriptorError);
 impl_from_error!(TomlParsing, toml::de::Error);
 impl_from_error!(BlockValidation, BlockValidationErrors);
 impl_from_error!(AddressParsing, bitcoin::address::ParseError);

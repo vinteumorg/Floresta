@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::slice;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Instant;
@@ -23,7 +22,11 @@ use bitcoin::TxIn;
 use bitcoin::TxOut;
 use bitcoin::Txid;
 use floresta_chain::ThreadSafeChain;
-use floresta_common::parse_descriptors;
+use floresta_common::descriptor_internals::handle_descriptors_requests;
+use floresta_common::descriptor_internals::DeleteDescriptorRes;
+use floresta_common::descriptor_internals::DescriptorId;
+use floresta_common::descriptor_internals::DescriptorRequest;
+use floresta_common::descriptor_internals::RescanRequest;
 use floresta_compact_filters::flat_filters_store::FlatFiltersStore;
 use floresta_compact_filters::network_filters::NetworkFilters;
 use floresta_watch_only::kv_database::KvDatabase;
@@ -31,9 +34,9 @@ use floresta_watch_only::AddressCache;
 use floresta_watch_only::CachedTransaction;
 use floresta_wire::node_interface::NodeInterface;
 use floresta_wire::node_interface::PeerInfo;
-use log::debug;
 use log::error;
 use log::info;
+use log::warn;
 use serde_json::json;
 use serde_json::Value;
 use tokio::sync::RwLock;
@@ -121,44 +124,61 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
             .ok_or(JsonRpcError::TxNotFound)
     }
 
-    fn load_descriptor(&self, descriptor: String) -> Result<bool> {
-        let desc = slice::from_ref(&descriptor);
-        let Ok(mut parsed) = parse_descriptors(desc) else {
-            return Err(JsonRpcError::InvalidDescriptor);
-        };
+    #[doc = include_str!("../../../doc/rpc/importdescriptors.md")]
+    async fn import_descriptors(&self, requests: Vec<DescriptorRequest>) -> Result<bool> {
+        info!("Importing {requests:?} and rescanning");
 
-        // It's ok to unwrap because we know there is at least one element in the vector
-        let addresses = parsed.pop().unwrap();
-        let addresses = (0..100)
-            .map(|index| {
-                let address = addresses
-                    .at_derivation_index(index)
-                    .unwrap()
-                    .script_pubkey();
-                self.wallet.cache_address(address.clone());
-                address
-            })
-            .collect::<Vec<_>>();
+        let (descriptors, rescan_timestamp) =
+            handle_descriptors_requests(requests).map_err(JsonRpcError::BatchDescriptor)?;
 
-        debug!("Rescanning with block filters for addresses: {addresses:?}");
+        for descriptor in descriptors {
+            self.wallet
+                .cache_descriptor(descriptor)
+                .map_err(|e| JsonRpcError::Wallet(e.to_string()))?;
+        }
 
-        let addresses = self.wallet.get_cached_addresses();
-        let wallet = self.wallet.clone();
-        if self.block_filter_storage.is_none() {
-            return Err(JsonRpcError::InInitialBlockDownload);
-        };
+        // Im (almost) sure theres a smarter way to do these checks below but im not the one that will figure it out. TODO™.
 
-        let cfilters = self.block_filter_storage.as_ref().unwrap().clone();
-        let node = self.node.clone();
-        let chain = self.chain.clone();
-
-        tokio::task::spawn(Self::rescan_with_block_filters(
-            addresses, chain, wallet, cfilters, node, None, None,
-        ));
-
-        Ok(true)
+        if self.chain.is_in_ibd() {
+            warn!("Skipped rescan, the node is in IBD you might need to request another rescan after IBD if its needed.");
+            return Ok(true);
+        }
+        match rescan_timestamp {
+            RescanRequest::Full => {
+                self.rescan_blockchain(None, None, false, Some(RescanConfidence::Exact))
+                    .await
+            }
+            RescanRequest::SpecifiedTime(time) => {
+                self.rescan_blockchain(Some(time), None, true, Some(RescanConfidence::Medium))
+                    .await
+            }
+            RescanRequest::Now => {
+                warn!("Skipped Rescan, found RescanRequest::Now");
+                Ok(true)
+            }
+        }
     }
 
+    // TODO: make the rpc docs for delete_descriptors
+    fn delete_descriptors(
+        &self,
+        ids: Vec<DescriptorId>,
+        pull: bool,
+    ) -> Result<DeleteDescriptorRes> {
+        let mut pulled = self
+            .wallet
+            .delete_descriptors(&ids)
+            .map_err(|e| JsonRpcError::Wallet(e.to_string()))?;
+
+        // Empty the return vector if pulled is false.
+        if !pull {
+            pulled = vec![];
+        }
+
+        Ok(DeleteDescriptorRes { pulled })
+    }
+
+    #[doc = include_str!("../../../doc/rpc/rescanblockchain.md")]
     async fn rescan_blockchain(
         &self,
         start: Option<u32>,
@@ -417,10 +437,12 @@ async fn handle_json_rpc_request(
         }
 
         // wallet
-        "loaddescriptor" => {
-            let descriptor = params[0].as_str().ok_or(JsonRpcError::InvalidDescriptor)?;
+        "importdescriptors" => {
+            let requests: Vec<DescriptorRequest> = serde_json::from_value(params[0].clone())
+                .map_err(|e| JsonRpcError::DecodeDescRequest(e, params[0].to_string()))?;
             state
-                .load_descriptor(descriptor.to_string())
+                .import_descriptors(requests)
+                .await
                 .map(|v| ::serde_json::to_value(v).unwrap())
         }
 
@@ -453,6 +475,17 @@ async fn handle_json_rpc_request(
             .list_descriptors()
             .map(|v| ::serde_json::to_value(v).unwrap()),
 
+        "deletedescriptors" => {
+            let ids: Vec<DescriptorId> = serde_json::from_value(params[0].clone())
+                .map_err(|error| JsonRpcError::DecodeDescRequest(error, params[0].to_string()))?;
+            let pull: bool = serde_json::from_value(params[1].clone())
+                .map_err(|error| JsonRpcError::DecodeDescRequest(error, params[0].to_string()))?;
+
+            state
+                .delete_descriptors(ids, pull)
+                .map(|v| ::serde_json::to_value(v).unwrap())
+        }
+
         _ => {
             let error = JsonRpcError::MethodNotFound;
             Err(error)
@@ -472,8 +505,9 @@ fn get_http_error_code(err: &JsonRpcError) -> u16 {
         | JsonRpcError::InvalidVout
         | JsonRpcError::InvalidPort
         | JsonRpcError::InvalidHeight
-        | JsonRpcError::InvalidDescriptor
+        | JsonRpcError::DecodeDescRequest(_, _)
         | JsonRpcError::InvalidNetwork
+        | JsonRpcError::BatchDescriptor(_)
         | JsonRpcError::InvalidVerbosityLevel
         | JsonRpcError::Decode(_)
         | JsonRpcError::MissingParams
@@ -515,7 +549,6 @@ fn get_json_rpc_error_code(err: &JsonRpcError) -> i32 {
         | JsonRpcError::InvalidVout
         | JsonRpcError::InvalidPort
         | JsonRpcError::InvalidHeight
-        | JsonRpcError::InvalidDescriptor
         | JsonRpcError::InvalidNetwork
         | JsonRpcError::InvalidVerbosityLevel
         | JsonRpcError::TxNotFound
@@ -525,6 +558,8 @@ fn get_json_rpc_error_code(err: &JsonRpcError) -> i32 {
         | JsonRpcError::InvalidAddnodeCommand
         | JsonRpcError::InvalidRescanVal
         | JsonRpcError::NoAddressesToRescan
+        | JsonRpcError::BatchDescriptor(_)
+        | JsonRpcError::DecodeDescRequest(_, _)
         | JsonRpcError::Wallet(_) => -32600,
 
         // server error
