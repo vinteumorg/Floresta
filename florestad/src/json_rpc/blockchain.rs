@@ -2,13 +2,18 @@ use bitcoin::block::Header;
 use bitcoin::consensus::encode::serialize_hex;
 use bitcoin::consensus::Encodable;
 use bitcoin::constants::genesis_block;
+use bitcoin::Address;
 use bitcoin::Block;
 use bitcoin::BlockHash;
 use bitcoin::MerkleBlock;
 use bitcoin::OutPoint;
+use bitcoin::Script;
 use bitcoin::ScriptBuf;
 use bitcoin::Txid;
 use log::debug;
+use miniscript::descriptor::checksum;
+use serde::Deserialize;
+use serde::Serialize;
 use serde_json::json;
 use serde_json::Value;
 
@@ -19,6 +24,47 @@ use super::res::JsonRpcError;
 use super::server::RpcChain;
 use super::server::RpcImpl;
 use crate::json_rpc::res::RescanConfidence;
+
+#[derive(Debug, Serialize, Deserialize)]
+/// Struct helper for RpcGetTxOut
+pub struct ScriptPubkeyDescription {
+    /// Disassembly of the output script
+    asm: String,
+
+    /// Inferred descriptor for the output
+    desc: String,
+
+    /// The raw output script bytes, hex-encoded
+    hex: String,
+
+    /// The type, eg pubkeyhash
+    #[serde(rename = "type")]
+    type_field: String,
+
+    /// The Bitcoin address (only if a well-defined address exists)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    address: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+/// Struct helper for serialize gettxout rpc
+pub struct GetTxOut {
+    /// The hash of the block at the tip of the chain
+    bestblock: BlockHash,
+
+    /// The number of confirmations
+    confirmations: u32,
+
+    /// The transaction value in BTC
+    value: f64,
+
+    #[serde(rename = "scriptPubKey")]
+    /// Script Public Key struct
+    script_pubkey: ScriptPubkeyDescription,
+
+    /// Coinbase or not
+    coinbase: bool,
+}
 
 impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
     async fn get_block_inner(&self, hash: BlockHash) -> Result<Block, JsonRpcError> {
@@ -298,19 +344,205 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
     // getmempoolentry
     // getmempoolinfo
     // getrawmempool
-    // gettxout
-    pub(super) fn get_tx_out(&self, txid: Txid, outpoint: u32) -> Result<Value, JsonRpcError> {
-        let utxo = self.wallet.get_utxo(&OutPoint {
-            txid,
-            vout: outpoint,
-        });
 
-        let res = match utxo {
-            Some(utxo) => ::serde_json::to_value(utxo),
-            None => Ok(json!({})),
+    /// Check if the script is anchor type
+    fn is_anchor_type(script: &Script) -> bool {
+        script.as_bytes().starts_with(&[0x51, 0x02, 0x4e, 0x73])
+    }
+
+    /// Returns a label about the scriptPubKey type
+    /// (pubkey, pubkeyhash, multisig, nulldata, scripthash, witness_v0_keyhash, witness_v0_scripthash, witness_v1_taproot, anchor, nonstandard)
+    fn get_script_type_label(script: &Script) -> &'static str {
+        if script.is_p2pk() {
+            return "pubkey";
+        }
+
+        if script.is_p2pkh() {
+            return "pubkeyhash";
+        }
+
+        if script.is_multisig() {
+            return "multisig";
+        }
+
+        if script.is_op_return() {
+            return "nulldata";
+        }
+
+        if script.is_p2sh() {
+            return "scripthash";
+        }
+
+        if script.is_p2wpkh() {
+            return "witness_v0_keyhash";
+        }
+
+        if script.is_p2wsh() {
+            return "witness_v0_scripthash";
+        }
+
+        if script.is_p2tr() {
+            return "witness_v1_taproot";
+        }
+
+        if Self::is_anchor_type(script) {
+            return "anchor";
+        }
+
+        "nonstandard"
+    }
+
+    fn get_script_type_descriptor(script: &Script, address: &Option<Address>) -> String {
+        let get_addr_str = || {
+            address
+                .as_ref()
+                .expect("address should be Some")
+                .to_string()
         };
 
-        res.map_err(|_e| JsonRpcError::Encode)
+        if script.is_p2pk() {
+            let addr = get_addr_str();
+            return format!("pk({addr}");
+        }
+
+        if let Some(addr) = address {
+            return format!("addr({addr})");
+        }
+
+        if script.is_op_return() {
+            let hex = script.to_hex_string();
+            return format!("raw({hex})");
+        }
+
+        if Self::is_anchor_type(script) {
+            let addr = get_addr_str();
+            return format!("addr({addr})");
+        }
+
+        let hex = script.to_hex_string();
+        format!("raw({hex})")
+    }
+
+    /// Parses the serialized opcodes in a [ScriptBuf] as numbers and it's hashes.
+    /// This differs from `ScriptBuf::to_asm_string` in that, `rust-bitcoin` will
+    /// show the the human representation of the opcode. It does not omit the number representations of
+    /// `OP_PUSHDATA_<N>` and `OP_PUSHBYTE<N>`. This method do the opposite: it not show the human
+    /// representation and omit the last opcodes, so it can be compliant with bitcoin-core.
+    /// For reference see <https://en.bitcoin.it/wiki/Script#Opcodes>
+    fn to_core_asm_string(script: &ScriptBuf) -> Result<String, JsonRpcError> {
+        let mut asm = vec![];
+        let bytes = script.as_bytes();
+        let mut i = 0usize;
+
+        // little reused helper to hex string
+        let to_hex_string = |r: &[u8]| r.iter().map(|b| format!("{b:02x}")).collect::<String>();
+
+        while i < bytes.len() {
+            let byte = bytes[i];
+            i += 1;
+
+            match byte {
+                // OP_0
+                0x00 => asm.push(format!("{}", 0)),
+                // OP_PUSHDATA_<N>: The next N bytes is data to be pushed onto the stack
+                0x01..=0x4b => {
+                    let pushed_bytes = byte as usize;
+                    let hex = to_hex_string(&bytes[i..i + pushed_bytes]);
+                    asm.push(hex);
+                    i += pushed_bytes;
+                }
+                // OP_PUSHBYTE1: the next byte contains the number of bytes to be pushed onto the stack.
+                0x4c => {
+                    let pushed_bytes = bytes[i] as usize;
+                    i += 1;
+                    let hex = to_hex_string(&bytes[i..i + pushed_bytes]);
+                    asm.push(hex);
+                    i += pushed_bytes;
+                }
+                // OP_PUSHBYTE2: the next two bytes contain the number of bytes to be pushed onto the stack in little endian order.
+                0x4d => {
+                    let pushed_bytes = u16::from_le_bytes([bytes[i], bytes[i + 1]]) as usize;
+                    i += 2;
+                    let hex = to_hex_string(&bytes[i..i + pushed_bytes]);
+                    asm.push(hex);
+                    i += pushed_bytes;
+                }
+                // OP_PUSHBYTE4: the next four bytes contain the number of bytes to be pushed onto the stack in little endian order.
+                0x4e => {
+                    let pushed_bytes =
+                        u32::from_le_bytes([bytes[i], bytes[i + 1], bytes[i + 2], bytes[i + 3]])
+                            as usize;
+                    i += 4;
+                    let hex = to_hex_string(&bytes[i..i + pushed_bytes]);
+                    asm.push(hex);
+                    i += pushed_bytes;
+                }
+                // OP_1 to OP_16
+                0x51..=0x60 => {
+                    // 0x50 is OP_RESERVED
+                    let reserved = 0x50;
+                    asm.push(format!("{}", byte - reserved));
+                }
+                // Any other opcode that should  be pushed
+                another_one => {
+                    asm.push(format!("{another_one:02x}"));
+                }
+            }
+        }
+
+        Ok(asm.join(" "))
+    }
+
+    /// gettxout: returns details about an unspent transaction output.
+    pub(super) fn get_tx_out(
+        &self,
+        txid: Txid,
+        outpoint: u32,
+        _include_mempool: bool,
+    ) -> Result<Option<GetTxOut>, JsonRpcError> {
+        let res = match (
+            self.wallet.get_transaction(&txid),
+            self.wallet.get_height(&txid),
+            self.wallet.get_utxo(&OutPoint {
+                txid,
+                vout: outpoint,
+            }),
+        ) {
+            (Some(cached_tx), Some(height), Some(txout)) => {
+                let is_coinbase = cached_tx.tx.is_coinbase();
+                let Ok((bestblock_height, bestblock_hash)) = self.chain.get_best_block() else {
+                    return Err(JsonRpcError::BlockNotFound);
+                };
+
+                let script = txout.script_pubkey.as_script();
+                let network = self.chain.get_params().network;
+                let address = Address::from_script(script, network).ok();
+
+                let desc = Self::get_script_type_descriptor(script, &address);
+                let checksum_desc = checksum::desc_checksum(&desc)
+                    .map(|checksum| format!("{desc}#{checksum}"))
+                    .map_err(|_| JsonRpcError::InvalidDescriptor)?;
+
+                let asm = Self::to_core_asm_string(&txout.script_pubkey)?;
+                let script_pubkey = ScriptPubkeyDescription {
+                    asm,
+                    hex: txout.script_pubkey.to_hex_string(),
+                    desc: checksum_desc,
+                    address: address.as_ref().map(ToString::to_string),
+                    type_field: Self::get_script_type_label(script).to_string(),
+                };
+
+                Some(GetTxOut {
+                    bestblock: bestblock_hash,
+                    confirmations: bestblock_height - height + 1,
+                    value: txout.value.to_btc(),
+                    script_pubkey,
+                    coinbase: is_coinbase,
+                })
+            }
+            _ => None,
+        };
+        Ok(res)
     }
 
     /// Computes the necessary information for the RPC `gettxoutproof [txids] blockhash (optional)`
@@ -433,7 +665,11 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
             self.wallet.block_process(&candidate, height);
         }
 
-        self.get_tx_out(txid, vout)
+        let val = match self.get_tx_out(txid, vout, false)? {
+            Some(gettxout) => json!(gettxout),
+            None => json!({}),
+        };
+        Ok(val)
     }
 
     // getroots

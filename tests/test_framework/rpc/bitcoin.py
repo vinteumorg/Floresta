@@ -28,6 +28,61 @@ class BitcoinRPC(BaseRPC):
         """
         return self.perform_request("getblockchaininfo")
 
+    def get_blockhash(self, height: int) -> dict:
+        """
+        Get the blockhash associated with a given height performing
+        `perform_request('getblockhash', params=[<int>])`
+        """
+        return self.perform_request("getblockhash", [height])
+
+    # pylint: disable=R0801
+    def get_blockheader(self, blockhash: str) -> dict:
+        """
+        Get the header of a block, giving its hash performing
+        `perform_request('getblockheader', params=[<str>])`
+        """
+        if not bool(re.fullmatch(r"^[a-f0-9]{64}$", blockhash)):
+            raise ValueError(f"Invalid blockhash '{blockhash}'.")
+
+        return self.perform_request("getblockheader", params=[blockhash])
+
+    # pylint: disable=R0801
+    def get_block(self, blockhash: str, verbosity: int = 1):
+        """
+        Get a full block, given its hash performing
+        `perform_request('getblock', params=[str, int])`
+
+        Notice that this rpc will cause a actual network request to our node,
+        so it may be slow, and if used too often, may cause more network usage.
+        The returns for this rpc are identical to bitcoin core's getblock rpc
+        as of version 27.0.
+
+        the `str` param should be a valid 32 bytes hex formatted string
+        the `int` param should be a integer verbosity level
+        """
+        if len(blockhash) != 64:
+            raise ValueError(f"invalid blockhash param: {blockhash}")
+
+        if verbosity not in (0, 1):
+            raise ValueError(f"Invalid verbosity level param: {verbosity}")
+
+        return self.perform_request("getblock", params=[blockhash, verbosity])
+
+    # pylint: disable=R0801
+    def get_bestblockhash(self) -> str:
+        """
+        Get the hash of the best block in the chain performing
+        `perform_request('getbestblockhash')`
+        """
+        return self.perform_request("getbestblockhash")
+
+    # pylint: disable=R0801
+    def get_block_count(self) -> int:
+        """
+        Get block count of the node by performing `perform_request('getblockcount')
+        """
+        return self.perform_request("getblockcount")
+
     def stop(self):
         """
         Perform the `stop` RPC command to utreexod and some cleanup on process and files
@@ -61,12 +116,6 @@ class BitcoinRPC(BaseRPC):
         """
         return self.perform_request("uptime")
 
-    def get_block_count(self) -> int:
-        """
-        Get block count of the node by performing `perform_request('getblockcount')
-        """
-        return self.perform_request("getblockcount")
-
     # pylint: disable=R0801
     def addnode(self, node: str, command: str, v2transport: bool = False):
         """
@@ -99,15 +148,15 @@ class BitcoinRPC(BaseRPC):
 
         return self.perform_request("addnode", params=[node, command, v2transport])
 
-    def get_blockhash(self, height: int) -> str:
+    def get_txout(self, txid: str, vout: int, include_mempool: bool) -> dict:
         """
-        Get the block hash at a given height by performing
-        `perform_request('getblockhash', params=[int])`
+        Get transaction output by performing `perform_request('gettxout', params=[str, int])`
 
         Args:
-            height: The height of the block to get the hash for
+            txid: The transaction ID
+            vout: The output index
 
         Returns:
-            The block hash as a string
+            The transaction output information
         """
-        return self.perform_request("getblockhash", params=[height])
+        return self.perform_request("gettxout", params=[txid, vout, include_mempool])

@@ -115,3 +115,17 @@ class UtreexoRPC(BaseRPC):
         Get block count of the node by performing `perform_request('getblockcount')
         """
         return self.perform_request("getblockcount")
+
+    def get_txout(self, txid: str, vout: int, include_mempool: bool) -> dict:
+        """
+        Get the outpoint associated with a given tx and vout performing
+        `perform_request('gettxout', params=[str, int])`
+
+        Args:
+            txid: The transaction id (txid) of the transaction.
+            vout: The output index of the transaction.
+
+        Returns:
+            A dictionary containing the outpoint information.
+        """
+        return self.perform_request("gettxout", params=[txid, vout, include_mempool])

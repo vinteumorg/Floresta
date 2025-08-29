@@ -5,7 +5,6 @@ A test framework for testing JsonRPC calls to a floresta node.
 """
 
 import re
-
 from test_framework.rpc.base import BaseRPC
 
 REGTEST_RPC_SERVER = {
@@ -76,6 +75,19 @@ class FlorestaRPC(BaseRPC):
             raise ValueError(f"Invalid verbosity level param: {verbosity}")
 
         return self.perform_request("getblock", params=[blockhash, verbosity])
+
+    def get_bestblockhash(self) -> str:
+        """
+        Get the hash of the best block in the chain performing
+        `perform_request('getbestblockhash')`
+        """
+        return self.perform_request("getbestblockhash")
+
+    def get_block_count(self) -> int:
+        """
+        Get block count of the node by performing `perform_request('getblockcount')
+        """
+        return self.perform_request("getblockcount")
 
     def get_peerinfo(self):
         """
@@ -152,15 +164,16 @@ class FlorestaRPC(BaseRPC):
         """
         return self.perform_request("uptime")
 
-    def get_bestblockhash(self) -> str:
+    def get_txout(self, txid: str, vout: int, include_mempool: bool) -> dict:
         """
-        Get the hash of the best block in the chain performing
-        `perform_request('getbestblockhash')`
-        """
-        return self.perform_request("getbestblockhash")
+        Get the outpoint associated with a given tx and vout performing
+        `perform_request('gettxout', params=[str, int])`
 
-    def get_block_count(self) -> int:
+        Args:
+            txid: The transaction id (txid) of the transaction.
+            vout: The output index of the transaction.
+
+        Returns:
+            A dictionary containing the outpoint information.
         """
-        Get block count of the node by performing `perform_request('getblockcount')
-        """
-        return self.perform_request("getblockcount")
+        return self.perform_request("gettxout", params=[txid, vout, include_mempool])
