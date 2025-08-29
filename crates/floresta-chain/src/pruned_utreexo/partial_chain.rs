@@ -525,7 +525,7 @@ mod tests {
         PartialChainStateInner {
             assume_valid: true,
             consensus: Consensus {
-                parameters: ChainParams::try_from(Network::Regtest).unwrap(),
+                parameters: ChainParams::from(Network::Regtest),
             },
             current_height: 0,
             current_acc: Stump::default(),
@@ -549,7 +549,7 @@ mod tests {
         let chainstate: PartialChainState = PartialChainStateInner {
             assume_valid: true,
             consensus: Consensus {
-                parameters: ChainParams::try_from(Network::Regtest).unwrap(),
+                parameters: ChainParams::from(Network::Regtest),
             },
             current_height: 0,
             current_acc: Stump::default(),
@@ -585,7 +585,7 @@ mod tests {
         let mut chainstate1 = PartialChainStateInner {
             assume_valid: true,
             consensus: Consensus {
-                parameters: ChainParams::try_from(Network::Regtest).unwrap(),
+                parameters: ChainParams::from(Network::Regtest),
             },
             current_height: 0,
             current_acc: Stump::default(),
@@ -629,7 +629,7 @@ mod tests {
         let chainstate2: PartialChainState = PartialChainStateInner {
             assume_valid: true,
             consensus: Consensus {
-                parameters: ChainParams::try_from(Network::Regtest).unwrap(),
+                parameters: ChainParams::from(Network::Regtest),
             },
             current_height: 100,
             current_acc: acc2,

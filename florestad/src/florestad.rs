@@ -366,7 +366,7 @@ impl Florestad {
     /// Actually runs florestad, spawning all modules and waiting until
     /// someone asks to stop.
     pub async fn start(&self) -> Result<(), FlorestadError> {
-        let data_dir = Self::data_dir_path(&self.config)?;
+        let data_dir = Self::data_dir_path(&self.config);
 
         // Create the data directory if it doesn't exist
         if !Path::new(&data_dir).exists() {
@@ -433,15 +433,14 @@ impl Florestad {
             Network::Signet => true,
             Network::Testnet => false,
             Network::Regtest => false,
-            _ => false,
+            Network::Testnet4 => false,
         };
 
         // If this network already allows pow fraud proofs, we should use it instead of assumeutreexo
         let assume_utreexo = match (pow_fraud_proofs, self.config.assume_utreexo) {
-            (false, true) => Some(
-                floresta_chain::ChainParams::get_assume_utreexo(self.config.network)
-                    .expect("Network already validated as supported"),
-            ),
+            (false, true) => Some(floresta_chain::ChainParams::get_assume_utreexo(
+                self.config.network,
+            )),
             _ => None,
         };
 
@@ -670,7 +669,7 @@ impl Florestad {
         Ok(())
     }
 
-    fn data_dir_path(config: &Config) -> Result<String, FlorestadError> {
+    fn data_dir_path(config: &Config) -> String {
         // base dir: config.data_dir or $HOME/.floresta or "./.floresta"
         let mut base: PathBuf = config
             .data_dir
@@ -689,10 +688,9 @@ impl Florestad {
             Network::Testnet => base.push("testnet3"),
             Network::Testnet4 => base.push("testnet4"),
             Network::Regtest => base.push("regtest"),
-            _ => return Err(FlorestadError::UnsupportedNetwork(config.network)),
         }
 
-        Ok(base.to_string_lossy().into_owned())
+        base.to_string_lossy().into_owned()
     }
 
     fn setup_logger(
@@ -923,7 +921,6 @@ impl Florestad {
             Network::Testnet4 => 40001,
             Network::Testnet => 30001,
             Network::Regtest => 20001,
-            _ => 50001, // [`bitcoin::Network`] is `non-exhaustive`.
         };
 
         if enable_electrum_tls {
@@ -1037,22 +1034,22 @@ mod tests {
             .join(".floresta");
 
         assert_eq!(
-            Florestad::data_dir_path(&config).unwrap(),
+            Florestad::data_dir_path(&config),
             expected.display().to_string(),
         );
 
         // Using other made-up directories
         config.data_dir = Some("path/to/dir".to_string());
-        assert_eq!(Florestad::data_dir_path(&config).unwrap(), "path/to/dir");
+        assert_eq!(Florestad::data_dir_path(&config), "path/to/dir");
 
         config.data_dir = Some("path/to/dir/".to_string());
-        assert_eq!(Florestad::data_dir_path(&config).unwrap(), "path/to/dir");
+        assert_eq!(Florestad::data_dir_path(&config), "path/to/dir");
 
         config.data_dir = Some(format!("path{}", '\\')); // test removing the \ separator
-        assert_eq!(Florestad::data_dir_path(&config).unwrap(), "path");
+        assert_eq!(Florestad::data_dir_path(&config), "path");
 
         config.data_dir = Some("path///".to_string()); // test removing many separators
-        assert_eq!(Florestad::data_dir_path(&config).unwrap(), "path");
+        assert_eq!(Florestad::data_dir_path(&config), "path");
 
         // Using other networks
         for &(net, suffix) in &[
@@ -1065,7 +1062,7 @@ mod tests {
             config.network = net;
 
             assert_eq!(
-                Florestad::data_dir_path(&config).unwrap(),
+                Florestad::data_dir_path(&config),
                 expected.display().to_string(),
             );
         }
