@@ -2,6 +2,24 @@
 
 Attempts to add or remove a node from the addnode list.
 
+## Usage
+
+### Command signature:
+```bash
+floresta-cli addnode <ip:[port]> <add|remove|onetry> [true|false]
+```
+
+### Examples
+
+```bash
+floresta-cli addnode 192.168.0.1 add true
+floresta-cli addnode 192.168.0.1 add false
+floresta-cli addnode 192.168.0.1 remove #does not accept the boolean for v2transport
+floresta-cli addnode 192.168.0.1 onetry true
+floresta-cli addnode 192.168.0.1 onetry false
+```
+
+
 ## Arguments
 
 * `node` - (string, required) The <IP:[PORT]> address of the peer to connect to
@@ -17,21 +35,6 @@ Attempts to add or remove a node from the addnode list.
 ### Error Enum `CommandError`
 
 Any of the error types on `rpc_types::Error`
-
-## Usage Examples
-
-* General usage:
-```bash
-floresta-cli addnode <ip:[port]> <add|remove|onetry> [true|false]
-```
-
-```bash
-floresta-cli addnode 192.168.0.1 add true
-floresta-cli addnode 192.168.0.1 add false
-floresta-cli addnode 192.168.0.1 remove #does not accept the boolean for v2transport
-floresta-cli addnode 192.168.0.1 onetry true
-floresta-cli addnode 192.168.0.1 onetry false
-```
 
 ## Notes
 
