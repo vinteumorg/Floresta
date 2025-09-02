@@ -1,3 +1,4 @@
+use std::fmt::write;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::fmt::{self};
@@ -88,6 +89,9 @@ pub enum WireError {
 
     /// Couldn't find the leaf data for a block
     LeafDataNotFound,
+
+    /// Exceeded the max number of outbound peers
+    OutboundPeersExceed,
 }
 
 impl std::fmt::Display for WireError {
@@ -132,6 +136,9 @@ impl std::fmt::Display for WireError {
                 "We tried to work on a block that we don't have a proof for yet"
             ),
             WireError::LeafDataNotFound => write!(f, "Couldn't find the leaf data for a block"),
+            WireError::OutboundPeersExceed => {
+                write!(f, "Exceeded the max number of outbound peers")
+            }
         }
     }
 }
