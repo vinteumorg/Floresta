@@ -24,7 +24,6 @@ use log::info;
 use log::warn;
 use serde::Deserialize;
 use serde::Serialize;
-use thiserror::Error;
 
 /// How long we'll wait before trying to connect to a peer that failed
 const RETRY_TIME: u64 = 10 * 60; // 10 minutes
@@ -33,22 +32,30 @@ const RETRY_TIME: u64 = 10 * 60; // 10 minutes
 type AddressToSend = Vec<(AddrV2, u64, ServiceFlags, u16)>;
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+/// A local state for how we see this peer. It helps us during peer selection,
+/// by keeping track of our past encounters with this node (if any),
+/// helping us to find live peers more easily, and avoid troublesome peers.
 pub enum AddressState {
     /// We never tried this peer before, so we don't know what to expect. This variant
     /// also applies to peers that we tried to connect, but failed or we didn't connect
     /// to for a long time.
     NeverTried,
+
     /// We tried this peer before, and had success at least once, so we know what to expect
     Tried(u64),
+
     /// This peer misbehaved and we banned them
     Banned(u64),
+
     /// We are connected to this peer right now
     Connected,
+
     /// We tried connecting, but failed
     Failed(u64),
 }
-/// How do we store peers locally
+
 #[derive(Debug, Clone, PartialEq)]
+/// How do we store peers locally
 pub struct LocalAddress {
     /// An actual address
     address: AddrV2,
@@ -63,8 +70,7 @@ pub struct LocalAddress {
     /// Random id for this peer
     pub id: usize,
 }
-#[derive(Debug, Error)]
-pub enum AddrManError {}
+
 impl From<AddrV2> for LocalAddress {
     fn from(value: AddrV2) -> Self {
         LocalAddress {
@@ -80,6 +86,7 @@ impl From<AddrV2> for LocalAddress {
         }
     }
 }
+
 impl From<AddrV2Message> for LocalAddress {
     fn from(value: AddrV2Message) -> Self {
         LocalAddress {
@@ -92,12 +99,14 @@ impl From<AddrV2Message> for LocalAddress {
         }
     }
 }
+
 impl FromStr for LocalAddress {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         LocalAddress::try_from(s)
     }
     type Err = std::net::AddrParseError;
 }
+
 impl TryFrom<&str> for LocalAddress {
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         let split = value.split(':').collect::<Vec<_>>();
@@ -162,12 +171,27 @@ impl LocalAddress {
     }
 }
 
-/// A module that keeps track of know addresses and serve them to our node to connect
 #[derive(Default, Clone)]
+/// A module that keeps track of known addresses and chooses addresses that our node can connect
 pub struct AddressMan {
+    /// A map of all peers we know, mapping the address id to the actual address.
     addresses: HashMap<usize, LocalAddress>,
+
+    /// All indexes of "good" addresses
+    ///
+    /// Good peers are those which we think are live, and haven't banned yet.
+    /// If we try to connect with one peer, and the connection doesn't succeed,
+    /// this peer is assumed to be down and removed from good addresses for some time.
     good_addresses: Vec<usize>,
+
+    /// A map of a set of good peers indexes by their [`ServiceFlags`]
+    ///
+    /// We use this to make peer selection, if we are looking for a specific kind of peer (like utreexo or CBF peers)
     good_peers_by_service: HashMap<ServiceFlags, Vec<usize>>,
+
+    /// A map of a set of peers indexes by their [`ServiceFlags`]
+    ///
+    /// This works similarly to `good_peers_by_service`. However, we keep all peers here, not only good peers
     peers_by_service: HashMap<ServiceFlags, Vec<usize>>,
 }
 

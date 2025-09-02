@@ -10,6 +10,7 @@ use bip324::ProtocolFailureSuggestion;
 use bip324::Role;
 use bitcoin::consensus::deserialize;
 use bitcoin::consensus::deserialize_partial;
+use bitcoin::consensus::encode;
 use bitcoin::consensus::serialize;
 use bitcoin::consensus::Decodable;
 use bitcoin::p2p::address::AddrV2;
@@ -18,11 +19,11 @@ use bitcoin::p2p::message::RawNetworkMessage;
 use bitcoin::p2p::Magic;
 use bitcoin::Network;
 use floresta_chain::UtreexoBlock;
+use floresta_common::impl_error_from;
 use log::debug;
 use log::info;
 use serde::Deserialize;
 use serde::Serialize;
-use thiserror::Error;
 use tokio::io::AsyncRead;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWrite;
@@ -43,19 +44,42 @@ type TcpWriteTransport = WriteTransport<WriteHalf<TcpStream>>;
 type TransportResult =
     Result<(TcpReadTransport, TcpWriteTransport, TransportProtocol), TransportError>;
 
-#[derive(Error, Debug)]
+#[derive(Debug)]
+/// Enum that deals with transport errors
 pub enum TransportError {
-    #[error("I/O error: {0}")]
-    Io(#[from] io::Error),
-    #[error("V2 protocol error: {0}")]
-    Protocol(#[from] ProtocolError),
-    #[error("V2 serde error: {0}")]
-    SerdeV2(#[from] bip324::serde::Error),
-    #[error("V1 serde error: {0}")]
-    SerdeV1(#[from] bitcoin::consensus::encode::Error),
-    #[error("Proxy error: {0}")]
-    Proxy(#[from] Socks5Error),
+    /// I/O error
+    Io(io::Error),
+
+    /// V2 protocol error
+    Protocol(ProtocolError),
+
+    /// V2 serde error
+    SerdeV2(bip324::serde::Error),
+
+    /// V1 serde error
+    SerdeV1(encode::Error),
+
+    /// Proxy error
+    Proxy(Socks5Error),
 }
+
+impl std::fmt::Display for TransportError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TransportError::Io(err) => write!(f, "IO error: {err:?}"),
+            TransportError::Protocol(err) => write!(f, "V2 protocol error: {err:?}"),
+            TransportError::SerdeV2(err) => write!(f, "V2 serde error: {err:?}"),
+            TransportError::SerdeV1(err) => write!(f, "V1 serde error: {err:?}"),
+            TransportError::Proxy(err) => write!(f, "Proxy error: {err:?}"),
+        }
+    }
+}
+
+impl_error_from!(TransportError, io::Error, Io);
+impl_error_from!(TransportError, ProtocolError, Protocol);
+impl_error_from!(TransportError, bip324::serde::Error, SerdeV2);
+impl_error_from!(TransportError, encode::Error, SerdeV1);
+impl_error_from!(TransportError, Socks5Error, Proxy);
 
 /// UTreeXO p2p message extensions to the base bitcoin protocol.
 pub enum UtreexoMessage {
