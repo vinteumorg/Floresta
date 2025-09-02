@@ -1,7 +1,7 @@
 """
 florestad/tls-test.py
 
-This functional test tests the proper creatiion of a TLS port on florestad.
+This functional test tests the proper creation of a TLS port on florestad.
 """
 
 from test_framework import FlorestaTestFramework
