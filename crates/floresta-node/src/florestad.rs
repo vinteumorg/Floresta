@@ -363,7 +363,7 @@ impl Florestad {
     /// This function will return an error if the configured data directory path is not an
     /// **existing and writable directory**, or cannot be validated as such.
     pub async fn start(&self) -> Result<(), FlorestadError> {
-        let data_dir = &self.config.data_dir;
+        let data_dir = Self::data_dir_path(&self.config);
 
         // Check that the directory exists and is writable
         Florestad::validate_data_dir(data_dir)?;
@@ -417,6 +417,7 @@ impl Florestad {
             Network::Testnet => false,
             Network::Testnet4 => false,
             Network::Regtest => false,
+            Network::Testnet4 => false,
         };
 
         // If this network already allows pow fraud proofs, we should use it instead of assumeutreexo
@@ -651,8 +652,28 @@ impl Florestad {
         Ok(())
     }
 
-    pub fn from_config(config: Config) -> Self {
-        Self::from(config)
+    fn data_dir_path(config: &Config) -> String {
+        // base dir: config.data_dir or $HOME/.floresta or "./.floresta"
+        let mut base: PathBuf = config
+            .data_dir
+            .as_ref()
+            .map(|s| s.trim_end_matches(['/', '\\']).into())
+            .unwrap_or_else(|| {
+                dirs::home_dir()
+                    .unwrap_or_else(|| PathBuf::from("."))
+                    .join(".floresta")
+            });
+
+        // network-specific subdir
+        match config.network {
+            Network::Bitcoin => {} // no subdir
+            Network::Signet => base.push("signet"),
+            Network::Testnet => base.push("testnet3"),
+            Network::Testnet4 => base.push("testnet4"),
+            Network::Regtest => base.push("regtest"),
+        }
+
+        base.to_string_lossy().into_owned()
     }
 
     pub fn new(network: Network, data_dir: String) -> Self {
@@ -931,6 +952,54 @@ impl From<Config> for Florestad {
             stop_notify: Arc::new(Mutex::new(None)),
             #[cfg(feature = "json-rpc")]
             json_rpc: OnceLock::new(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_data_dir_path() {
+        let mut config = Config::default();
+
+        let expected = dirs::home_dir()
+            .unwrap_or(PathBuf::from("."))
+            .join(".floresta");
+
+        assert_eq!(
+            Florestad::data_dir_path(&config),
+            expected.display().to_string(),
+        );
+
+        // Using other made-up directories
+        config.data_dir = Some("path/to/dir".to_string());
+        assert_eq!(Florestad::data_dir_path(&config), "path/to/dir");
+
+        config.data_dir = Some("path/to/dir/".to_string());
+        assert_eq!(Florestad::data_dir_path(&config), "path/to/dir");
+
+        config.data_dir = Some(format!("path{}", '\\')); // test removing the \ separator
+        assert_eq!(Florestad::data_dir_path(&config), "path");
+
+        config.data_dir = Some("path///".to_string()); // test removing many separators
+        assert_eq!(Florestad::data_dir_path(&config), "path");
+
+        // Using other networks
+        for &(net, suffix) in &[
+            (Network::Testnet, "testnet3"),
+            (Network::Testnet4, "testnet4"),
+            (Network::Signet, "signet"),
+            (Network::Regtest, "regtest"),
+        ] {
+            let expected = PathBuf::from("path").join(suffix);
+            config.network = net;
+
+            assert_eq!(
+                Florestad::data_dir_path(&config),
+                expected.display().to_string(),
+            );
         }
     }
 }
