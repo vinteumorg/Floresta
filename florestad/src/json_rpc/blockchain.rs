@@ -10,6 +10,7 @@ use bitcoin::OutPoint;
 use bitcoin::Script;
 use bitcoin::ScriptBuf;
 use bitcoin::Txid;
+use floresta_common::descriptor_internals::ConcreteDescriptor;
 use log::debug;
 use miniscript::descriptor::checksum;
 use serde::Deserialize;
@@ -678,7 +679,7 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
         Ok(hashes.iter().map(|h| h.to_string()).collect())
     }
 
-    pub(super) fn list_descriptors(&self) -> Result<Vec<String>, JsonRpcError> {
+    pub(super) fn list_descriptors(&self) -> Result<Vec<ConcreteDescriptor>, JsonRpcError> {
         let descriptors = self
             .wallet
             .get_descriptors()

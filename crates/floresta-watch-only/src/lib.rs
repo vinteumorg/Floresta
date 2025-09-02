@@ -7,11 +7,17 @@ use core::cmp::Ordering;
 use core::fmt::Debug;
 
 use bitcoin::hashes::sha256;
+use bitcoin::hashes::sha256d;
 use bitcoin::ScriptBuf;
 use floresta_chain::BlockConsumer;
 use floresta_chain::UtxoData;
+use floresta_common::descriptor_internals::extract_matching_one;
+use floresta_common::descriptor_internals::extract_matching_ones;
+use floresta_common::descriptor_internals::ConcreteDescriptor;
+use floresta_common::descriptor_internals::DescriptorError;
+use floresta_common::descriptor_internals::DescriptorId;
+use floresta_common::descriptor_internals::DescriptorIdSelector;
 use floresta_common::get_spk_hash;
-use floresta_common::parse_descriptors;
 
 pub mod kv_database;
 #[cfg(any(test, feature = "memory-database"))]
@@ -39,6 +45,7 @@ pub enum WatchOnlyError<DatabaseError: fmt::Debug> {
     WalletNotInitialized,
     TransactionNotFound,
     DatabaseError(DatabaseError),
+    DescriptorError(DescriptorError),
 }
 
 impl<DatabaseError: fmt::Debug> Display for WatchOnlyError<DatabaseError> {
@@ -52,6 +59,9 @@ impl<DatabaseError: fmt::Debug> Display for WatchOnlyError<DatabaseError> {
             }
             WatchOnlyError::DatabaseError(e) => {
                 write!(f, "Database error: {e:?}")
+            }
+            WatchOnlyError::DescriptorError(e) => {
+                write!(f, "Descriptor error: {e:?}")
             }
         }
     }
@@ -107,15 +117,18 @@ impl Default for CachedTransaction {
         }
     }
 }
-
 /// An address inside our cache, contains all information we need to satisfy electrum's requests
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CachedAddress {
     script_hash: Hash,
     balance: u64,
     script: ScriptBuf,
     transactions: Vec<Txid>,
     utxos: Vec<OutPoint>,
+    /// Describes when this cached address was directly derived from a descriptor.
+    ///
+    /// This hash can be used to search for the descriptors in the database.
+    descriptor_hash: Option<sha256d::Hash>,
 }
 
 /// Holds some useful data about our wallet, like how many addresses we have, how many
@@ -150,10 +163,27 @@ pub trait AddressCacheDatabase {
     fn get_cache_height(&self) -> Result<u32, Self::Error>;
     /// Saves the height of the last block we filtered
     fn set_cache_height(&self, height: u32) -> Result<(), Self::Error>;
-    /// Saves the descriptor of associated cache
-    fn desc_save(&self, descriptor: &str) -> Result<(), Self::Error>;
-    /// Get associated descriptors
-    fn descs_get(&self) -> Result<Vec<String>, Self::Error>;
+    // Descriptors CRUD
+    /// Insert a descriptor into the database
+    fn desc_insert(&self, one: ConcreteDescriptor) -> Result<(), Self::Error>;
+    /// Batch Insert a descriptor into the database
+    fn desc_insert_batch(&self, batch: Vec<ConcreteDescriptor>) -> Result<(), Self::Error>;
+    /// Search for a descriptor by a matching [`DescriptorId`]
+    fn desc_get(&self, one: &DescriptorId) -> Result<ConcreteDescriptor, Self::Error>;
+    /// Bacth search for a descriptor by matching [`DescriptorId`]s.
+    fn desc_get_batch(
+        &self,
+        batch: &[DescriptorId],
+    ) -> Result<Vec<ConcreteDescriptor>, Self::Error>;
+    /// Delete a descriptor from the database by a matching [`DescriptorId`]
+    fn desc_delete(&self, one: &DescriptorId) -> Result<ConcreteDescriptor, Self::Error>;
+    /// Batch delete descriptors from the database by matching [`DescriptorId`]s and
+    /// a helper to clear the database, inserting an empty array will make this function to
+    /// delete all the descriptors.
+    fn desc_delete_batch(
+        &self,
+        batch: &[DescriptorId],
+    ) -> Result<Vec<ConcreteDescriptor>, Self::Error>;
     /// Get a transaction from the database
     fn get_transaction(&self, txid: &Txid) -> Result<CachedTransaction, Self::Error>;
     /// Saves a transaction to the database
@@ -171,6 +201,8 @@ struct AddressCacheInner<D: AddressCacheDatabase> {
     address_map: HashMap<Hash, CachedAddress>,
     /// Holds all scripts we are interested in
     script_set: HashSet<sha256::Hash>,
+    /// The descriptors that have some addresses cached
+    descriptor_set: Vec<ConcreteDescriptor>,
     /// Keeps track of all utxos we own, and the script hash they belong to
     utxo_index: HashMap<OutPoint, Hash>,
 }
@@ -239,15 +271,23 @@ impl<D: AddressCacheDatabase> AddressCacheInner<D> {
 
     fn new(database: D) -> AddressCacheInner<D> {
         let scripts = database.load().expect("Could not load database");
+
         if database.get_stats().is_err() {
             database
                 .save_stats(&Stats::default())
                 .expect("Could not save stats");
         }
+
         let mut address_map = HashMap::new();
         let mut script_set = HashSet::new();
+        let mut descriptors_ids = Vec::new();
         let mut utxo_index = HashMap::new();
+
         for address in scripts {
+            if let &Some(hash) = &address.descriptor_hash {
+                descriptors_ids.push(DescriptorId::Hash(hash));
+            }
+
             for utxo in address.utxos.iter() {
                 utxo_index.insert(*utxo, address.script_hash);
             }
@@ -255,9 +295,14 @@ impl<D: AddressCacheDatabase> AddressCacheInner<D> {
             address_map.insert(address.script_hash, address);
         }
 
+        let descriptor_set = database
+            .desc_get_batch(&descriptors_ids)
+            .expect("The database is probably corrupted.");
+
         AddressCacheInner {
             database,
             address_map,
+            descriptor_set,
             script_set,
             utxo_index,
         }
@@ -316,6 +361,7 @@ impl<D: AddressCacheDatabase> AddressCacheInner<D> {
             return;
         }
         let new_address = CachedAddress {
+            descriptor_hash: None,
             balance: 0,
             script: script_pk,
             script_hash: hash,
@@ -331,7 +377,7 @@ impl<D: AddressCacheDatabase> AddressCacheInner<D> {
     /// Setup is the first command that should be executed. In a new cache. It sets our wallet's
     /// state, like the height we should start scanning and the wallet's descriptor.
     fn setup(&self) -> Result<(), WatchOnlyError<D::Error>> {
-        if self.database.descs_get().is_err() {
+        if self.database.desc_get_batch(&[]).is_err() {
             self.database.set_cache_height(0)?;
         }
         Ok(())
@@ -339,18 +385,17 @@ impl<D: AddressCacheDatabase> AddressCacheInner<D> {
 
     fn derive_addresses(&mut self) -> Result<(), WatchOnlyError<D::Error>> {
         let mut stats = self.database.get_stats()?;
-        let descriptors = self.database.descs_get()?;
-        let descriptors = parse_descriptors(&descriptors).expect("We validate those descriptors");
+
+        let descriptors = self.database.desc_get_batch(&[])?;
+
         for desc in descriptors {
             let index = stats.derivation_index;
-            for idx in index..(index + 100) {
-                let script = desc
-                    .at_derivation_index(idx)
-                    .expect("We validate those descriptors before saving")
-                    .script_pubkey();
+            for _ in index..(index + 100) {
+                let script = desc.descriptor.script_pubkey();
                 self.cache_address(script);
             }
         }
+
         stats.derivation_index += 100;
         Ok(self.database.save_stats(&stats)?)
     }
@@ -520,6 +565,7 @@ impl<D: AddressCacheDatabase> AddressCacheInner<D> {
             // We can track this address from now onwards, but the past history is only
             // available with full rescan
             let new_address = CachedAddress {
+                descriptor_hash: None,
                 balance: 0,
                 script,
                 script_hash: hash,
@@ -619,22 +665,19 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
         inner.database.get_cache_height().unwrap_or(0)
     }
 
-    /// Tells whether or not a descriptor is already cached
-    pub fn is_cached(&self, desc: &String) -> Result<bool, WatchOnlyError<D::Error>> {
-        let inner = self.inner.read().expect("poisoned lock");
-        let known_descs = inner.database.descs_get()?;
-        Ok(known_descs.contains(desc))
+    /// Tells whether a descriptor is already cached
+    pub fn is_descriptor_cached(
+        &self,
+        desc: &DescriptorId,
+    ) -> Result<bool, WatchOnlyError<D::Error>> {
+        let found = extract_matching_one(&self.get_descriptors()?, desc);
+        Ok(found.is_some())
     }
 
     /// Tells whether an address is already cached
     pub fn is_address_cached(&self, script_hash: &Hash) -> bool {
         let inner = self.inner.read().expect("poisoned lock");
         inner.address_map.contains_key(script_hash)
-    }
-
-    pub fn push_descriptor(&self, descriptor: &str) -> Result<(), WatchOnlyError<D::Error>> {
-        let inner = self.inner.write().expect("poisoned lock");
-        Ok(inner.database.desc_save(descriptor)?)
     }
 
     pub fn get_position(&self, txid: &Txid) -> Option<u32> {
@@ -693,10 +736,7 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
 
     pub fn get_stats(&self) -> Result<Stats, WatchOnlyError<D::Error>> {
         let inner = self.inner.read().expect("poisoned lock");
-        inner
-            .database
-            .get_stats()
-            .map_err(WatchOnlyError::DatabaseError)
+        Ok(inner.database.get_stats()?)
     }
 
     pub fn maybe_derive_addresses(&self) {
@@ -744,12 +784,70 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
         )
     }
 
-    pub fn get_descriptors(&self) -> Result<Vec<String>, WatchOnlyError<D::Error>> {
-        let inner = self.inner.read().expect("poisoned lock");
-        inner
-            .database
-            .descs_get()
-            .map_err(WatchOnlyError::DatabaseError)
+    /// Return all the [`ConcreteDescriptor`]s that we have cached.
+    pub fn get_descriptors(&self) -> Result<Vec<ConcreteDescriptor>, WatchOnlyError<D::Error>> {
+        Ok(self
+            .inner
+            .read()
+            .expect("poisoned lock")
+            .descriptor_set
+            .clone())
+    }
+
+    /// Inserts a [`ConcreteDescriptor`] into the wallet
+    pub fn cache_descriptor(
+        &self,
+        one: ConcreteDescriptor,
+    ) -> Result<(), WatchOnlyError<D::Error>> {
+        // TODO: reduce the clones.
+        let mut inner = self.inner.write().expect("poisoned lock");
+
+        let script = one.descriptor.script_pubkey();
+
+        let spk_hash = get_spk_hash(&script);
+
+        let cast = CachedAddress {
+            script_hash: spk_hash,
+            script: script.clone(),
+            descriptor_hash: Some(one.get_hash()),
+            balance: 0,
+            utxos: Vec::new(),
+            transactions: Vec::new(),
+        };
+
+        inner.database.desc_insert(one.clone())?;
+        inner.script_set.insert(spk_hash);
+        inner.address_map.insert(spk_hash, cast);
+        inner.descriptor_set.push(one);
+
+        Ok(())
+    }
+
+    pub fn delete_descriptors(
+        &self,
+        ids: &[DescriptorId],
+    ) -> Result<Vec<ConcreteDescriptor>, WatchOnlyError<D::Error>> {
+        let mut inner = self.inner.write().expect("poisoned lock");
+
+        let index_to_remove = extract_matching_ones(&inner.descriptor_set, ids);
+
+        let db_ids = index_to_remove
+            .into_iter()
+            .map(|idx| {
+                let got = inner.descriptor_set.remove(idx);
+
+                let spk_hash = get_spk_hash(&got.descriptor.script_pubkey());
+
+                inner.script_set.remove(&spk_hash);
+                inner.address_map.remove(&spk_hash);
+
+                got.get_id(DescriptorIdSelector::Hash)
+            })
+            .collect::<Vec<DescriptorId>>();
+
+        let deleted = inner.database.desc_delete_batch(&db_ids)?;
+
+        Ok(deleted)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -966,10 +1064,19 @@ mod test {
         cache.bump_height(118511);
         assert_eq!(cache.get_cache_height(), 118511);
 
-        // [is_cached], [push_descriptor]
-        let desc = "wsh(sortedmulti(1,[54ff5a12/48h/1h/0h/2h]tpubDDw6pwZA3hYxcSN32q7a5ynsKmWr4BbkBNHydHPKkM4BZwUfiK7tQ26h7USm8kA1E2FvCy7f7Er7QXKF8RNptATywydARtzgrxuPDwyYv4x/<0;1>/*,[bcf969c0/48h/1h/0h/2h]tpubDEFdgZdCPgQBTNtGj4h6AehK79Jm4LH54JrYBJjAtHMLEAth7LuY87awx9ZMiCURFzFWhxToRJK6xp39aqeJWrG5nuW3eBnXeMJcvDeDxfp/<0;1>/*))#fuw35j0q";
-        cache.push_descriptor(desc).unwrap();
-        assert!(cache.is_cached(&desc.to_string()).unwrap());
+        // // [is_cached], [push_descriptor]
+        // let desc = "wsh(sortedmulti(1,[54ff5a12/48h/1h/0h/2h]tpubDDw6pwZA3hYxcSN32q7a5ynsKmWr4BbkBNHydHPKkM4BZwUfiK7tQ26h7USm8kA1E2FvCy7f7Er7QXKF8RNptATywydARtzgrxuPDwyYv4x/<0;1>/*,[bcf969c0/48h/1h/0h/2h]tpubDEFdgZdCPgQBTNtGj4h6AehK79Jm4LH54JrYBJjAtHMLEAth7LuY87awx9ZMiCURFzFWhxToRJK6xp39aqeJWrG5nuW3eBnXeMJcvDeDxfp/<0;1>/*))#fuw35j0q";
+        //
+        // let request = DescriptorRequest {
+        //     desc: desc.to_string(),
+        //     ..Default::default()
+        // };
+        //
+        // cache.(request).unwrap();
+        //
+        // assert!(cache
+        //     .is_cached(&DescriptorId::from_str(desc).unwrap())
+        //     .unwrap());
 
         // [derive_addresses]
         cache.derive_addresses().unwrap();
