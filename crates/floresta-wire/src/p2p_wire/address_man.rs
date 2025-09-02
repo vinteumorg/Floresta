@@ -711,8 +711,6 @@ impl AddressMan {
             Network::Signet => include_str!("seeds/signet_seeds.json"),
             Network::Regtest => include_str!("seeds/regtest_seeds.json"),
             Network::Testnet4 => include_str!("seeds/testnet4_seeds.json"),
-            // TODO: handle possible Err
-            _ => panic!("Unsupported network"),
         }
     }
 
@@ -1035,7 +1033,7 @@ mod test {
         assert!(!AddressMan::get_net_seeds(Network::Testnet).is_empty());
 
         assert_ok!(AddressMan::get_seeds_from_dns(
-            &get_chain_dns_seeds(Network::Signet).unwrap()[0],
+            &get_chain_dns_seeds(Network::Signet)[0],
             8333,
             None, // No proxy
         ));

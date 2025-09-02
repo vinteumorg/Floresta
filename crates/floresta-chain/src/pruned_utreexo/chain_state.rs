@@ -531,8 +531,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         network: Network,
         assume_valid: AssumeValidArg,
     ) -> ChainState<PersistedState> {
-        // TODO: handle possible Err
-        let parameters = network.try_into().expect("Unsupported network");
+        let parameters = network.into();
         let genesis = genesis_block(&parameters);
 
         chainstore
@@ -543,9 +542,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             .update_block_index(0, genesis.block_hash())
             .expect("Error updating index");
 
-        // TODO: handle possible Err
-        let assume_valid =
-            ChainParams::get_assume_valid(network, assume_valid).expect("Unsupported network");
+        let assume_valid = ChainParams::get_assume_valid(network, assume_valid);
 
         ChainState {
             inner: RwLock::new(ChainStateInner {
@@ -725,12 +722,9 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
             subscribers: Vec::new(),
             ibd: true,
             consensus: Consensus {
-                // TODO: handle possible Err
-                parameters: network.try_into().expect("Unsupported network"),
+                parameters: network.into(),
             },
-            // TODO: handle possible Err
-            assume_valid: ChainParams::get_assume_valid(network, assume_valid)
-                .expect("Unsupported network"),
+            assume_valid: ChainParams::get_assume_valid(network, assume_valid),
         };
 
         info!(
@@ -1712,7 +1706,7 @@ mod test {
         let next_target = Consensus::calc_next_work_required(
             &last_block,
             &first_block,
-            ChainParams::try_from(Network::Signet).unwrap(),
+            ChainParams::from(Network::Signet),
         );
 
         assert_eq!(0x1e012fa7, next_target.to_compact_lossy().to_consensus());

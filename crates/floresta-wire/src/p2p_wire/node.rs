@@ -747,8 +747,6 @@ where
             Network::Testnet => 18333,
             Network::Regtest => 18444,
             Network::Testnet4 => 48333,
-            // TODO: handle possible Err
-            _ => panic!("Unsupported network"),
         }
     }
 
@@ -1277,9 +1275,7 @@ where
         });
 
         tokio::task::spawn_blocking(move || {
-            // TODO: handle possible Err
-            let dns_seeds =
-                floresta_chain::get_chain_dns_seeds(network).expect("Unsupported network");
+            let dns_seeds = floresta_chain::get_chain_dns_seeds(network);
             let mut addresses = Vec::new();
 
             let default_port = Self::get_port(network);
