@@ -46,6 +46,13 @@ use super::res::ScriptPubKeyJson;
 use super::res::ScriptSigJson;
 use super::res::TxInJson;
 use super::res::TxOutJson;
+use crate::json_rpc::request::arg_parser::get_bool;
+use crate::json_rpc::request::arg_parser::get_hash;
+use crate::json_rpc::request::arg_parser::get_hashes_array;
+use crate::json_rpc::request::arg_parser::get_numeric;
+use crate::json_rpc::request::arg_parser::get_optional_field;
+use crate::json_rpc::request::arg_parser::get_string;
+use crate::json_rpc::request::RpcRequest;
 use crate::json_rpc::res::RescanConfidence;
 
 pub(super) struct InflightRpc {
@@ -238,10 +245,8 @@ async fn handle_json_rpc_request(
         id,
     } = req;
 
-    if let Some(version) = jsonrpc {
-        if !["1.0", "2.0"].contains(&version.as_str()) {
-            return Err(JsonRpcError::InvalidRequest);
-        }
+    if jsonrpc != "2.0" {
+        return Err(JsonRpcError::InvalidRequest);
     }
 
     state.inflight.write().await.insert(
@@ -260,9 +265,9 @@ async fn handle_json_rpc_request(
         }
 
         "getblock" => {
-            let hash = BlockHash::from_str(params[0].as_str().ok_or(JsonRpcError::InvalidHash)?)
-                .map_err(|_| JsonRpcError::InvalidHash)?;
-            let verbosity = params.get(1).map(|v| v.as_u64().unwrap() as u8);
+            let hash = get_hash(&params, 0, "block_hash")?;
+            let verbosity = get_numeric(&params, 1, "verbosity")?;
+
             match verbosity {
                 0 => {
                     let block = state.get_block_serialized(hash).await?;
@@ -313,13 +318,14 @@ async fn handle_json_rpc_request(
         }
 
         "gettxout" => {
-            let txid = Txid::from_str(params[0].as_str().ok_or(JsonRpcError::InvalidHash)?)
-                .map_err(|_| JsonRpcError::InvalidHash)?;
-            let vout = params[1].as_u64().ok_or(JsonRpcError::InvalidVout)? as u32;
-            let include_mempool = params[2].as_bool().unwrap_or(false);
+            let txid = get_hash(&params, 0, "txid")?;
+            let vout = get_numeric(&params, 1, "vout")?;
+            let include_mempool =
+                get_optional_field(&params, 2, "include_mempool", get_bool)?.unwrap_or(false);
+
             state
                 .get_tx_out(txid, vout, include_mempool)
-                .map(|v| ::serde_json::to_value(v).unwrap())
+                .map(|v| serde_json::to_value(v).unwrap())
         }
 
         "gettxoutproof" => {
@@ -416,21 +422,25 @@ async fn handle_json_rpc_request(
         }
 
         "rescanblockchain" => {
-            let start_height = params.first().and_then(Value::as_u64).map(|h| h as u32);
+            let start_height = get_optional_field(&params, 0, "start_height", get_numeric)?;
+            let stop_height = get_optional_field(&params, 1, "stop_height", get_numeric)?;
+            let use_timestamp =
+                get_optional_field(&params, 2, "use_timestamp", get_bool)?.unwrap_or(false);
+            let confidence_str = get_optional_field(&params, 3, "confidence", get_string)?
+                .unwrap_or("medium".into());
 
-            let stop_height = params.get(1).and_then(Value::as_u64).map(|h| h as u32);
-
-            let use_timestamp = params.get(2).and_then(Value::as_bool).unwrap_or(false);
-
-            let confidence_str = params.get(3).and_then(Value::as_str).unwrap_or("low");
-
-            let confidence =
-                serde_json::from_str(confidence_str).map_err(|_| JsonRpcError::InvalidRequest)?;
+            let confidence = match confidence_str.as_str() {
+                "low" => RescanConfidence::Low,
+                "medium" => RescanConfidence::Medium,
+                "high" => RescanConfidence::High,
+                "exact" => RescanConfidence::Exact,
+                _ => return Err(JsonRpcError::InvalidRescanVal),
+            };
 
             state
-                .rescan_blockchain(start_height, stop_height, use_timestamp, confidence)
+                .rescan_blockchain(start_height, stop_height, use_timestamp, Some(confidence))
                 .await
-                .map(|v| ::serde_json::to_value(v).unwrap())
+                .map(|v| serde_json::to_value(v).unwrap())
         }
 
         "sendrawtransaction" => {
@@ -468,6 +478,8 @@ fn get_http_error_code(err: &JsonRpcError) -> u16 {
         | JsonRpcError::InvalidTimestamp
         | JsonRpcError::InvalidRescanVal
         | JsonRpcError::NoAddressesToRescan
+        | JsonRpcError::InvalidParameterType(_)
+        | JsonRpcError::MissingParameter(_)
         | JsonRpcError::Wallet(_) => 400,
 
         // idunnolol
