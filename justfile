@@ -2,6 +2,16 @@
 default:
   @just --list
 
+# Checks whether a command is available.
+check-command cmd recipe="check-command" link_to_package="":
+    @if ! command -v "{{cmd}}" >/dev/null; then \
+        echo "Command '{{cmd}}' is not available, but 'just {{recipe}}' requires it." >&2; \
+        if [ -n "{{link_to_package}}" ]; then \
+            echo "This might help you: {{link_to_package}}" >&2; \
+        fi; \
+        exit 1; \
+    fi
+
 # Run Florestad locally
 run:
     cargo run --bin florestad
@@ -50,6 +60,7 @@ test-functional-run arg="":
 
 # Format and lint functional tests
 test-functional-uv-fmt:
+    @just check-command uv test-functional-uv-fmt "https://docs.astral.sh/uv/getting-started/installation/"
     uv run black --verbose ./tests
     uv run pylint --verbose ./tests
 
@@ -78,7 +89,6 @@ doc-check:
 
 # Format code and run configured linters
 lint:
-    @just spell-check
     @just fmt
     @just doc-check
 
@@ -102,6 +112,7 @@ lint:
     cargo +nightly clippy -p florestad --all-targets \
         --features compact-filters,zmq-server,json-rpc,metrics,flat-chainstore
 
+    @just spell-check
     # Lint the functional tests
     @just test-functional-uv-fmt
 
@@ -120,13 +131,14 @@ test-features arg="":
 
 # Format code and run clippy for all feature combinations in each crate (arg: optional, e.g., '-- -D warnings')
 lint-features arg="":
-    @just spell-check
     @just fmt
     @just doc-check
-    @just test-functional-uv-fmt
-
+    
     cargo install cargo-hack --locked
     ./contrib/feature_matrix.sh clippy '{{arg}}'
+    
+    @just spell-check
+    @just test-functional-uv-fmt
 
 # Remove test-generated data
 clean-data:
@@ -142,10 +154,12 @@ pcc:
 # Needs sudo to overwrite existing man pages
 # Convert all markdown files on /doc/rpc/ to man pages on /doc/rpc_man/
 gen-manpages path="":
+    @just check-command pandoc gen-manpages "https://pandoc.org/installing.html"
     ./contrib/dist/gen_manpages.sh {{path}}
 
+# Run typos
 spell-check:
-    cargo +nightly install typos-cli --locked
+    @just check-command typos spell-check "cargo +nightly install typos-cli --locked"
     typos
 
 # Usage:
