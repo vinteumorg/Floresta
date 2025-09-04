@@ -120,7 +120,6 @@ lint:
         --features compact-filters,zmq-server,json-rpc,metrics,flat-chainstore
 
     @just spell-check
-
     # Lint the functional tests
     @just test-functional-uv-fmt
 
@@ -141,9 +140,12 @@ test-features arg="":
 lint-features arg="":
     @just fmt
     @just doc-check
-
+    
     cargo install cargo-hack --locked
     ./contrib/feature_matrix.sh clippy '{{arg}}'
+    
+    @just spell-check
+    @just test-functional-uv-fmt
 
     @just spell-check
     @just test-functional-uv-fmt
