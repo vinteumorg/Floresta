@@ -1,4 +1,5 @@
 use std::fmt::Debug;
+mod parsers;
 
 use anyhow::Ok;
 use bitcoin::BlockHash;
@@ -6,11 +7,11 @@ use bitcoin::Network;
 use bitcoin::Txid;
 use clap::Parser;
 use clap::Subcommand;
-use floresta_cli::jsonrpc_client::Client;
-use floresta_cli::rpc::FlorestaRPC;
-use floresta_cli::rpc_types::AddNodeCommand;
-use floresta_cli::rpc_types::GetBlockRes;
-use floresta_cli::rpc_types::RescanConfidence;
+use floresta_rpc::jsonrpc_client::Client;
+use floresta_rpc::rpc::FlorestaRPC;
+use floresta_rpc::rpc_types::AddNodeCommand;
+use floresta_rpc::rpc_types::GetBlockRes;
+use floresta_rpc::rpc_types::RescanConfidence;
 
 // Main function that runs the CLI application
 fn main() -> anyhow::Result<()> {
@@ -168,7 +169,7 @@ pub enum Methods {
     #[command(name = "gettxoutproof")]
     GetTxOutProof {
         /// The transaction IDs to prove
-        #[arg(required = true, value_parser = floresta_cli::parsers::parse_json_array::<Txid>)]
+        #[arg(required = true, value_parser = crate::parsers::parse_json_array::<Txid>)]
         txids: std::vec::Vec<Txid>, // you need to specify the path of Vec https://github.com/clap-rs/clap/discussions/4695
 
         /// The block in which to look for the transactions

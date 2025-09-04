@@ -44,7 +44,7 @@ let
         # Since we only use this introspection of Cargo.toml for getting package
         # version, this ones gets the version from florestad which is the one we
         # track major progress of the project.
-        cargoToml = builtins.fromTOML (builtins.readFile "${src}/florestad/Cargo.toml");
+        cargoToml = builtins.fromTOML (builtins.readFile "${src}/bin/florestad/Cargo.toml");
       }
     else if packageName == "libfloresta" then
       {
@@ -65,7 +65,7 @@ let
         description = "Floresta daemon";
 
         # We need to get a different toml for different packages
-        cargoToml = builtins.fromTOML (builtins.readFile "${src}/florestad/Cargo.toml");
+        cargoToml = builtins.fromTOML (builtins.readFile "${src}/bin/florestad/Cargo.toml");
       }
     else if packageName == "floresta-cli" then
       {
@@ -77,7 +77,7 @@ let
         description = "Floresta CLI";
 
         # We need to get a different toml for different packages
-        cargoToml = builtins.fromTOML (builtins.readFile "${src}/crates/floresta-cli/Cargo.toml");
+        cargoToml = builtins.fromTOML (builtins.readFile "${src}/bin/floresta-cli/Cargo.toml");
       }
     else
       throw "Requested packageName '${packageName}' not found. Available packages: florestalib, florestad, floresta-cli and all (exports everything)";
