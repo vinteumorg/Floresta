@@ -2,30 +2,32 @@
 
 Brief description of what this RPC does and its primary purpose.
 
-## Arguments
+## Usage
 
-* `param1` - (type, required or optional) Description of the first parameter
+### Synopsis
 
-Please, always skip a line to render properly on man-pages.
+floresta-cli <command> <param1, parameter_type> <param2> [<optional_flag, (-f or --flag)>]
 
-```json5
-// Wrap with `[` and `]` to indicate an array of objects
-[
+### Examples
 
-  {
-
-    "json_string": "str", // (String, required) Description about the expected JSON object.
-
-    "numeric_field": 123, // (Numeric, optional) Describes an optional field.
-
-    "boolean_field": true // (Boolean, required) Describes an obligatory boolean.
-
-  }
-
-]
+```bash
+floresta-cli templatecommand -f "data"
+floresta-cli templatecommand --flag "moredata"
+floresta-cli templatecommand  123
 ```
 
-* `param2`  - Description of optional parameter (default: value) (type)
+## Arguments
+
+`param1` - (type, required or optional) Description of the first parameter
+
+  * `json_string` (string, required) Description about the expected JSON object.
+
+  * `numeric_field` (numeric, optional) Describes an optional field.
+
+  * `boolean_field`(boolean, required) Describes an obligatory boolean.
+
+
+`param2`  - (type, required or optional) Description of optional parameter 
 
 ## Returns
 
@@ -37,12 +39,6 @@ Please, always skip a line to render properly on man-pages.
 ### Error Enum `CommandError`
 
 (Command error is a well documented enum returned client side)
-
-## Usage Examples
-
-```bash
-floresta-cli <command> <param1> <param2> <optional_param>
-```
 
 ## Notes
 
