@@ -2,56 +2,52 @@
 
 Returns details about an unspent transaction output.
 
-## Arguments
+## Usage
 
-* `txid` - (string, required) The transaction id;
-* `command` - (string, required) vout number;
-* `include_mempool` - (not implemented).
-
-## Returns
-
-### Ok Response
-
-* `"bestblock"`: (String) The hash of the block at the tip of the chain;
-* `"confirmations"`: (Numeric) The number of confirmations;
-* `"value"` : (Numeric) The transaction value in BTC;
-* `"scriptPubKey"` : (json)
-  * `"asm"` : (String) The assembled scriptPubKey
-  * `"hex"` : (String) The raw scriptPubKey
-  * `"type"` : (String) The type, eg pubkeyhash
-  * `"addresses"` : (String) bitcoin addresses
-* `"coinbase"` : (Boolean) Coinbase or not.
-
-### Error Enum `CommandError`
-
-* `JsonRpcError::BlockNotFound`;
-* `JsonRpcError::InvalidScript`;
-* `JsonRpcError::InvalidDescriptor`;
-* `JsonRpcError::Encode`
-
-## Usage Examples
-
-* General usage:
+### Synopsis
 
 ```bash
 floresta-cli gettxout <txid> <n> (include_mempool)
 ```
 
-* Examples:
+### Examples
 
 ```bash
-# gettxout with a txid, vout 0 and include_mempool is false by default
+# gettxout with a txid, vout 0
 floresta-cli gettxout aa5f3068b53941915d82be382f2b35711305ec7d454a34ca69f8897510db7ab8 0
-
-# gettxout with a txid, vout 0 and include_mempool is false
-floresta-cli gettxout aa5f3068b53941915d82be382f2b35711305ec7d454a34ca69f8897510db7ab8 0 false
-
-# gettxout with a txid, vout 0 and include_mempool is true
-floresta-cli gettxout aa5f3068b53941915d82be382f2b35711305ec7d454a34ca69f8897510db7ab8 0 true
 ```
+
+## Arguments
+
+`txid` - (string, required) The transaction id.
+
+`n` - (numeric, required) vout number.
+
+`include_mempool` - (not implemented, the argument is available to maintain API consistency but it value will be ignored).
+
+## Returns
+
+### Ok Response
+
+* `bestblock`: (string) The hash of the block at the tip of the chain;
+* `confirmations`: (numeric) The number of confirmations;
+* `value` : (numeric) The transaction value in BTC;
+* `scriptPubKey` : (json object)
+  * `asm` : (string) The assembled scriptPubKey
+  * `hex` : (string) The raw scriptPubKey
+  * `type` : (string) The type, eg pubkeyhash
+  * `addresses` : (string) bitcoin addresses
+* `coinbase` : (boolean) Coinbase or not.
+
+### Error Enum `CommandError`
+
+* `JsonRpcError::BlockNotFound`
+* `JsonRpcError::InvalidScript`
+* `JsonRpcError::InvalidDescriptor`
+* `JsonRpcError::Encode`
 
 ## Notes
 
-This `rpc` isn't fully implemented mostly because we need to implement mempool. For more information see [RPC Saga](https://github.com/orgs/vinteumorg/projects/5):
+* This `rpc` isn't fully implemented mostly because we need to implement a mempool. For more information see [RPC Saga](https://github.com/orgs/vinteumorg/projects/5):
 
-* It accept the `include_mempool` option, but for now, it do nothing;
+* The API accept the `include_mempool` argument but, for now, it does nothing.
