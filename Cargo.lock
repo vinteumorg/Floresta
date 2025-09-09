@@ -1109,7 +1109,6 @@ dependencies = [
  "rustreexo",
  "serde",
  "serde_json",
- "thiserror",
  "tokio",
  "ureq",
  "zstd",

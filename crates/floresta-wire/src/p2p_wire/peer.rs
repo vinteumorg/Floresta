@@ -6,9 +6,7 @@ use std::time::Instant;
 use bip324::serde::CommandString;
 use bitcoin::bip158::BlockFilter;
 use bitcoin::block::Header as BlockHeader;
-use bitcoin::consensus::deserialize;
 use bitcoin::consensus::encode;
-use bitcoin::consensus::serialize;
 use bitcoin::hashes::Hash;
 use bitcoin::p2p::address::AddrV2Message;
 use bitcoin::p2p::message::NetworkMessage;
@@ -18,7 +16,11 @@ use bitcoin::p2p::ServiceFlags;
 use bitcoin::Block;
 use bitcoin::BlockHash;
 use bitcoin::Transaction;
+use floresta_chain::UtreexoBlock;
 use floresta_common::impl_error_from;
+use log::debug;
+use log::error;
+use log::warn;
 use tokio::io::AsyncRead;
 use tokio::io::AsyncWrite;
 use tokio::spawn;
@@ -192,9 +194,14 @@ impl From<SendError<ReaderMessage>> for PeerError {
     }
 }
 
-pub enum ReaderMessage {
-    Message(NetworkMessage),
-    Error(PeerError),
+impl_error_from!(PeerError, TransportError, Transport);
+impl_error_from!(PeerError, std::io::Error, Read);
+impl_error_from!(PeerError, encode::Error, Parse);
+
+impl From<UtreexoBlock> for ReaderMessage {
+    fn from(block: UtreexoBlock) -> Self {
+        ReaderMessage::Block(block)
+    }
 }
 
 impl From<NetworkMessage> for ReaderMessage {
