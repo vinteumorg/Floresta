@@ -5,6 +5,7 @@ use std::time::Instant;
 
 use bitcoin::bip158::BlockFilter;
 use bitcoin::block::Header as BlockHeader;
+use bitcoin::consensus::encode;
 use bitcoin::hashes::Hash;
 use bitcoin::p2p::address::AddrV2Message;
 use bitcoin::p2p::message::NetworkMessage;
@@ -14,13 +15,14 @@ use bitcoin::p2p::ServiceFlags;
 use bitcoin::BlockHash;
 use bitcoin::Transaction;
 use floresta_chain::UtreexoBlock;
+use floresta_common::impl_error_from;
 use log::debug;
 use log::error;
 use log::warn;
-use thiserror::Error;
 use tokio::io::AsyncRead;
 use tokio::io::AsyncWrite;
 use tokio::spawn;
+use tokio::sync::mpsc::error::SendError;
 use tokio::sync::mpsc::unbounded_channel;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::mpsc::UnboundedSender;
@@ -117,33 +119,73 @@ pub struct Peer<T: AsyncWrite + Unpin + Send + Sync> {
     transport_protocol: TransportProtocol,
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug)]
+/// Enum for diverse variants of errors when dealing with a [`Peer`]
 pub enum PeerError {
-    #[error("Error while sending to peer")]
+    /// Error while sending data to a peer
     Send,
-    #[error("Error while reading from peer")]
-    Read(#[from] std::io::Error),
-    #[error("Error while parsing message")]
-    Parse(#[from] bitcoin::consensus::encode::Error),
-    #[error("Peer sent us a message that we aren't expecting")]
+
+    /// Error while reading data from a peer
+    Read(std::io::Error),
+
+    /// Error while parsing message
+    Parse(encode::Error),
+
+    /// Peer sent us a message that we aren't expecting
     UnexpectedMessage,
-    #[error("Peer sent us a message that is too big")]
+
+    /// Peer sent us a message that is too big
     MessageTooBig,
-    #[error("Peer sent us a message with the wrong magic bits")]
+
+    /// Peer sent us a message with the wrong magic bits
     MagicBitsMismatch,
-    #[error("Peer sent us too many message in a short period of time")]
+
+    /// Peer sent us too many messages in a short period of time
     TooManyMessages,
-    #[error("Peer timed a ping out")]
+
+    /// Peer timed out a ping message
     PingTimeout,
-    #[error("channel error")]
+
+    /// Channel error
     Channel,
-    #[error("Transport error: {0}")]
+
+    /// Transport error
     Transport(TransportError),
 }
 
-impl From<TransportError> for PeerError {
-    fn from(e: TransportError) -> Self {
-        PeerError::Transport(e)
+impl std::fmt::Display for PeerError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PeerError::Send => write!(f, "Error while sending to peer"),
+            PeerError::Read(err) => write!(f, "Error while reading from peer: {err:?}"),
+            PeerError::Parse(err) => write!(f, "Error while parsing message: {err:?}"),
+            PeerError::UnexpectedMessage => {
+                write!(f, "Peer sent us a message that we aren't expecting")
+            }
+            PeerError::MessageTooBig => write!(f, "Peer sent us a message that is too big"),
+            PeerError::MagicBitsMismatch => {
+                write!(f, "Peer sent us a message with the wrong magic bits")
+            }
+            PeerError::TooManyMessages => {
+                write!(
+                    f,
+                    "Peer sent us too many messages in a short period of time"
+                )
+            }
+            PeerError::PingTimeout => write!(f, "Peer timed out a ping"),
+            PeerError::Channel => write!(f, "Channel error with empty data"),
+            PeerError::Transport(err) => write!(f, "Transport error: {err:?}"),
+        }
+    }
+}
+
+impl_error_from!(PeerError, TransportError, Transport);
+impl_error_from!(PeerError, std::io::Error, Read);
+impl_error_from!(PeerError, encode::Error, Parse);
+
+impl From<SendError<ReaderMessage>> for PeerError {
+    fn from(_: SendError<ReaderMessage>) -> Self {
+        PeerError::Channel
     }
 }
 
@@ -151,12 +193,6 @@ pub enum ReaderMessage {
     Block(UtreexoBlock),
     Message(NetworkMessage),
     Error(PeerError),
-}
-
-impl From<tokio::sync::mpsc::error::SendError<ReaderMessage>> for PeerError {
-    fn from(_: tokio::sync::mpsc::error::SendError<ReaderMessage>) -> Self {
-        PeerError::Channel
-    }
 }
 
 impl From<UtreexoBlock> for ReaderMessage {

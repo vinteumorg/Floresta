@@ -7,56 +7,118 @@ use std::net::IpAddr;
 use floresta_chain::BlockchainError;
 use floresta_common::impl_error_from;
 use floresta_compact_filters::IterableFilterStoreError;
-use thiserror::Error;
+use tokio::sync::mpsc::error::SendError;
 
 use super::peer::PeerError;
 use super::transport::TransportError;
 use crate::node::NodeRequest;
 
-#[derive(Error, Debug)]
+#[derive(Debug)]
 pub enum WireError {
-    #[error("Blockchain error")]
+    /// Blockchain-related error.
+    ///
+    /// This error kind is returned by our `ChainState`.
     Blockchain(BlockchainError),
-    #[error("Error while writing into a channel")]
-    ChannelSend(tokio::sync::mpsc::error::SendError<NodeRequest>),
-    #[error("Peer error")]
+
+    /// Error while writing into a channel
+    ChannelSend(SendError<NodeRequest>),
+
+    /// Peer error
     PeerError(PeerError),
-    #[error("Coinbase didn't mature")]
+
+    /// Coinbase isn't mature
     CoinbaseNotMatured,
-    #[error("Peer not found in our current connections")]
+
+    /// Peer not found in our current connections
     PeerNotFound,
-    #[error("We don't have any peers")]
+
+    /// We don't have any peers that could fulfill such request.
     NoPeersAvailable,
-    #[error("Our peer is misbehaving")]
+
+    /// Our peer is misbehaving
     PeerMisbehaving,
-    #[error("Failed to init Utreexo peers: anchors.json does not exist yet")]
+
+    /// Failed to init Utreexo peers: anchors.json does not exist yet
     AnchorFileNotFound,
-    #[error("Peer {0}:{1} already exists")]
+
+    /// Peer already exists in our peers list
     PeerAlreadyExists(IpAddr, u16),
-    #[error("Peer {0}:{1} not found")]
+
+    /// Peer not found with this given address and port, in our peer list
     PeerNotFoundAtAddress(IpAddr, u16),
-    #[error("Generic io error: {0}")]
+
+    /// Generic io error
     Io(std::io::Error),
-    #[error("{0}")]
+
+    /// JSON (de)serialization error
     Serde(serde_json::Error),
-    #[error("Failed to save Utreexo peers: no peers to save to anchors.json")]
+
+    /// Failed to save Utreexo peers: no peers to save to anchors.json
     NoUtreexoPeersAvailable,
-    #[error("We couldn't find a peer to send the request")]
+
+    /// We couldn't find a peer to send a request
     NoPeerToSendRequest,
-    #[error("Peer timed out")]
+
+    /// Peer timed out some request
     PeerTimeout,
-    #[error("Compact block filters error")]
+
+    /// Compact block filters storage error
     CompactBlockFiltersError(IterableFilterStoreError),
-    #[error("Poisoned lock")]
+
+    /// Poisoned lock
     PoisonedLock,
-    #[error("We couldn't parse the provided address due to: {0}")]
+
+    /// We couldn't parse the provided address
     InvalidAddress(AddrParseError),
-    #[error("Transport error: {0}")]
+
+    /// Transport error
     Transport(TransportError),
-    #[error("Can't send back response for user request")]
+
+    /// Can't send back response for user request
     ResponseSendError,
-    #[error("No addresses available")]
+
+    /// No addresses available to connect to
     NoAddressesAvailable,
+}
+
+impl std::fmt::Display for WireError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            WireError::Blockchain(err) => write!(f, "Blockchain error: {err:?}"),
+            WireError::ChannelSend(err) => write!(f, "Error while writing into channel: {err:?}"),
+            WireError::PeerError(err) => write!(f, "Peer error: {err:?}"),
+            WireError::CoinbaseNotMatured => write!(f, "Coinbase isn't mature yet"),
+            WireError::PeerNotFound => write!(f, "Peer not found in our current connections list"),
+            WireError::NoPeersAvailable => write!(f, "We don't have peers to send a given request"),
+            WireError::PeerMisbehaving => write!(f, "Our peer is misbehaving"),
+            WireError::AnchorFileNotFound => write!(
+                f,
+                "Failed to init Utreexo peers: anchors.json does not exist yet"
+            ),
+            WireError::PeerAlreadyExists(ip, port) => write!(f, "Peer {ip}:{port} already exists"),
+            WireError::PeerNotFoundAtAddress(ip, port) => write!(f, "Peer {ip}:{port} not found"),
+            WireError::Io(err) => write!(f, "Generic IO error: {err:?}"),
+            WireError::Serde(err) => write!(f, "Serde error: {err:?}"),
+            WireError::NoUtreexoPeersAvailable => write!(
+                f,
+                "Failed to save Utreexo peers: no peers to save to anchors.json"
+            ),
+            WireError::NoPeerToSendRequest => {
+                write!(f, "We couldn't find a peer to send the request")
+            }
+            WireError::PeerTimeout => write!(f, "Peer timed out"),
+            WireError::CompactBlockFiltersError(err) => {
+                write!(f, "Compact block filters error: {err:?}")
+            }
+            WireError::PoisonedLock => write!(f, "Poisoned lock"),
+            WireError::InvalidAddress(err) => {
+                write!(f, "We couldn't parse the provided address due to: {err:?}")
+            }
+            WireError::Transport(err) => write!(f, "Transport error: {err:?}"),
+            WireError::ResponseSendError => write!(f, "Can't send back response for user request"),
+            WireError::NoAddressesAvailable => write!(f, "No addresses available to connect to"),
+        }
+    }
 }
 
 impl_error_from!(WireError, PeerError, PeerError);
