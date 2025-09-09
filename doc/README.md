@@ -5,12 +5,13 @@ This folder contains the general documentation for building, running, testing an
 You can check the files below for guidance.
 
 - [Installing](installing.md)
-- [Building-Unix](build-unix.md)
-- [Building-MacOS](build-macos.md)
+- [Building MacOS](build-macos.md)
+- [Building Unix](build-unix.md)
 - [Running](run.md)
 - [Configuring a Proxy](proxy.md)
 - [Testing](running-tests.md)
 - [Fuzzing](fuzzing.md)
 - [Benchmarking](benchmarking.md)
-- [Monitoring and Metrics](metrics.md)
 - [Using Nix](nix.md)
+- [Using Docker](docker.md)
+- [Monitoring and Metrics](metrics.md)
