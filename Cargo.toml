@@ -23,6 +23,7 @@ members = [
 
 default-members = [
     "crates/floresta",
+    "crates/floresta-node",
     "crates/floresta-chain",
     "crates/floresta-rpc",
     "crates/floresta-common",
@@ -33,3 +34,6 @@ default-members = [
     "bin/florestad",
     "bin/floresta-cli",
 ]
+
+[workspace.package]
+readme = "README.md"
