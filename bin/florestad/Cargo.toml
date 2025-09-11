@@ -13,28 +13,22 @@ options to customize the node to your needs. Check out the README.md and the doc
 for more information on how to use and configure Florestad.
 """
 repository = "https://github.com/vinteumorg/Floresta"
-readme.workspace = true # Floresta/README.md
 keywords = ["bitcoin", "utreexo", "node", "blockchain", "rust"]
 categories = ["cryptography::cryptocurrencies", "command-line-utilities"]
 
 [dependencies]
-bitcoin = { workspace = true }
-clap = { workspace = true }
-console-subscriber = { workspace = true, optional = true }
-dirs = "4.0"
-tokio = { workspace = true }
-tracing = { workspace = true }
-tracing-appender = "0.2"
-tracing-subscriber = { version = "0.3", features = ["chrono", "ansi", "env-filter"] }
-
-# Local dependencies
-floresta-node = { workspace = true }
+clap = { version = "4.0.29", features = ["derive"] }
+tokio = { version = "1", features = ["full"] }
+console-subscriber = { version = "0.4.1", optional = true }
+floresta-node = { path = "../../crates/floresta-node", default-features = false }
+log = "0.4"
+bitcoin = "0.32"
 
 [target.'cfg(unix)'.dependencies]
 daemonize = { version = "0.5.0" }
 
 [build-dependencies]
-toml = { workspace = true }
+toml = "0.8.20"
 
 [features]
 default = ["flat-chainstore", "json-rpc"]
@@ -45,6 +39,3 @@ zmq-server = ["floresta-node/zmq-server"]
 json-rpc = ["floresta-node/json-rpc", "compact-filters"]
 metrics = ["floresta-node/metrics"]
 tokio-console = ["dep:console-subscriber"]
-
-[lints]
-workspace = true

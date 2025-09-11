@@ -15,13 +15,8 @@ keywords = ["bitcoin", "utreexo", "node", "blockchain", "rust"]
 categories = ["cryptography::cryptocurrencies", "command-line-utilities"]
 
 [dependencies]
+clap = { version = "4.0.29", features = ["derive"] }
+bitcoin = { version = "0.32", features = ["serde", "std"] }
+serde_json = "1.0"
 anyhow = "1.0"
-bitcoin = { workspace = true }
-clap = { workspace = true }
-serde_json = { workspace = true }
-
-# Local dependencies
-floresta-rpc = { workspace = true, features = ["clap"] }
-
-[lints]
-workspace = true
+floresta-rpc = { path = "../../crates/floresta-rpc", features = ["clap"] }

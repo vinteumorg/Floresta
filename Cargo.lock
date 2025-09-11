@@ -484,7 +484,7 @@ dependencies = [
 name = "cfg-if"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
+checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
 name = "chacha20-poly1305"
@@ -1076,6 +1076,52 @@ dependencies = [
 ]
 
 [[package]]
+name = "floresta-node"
+version = "0.8.0"
+dependencies = [
+ "axum",
+ "bitcoin 0.32.7",
+ "chrono",
+ "dirs",
+ "dns-lookup 2.0.4",
+ "fern",
+ "floresta-chain",
+ "floresta-common",
+ "floresta-compact-filters",
+ "floresta-electrum",
+ "floresta-watch-only",
+ "floresta-wire",
+ "kv",
+ "libc",
+ "log",
+ "metrics",
+ "miniscript 12.3.2",
+ "pretty_assertions",
+ "rcgen",
+ "rustreexo",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-rustls",
+ "toml 0.8.22",
+ "tower-http",
+ "zmq",
+]
+
+[[package]]
+name = "floresta-rpc"
+version = "0.4.0"
+dependencies = [
+ "bitcoin 0.32.7",
+ "clap",
+ "jsonrpc",
+ "rand",
+ "rcgen",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "floresta-watch-only"
 version = "0.4.0"
 dependencies = [
@@ -1118,37 +1164,14 @@ dependencies = [
 name = "florestad"
 version = "0.8.0"
 dependencies = [
- "axum",
  "bitcoin 0.32.7",
- "chrono",
  "clap",
  "console-subscriber",
- "ctrlc",
  "daemonize",
- "dirs",
- "dns-lookup 2.0.4",
- "fern",
- "floresta-chain",
- "floresta-common",
- "floresta-compact-filters",
- "floresta-electrum",
- "floresta-watch-only",
- "floresta-wire",
- "kv",
- "libc",
- "metrics",
- "miniscript",
- "pretty_assertions",
- "rcgen",
- "rustreexo",
- "serde",
- "serde_json",
+ "floresta-node",
+ "log",
  "tokio",
- "tokio-rustls",
- "toml 0.9.8",
- "tower-http",
- "tracing",
- "zmq",
+ "toml 0.8.22",
 ]
 
 [[package]]
@@ -1987,8 +2010,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "69d83b0086dc8ecf3ce9ae2874b2d1290252e2a30720bea58a5c6639b0092873"
 dependencies = [
  "libc",
- "wasi",
- "windows-sys 0.61.2",
+ "wasi 0.11.0+wasi-snapshot-preview1",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

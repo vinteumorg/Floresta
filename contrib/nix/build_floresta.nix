@@ -95,17 +95,6 @@ let
         # We need to get a different toml for different packages
         cargoToml = builtins.fromTOML (builtins.readFile "${src}/bin/floresta-cli/Cargo.toml");
       }
-    else if packageName == "floresta-debug" then
-      {
-        pname = "${packageName}";
-        cargoBuildFlags = [ ];
-        description = "Floresta in debug mode with more metadata for on-the-run development";
-
-        buildFeatures = buildFeatures ++ [ "metrics" ];
-
-        # We need to get a different toml for different packages
-        cargoToml = builtins.fromTOML (builtins.readFile "${src}/bin/florestad/Cargo.toml");
-      }
     else
       throw "Requested packageName '${packageName}' not found. Available packages: florestalib, florestad, floresta-cli and all (exports everything)";
 in
