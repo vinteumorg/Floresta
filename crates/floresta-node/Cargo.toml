@@ -2,6 +2,7 @@
 name = "floresta-node"
 version = "0.8.0"
 edition = "2021"
+readme.workspace = true # Floresta/README.md
 
 [dependencies]
 rustreexo = "0.4"

@@ -10,7 +10,8 @@ users to perform various operations such as querying blockchain data, managing w
 broadcasting transactions through a simple and efficient API.
 """
 repository = "https://github.com/vinteumorg/Floresta"
-readme = "README.md"
+readme.workspace = true # Floresta/README.md
+
 keywords = ["bitcoin", "utreexo", "node", "blockchain", "rust"]
 categories = ["cryptography::cryptocurrencies", "command-line-utilities"]
 
