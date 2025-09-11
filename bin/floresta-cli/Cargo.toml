@@ -11,6 +11,7 @@ on how to use the CLI.
 """
 repository = "https://github.com/vinteumorg/Floresta"
 readme = "README.md"
+
 keywords = ["bitcoin", "utreexo", "node", "blockchain", "rust"]
 categories = ["cryptography::cryptocurrencies", "command-line-utilities"]
 

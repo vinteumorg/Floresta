@@ -13,6 +13,8 @@ options to customize the node to your needs. Check out the README.md and the doc
 for more information on how to use and configure Florestad.
 """
 repository = "https://github.com/vinteumorg/Floresta"
+readme.workspace = true # Floresta/README.md
+
 keywords = ["bitcoin", "utreexo", "node", "blockchain", "rust"]
 categories = ["cryptography::cryptocurrencies", "command-line-utilities"]
 
