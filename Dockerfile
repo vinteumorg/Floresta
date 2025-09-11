@@ -17,7 +17,7 @@ RUN rustup default 1.74.0
 WORKDIR /opt/app
 
 COPY Cargo.* ./
-COPY florestad/ florestad/
+COPY bin/ bin/
 COPY crates/ crates/
 COPY fuzz/ fuzz/
 COPY metrics/ metrics/

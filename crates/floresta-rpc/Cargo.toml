@@ -1,41 +1,31 @@
 [package]
-name = "floresta-cli"
+name = "floresta-rpc"
 version = "0.4.0"
 edition = "2021"
 authors = ["Davidson Souza <davidson.lucas.souza@outlook.com>"]
 license = "MIT"
 description = """
-    A command line interface for Florestad. You can use this client to interact
-    with a running Florestad node.
+floresta-rpc is a Rust library that provides a JSON-RPC interface for interacting with Floresta. It allows
+users to perform various operations such as querying blockchain data, managing wallets, and
+broadcasting transactions through a simple and efficient API.
 """
 repository = "https://github.com/vinteumorg/Floresta"
 readme = "README.md"
 keywords = ["bitcoin", "utreexo", "node", "blockchain", "rust"]
 categories = ["cryptography::cryptocurrencies", "command-line-utilities"]
 
-
 [dependencies]
-clap = { version = "4.0.29", features = ["derive"] }
 bitcoin = { version = "0.32", features = ["serde", "std"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-anyhow = "1.0"
-jsonrpc = { version = "0.18.0", optional = true, features = ["minreq_http"] }
+jsonrpc = { version = "0.18.0", features = ["minreq_http"], optional = true }
+clap = { version = "4.0.29", features = ["derive"], optional = true }
 
 [features]
 default = ["with-jsonrpc"]
 with-jsonrpc = ["dep:jsonrpc"]
+clap = ["dep:clap"]
 
 [dev-dependencies]
 rand = "0.8.5"
-tempfile = "3.9.0"
 rcgen = "0.13"
-
-[lib]
-name = "floresta_cli"
-path = "src/lib.rs"
-
-[[bin]]
-name = "floresta-cli"
-path = "src/main.rs"
-required-features = ["with-jsonrpc"]

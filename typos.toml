@@ -1,2 +1,2 @@
 [files]
-extend-exclude = ["florestad/docs/tutorial(PT-BR).md"]
+extend-exclude = ["bin/florestad/docs/tutorial(PT-BR).md"]
