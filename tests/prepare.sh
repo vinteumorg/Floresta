@@ -20,11 +20,6 @@ FLORESTA_PROJ_DIR=$(git rev-parse --show-toplevel)
 # This helps us to keep track of the actual version being tested without conflicting with any already installed binaries.
 GIT_DESCRIBE=$(git describe --tags --always)
 
-# Floresta can't talk the new, experimental p2p messages for utreexo. This is the last version of utreexod that
-# implements the old p2p messages, and is used for testing by default. It can be overridden by setting the
-# UTREEXO_REVISION environment variable.
-export DEFAULT_UTREEXO_REV="0.4.1"
-
 export FLORESTA_TEMP_DIR="/tmp/floresta-func-tests.${GIT_DESCRIBE}"
 
 # Dont use mktemp so we can have deterministic results for each version of floresta.
@@ -97,20 +92,6 @@ build_utreexod() {
     git clone https://github.com/utreexo/utreexod
 
     cd utreexod
-    TEMP_REV=$DEFAULT_UTREEXO_REV
-
-    # check if UTREEXO_REVISION is set, if so checkout to it
-    if [ -n "$UTREEXO_REVISION" ]; then
-        TEMP_REV="$UTREEXO_REVISION"
-    fi
-
-    # Check if the revision exists as a tag only
-    if git --no-pager tag -l | grep "$TEMP_REV"; then
-        git checkout "tags/v$TEMP_REV"
-    else
-        echo "utreexod 'v$TEMP_REV' is not a valid tag in this repository."
-        exit 1
-    fi
 
     go build -o $FLORESTA_TEMP_DIR/binaries/. .
     rm -rf $FLORESTA_TEMP_DIR/binaries/build

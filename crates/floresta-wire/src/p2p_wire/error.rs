@@ -4,6 +4,7 @@ use std::fmt::{self};
 use std::io;
 use std::net::IpAddr;
 
+use floresta_chain::proof_util::UtreexoLeafError;
 use floresta_chain::BlockchainError;
 use floresta_common::impl_error_from;
 use floresta_compact_filters::IterableFilterStoreError;
@@ -79,6 +80,18 @@ pub enum WireError {
 
     /// No addresses available to connect to
     NoAddressesAvailable,
+
+    /// We tried to work on block we don't have. This is a bug!
+    BlockNotFound,
+
+    /// We tried to work on block that we don't have a proof for it yet. This is a bug!
+    BlockProofNotFound,
+
+    /// Invalid proof for block
+    InvalidBlockProof(UtreexoLeafError),
+
+    /// Couldn't find the leaf data for a block
+    LeafDataNotFound,
 }
 
 impl std::fmt::Display for WireError {
@@ -117,6 +130,13 @@ impl std::fmt::Display for WireError {
             WireError::Transport(err) => write!(f, "Transport error: {err:?}"),
             WireError::ResponseSendError => write!(f, "Can't send back response for user request"),
             WireError::NoAddressesAvailable => write!(f, "No addresses available to connect to"),
+            WireError::BlockNotFound => write!(f, "We tried to work on block we don't have"),
+            WireError::BlockProofNotFound => write!(
+                f,
+                "We tried to work on block that we don't have a proof for it yet"
+            ),
+            WireError::InvalidBlockProof(err) => write!(f, "Invalid proof for block: {err:?}"),
+            WireError::LeafDataNotFound => write!(f, "Couldn't find the leaf data for a block"),
         }
     }
 }
@@ -129,6 +149,7 @@ impl_error_from!(
     CompactBlockFiltersError
 );
 impl_error_from!(WireError, AddrParseError, InvalidAddress);
+impl_error_from!(WireError, UtreexoLeafError, InvalidBlockProof);
 
 impl From<tokio::sync::mpsc::error::SendError<NodeRequest>> for WireError {
     fn from(error: tokio::sync::mpsc::error::SendError<NodeRequest>) -> Self {

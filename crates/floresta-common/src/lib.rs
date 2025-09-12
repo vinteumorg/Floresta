@@ -7,9 +7,12 @@
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 #![no_std]
 
+use bitcoin::consensus::encode;
+use bitcoin::consensus::Decodable;
 use bitcoin::hashes::sha256;
 use bitcoin::hashes::Hash;
 use bitcoin::ScriptBuf;
+use bitcoin::VarInt;
 #[cfg(any(feature = "descriptors-std", feature = "descriptors-no-std"))]
 use miniscript::Descriptor;
 #[cfg(any(feature = "descriptors-std", feature = "descriptors-no-std"))]
@@ -46,6 +49,23 @@ pub fn get_spk_hash(spk: &ScriptBuf) -> sha256::Hash {
     let mut hash = sha2::Sha256::new().chain_update(data).finalize();
     hash.reverse();
     sha256::Hash::from_byte_array(hash.into())
+}
+
+/// Reads a VarInt from the given reader and ensures it is less than or equal to `max`.
+///
+/// Returns an error if the VarInt is larger than `max`.
+pub fn read_bounded_len<R: bitcoin::io::Read + ?Sized>(
+    reader: &mut R,
+    max: usize,
+) -> Result<usize, encode::Error> {
+    let n64 = VarInt::consensus_decode(reader)?.0;
+    if n64 > max as u64 {
+        return Err(encode::Error::OversizedVectorAllocation {
+            requested: n64 as usize,
+            max,
+        });
+    }
+    Ok(n64 as usize)
 }
 
 /// Non-standard service flags that aren't in rust-bitcoin yet.
