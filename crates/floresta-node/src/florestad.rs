@@ -432,8 +432,8 @@ impl Florestad {
             Network::Bitcoin => false,
             Network::Signet => true,
             Network::Testnet => false,
-            Network::Regtest => false,
             Network::Testnet4 => false,
+            Network::Regtest => false,
         };
 
         // If this network already allows pow fraud proofs, we should use it instead of assumeutreexo
