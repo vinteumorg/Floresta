@@ -64,9 +64,9 @@ struct Block {
 
 #[derive(Debug)]
 pub struct TestPeer {
-    _headers: Vec<Header>,
+    headers: Vec<Header>,
     blocks: HashMap<BlockHash, UtreexoBlock>,
-    _filters: HashMap<BlockHash, Vec<u8>>,
+    filters: HashMap<BlockHash, Vec<u8>>,
     node_tx: UnboundedSender<NodeNotification>,
     node_rx: UnboundedReceiver<NodeRequest>,
     peer_id: u32,
@@ -82,9 +82,9 @@ impl TestPeer {
         peer_id: u32,
     ) -> Self {
         TestPeer {
-            _headers: headers,
+            headers,
             blocks,
-            _filters: filters,
+            filters,
             node_tx,
             node_rx,
             peer_id,
@@ -119,12 +119,11 @@ impl TestPeer {
 
             match req {
                 NodeRequest::GetHeaders(hashes) => {
-                    let pos = hashes.first().unwrap();
-                    let pos = self._headers.iter().position(|h| h.block_hash() == *pos);
-                    let headers = match pos {
-                        None => vec![],
-                        Some(pos) => self._headers[(pos + 1)..].to_vec(),
-                    };
+                    let headers = hashes
+                        .iter()
+                        .filter_map(|h| self.headers.iter().find(|x| x.block_hash() == *h))
+                        .copied()
+                        .collect();
 
                     self.node_tx
                         .send(NodeNotification::FromPeer(
@@ -134,7 +133,7 @@ impl TestPeer {
                         .unwrap();
                 }
                 NodeRequest::GetUtreexoState((hash, _)) => {
-                    let filters = self._filters.get(&hash).unwrap().clone();
+                    let filters = self.filters.get(&hash).unwrap().clone();
                     self.node_tx
                         .send(NodeNotification::FromPeer(
                             self.peer_id,
