@@ -94,7 +94,7 @@ floresta-cli help <command>
 
 Floresta comes with a watch-only wallet that you can use to track your transactions. You just need to provide the wallet
 information, either as a configuration file or as a command line argument. See the [sample configuration file](../config.toml.sample) for an example config. Floresta supports SLIP-132 extended public keys (xpubs) and output descriptors. You can add new wallets to follow at any time, just
-call the `rescan` rpc after adding the wallet.
+call the `rescanblockchain` rpc after adding the wallet.
 
 You can add new descriptors to the wallet with the `importdescriptor` rpc.
 
@@ -110,10 +110,10 @@ using the `--filters-start-height` option. Let's you know that none of your wall
 ./target/release/florestad --filters-start-height 800000
 ```
 
-if you add a wallet and want to rescan the blocks from 800,000 to the current height, you can use the `rescan` rpc.
+if you add a wallet and want to rescan the blocks from 800,000 to the current height, you can use the `rescanblockchain` rpc.
 
 ```bash
-floresta-cli rescan 800000
+floresta-cli rescanblockchain 800000
 ```
 
 Once you have a transaction cached in your watch-only, you can use either the rpc or integrated electrum server to retrieve information about your wallet. You can use wallets like Electrum or Sparrow to connect to your node and retrieve information about your wallet. Just connect with the server running at `127.0.0.1:50001:t`. On electrum you may want to use the `--oneserver` flag to connect to a single server, for better privacy.

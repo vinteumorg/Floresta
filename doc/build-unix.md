@@ -27,9 +27,9 @@ and build with cargo build
 ```bash
 cargo build --release
 
-# Optionally, you can add florestad and floresta-cli to the path with
-cargo install --path ./florestad
-cargo install --path ./crates/floresta-cli
+# Alternatively, you can add florestad and floresta-cli to the path with
+cargo install --path ./bin/florestad --locked
+cargo install --path ./bin/floresta-cli --locked
 ```
 
 If you are using Nix, you can add Florestad to your system following the instructions [here](nix.md).
