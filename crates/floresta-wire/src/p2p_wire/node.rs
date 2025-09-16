@@ -1254,19 +1254,7 @@ where
             }
 
             InflightRequests::Blocks(block) => {
-                if !self.has_utreexo_peers() {
-                    return Ok(());
-                }
-
-                let peer = self
-                    .send_to_random_peer(
-                        NodeRequest::GetBlock(vec![block]),
-                        service_flags::UTREEXO.into(),
-                    )
-                    .await?;
-
-                self.inflight
-                    .insert(InflightRequests::Blocks(block), (peer, Instant::now()));
+                self.request_blocks(vec![block]).await?;
             }
             InflightRequests::Headers => {
                 let peer = self
@@ -1408,6 +1396,15 @@ where
                 self.common
                     .peer_by_service
                     .entry(ServiceFlags::from(1 << 25))
+                    .or_default()
+                    .push(peer);
+            }
+
+            // We can request historical blocks from this peer
+            if peer_data.services.has(ServiceFlags::NETWORK) {
+                self.common
+                    .peer_by_service
+                    .entry(ServiceFlags::NETWORK)
                     .or_default()
                     .push(peer);
             }
@@ -1823,10 +1820,7 @@ where
         }
 
         let peer = self
-            .send_to_random_peer(
-                NodeRequest::GetBlock(blocks.clone()),
-                service_flags::UTREEXO.into(),
-            )
+            .send_to_random_peer(NodeRequest::GetBlock(blocks.clone()), ServiceFlags::NETWORK)
             .await?;
 
         for block in blocks.iter() {
