@@ -391,6 +391,10 @@ impl AddressMan {
 
     /// Returns a new random address to open a new connection, we try to get addresses with
     /// a set of features supported for our peers
+    ///
+    /// If no peers are known with the required service bit, we may return a random peer.
+    /// Service bits are learned from DNS seeds or peer gossip and may be outdated or
+    /// inaccurate, so we sometimes try random peers expecting they might implement the service.
     pub fn get_address_to_connect(
         &mut self,
         required_service: ServiceFlags,
