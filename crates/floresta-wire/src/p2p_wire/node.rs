@@ -1707,19 +1707,28 @@ where
 
     /// If we don't have any peers, we use the hardcoded addresses.
     ///
-    /// This is only done if we don't have any peers for a long time, and we
-    /// don't have a `--connect` argument.
-    fn maybe_use_hadcoded_addresses(&mut self) {
+    ///
+    /// This is only done if we don't have any peers for a long time, or we
+    /// can't find a Utreexo peer in a context we need them. This function
+    /// won't do anything if `--connect` was used
+    fn maybe_use_hadcoded_addresses(&mut self, needs_utreexo: bool) {
         if self.fixed_peer.is_some() {
             return;
         }
 
-        if !self.peers.is_empty() {
+        let has_peers = !self.peers.is_empty();
+        // Return if we have peers and utreexo isn't needed OR we have utreexo peers
+        if has_peers && (!needs_utreexo || self.has_utreexo_peers()) {
             return;
         }
 
-        // it's been more than a minute since we started, and we don't have any peers
-        if self.startup_time.elapsed() < HARDCODED_ADDRESSES_GRACE_PERIOD {
+        let mut wait = HARDCODED_ADDRESSES_GRACE_PERIOD;
+        if needs_utreexo {
+            // This gives some extra time for the node to try connections after chain selection
+            wait += Duration::from_secs(60);
+        }
+
+        if self.startup_time.elapsed() < wait {
             return;
         }
 
@@ -1732,7 +1741,6 @@ where
         if self.added_peers.is_empty() {
             return Ok(());
         }
-
         let peers_count = self.peer_id_count;
         for added_peer in self.added_peers.clone() {
             let matching_peer = self.peers.values().find(|peer| {
@@ -1780,7 +1788,8 @@ where
         // If we've tried getting some connections, but the addresses we have are not
         // working. Try getting some more addresses from DNS
         self.maybe_ask_for_dns_peers();
-        self.maybe_use_hadcoded_addresses();
+        let needs_utreexo = required_service.has(service_flags::UTREEXO.into());
+        self.maybe_use_hadcoded_addresses(needs_utreexo);
 
         // try to connect with manually added peers
         self.maybe_open_connection_with_added_peers().await?;
@@ -1834,12 +1843,11 @@ where
         kind: ConnectionKind,
     ) -> Result<(), WireError> {
         let required_services = match kind {
-            ConnectionKind::Feeler => ServiceFlags::NONE,
             ConnectionKind::Regular(services) => services,
-            ConnectionKind::Extra => ServiceFlags::NONE,
+            _ => ServiceFlags::NONE,
         };
 
-        let (peer_id, address) = self
+        let address = self
             .fixed_peer
             .as_ref()
             .map(|addr| (0, addr.clone()))
@@ -1848,8 +1856,15 @@ where
                     required_services,
                     matches!(kind, ConnectionKind::Feeler),
                 )
-            })
-            .ok_or(WireError::NoAddressesAvailable)?;
+            });
+
+        let Some((peer_id, address)) = address else {
+            // No peers with the desired services are known, load hardcoded addresses
+            let net = self.network;
+            self.address_man.add_fixed_addresses(net);
+
+            return Err(WireError::NoAddressesAvailable);
+        };
 
         debug!("attempting connection with address={address:?} kind={kind:?}",);
 
