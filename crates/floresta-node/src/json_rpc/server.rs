@@ -91,12 +91,14 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
                 node[1].parse().map_err(|_| JsonRpcError::InvalidPort)?,
             )
         } else {
+            // TODO(@luisschwab): use `NetworkExt` to append the correct port
+            // once https://github.com/rust-bitcoin/rust-bitcoin/pull/4639 makes it into a release.
             match self.network {
                 Network::Bitcoin => (node[0], 8333),
-                Network::Testnet => (node[0], 18333),
-                Network::Regtest => (node[0], 18444),
                 Network::Signet => (node[0], 38333),
-                _ => return Err(JsonRpcError::InvalidNetwork),
+                Network::Testnet => (node[0], 18333),
+                Network::Testnet4 => (node[0], 48333),
+                Network::Regtest => (node[0], 18444),
             }
         };
 
@@ -468,7 +470,6 @@ fn get_http_error_code(err: &JsonRpcError) -> u16 {
         | JsonRpcError::InvalidRequest
         | JsonRpcError::InvalidPort
         | JsonRpcError::InvalidDescriptor
-        | JsonRpcError::InvalidNetwork
         | JsonRpcError::InvalidVerbosityLevel
         | JsonRpcError::Decode(_)
         | JsonRpcError::NoBlockFilters
@@ -508,7 +509,6 @@ fn get_json_rpc_error_code(err: &JsonRpcError) -> i32 {
         | JsonRpcError::InvalidRequest
         | JsonRpcError::InvalidPort
         | JsonRpcError::InvalidDescriptor
-        | JsonRpcError::InvalidNetwork
         | JsonRpcError::InvalidVerbosityLevel
         | JsonRpcError::TxNotFound
         | JsonRpcError::BlockNotFound
@@ -724,13 +724,15 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
         }
     }
 
+    // TODO(@luisschwab): get rid of this once
+    // https://github.com/rust-bitcoin/rust-bitcoin/pull/4639 makes it into a release.
     fn get_port(net: &Network) -> u16 {
         match net {
             Network::Bitcoin => 8332,
-            Network::Testnet => 18332,
             Network::Signet => 38332,
+            Network::Testnet => 18332,
+            Network::Testnet4 => 48332,
             Network::Regtest => 18442,
-            _ => 8332,
         }
     }
 

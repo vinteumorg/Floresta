@@ -740,13 +740,15 @@ where
         Ok(())
     }
 
+    // TODO(@luisschwab): get rid of this once
+    // https://github.com/rust-bitcoin/rust-bitcoin/pull/4639 makes it into a release.
     fn get_port(network: Network) -> u16 {
         match network {
             Network::Bitcoin => 8333,
             Network::Signet => 38333,
             Network::Testnet => 18333,
-            Network::Regtest => 18444,
             Network::Testnet4 => 48333,
+            Network::Regtest => 18444,
         }
     }
 

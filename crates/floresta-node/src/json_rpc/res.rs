@@ -291,9 +291,6 @@ pub enum JsonRpcError {
     /// This error is returned when the node does not have block filters enabled, which is required for some RPC calls
     NoBlockFilters,
 
-    /// The provided network is invalid, e.g., when it is not a valid Bitcoin network (mainnet, testnet3, testnet4, regtest)
-    InvalidNetwork,
-
     /// This error is returned when a hex value is invalid
     InvalidHex,
 
@@ -335,7 +332,6 @@ impl Display for JsonRpcError {
             JsonRpcError::InvalidAddress => write!(f, "Invalid address"),
             JsonRpcError::Node(e) => write!(f, "Node error: {e}"),
             JsonRpcError::NoBlockFilters => write!(f, "You don't have block filters enabled, please start florestad without --no-cfilters to run this RPC"),
-            JsonRpcError::InvalidNetwork => write!(f, "Invalid network"),
             JsonRpcError::InInitialBlockDownload => write!(f, "Node is in initial block download, wait until it's finished"),
             JsonRpcError::InvalidScript => write!(f, "Invalid script"),
             JsonRpcError::InvalidVerbosityLevel => write!(f, "Invalid verbosity level"),

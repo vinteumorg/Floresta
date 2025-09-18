@@ -731,10 +731,10 @@ impl AddressMan {
     fn get_net_seeds(network: Network) -> &'static str {
         match network {
             Network::Bitcoin => include_str!("seeds/mainnet_seeds.json"),
-            Network::Testnet => include_str!("seeds/testnet_seeds.json"),
             Network::Signet => include_str!("seeds/signet_seeds.json"),
-            Network::Regtest => include_str!("seeds/regtest_seeds.json"),
+            Network::Testnet => include_str!("seeds/testnet_seeds.json"),
             Network::Testnet4 => include_str!("seeds/testnet4_seeds.json"),
+            Network::Regtest => include_str!("seeds/regtest_seeds.json"),
         }
     }
 
