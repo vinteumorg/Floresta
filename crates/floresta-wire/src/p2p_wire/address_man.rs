@@ -734,6 +734,7 @@ impl AddressMan {
             Network::Signet => include_str!("seeds/signet_seeds.json"),
             Network::Testnet => include_str!("seeds/testnet_seeds.json"),
             Network::Testnet4 => include_str!("seeds/testnet4_seeds.json"),
+            Network::Regtest => include_str!("seeds/regtest_seeds.json"),
         }
     }
 

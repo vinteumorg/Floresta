@@ -417,7 +417,6 @@ impl Florestad {
             Network::Testnet => false,
             Network::Testnet4 => false,
             Network::Regtest => false,
-            Network::Testnet4 => false,
         };
 
         // If this network already allows pow fraud proofs, we should use it instead of assumeutreexo

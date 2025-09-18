@@ -919,6 +919,7 @@ where
             Network::Signet => 38333,
             Network::Testnet => 18333,
             Network::Testnet4 => 48333,
+            Network::Regtest => 18444,
         }
     }
 
