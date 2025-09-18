@@ -167,16 +167,15 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
         Ok(true)
     }
 
-    async fn rescan_blockchain(
+    fn rescan_blockchain(
         &self,
         start: Option<u32>,
         stop: Option<u32>,
         use_timestamp: bool,
         confidence: Option<RescanConfidence>,
     ) -> Result<bool> {
-        let (start_height, stop_height) = self
-            .get_rescan_interval(use_timestamp, start, stop, confidence)
-            .await?;
+        let (start_height, stop_height) =
+            self.get_rescan_interval(use_timestamp, start, stop, confidence)?;
 
         if stop_height != 0 && start_height >= stop_height {
             // When stop height is a non zero value it needs atleast to be greater than start_height.
@@ -439,7 +438,6 @@ async fn handle_json_rpc_request(
 
             state
                 .rescan_blockchain(start_height, stop_height, use_timestamp, Some(confidence))
-                .await
                 .map(|v| serde_json::to_value(v).unwrap())
         }
 
