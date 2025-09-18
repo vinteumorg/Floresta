@@ -72,7 +72,7 @@ where
     ///
     /// TODO: Be smarter when selecting peers to send, like taking in consideration
     /// already inflight blocks and latency.
-    async fn get_blocks_to_download(&mut self) {
+    fn get_blocks_to_download(&mut self) {
         let max_inflight_blocks = SyncNode::BLOCKS_PER_GETDATA * SyncNode::MAX_CONCURRENT_GETDATA;
         let inflight_blocks = self
             .inflight
@@ -111,10 +111,10 @@ where
             }
         }
 
-        try_and_log!(self.request_blocks(blocks).await);
+        try_and_log!(self.request_blocks(blocks));
     }
 
-    async fn ask_for_missed_blocks(&mut self) -> Result<(), WireError> {
+    fn ask_for_missed_blocks(&mut self) -> Result<(), WireError> {
         let next_request = self.chain.get_validation_index()? + 1;
         let last_block_requested = self.last_block_request;
 
@@ -127,12 +127,12 @@ where
             range_blocks.push(block_hash);
         }
 
-        self.request_blocks(range_blocks).await
+        self.request_blocks(range_blocks)
     }
 
     /// While in sync phase, we don't want any non-utreexo connections. This function checks
     /// if we have any non-utreexo peers and disconnects them.
-    async fn check_connections(&mut self) -> Result<(), WireError> {
+    fn check_connections(&mut self) -> Result<(), WireError> {
         let to_remove = self.peers.iter().filter_map(|(_, peer)| {
             if !peer.services.has(UTREEXO.into()) && peer.state == PeerStatus::Ready {
                 return Some(peer);
@@ -146,7 +146,7 @@ where
             peer.channel.send(NodeRequest::Shutdown)?;
         }
 
-        self.maybe_open_connection(UTREEXO.into()).await
+        self.maybe_open_connection(UTREEXO.into())
     }
 
     /// Starts the sync node by updating the last block requested and starting the main loop.
@@ -189,7 +189,7 @@ where
             }
 
             periodic_job!(
-                self.check_connections().await,
+                self.check_connections(),
                 self.last_connection,
                 TRY_NEW_CONNECTION,
                 SyncNode
@@ -197,13 +197,13 @@ where
 
             // Open new feeler connection periodically
             periodic_job!(
-                self.open_feeler_connection().await,
+                self.open_feeler_connection(),
                 self.last_feeler,
                 FEELER_INTERVAL,
                 SyncNode
             );
 
-            try_and_log!(self.check_for_timeout().await);
+            try_and_log!(self.check_for_timeout());
 
             let assume_stale = Instant::now()
                 .duration_since(self.common.last_tip_update)
@@ -211,7 +211,7 @@ where
                 > SyncNode::ASSUME_STALE;
 
             if assume_stale {
-                try_and_log!(self.create_connection(ConnectionKind::Extra).await);
+                try_and_log!(self.create_connection(ConnectionKind::Extra));
                 self.last_tip_update = Instant::now();
                 continue;
             }
@@ -221,9 +221,9 @@ where
             }
 
             // Ask for missed blocks if they are no longer inflight or pending
-            try_and_log!(self.ask_for_missed_blocks().await);
+            try_and_log!(self.ask_for_missed_blocks());
 
-            self.get_blocks_to_download().await;
+            self.get_blocks_to_download();
         }
 
         done_cb(&self.chain);
@@ -245,7 +245,7 @@ where
 
         // Verify the utreexo proof, validate the block, and connect it. Else ban and disconnect
         // to the peer that sent us an invalid block or utreexo data.
-        self.process_block(block, udata, block_height, peer).await?;
+        self.process_block(block, udata, block_height, peer)?;
 
         let elapsed = start.elapsed().as_secs();
         self.block_sync_avg.add(elapsed);
@@ -266,7 +266,7 @@ where
             return Ok(());
         }
 
-        self.get_blocks_to_download().await;
+        self.get_blocks_to_download();
         Ok(())
     }
 
@@ -300,8 +300,7 @@ where
 
                         let Some(udata) = udata else {
                             warn!("Received block without udata from peer {peer}, ignoring");
-                            self.increase_banscore(peer, self.config.max_banscore)
-                                .await?;
+                            self.increase_banscore(peer, self.config.max_banscore)?;
 
                             return Ok(());
                         };
@@ -310,11 +309,11 @@ where
                     }
 
                     PeerMessages::Ready(version) => {
-                        try_and_log!(self.handle_peer_ready(peer, &version).await);
+                        try_and_log!(self.handle_peer_ready(peer, &version));
                     }
 
                     PeerMessages::Disconnected(idx) => {
-                        try_and_log!(self.handle_disconnection(peer, idx).await);
+                        try_and_log!(self.handle_disconnection(peer, idx));
                     }
 
                     PeerMessages::Addr(addresses) => {
@@ -380,7 +379,7 @@ where
 
                     PeerMessages::UtreexoState(_) => {
                         warn!("Utreexo state received from peer {peer}, but we didn't ask",);
-                        self.increase_banscore(peer, 5).await?;
+                        self.increase_banscore(peer, 5)?;
                     }
 
                     _ => {}
