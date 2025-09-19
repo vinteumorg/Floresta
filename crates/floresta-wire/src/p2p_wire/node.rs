@@ -1357,7 +1357,6 @@ where
                             let leaves = transaction
                                 .input
                                 .iter()
-                                .cloned()
                                 .map(|input| input.previous_output)
                                 .zip(leaves.into_iter())
                                 .collect::<Vec<_>>();

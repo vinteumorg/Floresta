@@ -6,9 +6,9 @@ edition = "2018"
 homepage = "https://github.com/davidson-souza/floresta"
 repository = "https://github.com/davidson-souza/floresta"
 description = """
-                BIP158 compact filters for easy rescan of the blockchain in 
-                light clients.
-            """
+BIP158 compact filters for easy rescan of the blockchain in light clients.
+"""
+readme.workspace = true # Floresta/README.md
 
 [dependencies]
 bitcoin = "0.32"
