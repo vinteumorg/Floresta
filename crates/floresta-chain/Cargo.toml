@@ -11,6 +11,7 @@ description = """
 repository = "https://github.com/vinteumorg/Floresta"
 license = "MIT"
 readme.workspace = true # Floresta/README.md
+
 keywords = ["bitcoin", "utreexo", "node", "consensus"]
 categories = ["cryptography::cryptocurrencies", "database"]
 
