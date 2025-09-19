@@ -11,9 +11,9 @@ description = """
 repository = "https://github.com/vinteumorg/Floresta"
 license = "MIT"
 readme = "README.md"
+
 keywords = ["bitcoin", "utreexo", "p2p", "networking"]
 categories = ["cryptography::cryptocurrencies", "network-programming"]
-
 
 [dependencies]
 rustreexo = "0.4"
