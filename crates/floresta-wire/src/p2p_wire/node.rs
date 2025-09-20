@@ -129,10 +129,41 @@ pub(crate) enum InflightRequests {
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
+/// Different types of connections to a peer. This enum encapsulates the information we have available at the time of opening or accepting the connection.
+/// We do not support Inbound kind.
 pub enum ConnectionKind {
+    /// These are the default connections that we use to connect with the network. There is no restriction on what is relayed; by default we relay blocks, addresses & transactions.
+    ///
+    /// We automatically attempt to open [NodeContext::MAX_OUTBOUND_FULL_RELAY_PEERS] using addresses from our [AddressMan].
+    OutboundFullRelay(ServiceFlags),
+
+    /// We open manual connections to addresses that users explicitly requested via the addnode RPC or the -addnode/-connect configuration options.
+    ///
+    /// Even if a manual connection is misbehaving, we do not automatically disconnect or add it to our discouragement filter.
+    Manual,
+
+    /// Feeler connections are short-lived connections made to check that a node is alive. They can be useful for:
+    ///
+    ///  - test-before-evict: if one of the peers is considered for eviction from our [AddressMan] because another peer is mapped to the same slot in the tried table, evict only if this longer-known peer is offline.
+    ///  - move node addresses from New to Tried table, so that we have more connectable addresses in our [AddressMan].
+    ///
+    /// Note that in the literature ("Eclipse Attacks on Bitcoin’s Peer-to-Peer Network") only the latter feature is referred to as "feeler connections", although in our codebase feeler connections encompass test-before-evict as well.
+    /// We make these connections approximately every [NodeContext::FEELER_INTERVAL]: first we resolve previously found collisions if they exist (test-before-evict), otherwise we connect to a node from the new table.
     Feeler,
-    Regular(ServiceFlags),
+
+    /// We use block-relay-only connections to help prevent against partition attacks. By not relaying transactions or addresses, these connections are harder to detect by a third party, thus helping obfuscate the network topology.
+    ///
+    /// We automatically attempt to open [NodeContext::MAX_BLOCK_RELAY_ONLY_ANCHORS]. Then addresses from our [AddressMan] if
+    /// [NodeContext::MAX_BLOCK_RELAY_ONLY_ANCHORS] isn't reached yet.
+    BlockRelayOnly(ServiceFlags),
+
+    /// Additional block-relay-only connection beyond the usual quotas used when the chain tip has not been advanced for over [NodeContext::ASSUME_STALE] minutes.
     Extra,
+
+    /// AddrFetch connections are short lived connections used to solicit addresses from peers.
+    ///
+    /// These are initiated to addresses submitted via the seednode command line argument, or under certain conditions when the [AddressMan] is empty.
+    AddrFetch,
 }
 
 impl Serialize for ConnectionKind {
@@ -141,9 +172,12 @@ impl Serialize for ConnectionKind {
         S: serde::Serializer,
     {
         match self {
+            ConnectionKind::OutboundFullRelay(_) => serializer.serialize_str("outbound-full-relay"),
+            ConnectionKind::BlockRelayOnly(_) => serializer.serialize_str("block-relay-only"),
+            ConnectionKind::Extra => serializer.serialize_str("block-relay-only"),
+            ConnectionKind::Manual => serializer.serialize_str("manual"),
+            ConnectionKind::AddrFetch => serializer.serialize_str("addr-fetch"),
             ConnectionKind::Feeler => serializer.serialize_str("feeler"),
-            ConnectionKind::Regular(_) => serializer.serialize_str("regular"),
-            ConnectionKind::Extra => serializer.serialize_str("extra"),
         }
     }
 }
@@ -498,7 +532,7 @@ where
             return Err(WireError::PeerAlreadyExists(addr, port));
         }
 
-        let kind = ConnectionKind::Regular(ServiceFlags::NONE);
+        let kind = ConnectionKind::Manual;
         let peer_id = self.peer_id_count;
         let address = LocalAddress::new(
             self.to_addr_v2(addr),
@@ -943,7 +977,10 @@ where
     ) -> Result<(), WireError> {
         if let Some(p) = self.peers.remove(&peer) {
             std::mem::drop(p.channel);
-            if matches!(p.kind, ConnectionKind::Regular(_)) && p.state == PeerStatus::Ready {
+            if (matches!(p.kind, ConnectionKind::OutboundFullRelay(_))
+                || matches!(p.kind, ConnectionKind::BlockRelayOnly(_)))
+                && p.state == PeerStatus::Ready
+            {
                 info!("Peer disconnected: {peer}");
             }
 
@@ -1108,28 +1145,32 @@ where
             peer_data.transport_protocol = version.transport_protocol;
 
             // If this peer doesn't have basic services, we disconnect it
-            if let ConnectionKind::Regular(needs) = version.kind {
-                if !Self::is_peer_good(peer_data, needs) {
-                    info!(
-                        "Disconnecting peer {peer} for not having the required services. has={} needs={}", peer_data.services, needs
-                    );
-                    peer_data.channel.send(NodeRequest::Shutdown)?;
-                    self.address_man.update_set_state(
-                        version.address_id,
-                        AddressState::Tried(
-                            SystemTime::now()
-                                .duration_since(UNIX_EPOCH)
-                                .unwrap()
-                                .as_secs(),
-                        ),
-                    );
+            match version.kind {
+                ConnectionKind::OutboundFullRelay(needs)
+                | ConnectionKind::BlockRelayOnly(needs) => {
+                    if !Self::is_peer_good(peer_data, needs) {
+                        info!(
+                            "Disconnecting peer {peer} for not having the required services. has={} needs={}", peer_data.services, needs
+                        );
+                        peer_data.channel.send(NodeRequest::Shutdown)?;
+                        self.address_man.update_set_state(
+                            version.address_id,
+                            AddressState::Tried(
+                                SystemTime::now()
+                                    .duration_since(UNIX_EPOCH)
+                                    .unwrap()
+                                    .as_secs(),
+                            ),
+                        );
 
-                    self.address_man
-                        .update_set_service_flag(version.address_id, version.services);
+                        self.address_man
+                            .update_set_service_flag(version.address_id, version.services);
 
-                    return Ok(());
+                        return Ok(());
+                    }
                 }
-            };
+                _ => {}
+            }
 
             if peer_data.services.has(service_flags::UTREEXO.into()) {
                 self.common
@@ -1200,6 +1241,7 @@ where
 
         // This peer is misbehaving too often, ban it
         let is_missbehaving = peer.banscore >= self.common.max_banscore;
+
         // extra peers should be banned immediately
         let is_extra = peer.kind == ConnectionKind::Extra;
 
@@ -1311,7 +1353,7 @@ where
 
         for address in anchors {
             self.open_connection(
-                ConnectionKind::Regular(UTREEXO.into()),
+                ConnectionKind::OutboundFullRelay(UTREEXO.into()),
                 address.id,
                 address,
                 // Using V1 transport fallback as utreexo nodes have limited support
@@ -1429,7 +1471,7 @@ where
     ///
     /// If the last DNS lookup was more than 5 minutes ago, and we still
     /// don't have any connected peers, we retry another DNS lookup.
-    fn maybe_ask_for_dns_peers(&mut self) {
+    pub(crate) fn maybe_ask_for_dns_peers(&mut self) {
         if self.config.disable_dns_seeds {
             return;
         }
@@ -1478,7 +1520,13 @@ where
             return Ok(());
         }
 
+        // Added peers has own quota
+        if self.added_peers.len() >= T::MAX_OUTBOUND_FULL_RELAY_PEERS {
+            return Ok(());
+        }
+
         let peers_count = self.peer_id_count;
+
         for added_peer in self.added_peers.clone() {
             let matching_peer = self.peers.values().find(|peer| {
                 self.to_addr_v2(peer.address) == added_peer.address && peer.port == added_peer.port
@@ -1500,18 +1548,17 @@ where
                 );
 
                 // Finally, open the connection with the node
-                self.open_connection(
-                    ConnectionKind::Regular(ServiceFlags::NONE),
-                    peers_count as usize,
-                    address,
-                    added_peer.v1_fallback,
-                )
-                .await?
+                let kind = ConnectionKind::Manual;
+                self.open_connection(kind, peers_count as usize, address, added_peer.v1_fallback)
+                    .await?;
             }
         }
         Ok(())
     }
 
+    /// Maybe open a new p2p connection given some required [ServiceFlags]. If the desired
+    /// connection do not exceed the amount of [NodeContext::MAX_OUTGOING_PEERS], we can add it as a
+    /// [ConnectionKind::OutboundFullRelay] one, otherwise, will be a [ConnectionKind::BlockRelayOnly].
     pub(crate) async fn maybe_open_connection(
         &mut self,
         required_service: ServiceFlags,
@@ -1530,8 +1577,13 @@ where
         // try to connect with manually added peers
         self.maybe_open_connection_with_added_peers().await?;
 
-        let connection_kind = ConnectionKind::Regular(required_service);
+        // Finally, create the connection with the node
         if self.peers.len() < T::MAX_OUTGOING_PEERS {
+            let connection_kind = if self.peers.len() < T::MAX_OUTBOUND_FULL_RELAY_PEERS {
+                ConnectionKind::OutboundFullRelay(required_service)
+            } else {
+                ConnectionKind::BlockRelayOnly(required_service)
+            };
             self.create_connection(connection_kind).await?;
         }
 
@@ -1582,9 +1634,12 @@ where
         kind: ConnectionKind,
     ) -> Result<(), WireError> {
         let required_services = match kind {
-            ConnectionKind::Feeler => ServiceFlags::NONE,
-            ConnectionKind::Regular(services) => services,
-            ConnectionKind::Extra => ServiceFlags::NONE,
+            ConnectionKind::Feeler
+            | ConnectionKind::AddrFetch
+            | ConnectionKind::Extra
+            | ConnectionKind::Manual => ServiceFlags::NONE,
+            ConnectionKind::OutboundFullRelay(services)
+            | ConnectionKind::BlockRelayOnly(services) => services,
         };
 
         let (peer_id, address) = self
@@ -1626,7 +1681,7 @@ where
         // or if we are connecting to a utreexo peer, since utreexod doesn't support V2 yet.
         let is_fixed = self.fixed_peer.is_some();
         let allow_v1 = self.config.allow_v1_fallback
-            || kind == ConnectionKind::Regular(UTREEXO.into())
+            || kind == ConnectionKind::OutboundFullRelay(UTREEXO.into())
             || is_fixed;
 
         self.open_connection(kind, peer_id, address, allow_v1)
@@ -1728,15 +1783,16 @@ where
 
     /// Creates a new outgoing connection with `address`.
     ///
-    /// `kind` may or may not be a [`ConnectionKind::Feeler`], a special connection type
-    /// that is used to learn about good peers, but are not kept after handshake
-    /// (others are [`ConnectionKind::Regular`] and [`ConnectionKind::Extra`]).
+    /// `kind` may or may not be a [ConnectionKind::Feeler] or [ConnectionKind::AddrFetch],
+    /// special connection types that is used to learn about good peers, but are not kept after handshake
+    /// ([ConnectionKind::Manual]
+    /// [ConnectionKind::OutboundFullRelay] and [ConnectionKind::BlockRelayOnly] subtypes -- and [ConnectionKind::Extra] .
     ///
     /// We will always try to open a V2 connection first. If the `allow_v1_fallback` is set,
     /// we may retry the connection with the old V1 protocol if the V2 connection fails.
     /// We don't open the connection here, we create a [`Peer`] actor that will try to open
     /// a connection with the given address and kind. If it succeeds, it will send a
-    /// [`PeerMessages::Ready`] to the node after handshaking.
+    /// [PeerMessages::Ready] to the node after handshaking.
     pub(crate) async fn open_connection(
         &mut self,
         kind: ConnectionKind,

@@ -79,6 +79,9 @@ pub enum WireError {
 
     /// No addresses available to connect to
     NoAddressesAvailable,
+
+    /// Exceeded the max number of outbound peers
+    OutboundPeersExceed,
 }
 
 impl std::fmt::Display for WireError {
@@ -117,6 +120,9 @@ impl std::fmt::Display for WireError {
             WireError::Transport(err) => write!(f, "Transport error: {err:?}"),
             WireError::ResponseSendError => write!(f, "Can't send back response for user request"),
             WireError::NoAddressesAvailable => write!(f, "No addresses available to connect to"),
+            WireError::OutboundPeersExceed => {
+                write!(f, "Exceeded the max number of outbound peers")
+            }
         }
     }
 }

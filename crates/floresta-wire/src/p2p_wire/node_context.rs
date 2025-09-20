@@ -35,6 +35,12 @@ pub trait NodeContext {
     /// Max number of simultaneous connections we initiates we are willing to hold
     const MAX_OUTGOING_PEERS: usize = 10;
 
+    /// Max number of simultaneous outbound-full-relay connections we initiates that are willing to hold
+    const MAX_OUTBOUND_FULL_RELAY_PEERS: usize = 8;
+
+    /// Max number of simultaneous block-only connections we initiates that are willing to hold
+    const MAX_BLOCK_RELAY_ONLY_ANCHORS: usize = 2;
+
     /// We ask for peers every ASK_FOR_PEERS_INTERVAL seconds
     const ASK_FOR_PEERS_INTERVAL: u64 = 60 * 60; // One hour
 

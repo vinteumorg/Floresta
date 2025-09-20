@@ -48,10 +48,18 @@ const SEND_PING_TIMEOUT: u64 = 2 * 60;
 const INV_UTREEXO_BLOCK: u32 = 0x40000002 | (1 << 24);
 
 #[derive(Debug, PartialEq)]
+/// Enum to classify the current state of a peer
 enum State {
+    /// Peer undefined
     None,
+
+    /// Peer sent version message at some time
     SentVersion(Instant),
+
+    /// Peer sent verack message
     SentVerack,
+
+    /// Peer made a handshake and is connected
     Connected,
 }
 
@@ -707,6 +715,7 @@ pub(super) mod peer_utils {
         })
     }
 }
+
 #[derive(Debug)]
 pub struct Version {
     pub user_agent: String,
@@ -718,27 +727,39 @@ pub struct Version {
     pub kind: ConnectionKind,
     pub transport_protocol: TransportProtocol,
 }
+
+#[derive(Debug)]
 /// Messages passed from different modules to the main node to process. They should minimal
 /// and only if it requires global states, everything else should be handled by the module
 /// itself.
-#[derive(Debug)]
 pub enum PeerMessages {
     /// A new block just arrived, we should ask for it and update our chain
     NewBlock(BlockHash),
+
     /// We got a full block from our peer, presumptively we asked for it
     Block(UtreexoBlock),
+
     /// A response to a `getheaders` request
     Headers(Vec<BlockHeader>),
+
     /// We got some p2p addresses, add this to our local database
     Addr(Vec<AddrV2Message>),
+
     /// Peer notify its readiness
     Ready(Version),
+
     /// Remote peer disconnected
     Disconnected(usize),
+
     /// Remote peer doesn't known the data we asked for
     NotFound(Inventory),
+
     /// Remote peer sent us a transaction
     Transaction(Transaction),
+
+    /// Remote peer sent us a utreexo state
     UtreexoState(Vec<u8>),
+
+    /// Remote peer sent us a block filter
     BlockFilter((BlockHash, BlockFilter)),
 }

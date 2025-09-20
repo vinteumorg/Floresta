@@ -46,6 +46,8 @@ impl NodeContext for SyncNode {
     }
 
     const MAX_OUTGOING_PEERS: usize = 5; // don't need many peers, half the default
+    const MAX_OUTBOUND_FULL_RELAY_PEERS: usize = 4;
+    const MAX_BLOCK_RELAY_ONLY_ANCHORS: usize = 1;
     const TRY_NEW_CONNECTION: u64 = 60; // one minute
     const REQUEST_TIMEOUT: u64 = 10 * 60; // 10 minutes
     const MAX_INFLIGHT_REQUESTS: usize = 100; // double the default
