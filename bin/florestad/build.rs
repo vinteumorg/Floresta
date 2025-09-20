@@ -17,8 +17,11 @@ fn main() {
         .expect("Failed to run rustc --version. Is rustc installed?");
 
     let long_version = format!("version {version} compiled for {arch}-{os}-{runtime} with {rustc}");
+    let user_agent = format!("/Floresta/{}/", version.replace("v", ""));
+
     println!("cargo:rustc-env=LONG_VERSION={long_version}");
     println!("cargo:rustc-env=GIT_DESCRIBE={version}");
+    println!("cargo:rustc-env=USER_AGENT={user_agent}");
 
     // re-run if either the build script or the git HEAD changes
     println!("cargo:rerun-if-changed=../.git/HEAD");
@@ -28,7 +31,7 @@ fn main() {
 fn get_version_from_manifest() -> Result<String, std::io::Error> {
     let manifest = std::fs::read_to_string("Cargo.toml")?;
     let toml: toml::Value = toml::from_str(&manifest).unwrap();
-    Ok(toml["package"]["version"].as_str().unwrap().to_string())
+    Ok(format!("v{}", toml["package"]["version"].as_str().unwrap()))
 }
 
 fn get_version_from_git() -> Option<String> {
@@ -41,6 +44,12 @@ fn get_version_from_git() -> Option<String> {
             }
             let mut git_description = String::from_utf8(output.stdout).unwrap();
             git_description.pop(); // remove the trailing newline
+
+            // If we don't pull tags, git will return the short commit id, which breaks the functional tests
+            if !git_description.starts_with("v") {
+                return None;
+            }
+
             Some(git_description)
         })
         .ok()?
