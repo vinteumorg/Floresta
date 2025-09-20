@@ -1587,7 +1587,7 @@ where
             ConnectionKind::Extra => ServiceFlags::NONE,
         };
 
-        let (peer_id, address) = self
+        let address = self
             .fixed_peer
             .as_ref()
             .map(|addr| (0, addr.clone()))
@@ -1596,8 +1596,15 @@ where
                     required_services,
                     matches!(kind, ConnectionKind::Feeler),
                 )
-            })
-            .ok_or(WireError::NoAddressesAvailable)?;
+            });
+
+        let Some((peer_id, address)) = address else {
+            // No peers with the desired services are known, load hardcoded addresses
+            let net = self.network;
+            self.address_man.add_fixed_addresses(net);
+
+            return Err(WireError::NoAddressesAvailable);
+        };
 
         debug!("attempting connection with address={address:?} kind={kind:?}",);
 
