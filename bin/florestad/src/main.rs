@@ -17,6 +17,7 @@
 #![deny(non_upper_case_globals)]
 
 mod cli;
+use std::env;
 use std::process::exit;
 use std::sync::Arc;
 use std::time::Duration;
@@ -65,7 +66,7 @@ fn main() {
         generate_cert: params.generate_cert,
         wallet_descriptor: params.wallet_descriptor,
         filters_start_height: params.filters_start_height,
-        user_agent: format!("/Floresta:{}/", env!("GIT_DESCRIBE")),
+        user_agent: env!("USER_AGENT").to_owned(),
         assumeutreexo_value: None,
         electrum_address: params.electrum_address,
         enable_electrum_tls: params.enable_electrum_tls,
