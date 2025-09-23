@@ -1,5 +1,6 @@
-use std::fmt::Arguments;
 use std::fs;
+use std::io::IsTerminal;
+use std::io::{self};
 #[cfg(feature = "metrics")]
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
@@ -11,9 +12,6 @@ use std::sync::Mutex;
 use std::sync::OnceLock;
 
 pub use bitcoin::Network;
-use fern::colors::Color;
-use fern::colors::ColoredLevelConfig;
-use fern::FormatCallback;
 #[cfg(feature = "zmq-server")]
 use floresta_chain::pruned_utreexo::BlockchainInterface;
 pub use floresta_chain::AssumeUtreexoValue;
@@ -39,11 +37,6 @@ use floresta_wire::mempool::Mempool;
 use floresta_wire::node::UtreexoNode;
 use floresta_wire::running_node::RunningNode;
 use floresta_wire::UtreexoNodeConfig;
-use log::debug;
-use log::error;
-use log::info;
-use log::warn;
-use log::Record;
 use rcgen::BasicConstraints;
 use rcgen::CertificateParams;
 use rcgen::IsCa;
@@ -61,6 +54,16 @@ use tokio_rustls::rustls::pki_types::CertificateDer;
 use tokio_rustls::rustls::pki_types::PrivateKeyDer;
 use tokio_rustls::rustls::ServerConfig;
 use tokio_rustls::TlsAcceptor;
+use tracing::debug;
+use tracing::error;
+use tracing::info;
+use tracing::warn;
+use tracing_appender::non_blocking::WorkerGuard;
+use tracing_subscriber::fmt;
+use tracing_subscriber::fmt::time::ChronoLocal;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::EnvFilter;
 
 use crate::config_file::ConfigFile;
 use crate::error::FlorestadError;
@@ -268,19 +271,22 @@ impl Default for Config {
 }
 
 pub struct Florestad {
-    /// The config used by this node, see [Config] for more details
+    /// Configuration parameters used by the node. See [`Config`] for more details.
     config: Config,
 
-    /// A channel that tells others to stop what they are doing because we
-    /// are about to die
+    /// Channel that tells others to stop what they are doing because we
+    /// are about to die.
     stop_signal: Arc<RwLock<bool>>,
 
-    /// A channel that notifies we are done, and it's safe to die now
+    /// Channel that notifies we are done, and it's safe to die now.
     stop_notify: Arc<Mutex<Option<tokio::sync::oneshot::Receiver<()>>>>,
 
     #[cfg(feature = "json-rpc")]
-    /// A handle to our json-rpc server
+    /// Handle to the JSON-RPC server.
     json_rpc: OnceLock<tokio::task::JoinHandle<()>>,
+
+    /// Guard for `tracing-subscriber`'s asynchronous file logger.
+    _logger_guard: Arc<Mutex<Option<WorkerGuard>>>,
 }
 
 impl Florestad {
@@ -374,15 +380,22 @@ impl Florestad {
                 .map_err(|e| FlorestadError::CouldNotCreateDataDir(data_dir.clone(), e))?;
         }
 
-        // Setup global logger
+        // Setup the global logger.
         if self.config.log_to_stdout || self.config.log_to_file {
-            Self::setup_logger(
+            // Setup the logger. If `log_to_file` is true,
+            // also get the guard for the asynchronous logging thread.
+            let logger_guard = Self::setup_logger(
                 &data_dir,
                 self.config.log_to_file,
                 self.config.log_to_stdout,
                 self.config.debug,
             )
             .map_err(FlorestadError::CouldNotInitializeLogger)?;
+
+            // Store the logger guard to keep the it's thread alive.
+            if let Some(logger_guard) = logger_guard {
+                *self._logger_guard.lock().unwrap() = Some(logger_guard);
+            }
         }
 
         info!("Loading watch-only wallet");
@@ -693,60 +706,83 @@ impl Florestad {
         base.to_string_lossy().into_owned()
     }
 
+    /// Setup the logger for `florestad`.
+    ///
+    /// This logger will subscribe to `tracing` events, filter them
+    /// according to the log-level defined, and format them based
+    /// on the output destination. Logs can be directed to `stdout`,
+    /// a file, both, or neither.
     fn setup_logger(
         data_dir: &String,
-        log_file: bool,
+        log_to_file: bool,
         log_to_stdout: bool,
         debug: bool,
-    ) -> Result<(), fern::InitError> {
-        let colors = ColoredLevelConfig::new()
-            .error(Color::Red)
-            .warn(Color::Yellow)
-            .info(Color::Green)
-            .debug(Color::Blue)
-            .trace(Color::BrightBlack);
+    ) -> Result<Option<WorkerGuard>, Box<dyn std::error::Error>> {
+        // Get the log-level from `debug`.
+        let log_level = if debug { "debug" } else { "info" };
+        // Try to get the log-level from the `RUST_LOG` environment variable, or fallback to `log_level`.
+        let filter =
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(log_level));
 
-        let formatter = |use_colors: bool| {
-            move |out: FormatCallback, message: &Arguments, record: &Record| {
-                out.finish(format_args!(
-                    "[{} {} {}] {}",
-                    chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
-                    match use_colors {
-                        true => colors.color(record.level()).to_string(),
-                        false => record.level().to_string(),
-                    },
-                    record.target(),
-                    message
-                ))
-            }
-        };
-
-        let mut dispatchers = fern::Dispatch::new();
-        let stdout_dispatcher = fern::Dispatch::new()
-            .format(formatter(true))
-            .level(if debug {
-                log::LevelFilter::Debug
-            } else {
-                log::LevelFilter::Info
-            })
-            .chain(std::io::stdout());
-
-        let file_dispatcher = fern::Dispatch::new()
-            .format(formatter(false))
-            .level(log::LevelFilter::Info)
-            .chain(fern::log_file(format!("{data_dir}/output.log"))?);
-
-        if log_file {
-            dispatchers = dispatchers.chain(file_dispatcher);
+        // Validate the log file path.
+        if log_to_file {
+            let file_path = format!("{data_dir}/output.log");
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&file_path)?;
         }
 
-        if log_to_stdout {
-            dispatchers = dispatchers.chain(stdout_dispatcher);
+        let fmt_timer = ChronoLocal::new("%Y-%m-%d %H:%M:%S".to_string());
+
+        // Formatting [`Layer`] for logs destined to `stdout`.
+        let fmt_layer_stdout = log_to_stdout.then(|| {
+            fmt::layer()
+                .with_writer(io::stdout)
+                .with_ansi(io::stdout().is_terminal())
+                .with_timer(fmt_timer.clone())
+                .with_target(true)
+                .with_level(true)
+        });
+
+        // Formatting [`Layer`] for logs destined to the log file.
+        let mut guard = None;
+        let fmt_layer_logfile = log_to_file.then(|| {
+            let file_path = format!("{data_dir}/output.log");
+            let file_appender = tracing_appender::rolling::never("", &file_path);
+            let (non_blocking, file_guard) = tracing_appender::non_blocking(file_appender);
+            guard = Some(file_guard);
+
+            fmt::layer()
+                .with_writer(non_blocking)
+                .with_ansi(false)
+                .with_timer(fmt_timer)
+                .with_target(true)
+                .with_level(true)
+        });
+
+        // Apply all active formatting layers to the subscriber's registry.
+        #[cfg(not(feature = "tokio-console"))]
+        {
+            tracing_subscriber::registry()
+                .with(filter)
+                .with(fmt_layer_stdout)
+                .with(fmt_layer_logfile)
+                .init();
+        }
+        // Apply all active formatting layers to the subscriber's registry
+        // and enable Tokio's `console-subscriber`.
+        #[cfg(feature = "tokio-console")]
+        {
+            tracing_subscriber::registry()
+                .with(filter)
+                .with(console_subscriber::spawn())
+                .with(fmt_layer_stdout)
+                .with(fmt_layer_logfile)
+                .init();
         }
 
-        dispatchers.apply()?;
-
-        Ok(())
+        Ok(guard)
     }
 
     pub fn from_config(config: Config) -> Self {
@@ -756,6 +792,7 @@ impl Florestad {
             stop_notify: Arc::new(Mutex::new(None)),
             #[cfg(feature = "json-rpc")]
             json_rpc: OnceLock::new(),
+            _logger_guard: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -1017,6 +1054,7 @@ impl From<Config> for Florestad {
             stop_notify: Arc::new(Mutex::new(None)),
             #[cfg(feature = "json-rpc")]
             json_rpc: OnceLock::new(),
+            _logger_guard: Arc::new(Mutex::new(None)),
         }
     }
 }

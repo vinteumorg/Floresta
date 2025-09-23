@@ -77,8 +77,8 @@ pub enum FlorestadError {
     /// Creating the data directory.
     CouldNotCreateDataDir(String, std::io::Error),
 
-    /// Initializing the logger error.
-    CouldNotInitializeLogger(fern::InitError),
+    /// Logger initialization error.
+    CouldNotInitializeLogger(Box<dyn std::error::Error>),
 
     /// Obtaining a lock on the data directory.
     CouldNotOpenKvDatabase(KvDatabaseError),
@@ -287,4 +287,5 @@ impl_from_error!(BlockValidation, BlockValidationErrors);
 impl_from_error!(AddressParsing, bitcoin::address::ParseError);
 impl_from_error!(Miniscript, miniscript::Error);
 impl_from_error!(CouldNotObtainWalletCache, WatchOnlyError<KvDatabaseError>);
+impl_from_error!(CouldNotInitializeLogger, Box<dyn std::error::Error>);
 impl std::error::Error for FlorestadError {}
