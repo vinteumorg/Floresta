@@ -43,6 +43,7 @@
 //!
 //! Most likely we'll only download one chain and all peers will agree with it. Then we can start
 //! downloading the actual blocks and validating them.
+
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::time::Duration;
@@ -57,12 +58,13 @@ use floresta_chain::proof_util;
 use floresta_chain::ChainBackend;
 use floresta_chain::UtreexoBlock;
 use floresta_common::service_flags;
-use log::debug;
-use log::info;
-use log::warn;
 use rustreexo::accumulator::node_hash::BitcoinNodeHash;
 use rustreexo::accumulator::stump::Stump;
 use tokio::time::timeout;
+use tracing::debug;
+use tracing::error;
+use tracing::info;
+use tracing::warn;
 
 use super::error::WireError;
 use super::node_interface::UserRequest;
@@ -153,7 +155,7 @@ where
 
         for header in headers.iter() {
             if let Err(e) = self.chain.accept_header(*header) {
-                log::error!("Error while downloading headers from peer={peer} err={e}");
+                error!("Error while downloading headers from peer={peer} err={e}");
 
                 self.send_to_peer(peer, NodeRequest::Shutdown).await?;
 
@@ -862,7 +864,7 @@ where
                     // During chain selection we don't ask for blocks, unless it's an explicit
                     // user request made through the node handle. If it isn't, we punish this
                     // peer for sending an unrequested block.
-                    log::error!("peer {peer} sent us a block we didn't request");
+                    error!("peer {peer} sent us a block we didn't request");
                     self.increase_banscore(peer, 5).await?;
                 }
             }

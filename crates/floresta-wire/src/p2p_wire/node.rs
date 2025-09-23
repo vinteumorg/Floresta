@@ -1,6 +1,7 @@
 //! Main file for this blockchain. A node is the central task that runs and handles important
 //! events, such as new blocks, peer connection/disconnection, new addresses, etc.
 //! A node should not care about peer-specific messages, peers'll handle things like pings.
+
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -32,10 +33,6 @@ use floresta_common::service_flags::UTREEXO;
 use floresta_common::FractionAvg;
 use floresta_compact_filters::flat_filters_store::FlatFiltersStore;
 use floresta_compact_filters::network_filters::NetworkFilters;
-use log::debug;
-use log::error;
-use log::info;
-use log::warn;
 use serde::Deserialize;
 use serde::Serialize;
 use tokio::net::tcp::WriteHalf;
@@ -46,6 +43,10 @@ use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::oneshot;
 use tokio::sync::Mutex;
 use tokio::time::timeout;
+use tracing::debug;
+use tracing::error;
+use tracing::info;
+use tracing::warn;
 
 use super::address_man::AddressMan;
 use super::address_man::AddressState;
@@ -1324,7 +1325,7 @@ where
     }
 
     pub(crate) async fn shutdown(&mut self) {
-        info!("Shutting down node");
+        info!("Shutting down node...");
         try_and_warn!(self.save_utreexo_peers());
         for peer in self.peer_ids.iter() {
             try_and_log!(self.send_to_peer(*peer, NodeRequest::Shutdown).await);
@@ -1371,7 +1372,7 @@ where
                             ));
                         }
                         Err(e) => {
-                            log::error!(
+                            error!(
                                 "Could not prove tx {} because: {:?}",
                                 transaction.compute_txid(),
                                 e
@@ -1419,7 +1420,7 @@ where
             warn!("No connected Utreexo peers to save to disk");
             return Ok(());
         }
-        info!("Saving utreexo peers to disk");
+        info!("Saving utreexo peers to disk...");
         self.address_man
             .dump_utreexo_peers(&self.datadir, &peers_usize)
             .map_err(WireError::Io)
@@ -1818,23 +1819,19 @@ where
 /// Run a task and log any errors that might occur.
 macro_rules! try_and_log {
     ($what:expr) => {
-        let result = $what;
-
-        if let Err(error) = result {
-            log::error!("{}: {} - {:?}", line!(), file!(), error);
+        if let Err(error) = $what {
+            tracing::error!("{}: {} - {:?}", line!(), file!(), error);
         }
     };
 }
 
 /// Run a task and warn any errors that might occur.
 ///
-/// try_and_log variant for tasks that can safely fail.
+/// `try_and_log!` variant for tasks that can fail safely.
 macro_rules! try_and_warn {
     ($what:expr) => {
-        let result = $what;
-
-        if let Err(warning) = result {
-            log::warn!("{}", warning);
+        if let Err(warning) = $what {
+            tracing::warn!("{}", warning);
         }
     };
 }
