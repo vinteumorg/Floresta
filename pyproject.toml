@@ -11,7 +11,20 @@ dependencies = [
   "black>=24.10.0",
   "pylint>=3.3.2",
   "cryptography>=44.0.2",
-  "pyOpenSSL>=25.0.0"
+  "pyOpenSSL>=25.0.0",
+  # Add pytest and related packages
+  "pytest>=8.0.0",
+  "pytest-xdist>=3.0.0",     # For parallel testing
+  "pytest-cov>=4.0.0",       # For coverage
+  "pytest-timeout>=2.0.0",   # For test timeouts
+  "pytest-html>=4.0.0",      # For HTML reports
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest-mock>=3.10.0",     # For mocking
+  "pytest-benchmark>=4.0.0", # For performance tests  
+  "pytest-asyncio>=0.21.0",  # If you need async tests
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -20,3 +33,53 @@ packages = ["tests/test_framework"]
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+# Pytest configuration
+[tool.pytest.ini_options]
+# Test discovery
+testpaths = ["tests/"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+
+# Add options for better output
+addopts = [
+    "-v",
+    "--strict-markers",
+    "--strict-config", 
+    "--tb=short",
+]
+
+# Define all custom markers to avoid warnings
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "tls: marks tests that use TLS functionality",
+    "multi_node: marks tests that use multiple nodes",
+    "rpc: marks tests focused on RPC calls",
+    "electrum: marks tests for electrum server functionality",
+    "bitcoind: marks tests specific to bitcoind",
+    "florestad: marks tests specific to florestad",
+    "utreexod: marks tests specific to utreexod",
+    "benchmark: marks performance benchmark tests",
+    "unit: marks fast unit tests",
+]
+
+# Test timeouts (requires pytest-timeout)
+timeout = 300
+timeout_method = "thread"
+
+# Logging configuration
+log_cli = true
+log_cli_level = "INFO"
+log_cli_format = "%(asctime)s [%(levelname)8s] %(name)s: %(message)s"
+log_cli_date_format = "%Y-%m-%d %H:%M:%S"
+
+# Filter warnings
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
+]
+
+# Minimum pytest version
+minversion = "8.0"
