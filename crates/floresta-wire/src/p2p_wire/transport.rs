@@ -20,8 +20,6 @@ use bitcoin::p2p::Magic;
 use bitcoin::Network;
 use floresta_chain::UtreexoBlock;
 use floresta_common::impl_error_from;
-use log::debug;
-use log::info;
 use serde::Deserialize;
 use serde::Serialize;
 use tokio::io::AsyncRead;
@@ -33,6 +31,8 @@ use tokio::io::ReadHalf;
 use tokio::io::WriteHalf;
 use tokio::net::TcpStream;
 use tokio::net::ToSocketAddrs;
+use tracing::debug;
+use tracing::info;
 
 use super::socks::Socks5Addr;
 use super::socks::Socks5Error;

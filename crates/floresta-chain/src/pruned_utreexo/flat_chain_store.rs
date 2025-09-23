@@ -92,6 +92,7 @@ use index_impl::Index;
 use lru::LruCache;
 use memmap2::MmapMut;
 use memmap2::MmapOptions;
+use tracing::info;
 use xxhash_rust::xxh3;
 
 use crate::BestChain;
@@ -1303,7 +1304,7 @@ pub mod migrate_v0_to_v1 {
 
         // 4) copy everything but the deprecated u32, bump version
         *new_meta = Metadata::from(*old_meta);
-        log::info!("Migrated FlatChainStore from v0 to v1!");
+        info!("Migrated FlatChainStore from v0 to v1!");
 
         Ok(true)
     }

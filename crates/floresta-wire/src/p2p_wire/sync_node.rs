@@ -11,10 +11,10 @@ use floresta_chain::ThreadSafeChain;
 use floresta_chain::UData;
 use floresta_common::service_flags;
 use floresta_common::service_flags::UTREEXO;
-use log::debug;
-use log::info;
-use log::warn;
 use tokio::time::timeout;
+use tracing::debug;
+use tracing::info;
+use tracing::warn;
 
 use super::error::WireError;
 use super::node::PeerStatus;
@@ -159,7 +159,7 @@ where
     ///     - Handles timeouts for inflight requests.
     ///     - If were low on inflights, requests new blocks to validate.
     pub async fn run(mut self, done_cb: impl FnOnce(&Chain)) -> Self {
-        info!("Starting sync node");
+        info!("Starting sync node...");
         self.last_block_request = self.chain.get_validation_index().unwrap();
 
         loop {
