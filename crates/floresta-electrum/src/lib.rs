@@ -2,6 +2,7 @@
 
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 #![allow(clippy::manual_is_multiple_of)]
+#![deny(clippy::unused_async)]
 
 use serde::Deserialize;
 use serde::Serialize;

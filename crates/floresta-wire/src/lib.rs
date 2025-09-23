@@ -11,6 +11,8 @@
 //! peer.
 
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
+// Code quality lints
+#![deny(clippy::unused_async)]
 
 #[cfg(not(target_arch = "wasm32"))]
 mod p2p_wire;
