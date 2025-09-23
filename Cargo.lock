@@ -1090,7 +1090,6 @@ dependencies = [
  "floresta-common",
  "hex",
  "kv",
- "log",
  "lru",
  "memmap2",
  "metrics",
@@ -1101,6 +1100,7 @@ dependencies = [
  "sha2",
  "spin",
  "tempfile",
+ "tracing",
  "xxhash-rust",
  "zstd",
 ]
@@ -1263,9 +1263,9 @@ dependencies = [
  "console-subscriber",
  "daemonize",
  "floresta-node",
- "log",
  "tokio",
  "toml 0.8.22",
+ "tracing",
 ]
 
 [[package]]

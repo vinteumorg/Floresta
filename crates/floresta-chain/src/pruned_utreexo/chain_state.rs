@@ -35,15 +35,15 @@ use bitcoin::Target;
 use bitcoin::Transaction;
 use bitcoin::Work;
 use floresta_common::Channel;
-use log::debug;
-use log::info;
-use log::warn;
 #[cfg(feature = "metrics")]
 use metrics;
 use rustreexo::accumulator::node_hash::BitcoinNodeHash;
 use rustreexo::accumulator::proof::Proof;
 use rustreexo::accumulator::stump::Stump;
 use spin::RwLock;
+use tracing::debug;
+use tracing::info;
+use tracing::warn;
 
 use super::chain_state_builder::BlockchainBuilderError;
 use super::chain_state_builder::ChainStateBuilder;
