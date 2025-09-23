@@ -1806,6 +1806,12 @@ where
             },
         );
 
+        match kind {
+            ConnectionKind::Feeler => self.last_feeler = Instant::now(),
+            ConnectionKind::Regular(_) => self.last_connection = Instant::now(),
+            _ => {}
+        }
+
         // Increment peer_id count and the list of peer ids
         // so we can get information about connected or
         // added peers when requesting with getpeerinfo command
