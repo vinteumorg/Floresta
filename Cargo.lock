@@ -1221,10 +1221,10 @@ dependencies = [
  "floresta-chain",
  "floresta-common",
  "kv",
- "log",
  "rand",
  "serde",
  "serde_json",
+ "tracing",
 ]
 
 [[package]]
