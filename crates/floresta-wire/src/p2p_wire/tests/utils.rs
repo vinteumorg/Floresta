@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io;
 use std::io::Read;
-use std::str::FromStr;
 use std::time::Instant;
 
 use bitcoin::block::Header;
@@ -13,9 +12,11 @@ use bitcoin::p2p::ServiceFlags;
 use bitcoin::BlockHash;
 use bitcoin::Network;
 use floresta_chain::UtreexoBlock;
-use floresta_common::bhash;
 use floresta_common::service_flags;
 use floresta_common::service_flags::UTREEXO;
+use hex;
+use rand::rngs::OsRng;
+use rand::RngCore;
 use serde::Deserialize;
 use serde::Serialize;
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -23,11 +24,11 @@ use tokio::sync::mpsc::UnboundedSender;
 use tokio::task;
 use zstd;
 
+use crate::node::ConnectionKind;
 use crate::node::LocalPeerView;
 use crate::node::NodeNotification;
 use crate::node::NodeRequest;
 use crate::node::PeerStatus;
-use crate::p2p_wire::node::ConnectionKind;
 use crate::p2p_wire::peer::PeerMessages;
 use crate::p2p_wire::peer::Version;
 use crate::p2p_wire::transport::TransportProtocol;
@@ -63,9 +64,9 @@ struct Block {
 
 #[derive(Debug)]
 pub struct TestPeer {
-    _headers: Vec<Header>,
+    headers: Vec<Header>,
     blocks: HashMap<BlockHash, UtreexoBlock>,
-    _filters: HashMap<BlockHash, Vec<u8>>,
+    filters: HashMap<BlockHash, Vec<u8>>,
     node_tx: UnboundedSender<NodeNotification>,
     node_rx: UnboundedReceiver<NodeRequest>,
     peer_id: u32,
@@ -81,9 +82,9 @@ impl TestPeer {
         peer_id: u32,
     ) -> Self {
         TestPeer {
-            _headers: headers,
+            headers,
             blocks,
-            _filters: filters,
+            filters,
             node_tx,
             node_rx,
             peer_id,
@@ -117,6 +118,29 @@ impl TestPeer {
             let req = self.node_rx.recv().await.unwrap();
 
             match req {
+                NodeRequest::GetHeaders(hashes) => {
+                    let headers = hashes
+                        .iter()
+                        .filter_map(|h| self.headers.iter().find(|x| x.block_hash() == *h))
+                        .copied()
+                        .collect();
+
+                    self.node_tx
+                        .send(NodeNotification::FromPeer(
+                            self.peer_id,
+                            PeerMessages::Headers(headers),
+                        ))
+                        .unwrap();
+                }
+                NodeRequest::GetUtreexoState((hash, _)) => {
+                    let filters = self.filters.get(&hash).unwrap().clone();
+                    self.node_tx
+                        .send(NodeNotification::FromPeer(
+                            self.peer_id,
+                            PeerMessages::UtreexoState(filters),
+                        ))
+                        .unwrap();
+                }
                 NodeRequest::GetBlock((hashes, _)) => {
                     for hash in hashes {
                         let block = self.blocks.get(&hash).unwrap().clone();
@@ -210,6 +234,19 @@ pub fn serialize(root: UtreexoRoots) -> Vec<u8> {
     buffer
 }
 
+pub fn create_false_acc(tip: usize) -> Vec<u8> {
+    let mut bytes = [0u8; 32];
+    OsRng.fill_bytes(&mut bytes);
+    let node_hash = hex::encode(bytes);
+
+    let utreexo_root = UtreexoRoots {
+        roots: Some(vec![node_hash]),
+        numleaves: tip,
+    };
+
+    serialize(utreexo_root)
+}
+
 pub fn get_test_headers() -> Vec<Header> {
     let mut headers: Vec<Header> = Vec::new();
 
@@ -233,7 +270,9 @@ pub fn get_test_blocks() -> io::Result<HashMap<BlockHash, UtreexoBlock>> {
     let mut u_blocks = HashMap::new();
 
     for block_str in blocks {
-        let block = Vec::from_hex(&block_str.block).unwrap();
+        let mut block = Vec::from_hex(&block_str.block).unwrap();
+        let mut udata = vec![0u8; 4]; // this append is to represent the udata of the UtreexoBlock.
+        block.append(&mut udata); // as the blocks in this test do not have any transactions spending UTXOs this can be empty
         let block: UtreexoBlock = deserialize(&block).unwrap();
         u_blocks.insert(block.block.block_hash(), block);
     }
@@ -272,11 +311,7 @@ pub fn generate_invalid_block() -> UtreexoBlock {
 pub fn get_essentials() -> Essentials {
     let headers = get_test_headers();
     let blocks = get_test_blocks().unwrap();
-    let _filters = get_test_filters().unwrap();
     let invalid_block = generate_invalid_block();
-
-    // BlockHash of chain_tip: 0000035f0e5513b26bba7cead874fdf06241a934e4bc4cf7a0381c60e4cdd2bb (119)
-    let _tip_hash = bhash!("0000035f0e5513b26bba7cead874fdf06241a934e4bc4cf7a0381c60e4cdd2bb");
 
     Essentials {
         headers,
