@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
+// Code quality lints
+#![deny(clippy::unused_async)]
 
 mod config_file;
 mod error;
