@@ -22,7 +22,6 @@ use bitcoin::p2p::message::NetworkMessage;
 use bitcoin::p2p::message::RawNetworkMessage;
 use bitcoin::p2p::Magic;
 use bitcoin::Network;
-use floresta_chain::UtreexoBlock;
 use floresta_common::impl_error_from;
 use log::debug;
 use log::info;
@@ -79,18 +78,6 @@ impl std::fmt::Display for TransportError {
             TransportError::Proxy(err) => write!(f, "Proxy error: {err:?}"),
         }
     }
-}
-
-impl_error_from!(TransportError, io::Error, Io);
-impl_error_from!(TransportError, ProtocolError, Protocol);
-impl_error_from!(TransportError, bip324::serde::Error, SerdeV2);
-impl_error_from!(TransportError, encode::Error, SerdeV1);
-impl_error_from!(TransportError, Socks5Error, Proxy);
-
-/// UTreeXO p2p message extensions to the base bitcoin protocol.
-pub enum UtreexoMessage {
-    Standard(NetworkMessage),
-    Block(UtreexoBlock),
 }
 
 impl_error_from!(TransportError, io::Error, Io);

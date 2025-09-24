@@ -6,7 +6,9 @@ use std::time::Instant;
 use bip324::serde::CommandString;
 use bitcoin::bip158::BlockFilter;
 use bitcoin::block::Header as BlockHeader;
+use bitcoin::consensus::deserialize;
 use bitcoin::consensus::encode;
+use bitcoin::consensus::serialize;
 use bitcoin::hashes::Hash;
 use bitcoin::p2p::address::AddrV2Message;
 use bitcoin::p2p::message::NetworkMessage;
@@ -16,7 +18,6 @@ use bitcoin::p2p::ServiceFlags;
 use bitcoin::Block;
 use bitcoin::BlockHash;
 use bitcoin::Transaction;
-use floresta_chain::UtreexoBlock;
 use floresta_common::impl_error_from;
 use log::debug;
 use log::error;
@@ -194,14 +195,9 @@ impl From<SendError<ReaderMessage>> for PeerError {
     }
 }
 
-impl_error_from!(PeerError, TransportError, Transport);
-impl_error_from!(PeerError, std::io::Error, Read);
-impl_error_from!(PeerError, encode::Error, Parse);
-
-impl From<UtreexoBlock> for ReaderMessage {
-    fn from(block: UtreexoBlock) -> Self {
-        ReaderMessage::Block(block)
-    }
+pub enum ReaderMessage {
+    Message(NetworkMessage),
+    Error(PeerError),
 }
 
 impl From<NetworkMessage> for ReaderMessage {
@@ -487,12 +483,13 @@ impl<T: AsyncWrite + Unpin + Send + Sync> Peer<T> {
                     }
 
                     let utreexo_proof: UtreexoProof = deserialize(&payload)?;
-                    self.send_to_node(PeerMessages::UtreexoProof(utreexo_proof));
+                    self.send_to_node(PeerMessages::UtreexoProof(utreexo_proof))
+                        .await;
 
                     return Ok(());
                 }
                 NetworkMessage::Block(block) => {
-                    self.send_to_node(PeerMessages::Block(block));
+                    self.send_to_node(PeerMessages::Block(block)).await;
                 }
                 NetworkMessage::CFilter(filter_msg) => match filter_msg.filter_type {
                     0 => {

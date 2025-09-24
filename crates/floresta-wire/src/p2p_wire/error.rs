@@ -136,46 +136,6 @@ impl std::fmt::Display for WireError {
     }
 }
 
-impl std::fmt::Display for WireError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            WireError::Blockchain(err) => write!(f, "Blockchain error: {err:?}"),
-            WireError::ChannelSend(err) => write!(f, "Error while writing into channel: {err:?}"),
-            WireError::PeerError(err) => write!(f, "Peer error: {err:?}"),
-            WireError::CoinbaseNotMatured => write!(f, "Coinbase isn't mature yet"),
-            WireError::PeerNotFound => write!(f, "Peer not found in our current connections list"),
-            WireError::NoPeersAvailable => write!(f, "We don't have peers to send a given request"),
-            WireError::PeerMisbehaving => write!(f, "Our peer is misbehaving"),
-            WireError::AnchorFileNotFound => write!(
-                f,
-                "Failed to init Utreexo peers: anchors.json does not exist yet"
-            ),
-            WireError::PeerAlreadyExists(ip, port) => write!(f, "Peer {ip}:{port} already exists"),
-            WireError::PeerNotFoundAtAddress(ip, port) => write!(f, "Peer {ip}:{port} not found"),
-            WireError::Io(err) => write!(f, "Generic IO error: {err:?}"),
-            WireError::Serde(err) => write!(f, "Serde error: {err:?}"),
-            WireError::NoUtreexoPeersAvailable => write!(
-                f,
-                "Failed to save Utreexo peers: no peers to save to anchors.json"
-            ),
-            WireError::NoPeerToSendRequest => {
-                write!(f, "We couldn't find a peer to send the request")
-            }
-            WireError::PeerTimeout => write!(f, "Peer timed out"),
-            WireError::CompactBlockFiltersError(err) => {
-                write!(f, "Compact block filters error: {err:?}")
-            }
-            WireError::PoisonedLock => write!(f, "Poisoned lock"),
-            WireError::InvalidAddress(err) => {
-                write!(f, "We couldn't parse the provided address due to: {err:?}")
-            }
-            WireError::Transport(err) => write!(f, "Transport error: {err:?}"),
-            WireError::ResponseSendError => write!(f, "Can't send back response for user request"),
-            WireError::NoAddressesAvailable => write!(f, "No addresses available to connect to"),
-        }
-    }
-}
-
 impl_error_from!(WireError, PeerError, PeerError);
 impl_error_from!(WireError, BlockchainError, Blockchain);
 impl_error_from!(

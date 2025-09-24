@@ -342,7 +342,7 @@ where
             }
 
             // Jobs that don't need a connected peer
-            try_and_log!(self.process_pending_blocks());
+            try_and_log!(self.process_pending_blocks().await);
 
             // Save our peers db
             periodic_job!(
@@ -564,7 +564,7 @@ where
         Ok(())
     }
 
-    fn handle_new_block(&mut self, block: BlockHash, peer: u32) -> Result<(), WireError> {
+    async fn handle_new_block(&mut self, block: BlockHash, peer: u32) -> Result<(), WireError> {
         if self.inflight.contains_key(&InflightRequests::Headers) {
             return Ok(());
         }
@@ -582,7 +582,10 @@ where
         Ok(())
     }
 
-    fn handle_notification(&mut self, notification: NodeNotification) -> Result<(), WireError> {
+    async fn handle_notification(
+        &mut self,
+        notification: NodeNotification,
+    ) -> Result<(), WireError> {
         match notification {
             NodeNotification::FromUser(request, responder) => {
                 self.perform_user_request(request, responder);
@@ -598,8 +601,8 @@ where
 
                 match message {
                     PeerMessages::UtreexoProof(uproof) => {
-                        self.attach_proof(uproof, peer)?;
-                        self.process_pending_blocks()?;
+                        self.attach_proof(uproof, peer).await?;
+                        self.process_pending_blocks().await?;
                     }
 
                     PeerMessages::NewBlock(block) => {
@@ -642,7 +645,7 @@ where
                     }
 
                     PeerMessages::Block(block) => {
-                        self.request_block_proof(block, peer)?;
+                        self.request_block_proof(block, peer).await?;
                     }
 
                     PeerMessages::Headers(headers) => {
@@ -688,7 +691,8 @@ where
                             self.send_to_peer(
                                 peer,
                                 NodeRequest::GetBlock(vec![header.block_hash()]),
-                            )?;
+                            )
+                            .await?;
 
                             self.inflight.insert(
                                 InflightRequests::Blocks(header.block_hash()),
