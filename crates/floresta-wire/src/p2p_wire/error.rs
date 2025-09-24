@@ -79,6 +79,15 @@ pub enum WireError {
 
     /// No addresses available to connect to
     NoAddressesAvailable,
+
+    /// We tried to work on a block we don't have. This is a bug!
+    BlockNotFound,
+
+    /// We tried to work on a block that we don't have a proof for yet. This is a bug!
+    BlockProofNotFound,
+
+    /// Couldn't find the leaf data for a block
+    LeafDataNotFound,
 }
 
 impl std::fmt::Display for WireError {
@@ -117,6 +126,12 @@ impl std::fmt::Display for WireError {
             WireError::Transport(err) => write!(f, "Transport error: {err:?}"),
             WireError::ResponseSendError => write!(f, "Can't send back response for user request"),
             WireError::NoAddressesAvailable => write!(f, "No addresses available to connect to"),
+            WireError::BlockNotFound => write!(f, "We tried to work on a block we don't have"),
+            WireError::BlockProofNotFound => write!(
+                f,
+                "We tried to work on a block that we don't have a proof for yet"
+            ),
+            WireError::LeafDataNotFound => write!(f, "Couldn't find the leaf data for a block"),
         }
     }
 }
@@ -129,24 +144,9 @@ impl_error_from!(
     CompactBlockFiltersError
 );
 impl_error_from!(WireError, AddrParseError, InvalidAddress);
-
-impl From<tokio::sync::mpsc::error::SendError<NodeRequest>> for WireError {
-    fn from(error: tokio::sync::mpsc::error::SendError<NodeRequest>) -> Self {
-        WireError::ChannelSend(error)
-    }
-}
-
-impl From<serde_json::Error> for WireError {
-    fn from(err: serde_json::Error) -> WireError {
-        WireError::Serde(err)
-    }
-}
-
-impl From<io::Error> for WireError {
-    fn from(err: io::Error) -> WireError {
-        WireError::Io(err)
-    }
-}
+impl_error_from!(WireError, SendError<NodeRequest>, ChannelSend);
+impl_error_from!(WireError, serde_json::Error, Serde);
+impl_error_from!(WireError, io::Error, Io);
 
 impl From<tokio::sync::oneshot::error::RecvError> for WireError {
     fn from(_: tokio::sync::oneshot::error::RecvError) -> Self {

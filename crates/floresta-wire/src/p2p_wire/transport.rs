@@ -2,6 +2,7 @@ use std::io;
 
 use bip324::serde::deserialize as deserialize_v2;
 use bip324::serde::serialize as serialize_v2;
+use bip324::serde::CommandString;
 use bip324::AsyncProtocol;
 use bip324::AsyncProtocolReader;
 use bip324::AsyncProtocolWriter;
@@ -13,12 +14,14 @@ use bitcoin::consensus::deserialize_partial;
 use bitcoin::consensus::encode;
 use bitcoin::consensus::serialize;
 use bitcoin::consensus::Decodable;
+use bitcoin::hashes::sha256;
+use bitcoin::hashes::Hash;
+use bitcoin::hashes::HashEngine;
 use bitcoin::p2p::address::AddrV2;
 use bitcoin::p2p::message::NetworkMessage;
 use bitcoin::p2p::message::RawNetworkMessage;
 use bitcoin::p2p::Magic;
 use bitcoin::Network;
-use floresta_chain::UtreexoBlock;
 use floresta_common::impl_error_from;
 use log::debug;
 use log::info;
@@ -80,12 +83,6 @@ impl_error_from!(TransportError, ProtocolError, Protocol);
 impl_error_from!(TransportError, bip324::serde::Error, SerdeV2);
 impl_error_from!(TransportError, encode::Error, SerdeV1);
 impl_error_from!(TransportError, Socks5Error, Proxy);
-
-/// UTreeXO p2p message extensions to the base bitcoin protocol.
-pub enum UtreexoMessage {
-    Standard(NetworkMessage),
-    Block(UtreexoBlock),
-}
 
 pub enum ReadTransport<R: AsyncRead + Unpin + Send> {
     V2(R, AsyncProtocolReader),
@@ -329,24 +326,14 @@ where
     R: AsyncRead + Unpin + Send,
 {
     /// Read the next message from the transport.
-    pub async fn read_message(&mut self) -> Result<UtreexoMessage, TransportError> {
+    pub async fn read_message(&mut self) -> Result<NetworkMessage, TransportError> {
         match self {
             ReadTransport::V2(reader, protocol) => {
                 let payload = protocol.read_and_decrypt(reader).await?;
                 let contents = payload.contents();
+                let msg = deserialize_v2(contents)?;
 
-                // Check if it's a block message by looking at the short ID.
-                match contents.first() {
-                    Some(&2) => {
-                        let block: UtreexoBlock = deserialize(&contents[1..])?;
-                        Ok(UtreexoMessage::Block(block))
-                    }
-                    _ => {
-                        // Standard message
-                        let msg = deserialize_v2(contents)?;
-                        Ok(UtreexoMessage::Standard(msg))
-                    }
-                }
+                Ok(msg)
             }
             ReadTransport::V1(reader) => {
                 let mut data: Vec<u8> = vec![0; 24];
@@ -356,21 +343,18 @@ where
                 data.resize(24 + header.length as usize, 0);
                 reader.read_exact(&mut data[24..]).await?;
 
-                match header._command[0..5] {
-                    [0x62, 0x6c, 0x6f, 0x63, 0x6b] => {
-                        let mut block_data = vec![0; header.length as usize];
-                        block_data.copy_from_slice(&data[24..]);
-                        let block: UtreexoBlock = deserialize(&block_data)?;
-                        Ok(UtreexoMessage::Block(block))
-                    }
-                    _ => {
-                        let msg: RawNetworkMessage = deserialize(&data)?;
-                        Ok(UtreexoMessage::Standard(msg.payload().clone()))
-                    }
-                }
+                let msg: RawNetworkMessage = deserialize(&data)?;
+                Ok(msg.into_payload())
             }
         }
     }
+}
+
+fn sha256d_payload(payload: &[u8]) -> [u8; 32] {
+    let mut sha = sha256::Hash::engine();
+    sha.input(payload);
+    let hash = sha256::Hash::from_engine(sha);
+    hash.hash_again().to_byte_array()
 }
 
 impl<W> WriteTransport<W>
@@ -385,6 +369,30 @@ where
                 protocol.encrypt_and_write(&data, writer).await?;
             }
             WriteTransport::V1(writer, network) => {
+                if let NetworkMessage::Unknown { payload, command } = message {
+                    let expected_cmd = CommandString::try_from_static("getuproof").unwrap();
+                    assert_eq!(
+                        command, expected_cmd,
+                        "Only getuproof is supported as unknown message"
+                    );
+
+                    // FIXME: This little bit of ugliness is due to https://github.com/rust-bitcoin/rust-bitcoin/issues/4413
+                    // Once that is solved upstream (or utreexo messages are added to
+                    // rust-bitcoin), this can be removed.
+                    let checksum = &sha256d_payload(&payload)[0..4];
+
+                    let mut message_header = [0u8; 24];
+                    message_header[0..4].copy_from_slice(&network.magic().to_bytes());
+                    message_header[4..13].copy_from_slice("getuproof".as_bytes());
+                    message_header[16..20].copy_from_slice(&(payload.len() as u32).to_le_bytes());
+                    message_header[20..24].copy_from_slice(checksum);
+
+                    writer.write_all(&message_header).await?;
+                    writer.write_all(&payload).await?;
+                    writer.flush().await?;
+                    return Ok(());
+                }
+
                 let data = &mut RawNetworkMessage::new(network.magic(), message);
                 let data = serialize(&data);
                 writer.write_all(&data).await?;
