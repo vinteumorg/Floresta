@@ -1,13 +1,17 @@
 //! Util types and methods related to internal implementation for dealing with Descriptors.
 
+use core::cmp::max;
 use core::ops::Range;
 
 use bitcoin::hashes::sha256d;
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::Secp256k1;
+use miniscript::descriptor;
 use miniscript::DefiniteDescriptorKey;
 use miniscript::Descriptor;
 use miniscript::DescriptorPublicKey;
+use miniscript::MiniscriptKey;
+use miniscript::ToPublicKey;
 use serde::de;
 use serde::de::Error;
 use serde::de::MapAccess;
@@ -19,6 +23,7 @@ use serde::Deserializer;
 use serde::Serialize;
 use serde::Serializer;
 
+use crate::impl_error_from;
 use crate::prelude::*;
 
 #[derive(Debug, PartialEq)]
@@ -39,6 +44,9 @@ pub enum DescriptorError {
     DescriptorNotFound,
 }
 
+impl_error_from!(DescriptorError,   miniscript::Error, Miniscript);
+impl_error_from!(DescriptorError,   ConversionError, DerivationError);
+
 use bitcoin::bip32::Xpub;
 use bitcoin::Address;
 use bitcoin::Network;
@@ -46,8 +54,6 @@ use bitcoin::ScriptBuf;
 use miniscript::descriptor::ConversionError;
 use serde::ser::SerializeMap;
 use serde::ser::SerializeSeq;
-
-use crate::descriptor_internals::DescriptorError::DerivationError;
 
 /// Converts the inserted addresses, descriptors and xpubs
 /// into compatible types so we can cache them using
@@ -94,13 +100,11 @@ pub fn convert_to_internal(
 
     xpub_descriptor_request.append(&mut descriptors);
 
-    let mut desc_ret: Vec<_> = xpub_descriptor_request
-        .into_iter()
-        .map(DescriptorRequest::into_concrete_descriptors)
-        .collect::<Result<Vec<Vec<ConcreteDescriptor>>, _>>()?
-        .into_iter()
-        .flatten()
-        .collect();
+    let mut desc_ret = Vec::<ConcreteDescriptor>::new();
+    
+    for d in xpub_descriptor_request.into_iter().map(DescriptorRequest::into_concrete_descriptors){
+        desc_ret.append(& mut d?);
+    } 
 
     let mut addr_ret = addresses
         .iter()
@@ -120,10 +124,10 @@ pub fn convert_to_internal(
     Ok((desc_ret, addr_ret))
 }
 
-/// Since, precisely, Rust Bitcoin's [`Descriptor<DefiniteDescriptorKey>`] doesn't directly implement
+/// Since, precisely, Rust Bitcoin's [`Descriptor<DescriptorPublicKey>`] doesn't directly implement
 /// serde we need this helper function so [`ConcreteDescriptor`] implements serde.
 fn serialize_descriptor<S>(
-    descriptor: &Descriptor<DefiniteDescriptorKey>,
+    descriptor: &Descriptor<DescriptorPublicKey>,
     serializer: S,
 ) -> Result<S::Ok, S::Error>
 where
@@ -134,18 +138,18 @@ where
     serializer.serialize_str(&descriptor_str)
 }
 
-/// Since, precisely, Rust Bitcoin's [`Descriptor<DefiniteDescriptorKey>`] doesn't directly implement
+/// Since, precisely, Rust Bitcoin's [`Descriptor<DescriptorPublicKey>`] doesn't directly implement
 /// serde we need this helper function so [`ConcreteDescriptor`] implements serde.
 ///
-/// Wrapper around [`Descriptor::<DefiniteDescriptorKey>::from_str`].
+/// Wrapper around [`Descriptor::<DescriptorPublicKey>::from_str`].
 fn deserialize_descriptor<'de, D>(
     deserializer: D,
-) -> Result<Descriptor<DefiniteDescriptorKey>, D::Error>
+) -> Result<Descriptor<DescriptorPublicKey>, D::Error>
 where
     D: Deserializer<'de>,
 {
     let s = String::deserialize(deserializer)?;
-    Descriptor::<DefiniteDescriptorKey>::from_str(&s)
+    Descriptor::<DescriptorPublicKey>::from_str(&s)
         .map_err(|e| D::Error::custom(format!("Descriptor parsing failed: {e}")))
 }
 
@@ -168,7 +172,7 @@ pub const DESCRIPTOR_STRING_KEY: &str = "Descriptors";
 /// If a single descriptor raise any error the function will discard the descriptors and return all the collected errors.
 pub fn handle_descriptors_requests(
     requests: Vec<DescriptorRequest>,
-) -> Result<(Vec<ConcreteDescriptor>, RescanRequest), Vec<DescriptorError>> {
+) -> Result<(Vec<ConcreteDescriptor>, RescanRequest), DescriptorError> {
     let mut rescan_request: RescanRequest = RescanRequest::SpecifiedTime(u32::MAX);
     let mut deriving_errors: Vec<DescriptorError> = Vec::new();
     let mut descriptors: Vec<ConcreteDescriptor> = Vec::new();
@@ -176,21 +180,10 @@ pub fn handle_descriptors_requests(
     for request in requests {
         rescan_request = rescan_request.check_override(&request.timestamp);
 
-        match request.into_concrete_descriptors() {
-            Ok(batch) => {
-                for desc in batch {
-                    descriptors.push(desc);
-                }
-            }
-            Err(e) => deriving_errors.push(e),
-        }
+        descriptors.append(& mut request.into_concrete_descriptors()?);
     }
-
-    if deriving_errors.is_empty() {
-        return Ok((descriptors, rescan_request));
-    }
-
-    Err(deriving_errors)
+    
+    return Ok((descriptors, rescan_request));    
 }
 
 /// Given a [`Vec<ConcreteDescriptor>`] finds those with [`&[DescriptorId]`] in a list of ids.
@@ -236,10 +229,13 @@ pub struct ConcreteDescriptor {
         serialize_with = "serialize_descriptor",
         deserialize_with = "deserialize_descriptor"
     )]
-    pub descriptor: Descriptor<DefiniteDescriptorKey>,
+    pub descriptor: Descriptor<DescriptorPublicKey>,
 
     /// A label given for the descriptor
     pub label: String,
+
+    /// The derivation range that this descriptor should have addresses
+    pub range: DerivationRange,
 
     /// Whether this descriptor should be treated as a change
     pub internal: bool,
@@ -255,26 +251,92 @@ impl PartialEq for ConcreteDescriptor {
         self.descriptor == other.descriptor
     }
 }
+
 impl Default for ConcreteDescriptor {
     fn default() -> Self {
         const DEFAULT_P2PK_DESCRIPTOR: &str =
             "pk(0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798)";
         Self {
-            descriptor: Descriptor::<DefiniteDescriptorKey>::from_str(DEFAULT_P2PK_DESCRIPTOR)
+            descriptor: Descriptor::<DescriptorPublicKey>::from_str(DEFAULT_P2PK_DESCRIPTOR)
                 .expect("Impossible to fail."),
             label: "A nice label".to_string(),
             internal: false,
+            range: DerivationRange::default(),
         }
     }
 }
 
+fn how_many_descriptors_itll_yield(target: &[ConcreteDescriptor]) -> usize {
+    let mut ret: usize = 0;
+    for i in target.iter() {
+        ret += i.resolve_counter()
+    }
+    ret
+}
+
+pub fn resolve_descriptors(to_resolve: &[ConcreteDescriptor]) -> Vec<Descriptor<DefiniteDescriptorKey>> {
+    to_resolve.iter().map(ConcreteDescriptor::resolve).flatten().collect()
+}
+
+pub fn resolve_descriptors_with<C, T>(to_resolve: &[ConcreteDescriptor], into: C) -> Result<Vec<T>, DescriptorError>
+    where C: Fn(Descriptor<DefiniteDescriptorKey>) -> Result<T, DescriptorError>, {
+    let mut ret = Vec::<T>::with_capacity(how_many_descriptors_itll_yield(to_resolve));
+    for d in to_resolve {
+        let mut resolved = d.resolve_with(&into)?;
+        ret.append(&mut resolved);
+    }
+    Ok(ret)
+}
+
 impl ConcreteDescriptor {
-    /// If the given id represents this exact descriptor.
+    /// Returns how much descriptors this one will yield.
+    pub fn resolve_counter(&self) -> usize {
+        if self.descriptor.has_wildcard() {
+            return self.range.range().count()
+        }
+        1usize
+    }
+
+    /// Return the descriptors that this `ConcreteDescriptor` holds.
+    pub fn resolve(&self) -> Vec<Descriptor<DefiniteDescriptorKey>> {
+        let desc_count  = self.resolve_counter();
+        let mut ret = Vec::<Descriptor<DefiniteDescriptorKey>>::with_capacity(desc_count);
+
+        for i in self.range.range() {
+            ret.push(self.descriptor.at_derivation_index(i).expect("Concrete Descriptors should always be valid"));
+        }
+        ret
+    }
+
+    /// Wrapper around `resolve` but you can pass a function to directly consume from the descriptor.
+    /// 
+    /// Util while needing to cast into addresses, take a look at pre-made functions.
+    /// 
+    /// You should prefer using this wrapper because it enforces compatible error handling and `into` is evaluated together with the cast, avoiding unecessary iterations.
+    pub fn resolve_with<C, T>(&self, into: C) -> Result<Vec<T>, DescriptorError>
+        where C: Fn(Descriptor<DefiniteDescriptorKey>) -> Result<T, DescriptorError>, {
+        let desc_count  = self.resolve_counter();
+
+        // we can expect that `into` will yield 1 `T` for each desc, right ?
+        let mut ret = Vec::<T>::with_capacity(desc_count);
+
+        for i in self.range.range() {
+            let descriptor = self.descriptor.at_derivation_index(i)?;
+            let cast = into(descriptor)?;
+            ret.push(cast);
+        }
+        Ok(ret)
+    }
+
+    // TODO, the tests use some pretty normal case for casting descriptors.
+    // pre define functions or closures to be used into the above C.
+
+    /// wheter the given id represents this exact descriptor.
     pub fn match_id(&self, id: &DescriptorId) -> bool {
         match id {
             DescriptorId::Label(l) => l == &self.label,
             DescriptorId::Miniscript(m) => {
-                if let Ok(d) = Descriptor::<DefiniteDescriptorKey>::from_str(&m.to_string()) {
+                if let Ok(d) = Descriptor::<DescriptorPublicKey>::from_str(&m.to_string()) {
                     return self.descriptor == d;
                 }
                 false
@@ -369,39 +431,26 @@ impl DescriptorRequest {
     /// Consume the [`DescriptorRequest`] into a [`ConcreteDescriptor`].
     ///
     /// The return is a Vec of it because a Descriptor request may yield more than one
-    /// descriptor while being a ranged one.
+    /// descriptor while being a multipath one.
     pub fn into_concrete_descriptors(self) -> Result<Vec<ConcreteDescriptor>, DescriptorError> {
-        let (parsed, _) = Descriptor::parse_descriptor(&Secp256k1::default(), &self.desc)
-            .map_err(DescriptorError::Miniscript)?;
+        let secp = Secp256k1::default();
 
-        parsed.sanity_check().map_err(DescriptorError::Miniscript)?;
+        let descriptor = Descriptor::parse_descriptor(&secp, &self.desc)?.0;
 
-        let mut singles = parsed
-            .into_single_descriptors()
-            .map_err(DescriptorError::Miniscript)?;
+        descriptor.sanity_check()?;
 
-        singles.dedup();
+        let mut range = self.range;
+        
+        if let Some(i) = self.next_index {
+            range = range.with_included_index(i);
+        }
 
-        let derived = self
-            .range
-            .range()
-            .map(|index| {
-                singles
-                    .iter()
-                    .map(|d| d.at_derivation_index(index).map_err(DerivationError))
-                    .collect::<Result<Vec<_>, DescriptorError>>()
-            })
-            .collect::<Result<Vec<Vec<_>>, DescriptorError>>()?;
-
-        Ok(derived
-            .into_iter()
-            .flatten()
-            .map(|descriptor| ConcreteDescriptor {
-                descriptor,
-                label: self.label.clone(),
-                internal: self.internal,
-            })
-            .collect())
+        let ret = descriptor.into_single_descriptors()?.into_iter().map(
+            |d|{
+                ConcreteDescriptor { descriptor: d, label: self.label.clone(), range: range.clone(), internal: self.internal.clone() }
+            }
+        ).collect();
+        Ok(ret)
     }
 }
 
@@ -526,6 +575,7 @@ pub enum RescanRequest {
     /// Tells to ignore rescan.
     Now,
 }
+
 impl RescanRequest {
     /// Checks if this [`RescanRequest`] should be overridden by another.
     ///
@@ -631,17 +681,38 @@ pub enum DerivationRange {
     End(u32),
 
     /// This range tells to from the first index until the second.
-    Range([u32; 2]),
+    Range(u32, u32),
 }
 impl DerivationRange {
     /// Consumes the [`DerivationRange`] in favor of an iterable [`Range<u32>`]
-    fn range(&self) -> Range<u32> {
+    const fn range(&self) -> Range<u32> {
         match self {
             Self::End(e) => 0..*e,
-            Self::Range([r, e]) => *r..*e,
+            Self::Range(s, e) => *s..*e,
+        }
+    }
+
+    /// Extends the inner range with the given index
+    fn with_included_index(self, to_include: u32) -> Self {
+        match self {
+            Self::End(e) =>{
+                if to_include > e {
+                    Self::End(to_include);
+                }
+                self
+            }
+            Self::Range(s, e ) => {
+                // here i know that s can only be less than e. Otherwise it would be a Range(1) or the tuple have a invalid positioning.
+                if to_include < s {
+                    Self::Range(to_include, e)
+                } else {
+                    Self::Range(s, to_include)
+                }
+            }
         }
     }
 }
+
 impl Serialize for DerivationRange {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -649,10 +720,10 @@ impl Serialize for DerivationRange {
     {
         match self {
             DerivationRange::End(e) => serializer.serialize_u32(*e),
-            DerivationRange::Range(r) => {
+            DerivationRange::Range(s, e ) => {
                 let mut seq = serializer.serialize_seq(Some(2))?;
-                seq.serialize_element(&r[0])?;
-                seq.serialize_element(&r[1])?;
+                seq.serialize_element(s)?;
+                seq.serialize_element(e)?;
                 seq.end()
             }
         }
@@ -702,7 +773,7 @@ impl<'de> Deserialize<'de> for DerivationRange {
                     return Err(de::Error::invalid_length(3, &"exactly 2 elements"));
                 }
 
-                Ok(DerivationRange::Range([first, second]))
+                Ok(DerivationRange::Range(first, second))
             }
         }
 
@@ -729,7 +800,7 @@ mod tests {
         let end = DerivationRange::End(10);
         assert_eq!(serde_json::to_string(&end).unwrap(), "10");
 
-        let range = DerivationRange::Range([5, 15]);
+        let range = DerivationRange::Range(5, 15);
         assert_eq!(serde_json::to_string(&range).unwrap(), "[5,15]");
 
         // Deserialization
@@ -737,7 +808,7 @@ mod tests {
         assert_eq!(from_int, DerivationRange::End(42));
 
         let from_array: DerivationRange = serde_json::from_str("[1,2]").unwrap();
-        assert_eq!(from_array, DerivationRange::Range([1, 2]));
+        assert_eq!(from_array, DerivationRange::Range(1, 2));
     }
 
     #[test]
@@ -836,8 +907,6 @@ mod tests {
         let result = handle_descriptors_requests(vec![Default::default(), bad_req]);
 
         assert!(result.is_err()); // Okay, it was supposed to fail and it did.
-
-        assert_eq!(result.unwrap_err().len(), 1); // Okay, it was supposed to return only one error.
     }
 
     #[test]
@@ -932,22 +1001,23 @@ mod tests {
 
         // Build wallet from xpub (in this case a zpub from slip132 standard)
         let w1_xpub =
-            convert_to_internal(&[zpub], &[], &[], network, addresses_per_descriptor).unwrap();
+            convert_to_internal(&[zpub], &[], &[], network, addresses_per_descriptor).unwrap().0;
 
         // Build same wallet from output descriptor
         let w1_descriptor = convert_to_internal(&[], &[
             "wpkh(xpub6CFy3kRXorC3NMTt8qrsY9ucUfxVLXyFQ49JSLm3iEG5gfAmWewYFzjNYFgRiCjoB9WWEuJQiyYGCdZvUTwPEUPL9pPabT8bkbiD9Po47XG/<0;1>/*)".to_owned()
-        ], &[], network, addresses_per_descriptor).unwrap();
+        ], &[], network, addresses_per_descriptor).unwrap().0;
+
+        let w1_xpub_resolved = resolve_descriptors(&w1_xpub);
+
+        let w1_descriptor_resolved = resolve_descriptors(&w1_descriptor);
 
         // Using both methods the result should be the same
-        assert_eq!(w1_xpub, w1_descriptor);
+        assert_eq!(w1_xpub_resolved, w1_descriptor_resolved);
 
         // Both normal receiving descriptor and change descriptor should be present
         assert_eq!(
-            w1_descriptor.0
-                .iter()
-                .map(|d| d.descriptor.to_string())
-                .collect::<Vec<_>>(),
+            resolve_descriptors_with(&w1_descriptor, |d| Ok(d.to_string())).unwrap(),
             vec!["wpkh(xpub6CFy3kRXorC3NMTt8qrsY9ucUfxVLXyFQ49JSLm3iEG5gfAmWewYFzjNYFgRiCjoB9WWEuJQiyYGCdZvUTwPEUPL9pPabT8bkbiD9Po47XG/0/0)#yd323ycg",
                  "wpkh(xpub6CFy3kRXorC3NMTt8qrsY9ucUfxVLXyFQ49JSLm3iEG5gfAmWewYFzjNYFgRiCjoB9WWEuJQiyYGCdZvUTwPEUPL9pPabT8bkbiD9Po47XG/1/0)#4e5tv3gs"]
         );
@@ -957,12 +1027,10 @@ mod tests {
             "bc1q24629yendf7q0dxnw362dqccn52vuz9s0z59hr".to_owned(),
             "bc1q88guum89mxwszau37m3y4p24renwlwgtkscl6x".to_owned(),
         ];
+
         assert_eq!(
-            w1_descriptor
-                .0
-                .iter()
-                .map(|s| s.descriptor.address(network).unwrap().to_string())
-                .collect::<Vec<_>>(),
+                resolve_descriptors_with(&w1_descriptor
+                , |d| Ok(d.address(network).unwrap().to_string())).unwrap(),
             addresses
         );
 
@@ -970,17 +1038,37 @@ mod tests {
         let w1_addresses =
             convert_to_internal(&[], &[], &addresses, network, addresses_per_descriptor).unwrap();
 
-        let casted_w1_addr = w1_descriptor
-            .0
-            .clone()
-            .iter()
-            .map(|d| d.descriptor.script_pubkey())
-            .collect::<Vec<_>>();
+        let casted_w1_addr = resolve_descriptors_with(&w1_descriptor, | d| Ok(d.address(network)?.script_pubkey())).unwrap();
 
         // And the result will be the same as from xpub/descriptor
         assert_eq!(casted_w1_addr, w1_addresses.1);
     }
 
+    #[test]
+    fn descriptor_index_control() {
+        let addresses_per_descriptor = 42u32;
+
+        let network = Network::Testnet;
+
+        let wallet = convert_to_internal(&[], &[
+        "wpkh(xpub6CFy3kRXorC3NMTt8qrsY9ucUfxVLXyFQ49JSLm3iEG5gfAmWewYFzjNYFgRiCjoB9WWEuJQiyYGCdZvUTwPEUPL9pPabT8bkbiD9Po47XG/<0;1>/*)".to_owned()
+        ], &[], network, addresses_per_descriptor).unwrap().0;
+        
+        let expected_count = how_many_descriptors_itll_yield(&wallet);
+
+        let resolved = resolve_descriptors(&wallet);
+        
+        // Resolving and counting does match
+        assert_eq!(resolved.len(), expected_count);
+        
+        // Ill try directly from a request expecting to assert wheter next_index related index control is properly working.
+        let from_request = DescriptorRequest {
+            ..Default::default()
+        };
+
+
+    }
+    
     #[test]
     fn test_initial_wallet_build_multisig_testnet() {
         let addresses_per_descriptor = 1;
@@ -996,12 +1084,10 @@ mod tests {
             "tb1q6dpyc3jyqelgfwksedef0k2244rcg4gf6wvqm463lk907es2m08qnrfky7".to_owned(),
         ];
 
-        let to_script = w1_descriptor
-            .0
-            .iter()
-            .map(|d| d.descriptor.address(network).unwrap().to_string())
-            .collect::<Vec<_>>();
 
+        let to_script = resolve_descriptors_with(&w1_descriptor
+            .0, |d| Ok(d.address(network)?.to_string())).unwrap();
+        
         assert_eq!(to_script, addresses);
     }
 }
