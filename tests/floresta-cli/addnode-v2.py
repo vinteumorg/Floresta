@@ -92,7 +92,7 @@ class AddnodeTestV2(FlorestaTestFramework):
         # should be in the `getpeerinfo` list.
         self.assertEqual(peer_info[0]["address"], f"127.0.0.1:{bitcoind_port}")
         self.assertEqual(peer_info[0]["initial_height"], 0)
-        self.assertEqual(peer_info[0]["kind"], "regular")
+        self.assertEqual(peer_info[0]["kind"], "manual")
 
         self.assertEqual(
             peer_info[0]["services"],
@@ -290,7 +290,7 @@ class AddnodeTestV2(FlorestaTestFramework):
         self.assertEqual(len(peer_info), 1)
         self.assertEqual(peer_info[0]["address"], f"127.0.0.1:{bitcoind_port}")
         self.assertEqual(peer_info[0]["initial_height"], 0)
-        self.assertEqual(peer_info[0]["kind"], "regular")
+        self.assertEqual(peer_info[0]["kind"], "manual")
 
         self.assertEqual(
             peer_info[0]["services"],
