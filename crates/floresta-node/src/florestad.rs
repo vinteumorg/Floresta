@@ -525,7 +525,7 @@ impl Florestad {
                     .as_ref()
                     .map(|x| Self::resolve_hostname(x, 8332))
                     .transpose()?,
-                format!("{data_dir}/output.log"),
+                format!("{data_dir}/debug.log"),
             ));
 
             if self.json_rpc.set(server).is_err() {
@@ -727,7 +727,7 @@ impl Florestad {
 
         // Validate the log file path.
         if log_to_file {
-            let file_path = format!("{data_dir}/output.log");
+            let file_path = format!("{data_dir}/debug.log");
             std::fs::OpenOptions::new()
                 .create(true)
                 .append(true)
