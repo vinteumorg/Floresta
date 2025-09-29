@@ -525,7 +525,7 @@ impl Florestad {
                     .as_ref()
                     .map(|x| Self::resolve_hostname(x, 8332))
                     .transpose()?,
-                format!("{data_dir}/output.log"),
+                format!("{data_dir}/debug.log"),
             ));
 
             if self.json_rpc.set(server).is_err() {
@@ -730,7 +730,7 @@ impl Florestad {
 
         // Validate the log file path.
         if log_to_file {
-            let file_path = format!("{data_dir}/output.log");
+            let file_path = format!("{data_dir}/debug.log");
             std::fs::OpenOptions::new()
                 .create(true)
                 .append(true)
@@ -756,7 +756,7 @@ impl Florestad {
         let mut guard = None;
         let base_filter_logfile = log_filter.clone();
         let fmt_layer_logfile = log_to_file.then(|| {
-            let file_path = format!("{data_dir}/output.log");
+            let file_path = format!("{data_dir}/debug.log");
             let file_appender = tracing_appender::rolling::never("", &file_path);
             let (non_blocking, file_guard) = tracing_appender::non_blocking(file_appender);
             guard = Some(file_guard);
