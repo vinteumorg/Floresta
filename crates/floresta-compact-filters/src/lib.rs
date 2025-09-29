@@ -10,7 +10,7 @@
 //! for it. Therefore, you can't use this to speedup wallet sync **before** IBD,
 //! since we wouldn't have the filter for all blocks yet.
 
-#![cfg_attr(docsrs, feature(doc_auto_cfg))]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 #![allow(clippy::manual_is_multiple_of)]
 
 use core::fmt::Debug;
