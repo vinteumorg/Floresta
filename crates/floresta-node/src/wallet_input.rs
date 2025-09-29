@@ -6,6 +6,7 @@ use bitcoin::Address;
 use bitcoin::Network;
 use miniscript::Descriptor;
 use miniscript::DescriptorPublicKey;
+use tracing::error;
 
 use crate::error::FlorestadError;
 
@@ -55,7 +56,7 @@ impl InitialWalletSetup {
             .flat_map(|address| match Address::from_str(address) {
                 Ok(address) => Ok(address.require_network(network)),
                 Err(e) => {
-                    log::error!("Invalid address provided: {address} \nReason: {e:?}");
+                    error!("Invalid address provided: {address} \nReason: {e:?}");
                     Err(e)
                 }
             })

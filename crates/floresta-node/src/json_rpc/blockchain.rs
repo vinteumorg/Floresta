@@ -10,12 +10,12 @@ use bitcoin::OutPoint;
 use bitcoin::Script;
 use bitcoin::ScriptBuf;
 use bitcoin::Txid;
-use log::debug;
 use miniscript::descriptor::checksum;
 use serde::Deserialize;
 use serde::Serialize;
 use serde_json::json;
 use serde_json::Value;
+use tracing::debug;
 
 use super::res::GetBlockResVerbose;
 use super::res::GetBlockchainInfoRes;

@@ -30,13 +30,13 @@ use floresta_watch_only::AddressCache;
 use floresta_watch_only::CachedTransaction;
 use floresta_wire::node_interface::NodeInterface;
 use floresta_wire::node_interface::PeerInfo;
-use log::debug;
-use log::error;
-use log::info;
 use serde_json::json;
 use serde_json::Value;
 use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
+use tracing::debug;
+use tracing::error;
+use tracing::info;
 
 use super::res::GetBlockRes;
 use super::res::JsonRpcError;
