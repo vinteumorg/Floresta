@@ -7,18 +7,13 @@ use bitcoin::Network;
 use bitcoin::Txid;
 use clap::Parser;
 use clap::Subcommand;
+use floresta_common::descriptor_internals::units::DescriptorId;
+use floresta_common::descriptor_internals::units::DescriptorRequest;
 use floresta_rpc::jsonrpc_client::Client;
 use floresta_rpc::rpc::FlorestaRPC;
 use floresta_rpc::rpc_types::AddNodeCommand;
 use floresta_rpc::rpc_types::GetBlockRes;
 use floresta_rpc::rpc_types::RescanConfidence;
-use floresta_cli::jsonrpc_client::Client;
-use floresta_cli::rpc::FlorestaRPC;
-use floresta_cli::rpc_types::AddNodeCommand;
-use floresta_cli::rpc_types::GetBlockRes;
-use floresta_cli::rpc_types::RescanConfidence;
-use floresta_common::descriptor_internals::DescriptorId;
-use floresta_common::descriptor_internals::DescriptorRequest;
 
 // Main function that runs the CLI application
 fn main() -> anyhow::Result<()> {
@@ -256,7 +251,7 @@ pub enum Methods {
         disable_help_subcommand = true
     )]
     ImportDescriptors {
-        #[arg( required = true, value_parser = floresta_cli::parsers::parse_json_array::<DescriptorRequest>
+        #[arg( required = true, value_parser = parsers::parse_json_array::<DescriptorRequest>
         )]
         requests: std::vec::Vec<DescriptorRequest>, // you need to specify the path of Vec https://github.com/clap-rs/clap/discussions/4695
     },
@@ -345,7 +340,7 @@ pub enum Methods {
         disable_help_subcommand = true
     )]
     DeleteDescriptors {
-        #[arg( required = true, value_parser = floresta_cli::parsers::parse_json_array::<DescriptorId>
+        #[arg( required = true, value_parser = parsers::parse_json_array::<DescriptorId>
         )]
         ids: std::vec::Vec<DescriptorId>, // you need to specify the path of Vec https://github.com/clap-rs/clap/discussions/4695
         #[arg(short = 'p', long = "pull", default_value_t = false)]

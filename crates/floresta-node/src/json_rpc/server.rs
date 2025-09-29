@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use axum::extract::State;
+use axum::http::request;
 use axum::http::Method;
 use axum::routing::post;
 use axum::Json;
@@ -23,11 +24,10 @@ use bitcoin::TxIn;
 use bitcoin::TxOut;
 use bitcoin::Txid;
 use floresta_chain::ThreadSafeChain;
-use floresta_common::descriptor_internals::handle_descriptors_requests;
+use floresta_common::descriptor_internals::units::DescriptorId;
+use floresta_common::descriptor_internals::units::DescriptorRequest;
+use floresta_common::descriptor_internals::units::RescanRequest;
 use floresta_common::descriptor_internals::DeleteDescriptorRes;
-use floresta_common::descriptor_internals::DescriptorId;
-use floresta_common::descriptor_internals::DescriptorRequest;
-use floresta_common::descriptor_internals::RescanRequest;
 use floresta_compact_filters::flat_filters_store::FlatFiltersStore;
 use floresta_compact_filters::network_filters::NetworkFilters;
 use floresta_watch_only::kv_database::KvDatabase;
@@ -35,6 +35,7 @@ use floresta_watch_only::AddressCache;
 use floresta_watch_only::CachedTransaction;
 use floresta_wire::node_interface::NodeInterface;
 use floresta_wire::node_interface::PeerInfo;
+use log::debug;
 use log::error;
 use log::info;
 use log::warn;
@@ -134,12 +135,12 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
             .ok_or(JsonRpcError::TxNotFound)
     }
 
-    #[doc = include_str!("../../../doc/rpc/importdescriptors.md")]
+    #[doc = include_str!("../../../../doc/rpc/importdescriptors.md")]
     async fn import_descriptors(&self, requests: Vec<DescriptorRequest>) -> Result<bool> {
         info!("Importing {requests:?} and rescanning");
 
         let (descriptors, rescan_timestamp) =
-            handle_descriptors_requests(requests).map_err(JsonRpcError::BatchDescriptor)?;
+            DescriptorRequest::handle_descriptors_requests(requests).unwrap();
 
         for descriptor in descriptors {
             self.wallet
@@ -188,7 +189,7 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
         Ok(DeleteDescriptorRes { pulled })
     }
 
-    #[doc = include_str!("../../../doc/rpc/rescanblockchain.md")]
+    #[doc = include_str!("../../../../doc/rpc/rescanblockchain.md")]
     async fn rescan_blockchain(
         &self,
         start: Option<u32>,
@@ -503,10 +504,7 @@ fn get_http_error_code(err: &JsonRpcError) -> u16 {
         | JsonRpcError::InvalidScript
         | JsonRpcError::InvalidRequest
         | JsonRpcError::InvalidPort
-        | JsonRpcError::InvalidDescriptor
-        | JsonRpcError::InvalidHeight
         | JsonRpcError::DecodeDescRequest(_, _)
-        | JsonRpcError::InvalidNetwork
         | JsonRpcError::InvalidVerbosityLevel
         | JsonRpcError::Decode(_)
         | JsonRpcError::NoBlockFilters
@@ -545,9 +543,6 @@ fn get_json_rpc_error_code(err: &JsonRpcError) -> i32 {
         | JsonRpcError::MethodNotFound
         | JsonRpcError::InvalidRequest
         | JsonRpcError::InvalidPort
-        | JsonRpcError::InvalidDescriptor
-        | JsonRpcError::InvalidHeight
-        | JsonRpcError::InvalidNetwork
         | JsonRpcError::InvalidVerbosityLevel
         | JsonRpcError::TxNotFound
         | JsonRpcError::BlockNotFound
@@ -556,7 +551,6 @@ fn get_json_rpc_error_code(err: &JsonRpcError) -> i32 {
         | JsonRpcError::InvalidAddnodeCommand
         | JsonRpcError::InvalidRescanVal
         | JsonRpcError::NoAddressesToRescan
-        | JsonRpcError::BatchDescriptor(_)
         | JsonRpcError::DecodeDescRequest(_, _)
         | JsonRpcError::Wallet(_) => -32600,
 

@@ -5,11 +5,9 @@
 //! For actual databases that can be used for production code, see [KvDatabase](crate::kv_database::KvDatabase).
 use bitcoin::hashes::sha256;
 use bitcoin::Txid;
-use floresta_common::descriptor_internals::extract_matching_one;
-use floresta_common::descriptor_internals::extract_matching_ones;
-use floresta_common::descriptor_internals::ConcreteDescriptor;
+use floresta_common::descriptor_internals::units::ConcreteDescriptor;
+use floresta_common::descriptor_internals::units::DescriptorId;
 use floresta_common::descriptor_internals::DescriptorError;
-use floresta_common::descriptor_internals::DescriptorId;
 use floresta_common::prelude::sync::RwLock;
 use floresta_common::prelude::*;
 
@@ -105,7 +103,7 @@ impl AddressCacheDatabase for MemoryDatabase {
     fn desc_delete(&self, one: &DescriptorId) -> Result<ConcreteDescriptor> {
         let mut inner = self.get_inner_mut()?;
 
-        if let Some(index) = extract_matching_one(&inner.descriptors, one) {
+        if let Some(index) = DescriptorId::extract_matching_one(&inner.descriptors, one) {
             Ok(inner.descriptors.remove(index))
         } else {
             Err(MemoryDatabaseError::DescriptorError(
@@ -119,15 +117,17 @@ impl AddressCacheDatabase for MemoryDatabase {
     /// delete all the descriptors.
     fn desc_delete_batch(&self, batch: &[DescriptorId]) -> Result<Vec<ConcreteDescriptor>> {
         let mut inner = self.get_inner_mut()?;
-        Ok(extract_matching_ones(&inner.descriptors, batch)
-            .into_iter()
-            .map(|index| inner.descriptors.remove(index))
-            .collect())
+        Ok(
+            DescriptorId::extract_matching_ones(&inner.descriptors, batch)
+                .into_iter()
+                .map(|index| inner.descriptors.remove(index))
+                .collect(),
+        )
     }
     fn desc_get(&self, one: &DescriptorId) -> Result<ConcreteDescriptor> {
         let inner = self.get_inner_mut()?;
 
-        if let Some(index) = extract_matching_one(&inner.descriptors, one) {
+        if let Some(index) = DescriptorId::extract_matching_one(&inner.descriptors, one) {
             Ok(inner
                 .descriptors
                 .get(index)
@@ -148,7 +148,7 @@ impl AddressCacheDatabase for MemoryDatabase {
                 Ok(ret)
             }
             false => {
-                let to_get = extract_matching_ones(&inner.descriptors, batch);
+                let to_get = DescriptorId::extract_matching_ones(&inner.descriptors, batch);
                 Ok(to_get
                     .into_iter()
                     .map(|index| {

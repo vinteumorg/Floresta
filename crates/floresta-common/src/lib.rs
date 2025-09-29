@@ -5,9 +5,12 @@
 //! used in other Floresta crates.
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![no_std]
+use bitcoin::consensus::encode;
+use bitcoin::consensus::Decodable;
 use bitcoin::hashes::sha256;
 use bitcoin::hashes::Hash;
 use bitcoin::ScriptBuf;
+use bitcoin::VarInt;
 use sha2::Digest;
 
 #[cfg(any(feature = "descriptors-std", feature = "descriptors-no-std"))]

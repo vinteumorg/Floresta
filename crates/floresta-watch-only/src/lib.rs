@@ -11,12 +11,10 @@ use bitcoin::hashes::sha256d;
 use bitcoin::ScriptBuf;
 use floresta_chain::BlockConsumer;
 use floresta_chain::UtxoData;
-use floresta_common::descriptor_internals::extract_matching_one;
-use floresta_common::descriptor_internals::extract_matching_ones;
-use floresta_common::descriptor_internals::ConcreteDescriptor;
+use floresta_common::descriptor_internals;
+use floresta_common::descriptor_internals::units::ConcreteDescriptor;
+use floresta_common::descriptor_internals::units::DescriptorId;
 use floresta_common::descriptor_internals::DescriptorError;
-use floresta_common::descriptor_internals::DescriptorId;
-use floresta_common::descriptor_internals::DescriptorIdSelector;
 use floresta_common::get_spk_hash;
 
 pub mod kv_database;
@@ -34,6 +32,7 @@ use bitcoin::Block;
 use bitcoin::OutPoint;
 use bitcoin::Transaction;
 use bitcoin::TxOut;
+use floresta_common::impl_error_from;
 use floresta_common::prelude::*;
 use merkle::MerkleProof;
 use serde::Deserialize;
@@ -388,16 +387,14 @@ impl<D: AddressCacheDatabase> AddressCacheInner<D> {
 
         let descriptors = self.database.desc_get_batch(&[])?;
 
-        for desc in descriptors {
-            let index = stats.derivation_index;
-            for _ in index..(index + 100) {
-                let script = desc.descriptor.script_pubkey();
-                self.cache_address(script);
-            }
-        }
+        let descriptors =
+            ConcreteDescriptor::resolve_descriptors_with(&descriptors, |d| Ok(d.script_pubkey()))
+                .map_err(|err| WatchOnlyError::<D::Error>::DescriptorError(err))?;
 
-        stats.derivation_index += 100;
-        Ok(self.database.save_stats(&stats)?)
+        for addr in descriptors {
+            self.cache_address(addr);
+        }
+        Ok(())
     }
 
     fn maybe_derive_addresses(&mut self) {
@@ -670,7 +667,7 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
         &self,
         desc: &DescriptorId,
     ) -> Result<bool, WatchOnlyError<D::Error>> {
-        let found = extract_matching_one(&self.get_descriptors()?, desc);
+        let found = DescriptorId::extract_matching_one(&self.get_descriptors()?, desc);
         Ok(found.is_some())
     }
 
@@ -802,22 +799,14 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
         // TODO: reduce the clones.
         let mut inner = self.inner.write().expect("poisoned lock");
 
-        let script = one.descriptor.script_pubkey();
+        let spk_hash = one
+            .resolve_with(|d| Ok(d.script_pubkey()))
+            .map_err(|err| WatchOnlyError::<D::Error>::DescriptorError(err))?;
 
-        let spk_hash = get_spk_hash(&script);
-
-        let cast = CachedAddress {
-            script_hash: spk_hash,
-            script: script.clone(),
-            descriptor_hash: Some(one.get_hash()),
-            balance: 0,
-            utxos: Vec::new(),
-            transactions: Vec::new(),
-        };
-
+        for addr in spk_hash {
+            self.cache_address(addr);
+        }
         inner.database.desc_insert(one.clone())?;
-        inner.script_set.insert(spk_hash);
-        inner.address_map.insert(spk_hash, cast);
         inner.descriptor_set.push(one);
 
         Ok(())
@@ -829,19 +818,23 @@ impl<D: AddressCacheDatabase> AddressCache<D> {
     ) -> Result<Vec<ConcreteDescriptor>, WatchOnlyError<D::Error>> {
         let mut inner = self.inner.write().expect("poisoned lock");
 
-        let index_to_remove = extract_matching_ones(&inner.descriptor_set, ids);
+        let index_to_remove = DescriptorId::extract_matching_ones(&inner.descriptor_set, ids);
 
         let db_ids = index_to_remove
             .into_iter()
             .map(|idx| {
                 let got = inner.descriptor_set.remove(idx);
 
-                let spk_hash = get_spk_hash(&got.descriptor.script_pubkey());
+                let spk_hash = got
+                    .resolve_with(|d| Ok(get_spk_hash(&d.script_pubkey())))
+                    .expect("Got a broken descriptors, your database might be corrupted");
 
-                inner.script_set.remove(&spk_hash);
-                inner.address_map.remove(&spk_hash);
+                for h in spk_hash {
+                    inner.script_set.remove(&h);
+                    inner.address_map.remove(&h);
+                }
 
-                got.get_id(DescriptorIdSelector::Hash)
+                got.get_hash_id()
             })
             .collect::<Vec<DescriptorId>>();
 

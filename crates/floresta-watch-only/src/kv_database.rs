@@ -3,10 +3,9 @@ use bitcoin::consensus::encode::Error;
 use bitcoin::consensus::serialize;
 use bitcoin::hashes::Hash;
 use bitcoin::Txid;
-use floresta_common::descriptor_internals::ConcreteDescriptor;
+use floresta_common::descriptor_internals::units::ConcreteDescriptor;
+use floresta_common::descriptor_internals::units::DescriptorId;
 use floresta_common::descriptor_internals::DescriptorError;
-use floresta_common::descriptor_internals::DescriptorId;
-use floresta_common::descriptor_internals::DescriptorIdSelector;
 use floresta_common::impl_error_from;
 use floresta_common::prelude::*;
 use kv::Batch;
@@ -170,10 +169,7 @@ impl AddressCacheDatabase for KvDatabase {
     fn desc_insert(&self, one: ConcreteDescriptor) -> Result<()> {
         let bucket = self.get_descriptor_bucket()?;
 
-        let id = one
-            .get_id(DescriptorIdSelector::Hash)
-            .get_hash()
-            .to_string();
+        let id = one.get_hash().to_string();
 
         let _ = bucket.set(&id, &serde_json::to_vec(&one)?);
         bucket.flush()?;
@@ -257,12 +253,11 @@ mod test {
     use bitcoin::hashes::sha256;
     use bitcoin::Address;
     use bitcoin::Transaction;
-    use floresta_common::descriptor_internals::ConcreteDescriptor;
-    use floresta_common::descriptor_internals::DerivationRange;
+    use floresta_common::descriptor_internals::units::ConcreteDescriptor;
+    use floresta_common::descriptor_internals::units::DerivationRange;
+    use floresta_common::descriptor_internals::units::DescriptorId;
+    use floresta_common::descriptor_internals::units::DescriptorRequest;
     use floresta_common::descriptor_internals::DescriptorError;
-    use floresta_common::descriptor_internals::DescriptorId;
-    use floresta_common::descriptor_internals::DescriptorIdSelector;
-    use floresta_common::descriptor_internals::DescriptorRequest;
     use floresta_common::get_spk_hash;
 
     use super::KvDatabase;
@@ -355,10 +350,7 @@ mod test {
     }
 
     fn get_descriptor_ids(descriptors: &[ConcreteDescriptor]) -> Vec<DescriptorId> {
-        descriptors
-            .iter()
-            .map(|d| d.get_id(DescriptorIdSelector::Hash))
-            .collect()
+        descriptors.iter().map(|d| d.get_hash_id()).collect()
     }
 
     #[test]
@@ -409,7 +401,7 @@ mod test {
     fn test_descriptor_serialization_roundtrip() {
         let db = get_test_db();
         let original = create_test_descriptors(1).pop().unwrap();
-        let id = original.get_id(DescriptorIdSelector::Hash);
+        let id = original.get_hash_id();
 
         db.desc_insert(original.clone()).unwrap();
         let retrieved = db.desc_get(&id).unwrap();

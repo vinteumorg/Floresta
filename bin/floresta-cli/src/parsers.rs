@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::fmt::Display;
 
-use serde::Deserialize;
+use bitcoin::hashes::serde::Deserialize;
 
 #[derive(Debug)]
 /// Collection of errors to deal with parsing.

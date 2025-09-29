@@ -28,7 +28,6 @@ use floresta_chain::FlatChainStoreConfig;
 #[cfg(all(feature = "kv-chainstore", not(doc)))]
 use floresta_chain::KvChainStore as ChainStore;
 use floresta_common::descriptor_internals::convert_to_internal;
-use floresta_common::descriptor_internals::DescriptorIdSelector;
 use floresta_common::slip132::FromSlip132;
 #[cfg(feature = "compact-filters")]
 use floresta_compact_filters::flat_filters_store::FlatFiltersStore;
@@ -895,7 +894,7 @@ impl Florestad {
 
         for descriptor in initial_batch.0 {
             if !wallet
-                .is_descriptor_cached(&descriptor.get_id(DescriptorIdSelector::Hash))
+                .is_descriptor_cached(&descriptor.get_hash_id())
                 .unwrap()
             {
                 wallet.cache_descriptor(descriptor).unwrap()

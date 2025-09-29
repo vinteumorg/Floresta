@@ -327,7 +327,6 @@ impl Display for JsonRpcError {
             JsonRpcError::Decode(e) =>  write!(f, "error decoding request: {e}"),
             JsonRpcError::TxNotFound =>  write!(f, "Transaction not found"),
             JsonRpcError::DecodeDescRequest(e, one) =>  write!(f, "Couldn't parse {one} into a Descriptor request; {e}"),
-            JsonRpcError::BatchDescriptor(b) =>  write!(f, "{b:?}"),
             JsonRpcError::BlockNotFound =>  write!(f, "Block not found"),
             JsonRpcError::Chain => write!(f, "Chain error"),
             JsonRpcError::InvalidPort => write!(f, "Invalid port"),

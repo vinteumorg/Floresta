@@ -3,10 +3,10 @@ use std::fmt::Debug;
 use bitcoin::block::Header as BlockHeader;
 use bitcoin::BlockHash;
 use bitcoin::Txid;
-use floresta_common::descriptor_internals::ConcreteDescriptor;
+use floresta_common::descriptor_internals::units::ConcreteDescriptor;
+use floresta_common::descriptor_internals::units::DescriptorId;
+use floresta_common::descriptor_internals::units::DescriptorRequest;
 use floresta_common::descriptor_internals::DeleteDescriptorRes;
-use floresta_common::descriptor_internals::DescriptorId;
-use floresta_common::descriptor_internals::DescriptorRequest;
 use serde_json::Number;
 use serde_json::Value;
 

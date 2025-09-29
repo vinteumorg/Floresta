@@ -10,7 +10,7 @@ use bitcoin::OutPoint;
 use bitcoin::Script;
 use bitcoin::ScriptBuf;
 use bitcoin::Txid;
-use floresta_common::descriptor_internals::ConcreteDescriptor;
+use floresta_common::descriptor_internals::units::ConcreteDescriptor;
 use log::debug;
 use miniscript::descriptor::checksum;
 use serde::Deserialize;
@@ -522,7 +522,7 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
                 let desc = Self::get_script_type_descriptor(script, &address);
                 let checksum_desc = checksum::desc_checksum(&desc)
                     .map(|checksum| format!("{desc}#{checksum}"))
-                    .map_err(|_| JsonRpcError::InvalidDescriptor)?;
+                    .map_err(|_| JsonRpcError::InvalidScript)?;
 
                 let asm = Self::to_core_asm_string(&txout.script_pubkey)?;
                 let script_pubkey = ScriptPubkeyDescription {
