@@ -429,12 +429,9 @@ async fn handle_json_rpc_request(
             let confidence_str = get_optional_field(&params, 3, "confidence", get_string)?
                 .unwrap_or("medium".into());
 
-            let confidence = match confidence_str.as_str() {
-                "low" => RescanConfidence::Low,
-                "medium" => RescanConfidence::Medium,
-                "high" => RescanConfidence::High,
-                "exact" => RescanConfidence::Exact,
-                _ => return Err(JsonRpcError::InvalidRescanVal),
+            let confidence: RescanConfidence = match serde_json::from_str(&confidence_str) {
+                Ok(c) => c,
+                Err(_) => return Err(JsonRpcError::InvalidRescanVal),
             };
 
             state
