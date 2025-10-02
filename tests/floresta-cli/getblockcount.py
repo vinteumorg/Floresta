@@ -48,7 +48,7 @@ class GetBlockCountTest(FlorestaTestFramework):
         """
         Run a florestad/bitcoind/utreexod nodes. Then mine some blocks
         with utreexod. After that, connect the nodes and wait for them to sync.
-        Finally, test the `getblockcount` rpc command chechking if it's
+        Finally, test the `getblockcount` rpc command checking if it's
         different from genesis one and equals to utreexod one.
         """
         self.run_node(self.florestad)
