@@ -9,14 +9,15 @@
 ### Which crates are being modified?
 
 - [ ] floresta-chain
-- [ ] floresta-cli
 - [ ] floresta-common
 - [ ] floresta-compact-filters
 - [ ] floresta-electrum
+- [ ] floresta-node
+- [ ] floresta-rpc
 - [ ] floresta-watch-only
 - [ ] floresta-wire
-- [ ] floresta
-- [ ] florestad
+- [ ] bin/florestad
+- [ ] bin/floresta-cli
 - [ ] Other: <!-- Please describe it -->
 
 ### Description and Notes
