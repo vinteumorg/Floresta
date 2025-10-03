@@ -36,15 +36,15 @@ class BitcoinRPC(BaseRPC):
         return self.perform_request("getblockhash", [height])
 
     # pylint: disable=R0801
-    def get_blockheader(self, blockhash: str) -> dict:
+    def get_blockheader(self, blockhash: str, verbose: bool) -> dict:
         """
         Get the header of a block, giving its hash performing
-        `perform_request('getblockheader', params=[<str>])`
+        `perform_request('getblockheader', params=[<str>, bool])`
         """
         if not bool(re.fullmatch(r"^[a-f0-9]{64}$", blockhash)):
             raise ValueError(f"Invalid blockhash '{blockhash}'.")
 
-        return self.perform_request("getblockheader", params=[blockhash])
+        return self.perform_request("getblockheader", params=[blockhash, verbose])
 
     # pylint: disable=R0801
     def get_block(self, blockhash: str, verbosity: int = 1):
