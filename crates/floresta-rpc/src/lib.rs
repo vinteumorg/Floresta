@@ -220,10 +220,18 @@ mod tests {
     fn test_get_block_header() {
         let (_proc, client) = start_florestad();
 
+        // First not verbose
         let blockhash = client.get_block_hash(0).expect("rpc not working");
-        let block_header = client.get_block_header(blockhash).expect("rpc not working");
+        let blockheader = client
+            .get_block_header(blockhash, false)
+            .expect("rpc not working");
 
-        assert_eq!(block_header.block_hash(), blockhash);
+        let blockheader_value = serde_json::to_value(blockheader).expect("serde not working");
+
+        assert_eq!(
+            "0100000000000000000000000000000000000000000000000000000000000000000000003ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4adae5494dffff7f2002000000",
+            blockheader_value
+        );
     }
 
     #[test]
