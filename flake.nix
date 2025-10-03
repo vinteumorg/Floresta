@@ -201,6 +201,11 @@
               git
               rust-bin.stable.latest.default
               (rust-bin.selectLatestNightlyWith (toolchain: toolchain.default))
+              typos
+            ];
+
+            debugTools = with pkgs; [
+              grafana
             ];
 
             testBinaries = [
@@ -213,7 +218,7 @@
           {
 
             default = mkShell {
-              buildInputs = basicDevTools;
+              buildInputs = basicDevTools ++ debugTools;
 
               shellHook = "";
             };
