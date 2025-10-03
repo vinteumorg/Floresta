@@ -14,6 +14,7 @@ import os
 import re
 import sys
 import copy
+import math
 import time
 import random
 import socket
@@ -243,7 +244,6 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
         except Exception as err:
             processes = []
             for node in self._nodes:
-
                 # If the node has an RPC server, stop it gracefully
                 # otherwise (maybe the error occurred before the RPC server
                 # is started), try to kill the process with SIGTERM. If that
@@ -851,4 +851,14 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
             self.stop()
             raise AssertionError(
                 f"Actual: any({values}) !~ {pattern}\n Expected: any({values}) ~ {pattern}"
+            )
+
+    def assertAlmostEqual(self, actual: int | float, expected: int | float):
+        """
+        Assert if two numeric values are nearly equal
+        """
+        if not math.isclose(actual, expected):
+            self.stop()
+            raise AssertionError(
+                f"Actual: {actual} ~ {expected}\n Expected: {actual} ~ {expected}"
             )
