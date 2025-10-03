@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::ops::Add;
 use std::slice;
 use std::sync::Arc;
 use std::time::Instant;
@@ -14,6 +15,7 @@ use bitcoin::consensus::encode::serialize_hex;
 use bitcoin::hashes::hex::FromHex;
 use bitcoin::hashes::Hash;
 use bitcoin::hex::DisplayHex;
+use bitcoin::pow::Target;
 use bitcoin::Address;
 use bitcoin::BlockHash;
 use bitcoin::Network;
@@ -21,6 +23,7 @@ use bitcoin::ScriptBuf;
 use bitcoin::TxIn;
 use bitcoin::TxOut;
 use bitcoin::Txid;
+use bitcoin::Work;
 use floresta_chain::ThreadSafeChain;
 use floresta_common::parse_descriptors;
 use floresta_compact_filters::flat_filters_store::FlatFiltersStore;
@@ -38,6 +41,7 @@ use serde_json::Value;
 use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
 
+use super::res::GetBlockHeaderRes;
 use super::res::GetBlockRes;
 use super::res::JsonRpcError;
 use super::res::RawTxJson;
@@ -234,6 +238,15 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
     }
 }
 
+/// Convert the first 16 bytes (two u64s) to form a u128
+///
+/// This is used to extract the u128 value of difficulty's target
+fn bytes_to_u128(bytes: &[u8; 32]) -> u128 {
+    let high = u64::from_be_bytes(bytes[0..8].try_into().unwrap());
+    let low = u64::from_be_bytes(bytes[8..16].try_into().unwrap());
+    ((high as u128) << 64) | (low as u128)
+}
+
 async fn handle_json_rpc_request(
     req: RpcRequest,
     state: Arc<RpcImpl<impl RpcChain>>,
@@ -312,9 +325,109 @@ async fn handle_json_rpc_request(
 
         "getblockheader" => {
             let hash = get_hash(&params, 0, "block_hash")?;
-            state
-                .get_block_header(hash)
-                .map(|h| serde_json::to_value(h).unwrap())
+            let verbose = get_bool(&params, 1, "verbose")?;
+            let header = state.get_block_header(hash)?;
+
+            match verbose {
+                true => {
+                    let tip = state.chain.get_height().unwrap();
+                    let blockheight = state.chain.get_block_height(&hash).unwrap().unwrap();
+                    let block = state.get_block(hash).await?;
+
+                    let blockheader = GetBlockHeaderRes {
+                        hash: {
+                            let mut tmp = hash.to_byte_array();
+                            tmp.reverse();
+                            tmp.to_lower_hex_string()
+                        },
+                        confirmations: tip - blockheight + 1,
+                        height: blockheight,
+                        version: block.version,
+                        version_hex: block.version.to_be_bytes().to_lower_hex_string(),
+                        merkleroot: {
+                            let mut tmp = header.merkle_root.to_byte_array();
+                            tmp.reverse();
+                            tmp.to_lower_hex_string()
+                        },
+                        time: header.time,
+                        mediantime: {
+                            let range = 11;
+                            let start = if blockheight >= range {
+                                blockheight + 1 - range
+                            } else {
+                                0
+                            };
+                            let mut times: Vec<u32> = (start..=blockheight)
+                                .filter_map(|h| {
+                                    let tmphash = state.chain.get_block_hash(h).unwrap();
+                                    let tmpheader = state.chain.get_block_header(&tmphash).ok()?;
+                                    Some(tmpheader.time)
+                                })
+                                .collect();
+
+                            times.sort();
+                            let median = times.len() / 2;
+                            times[median]
+                        },
+                        bits: header
+                            .bits
+                            .to_consensus()
+                            .to_be_bytes()
+                            .to_lower_hex_string(),
+                        target: Target::from_compact(header.bits)
+                            .to_be_bytes()
+                            .to_lower_hex_string(),
+                        nonce: header.nonce,
+                        difficulty: {
+                            // Bitcoin-core implements the Mainnet target when calculates
+                            // the difficulty, even in Regtest network
+                            let genesis_target_bytes = Target::MAX.to_be_bytes();
+                            let current_target_bytes = header.target().to_be_bytes();
+
+                            let genesis_target = bytes_to_u128(&genesis_target_bytes);
+                            let current_target = bytes_to_u128(&current_target_bytes);
+
+                            genesis_target as f64 / current_target as f64
+                        },
+                        chainwork: {
+                            let mut current = Work::from_be_bytes([0u8; 32]);
+
+                            // Accumulate previous blockheader chainwork
+                            for height in 0..blockheight {
+                                let tmphash = state.chain.get_block_hash(height).unwrap();
+                                let tmpheader = state.chain.get_block_header(&tmphash).unwrap();
+                                current =
+                                    current.add(Target::from_compact(tmpheader.bits).to_work());
+                            }
+
+                            // Add current blockheader chainwork
+                            current = current.add(Target::from_compact(header.bits).to_work());
+                            current.to_be_bytes().to_lower_hex_string()
+                        },
+                        n_tx: block.n_tx,
+                        previousblockhash: {
+                            if block.previousblockhash != "00".repeat(32) {
+                                Some(block.previousblockhash)
+                            } else {
+                                None
+                            }
+                        },
+                        nextblockhash: block.nextblockhash,
+                    };
+
+                    serde_json::to_value(blockheader).map_err(JsonRpcError::ToValue)
+                }
+                false => {
+                    let mut raw = Vec::with_capacity(80);
+                    raw.extend_from_slice(header.version.to_consensus().to_le_bytes().as_slice());
+                    raw.extend_from_slice(header.prev_blockhash.as_byte_array());
+                    raw.extend_from_slice(header.merkle_root.as_byte_array());
+                    raw.extend_from_slice(header.time.to_le_bytes().as_slice());
+                    raw.extend_from_slice(header.bits.to_consensus().to_le_bytes().as_slice());
+                    raw.extend_from_slice(header.nonce.to_le_bytes().as_slice());
+                    serde_json::to_value(raw.to_lower_hex_string()).map_err(JsonRpcError::ToValue)
+                }
+            }
         }
 
         "gettxout" => {
@@ -483,9 +596,10 @@ fn get_http_error_code(err: &JsonRpcError) -> u16 {
         | JsonRpcError::Wallet(_) => 400,
 
         // idunnolol
-        JsonRpcError::MethodNotFound | JsonRpcError::BlockNotFound | JsonRpcError::TxNotFound => {
-            404
-        }
+        JsonRpcError::MethodNotFound
+        | JsonRpcError::BlockNotFound
+        | JsonRpcError::TxNotFound
+        | JsonRpcError::ToValue(_) => 404,
 
         // we messed up, sowwy
         JsonRpcError::InInitialBlockDownload
@@ -498,7 +612,9 @@ fn get_http_error_code(err: &JsonRpcError) -> u16 {
 fn get_json_rpc_error_code(err: &JsonRpcError) -> i32 {
     match err {
         // Parse Error
-        JsonRpcError::Decode(_) | JsonRpcError::InvalidParameterType(_) => -32700,
+        JsonRpcError::Decode(_)
+        | JsonRpcError::InvalidParameterType(_)
+        | JsonRpcError::ToValue(_) => -32700,
 
         // Invalid Request
         JsonRpcError::InvalidHex
