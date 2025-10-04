@@ -14,6 +14,7 @@ use bitcoin::consensus::encode::serialize_hex;
 use bitcoin::hashes::hex::FromHex;
 use bitcoin::hashes::Hash;
 use bitcoin::hex::DisplayHex;
+use bitcoin::pow::Target;
 use bitcoin::Address;
 use bitcoin::BlockHash;
 use bitcoin::Network;
@@ -38,6 +39,7 @@ use serde_json::Value;
 use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
 
+use super::res::GetBlockHeaderRes;
 use super::res::GetBlockRes;
 use super::res::JsonRpcError;
 use super::res::RawTxJson;
@@ -312,9 +314,66 @@ async fn handle_json_rpc_request(
 
         "getblockheader" => {
             let hash = get_hash(&params, 0, "block_hash")?;
-            state
-                .get_block_header(hash)
-                .map(|h| serde_json::to_value(h).unwrap())
+            let verbose = get_bool(&params, 1, "verbose")?;
+            let header = state.get_block_header(hash)?;
+
+            match verbose {
+                true => {
+                    let tip = state.chain.get_height().unwrap();
+                    let blockheight = state.chain.get_block_height(&hash).unwrap().unwrap();
+                    let block = state.get_block(hash).await.unwrap();
+                    let blockheader = GetBlockHeaderRes {
+                        hash: {
+                            let mut tmp = hash.to_byte_array();
+                            tmp.reverse();
+                            tmp.to_lower_hex_string()
+                        },
+                        confirmations: tip - blockheight + 1,
+                        height: blockheight,
+                        version: block.version,
+                        version_hex: block.version.to_be_bytes().to_lower_hex_string(),
+                        merkleroot: {
+                            let mut tmp = header.merkle_root.to_byte_array();
+                            tmp.reverse();
+                            tmp.to_lower_hex_string()
+                        },
+                        time: header.time,
+                        mediantime: block.mediantime,
+                        bits: header
+                            .bits
+                            .to_consensus()
+                            .to_be_bytes()
+                            .to_lower_hex_string(),
+                        target: Target::from_compact(header.bits)
+                            .to_be_bytes()
+                            .to_lower_hex_string(),
+                        nonce: header.nonce,
+                        difficulty: block.difficulty as f64,
+                        chainwork: format!("{:0>64}", block.chainwork.trim_start_matches("0x")),
+                        n_tx: block.n_tx,
+                        previousblockhash: {
+                            if block.previousblockhash != "0000000000000000000000000000000000000000000000000000000000000000" {
+                                Some(block.previousblockhash)
+                            } else {
+                                None
+                            }
+                        },
+                        nextblockhash: block.nextblockhash,
+                    };
+
+                    serde_json::to_value(blockheader).map_err(JsonRpcError::ToValue)
+                }
+                false => {
+                    let mut raw = Vec::with_capacity(80);
+                    raw.extend_from_slice(header.version.to_consensus().to_le_bytes().as_slice());
+                    raw.extend_from_slice(header.prev_blockhash.as_byte_array());
+                    raw.extend_from_slice(header.merkle_root.as_byte_array());
+                    raw.extend_from_slice(header.time.to_le_bytes().as_slice());
+                    raw.extend_from_slice(header.bits.to_consensus().to_le_bytes().as_slice());
+                    raw.extend_from_slice(header.nonce.to_le_bytes().as_slice());
+                    serde_json::to_value(raw.to_lower_hex_string()).map_err(JsonRpcError::ToValue)
+                }
+            }
         }
 
         "gettxout" => {
@@ -483,9 +542,10 @@ fn get_http_error_code(err: &JsonRpcError) -> u16 {
         | JsonRpcError::Wallet(_) => 400,
 
         // idunnolol
-        JsonRpcError::MethodNotFound | JsonRpcError::BlockNotFound | JsonRpcError::TxNotFound => {
-            404
-        }
+        JsonRpcError::MethodNotFound
+        | JsonRpcError::BlockNotFound
+        | JsonRpcError::TxNotFound
+        | JsonRpcError::ToValue(_) => 404,
 
         // we messed up, sowwy
         JsonRpcError::InInitialBlockDownload
@@ -498,7 +558,9 @@ fn get_http_error_code(err: &JsonRpcError) -> u16 {
 fn get_json_rpc_error_code(err: &JsonRpcError) -> i32 {
     match err {
         // Parse Error
-        JsonRpcError::Decode(_) | JsonRpcError::InvalidParameterType(_) => -32700,
+        JsonRpcError::Decode(_)
+        | JsonRpcError::InvalidParameterType(_)
+        | JsonRpcError::ToValue(_) => -32700,
 
         // Invalid Request
         JsonRpcError::InvalidHex

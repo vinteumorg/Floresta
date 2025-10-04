@@ -207,7 +207,9 @@ mod tests {
         let (_proc, client) = start_florestad();
 
         let blockhash = client.get_block_hash(0).expect("rpc not working");
-        let block_header = client.get_block_header(blockhash).expect("rpc not working");
+        let block_header = client
+            .get_block_header(blockhash, true)
+            .expect("rpc not working");
 
         assert_eq!(block_header.block_hash(), blockhash);
     }
