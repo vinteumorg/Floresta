@@ -18,13 +18,13 @@ use floresta_chain::pruned_utreexo::UpdatableChainstate;
 use floresta_chain::ThreadSafeChain;
 use floresta_common::service_flags;
 use floresta_common::service_flags::UTREEXO;
-use log::debug;
-use log::error;
-use log::info;
-use log::warn;
 use rand::random;
 use rustreexo::accumulator::stump::Stump;
 use tokio::time::timeout;
+use tracing::debug;
+use tracing::error;
+use tracing::info;
+use tracing::warn;
 
 use super::error::WireError;
 use super::peer::PeerMessages;
