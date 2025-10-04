@@ -43,7 +43,7 @@ class GetBestblockhashTest(FlorestaTestFramework):
         """
         Run a florestad node and mine some blocks with utreexod. After that,
         connect floresta to utreexod and wait for the nodes to sync.
-        Finally, test the `getbestblockhash` rpc command chechking if it's
+        Finally, test the `getbestblockhash` rpc command checking if it's
         different from genesis one and equals to utreexod one.
         """
         self.run_node(self.florestad)
