@@ -110,7 +110,7 @@ fn main() {
         // wait for shutdown
         loop {
             if florestad.should_stop().await || *_signal.read().await {
-                info!("Stopping florestad...");
+                info!("Stopping Floresta");
                 florestad.stop().await;
                 let _ = timeout(Duration::from_secs(10), florestad.wait_shutdown()).await;
                 break;
