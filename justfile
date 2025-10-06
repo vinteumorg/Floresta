@@ -37,7 +37,8 @@ debug_log_file := "floresta_{{debug_branch}}.log"
 [group('Debug')]
 start-apply:
     @echo "Checking changes"
-    @just build "metrics"
+
+    @just build 
     
     @echo "Starting node (logs: {{debug_log_file}})..."
 
