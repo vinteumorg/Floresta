@@ -38,7 +38,7 @@ debug_log_file := "floresta_{{debug_branch}}.log"
 start-apply:
     @echo "Checking changes"
 
-    @just build 
+    @cargo install 
     
     @echo "Starting node (logs: {{debug_log_file}})..."
 
