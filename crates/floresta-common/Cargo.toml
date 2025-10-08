@@ -19,10 +19,14 @@ hashbrown = { version = "0.15.2" }
 
 # Optional as descriptors feature
 miniscript = { version = "12", default-features = false, optional = true }
+serde = { version = "1.0.219", optional = true }
+log = "0.4.27"
+serde_json = { version = "1.0.140", optional = true }
 
 [features]
-default = ["std", "descriptors-std"]
+default = ["std", "descriptors-std", ]
 std = ["bitcoin/std", "sha2/std"]
 # Both features can be set at the same time, but for `no_std` only the latter should be used
-descriptors-std = ["miniscript/std"]
-descriptors-no-std = ["miniscript/no-std"]
+slip132 = ["serde", "serde_json"]
+descriptors-std = ["miniscript/std", "serde", "serde_json", "slip132"]
+descriptors-no-std = ["miniscript/no-std", "serde", "serde_json", "slip132"]
