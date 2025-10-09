@@ -36,3 +36,6 @@ rand = "0.8.5"
 rcgen = "0.13"
 zstd = "0.13.3"
 floresta-chain = { path = "../floresta-chain", features = ["flat-chainstore"] }
+
+[lints]
+workspace = true
