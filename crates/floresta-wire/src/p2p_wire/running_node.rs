@@ -71,7 +71,7 @@ where
     WireError: From<Chain::Error>,
     Chain::Error: From<proof_util::UtreexoLeafError>,
 {
-    async fn send_addresses(&mut self) -> Result<(), WireError> {
+    fn send_addresses(&mut self) -> Result<(), WireError> {
         let addresses = self
             .address_man
             .get_addresses_to_send()
@@ -84,8 +84,7 @@ where
             })
             .collect();
 
-        self.send_to_random_peer(NodeRequest::SendAddresses(addresses), ServiceFlags::NONE)
-            .await?;
+        self.send_to_random_peer(NodeRequest::SendAddresses(addresses), ServiceFlags::NONE)?;
         Ok(())
     }
 
@@ -119,9 +118,9 @@ where
     ///
     /// If we are missing the special peers but have 10 connections, we should disconnect one
     /// random peer and try to connect to a utreexo and a compact filters peer.
-    async fn check_connections(&mut self) -> Result<(), WireError> {
+    fn check_connections(&mut self) -> Result<(), WireError> {
         // retry the added peers connections
-        self.maybe_open_connection_with_added_peers().await?;
+        self.maybe_open_connection_with_added_peers()?;
 
         // if we have 10 connections, but not a single utreexo or CBF one, disconnect one random
         // peer and create a utreexo and CBS connection
@@ -132,10 +131,10 @@ where
                     .peer_ids
                     .get(peer)
                     .expect("we've modulo before, we should have it");
-                self.send_to_peer(*peer, NodeRequest::Shutdown).await?;
+                self.send_to_peer(*peer, NodeRequest::Shutdown)?;
             }
 
-            self.maybe_open_connection(UTREEXO.into()).await?;
+            self.maybe_open_connection(UTREEXO.into())?;
         }
 
         if !self.has_compact_filters_peer() {
@@ -148,14 +147,13 @@ where
                     .peer_ids
                     .get(peer)
                     .expect("we've modulo before, we should have it");
-                self.send_to_peer(*peer, NodeRequest::Shutdown).await?;
+                self.send_to_peer(*peer, NodeRequest::Shutdown)?;
             }
 
-            self.maybe_open_connection(ServiceFlags::COMPACT_FILTERS)
-                .await?;
+            self.maybe_open_connection(ServiceFlags::COMPACT_FILTERS)?;
         }
 
-        self.maybe_open_connection(ServiceFlags::NONE).await?;
+        self.maybe_open_connection(ServiceFlags::NONE)?;
 
         Ok(())
     }
@@ -266,7 +264,7 @@ where
     }
 
     pub async fn run(mut self, stop_signal: tokio::sync::oneshot::Sender<()>) {
-        try_and_warn!(self.init_peers().await);
+        try_and_warn!(self.init_peers());
 
         // Use this node state to Initial Block download
         let mut ibd = UtreexoNode {
@@ -282,7 +280,7 @@ where
         };
 
         if *self.kill_signal.read().await {
-            self.shutdown().await;
+            self.shutdown();
             try_and_log!(stop_signal.send(()));
             return;
         }
@@ -310,7 +308,7 @@ where
         };
 
         if *self.kill_signal.read().await {
-            self.shutdown().await;
+            self.shutdown();
             stop_signal.send(()).unwrap();
             return;
         }
@@ -340,11 +338,11 @@ where
             while let Ok(Some(notification)) =
                 timeout(Duration::from_millis(100), self.node_rx.recv()).await
             {
-                try_and_log!(self.handle_notification(notification).await);
+                try_and_log!(self.handle_notification(notification));
             }
 
             // Jobs that don't need a connected peer
-            try_and_log!(self.process_pending_blocks().await);
+            try_and_log!(self.process_pending_blocks());
 
             // Save our peers db
             periodic_job!(
@@ -365,18 +363,18 @@ where
 
             // Perhaps we need more connections
             periodic_job!(
-                self.check_connections().await,
+                self.check_connections(),
                 self.last_connection,
                 TRY_NEW_CONNECTION,
                 RunningNode
             );
 
             // Check if some of our peers have timed out a request
-            try_and_log!(self.check_for_timeout().await);
+            try_and_log!(self.check_for_timeout());
 
             // Open new feeler connection periodically
             periodic_job!(
-                self.open_feeler_connection().await,
+                self.open_feeler_connection(),
                 self.last_feeler,
                 FEELER_INTERVAL,
                 RunningNode
@@ -389,7 +387,7 @@ where
 
             // Ask our peers for new addresses
             periodic_job!(
-                self.ask_for_addresses().await,
+                self.ask_for_addresses(),
                 self.last_get_address_request,
                 ASK_FOR_PEERS_INTERVAL,
                 RunningNode
@@ -403,7 +401,7 @@ where
             );
             // Send our addresses to our peers
             periodic_job!(
-                self.send_addresses().await,
+                self.send_addresses(),
                 self.last_send_addresses,
                 SEND_ADDRESSES_INTERVAL,
                 RunningNode
@@ -411,12 +409,14 @@ where
 
             // Check whether we are in a stale tip
             periodic_job!(
-                self.check_for_stale_tip().await,
+                self.check_for_stale_tip(),
                 self.last_tip_update,
                 ASSUME_STALE,
                 RunningNode
             );
-            try_and_log!(self.download_filters().await);
+
+            // tries to download filters from the network
+            try_and_log!(self.download_filters());
 
             // requests that need a utreexo peer
             if !self.has_utreexo_peers() {
@@ -425,7 +425,7 @@ where
 
             // Check if we haven't missed any block
             if self.inflight.len() < RunningNode::MAX_INFLIGHT_REQUESTS {
-                try_and_log!(self.ask_missed_block().await);
+                try_and_log!(self.ask_missed_block());
             }
         }
 
@@ -435,11 +435,11 @@ where
             let _ = recv.recv();
         }
 
-        self.shutdown().await;
-        stop_signal.send(()).unwrap();
+        self.shutdown();
+        let _ = stop_signal.send(());
     }
 
-    async fn download_filters(&mut self) -> Result<(), WireError> {
+    fn download_filters(&mut self) -> Result<(), WireError> {
         if self.inflight.contains_key(&InflightRequests::GetFilters) {
             return Ok(());
         }
@@ -482,12 +482,10 @@ where
         let stop_hash = self.chain.get_block_hash(stop)?;
         self.last_filter = stop_hash;
 
-        let peer = self
-            .send_to_random_peer(
-                NodeRequest::GetFilter((stop_hash, height + 1)),
-                ServiceFlags::COMPACT_FILTERS,
-            )
-            .await?;
+        let peer = self.send_to_random_peer(
+            NodeRequest::GetFilter((stop_hash, height + 1)),
+            ServiceFlags::COMPACT_FILTERS,
+        )?;
 
         self.inflight
             .insert(InflightRequests::GetFilters, (peer, Instant::now()));
@@ -495,7 +493,7 @@ where
         Ok(())
     }
 
-    async fn ask_missed_block(&mut self) -> Result<(), WireError> {
+    fn ask_missed_block(&mut self) -> Result<(), WireError> {
         let tip = self.chain.get_height().unwrap();
         let next = self.chain.get_validation_index().unwrap();
         if tip == next {
@@ -526,7 +524,7 @@ where
             return Ok(());
         }
 
-        self.request_blocks(blocks).await?;
+        self.request_blocks(blocks)?;
         Ok(())
     }
 
@@ -548,7 +546,7 @@ where
 
     /// This function checks how many time has passed since our last tip update, if it's
     /// been more than 15 minutes, try to update it.
-    async fn check_for_stale_tip(&mut self) -> Result<(), WireError> {
+    fn check_for_stale_tip(&mut self) -> Result<(), WireError> {
         warn!("Potential stale tip detected, trying extra peers");
 
         // this catches an edge-case where all our utreexo peers are gone, and the GetData
@@ -558,16 +556,15 @@ where
         // update this or we'll get this warning every second after 15 minutes without a block,
         // until we get a new block.
         self.last_tip_update = Instant::now();
-        self.create_connection(ConnectionKind::Extra).await?;
+        self.create_connection(ConnectionKind::Extra)?;
         self.send_to_random_peer(
             NodeRequest::GetHeaders(self.chain.get_block_locator().unwrap()),
             ServiceFlags::NONE,
-        )
-        .await?;
+        )?;
         Ok(())
     }
 
-    async fn handle_new_block(&mut self, block: BlockHash, peer: u32) -> Result<(), WireError> {
+    fn handle_new_block(&mut self, block: BlockHash, peer: u32) -> Result<(), WireError> {
         if self.inflight.contains_key(&InflightRequests::Headers) {
             return Ok(());
         }
@@ -577,8 +574,7 @@ where
         }
 
         let locator = self.chain.get_block_locator().unwrap();
-        self.send_to_peer(peer, NodeRequest::GetHeaders(locator))
-            .await?;
+        self.send_to_peer(peer, NodeRequest::GetHeaders(locator))?;
 
         self.inflight
             .insert(InflightRequests::Headers, (peer, Instant::now()));
@@ -586,13 +582,10 @@ where
         Ok(())
     }
 
-    async fn handle_notification(
-        &mut self,
-        notification: NodeNotification,
-    ) -> Result<(), WireError> {
+    fn handle_notification(&mut self, notification: NodeNotification) -> Result<(), WireError> {
         match notification {
             NodeNotification::FromUser(request, responder) => {
-                self.perform_user_request(request, responder).await;
+                self.perform_user_request(request, responder);
             }
 
             NodeNotification::DnsSeedAddresses(addresses) => {
@@ -605,8 +598,8 @@ where
 
                 match message {
                     PeerMessages::UtreexoProof(uproof) => {
-                        self.attach_proof(uproof, peer).await?;
-                        self.process_pending_blocks().await?;
+                        self.attach_proof(uproof, peer)?;
+                        self.process_pending_blocks()?;
                     }
 
                     PeerMessages::NewBlock(block) => {
@@ -644,12 +637,12 @@ where
                         // if this is a utreexo peer, we should ask for the block if we don't
                         // have it
                         if p.services.has(UTREEXO.into()) {
-                            self.handle_new_block(block, peer).await?;
+                            self.handle_new_block(block, peer)?;
                         }
                     }
 
                     PeerMessages::Block(block) => {
-                        self.request_block_proof(block, peer).await?;
+                        self.request_block_proof(block, peer)?;
                     }
 
                     PeerMessages::Headers(headers) => {
@@ -665,7 +658,7 @@ where
                         if is_extra {
                             // if this is an extra peer, and the headers message is empty, disconnect it
                             if headers.is_empty() {
-                                self.increase_banscore(peer, 5).await?;
+                                self.increase_banscore(peer, 5)?;
                                 return Ok(());
                             }
 
@@ -680,7 +673,7 @@ where
 
                             // disconnect the peer with the lowest score
                             if let Some(peer) = peer_to_disconnect {
-                                self.send_to_peer(peer, NodeRequest::Shutdown).await?;
+                                self.send_to_peer(peer, NodeRequest::Shutdown)?;
                             }
 
                             // update the peer info
@@ -695,8 +688,7 @@ where
                             self.send_to_peer(
                                 peer,
                                 NodeRequest::GetBlock(vec![header.block_hash()]),
-                            )
-                            .await?;
+                            )?;
 
                             self.inflight.insert(
                                 InflightRequests::Blocks(header.block_hash()),
@@ -715,11 +707,11 @@ where
                             "handshake with peer={peer} succeeded feeler={:?}",
                             version.kind
                         );
-                        self.handle_peer_ready(peer, &version).await?;
+                        self.handle_peer_ready(peer, &version)?;
                     }
 
                     PeerMessages::Disconnected(idx) => {
-                        self.handle_disconnection(peer, idx).await?;
+                        self.handle_disconnection(peer, idx)?;
                     }
 
                     PeerMessages::Addr(addresses) => {
@@ -761,7 +753,7 @@ where
                                 && self.context.inflight_filters.is_empty()
                             {
                                 self.inflight.remove(&InflightRequests::GetFilters);
-                                self.download_filters().await?;
+                                self.download_filters()?;
                             }
                         }
                     }
@@ -808,7 +800,7 @@ where
 
                     PeerMessages::UtreexoState(_) => {
                         warn!("Utreexo state received from peer {peer}, but we didn't ask",);
-                        self.increase_banscore(peer, 5).await?;
+                        self.increase_banscore(peer, 5)?;
                     }
                 }
             }
