@@ -18,12 +18,12 @@ use bitcoin::p2p::ServiceFlags;
 use bitcoin::Network;
 use floresta_chain::DnsSeed;
 use floresta_common::service_flags;
-use log::debug;
-use log::error;
-use log::info;
-use log::warn;
 use serde::Deserialize;
 use serde::Serialize;
+use tracing::debug;
+use tracing::error;
+use tracing::info;
+use tracing::warn;
 
 /// How long we'll wait before trying to connect to a peer that failed
 const RETRY_TIME: u64 = 10 * 60; // 10 minutes

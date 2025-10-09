@@ -25,11 +25,11 @@ floresta-wire = { path = "../floresta-wire" }
 rustreexo = "0.4"
 tokio = { version = "1.0", features = ["full"] }
 tokio-rustls = "0.26"
-log = "0.4"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 bitcoin = { version = "0.32", features = ["serde", "std", "bitcoinconsensus"] }
 thiserror = "1.0"
+tracing = "0.1.41"
 
 [dev-dependencies]
 rand = "0.8.5"

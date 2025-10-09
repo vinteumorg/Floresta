@@ -62,7 +62,7 @@ class GetRpcInfoTest(FlorestaTestFramework):
         and checking the response in florestad.
         """
         result = self.florestad.rpc.get_rpcinfo()
-        expected_logpath = os.path.join(self.data_dirs[0], "regtest", "output.log")
+        expected_logpath = os.path.join(self.data_dirs[0], "regtest", "debug.log")
         self.assert_rpcinfo_structure(result, expected_logpath)
 
     def test_bitcoind_getrpcinfo(self):

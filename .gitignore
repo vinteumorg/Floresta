@@ -10,7 +10,7 @@ doc/rpc_man/*.gz
 tmp/
 tmp-db/
 data/
-output.log
+debug.log
 
 # Performance data and generated performance graphs
 perf.*

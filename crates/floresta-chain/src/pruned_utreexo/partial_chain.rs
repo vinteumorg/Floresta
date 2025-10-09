@@ -29,8 +29,8 @@ extern crate alloc;
 use core::cell::UnsafeCell;
 
 use bitcoin::block::Header as BlockHeader;
-use log::info;
 use rustreexo::accumulator::stump::Stump;
+use tracing::info;
 
 use super::chainparams::ChainParams;
 use super::consensus::Consensus;
