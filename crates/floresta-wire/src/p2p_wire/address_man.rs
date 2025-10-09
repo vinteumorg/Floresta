@@ -20,6 +20,10 @@ use floresta_chain::DnsSeed;
 use floresta_common::service_flags;
 use serde::Deserialize;
 use serde::Serialize;
+use tracing::debug;
+use tracing::error;
+use tracing::info;
+use tracing::warn;
 
 /// How long we'll wait before trying to connect to a peer that failed
 const RETRY_TIME: u64 = 10 * 60; // 10 minutes

@@ -59,10 +59,6 @@ use floresta_chain::proof_util;
 use floresta_chain::ChainBackend;
 use floresta_chain::CompactLeafData;
 use floresta_common::service_flags;
-use log::debug;
-use log::error;
-use log::info;
-use log::warn;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use rustreexo::accumulator::node_hash::BitcoinNodeHash;
@@ -430,7 +426,7 @@ where
                 // STEP 1: Receive the block and ask for the proof
                 PeerMessages::Block(recv_block) => {
                     if recv_block.block_hash() != block_hash {
-                        log::error!("peer {peer} sent us a block we didn't request");
+                        error!("peer {peer} sent us a block we didn't request");
                         self.increase_banscore(peer, self.max_banscore).await?;
                         return Err(WireError::PeerMisbehaving);
                     }
@@ -462,7 +458,7 @@ where
                 // STEP 2: Receive the proof and return the `InflightBlock`
                 PeerMessages::UtreexoProof(uproof) => {
                     let Some(block) = block else {
-                        log::error!("peer {peer} sent us a proof without sending the block first");
+                        error!("peer {peer} sent us a proof without sending the block first");
                         self.increase_banscore(peer, self.config.max_banscore)
                             .await?;
                         return Err(WireError::PeerMisbehaving);
@@ -940,7 +936,7 @@ where
                 // user request made through the node handle. If it isn't, we punish this
                 // peer for sending an unrequested block.
                 if self.check_is_user_block_and_reply(block).await?.is_some() {
-                    log::error!("peer {peer} sent us a block we didn't request");
+                    error!("peer {peer} sent us a block we didn't request");
                     self.increase_banscore(peer, 5).await?;
                 }
             }

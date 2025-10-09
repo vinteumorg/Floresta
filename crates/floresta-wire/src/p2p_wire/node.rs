@@ -33,10 +33,6 @@ use floresta_common::service_flags::UTREEXO;
 use floresta_common::FractionAvg;
 use floresta_compact_filters::flat_filters_store::FlatFiltersStore;
 use floresta_compact_filters::network_filters::NetworkFilters;
-use log::debug;
-use log::error;
-use log::info;
-use log::warn;
 use rand::seq::SliceRandom;
 use rustreexo::accumulator::proof::Proof;
 use serde::Deserialize;
@@ -1558,7 +1554,7 @@ where
         Ok(())
     }
 
-    pub(crate) fn shutdown(&mut self) {
+    pub(crate) async fn shutdown(&mut self) {
         info!("Shutting down node...");
         try_and_warn!(self.save_utreexo_peers());
         for peer in self.peer_ids.iter() {

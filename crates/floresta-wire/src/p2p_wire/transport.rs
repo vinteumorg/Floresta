@@ -23,8 +23,6 @@ use bitcoin::p2p::message::RawNetworkMessage;
 use bitcoin::p2p::Magic;
 use bitcoin::Network;
 use floresta_common::impl_error_from;
-use log::debug;
-use log::info;
 use serde::Deserialize;
 use serde::Serialize;
 use tokio::io::AsyncRead;
