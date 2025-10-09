@@ -7,8 +7,8 @@ readme.workspace = true # Floresta/README.md
 [dependencies]
 axum = { workspace = true, optional = true }
 bitcoin = { workspace = true, features = ["serde", "std", "bitcoinconsensus"] }
-chrono = "0.4.19"
-dirs = "4.0.0"
+chrono = "0.4.42"
+dirs = "5.0.1"
 dns-lookup = { workspace = true }
 fern = { version = "0.6", features = ["colored"] }
 kv = { workspace = true }
