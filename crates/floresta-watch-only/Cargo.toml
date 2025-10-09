@@ -11,13 +11,15 @@ repository = "https://github.com/vinteumorg/Floresta"
 readme.workspace = true # Floresta/README.md
 
 [dependencies]
-serde = "1.0.0"
-serde_json = { version = "1.0.0", features = ["alloc"] }
-bitcoin = { version = "0.32", features = ["serde"] }
-kv = "0.24.0"
-log = "0.4"
-floresta-common = { path = "../floresta-common", default-features = false, features = ["descriptors-no-std"] }
+bitcoin = { workspace = true, features = ["serde"] }
+kv = { workspace = true }
+log = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true, features = ["alloc"] }
+
+# Local dependencies
 floresta-chain = { path = "../floresta-chain" }
+floresta-common = { path = "../floresta-common", default-features = false, features = ["descriptors-no-std"] }
 
 [dev-dependencies]
 rand = "0.8.5"
