@@ -5,37 +5,39 @@ edition = "2021"
 readme.workspace = true # Floresta/README.md
 
 [dependencies]
-rustreexo = "0.4"
-tokio = { version = "1", features = ["full"] }
-tokio-rustls = "0.26"
-log = "0.4"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-kv = "0.24.0"
-miniscript = "12"
-toml = "0.8.20"
-dirs = "4.0.0"
-bitcoin = { version = "0.32", features = ["serde", "std", "bitcoinconsensus"] }
+axum = { workspace = true, optional = true }
+bitcoin = { workspace = true, features = ["serde", "std", "bitcoinconsensus"] }
+chrono = "0.4.42"
+dirs = "5.0.1"
+dns-lookup = { workspace = true }
 fern = { version = "0.6", features = ["colored"] }
-chrono = "0.4.19"
-floresta-compact-filters = { path = "../floresta-compact-filters", optional = true }
+kv = { workspace = true }
+log = { workspace = true }
+miniscript = { workspace = true }
+rcgen = { workspace = true }
+rustreexo = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tokio-rustls = { workspace = true }
+toml = "0.8.20"
+tower-http = { version = "0.6.2", optional = true, features = ["cors"] }
+zmq = { version = "0.10.0", optional = true }
+
+# Local dependencies
 floresta-chain = { path = "../floresta-chain" }
 floresta-common = { path = "../floresta-common" }
+floresta-compact-filters = { path = "../floresta-compact-filters", optional = true }
 floresta-electrum = { path = "../floresta-electrum" }
 floresta-watch-only = { path = "../floresta-watch-only" }
 floresta-wire = { path = "../floresta-wire" }
 metrics = { path = "../../metrics", optional = true }
-axum = { version = "0.7", optional = true }
-zmq = { version = "0.10.0", optional = true }
-dns-lookup = "=2.0.4"
-tower-http = { version = "0.6.2", optional = true, features = ["cors"] }
-rcgen = "0.13.2"
-
-[target.'cfg(target_env = "gnu")'.dependencies]
-libc = "0.2.169"
 
 [dev-dependencies]
 pretty_assertions = "1"
+
+[target.'cfg(target_env = "gnu")'.dependencies]
+libc = "0.2.169"
 
 [features]
 kv-chainstore = ["floresta-chain/kv-chainstore"]
