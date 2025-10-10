@@ -17,11 +17,17 @@
 #![deny(non_upper_case_globals)]
 
 mod cli;
+
 use std::env;
+use std::fs;
+use std::io;
+use std::io::IsTerminal;
+use std::path::PathBuf;
 use std::process::exit;
 use std::sync::Arc;
 use std::time::Duration;
 
+use bitcoin::Network;
 use clap::Parser;
 use cli::Cli;
 #[cfg(unix)]
@@ -32,15 +38,31 @@ use tokio::sync::RwLock;
 use tokio::time::sleep;
 use tokio::time::timeout;
 use tracing::info;
+use tracing_appender::non_blocking::WorkerGuard;
+use tracing_subscriber::fmt;
+use tracing_subscriber::fmt::time::ChronoLocal;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::EnvFilter;
+use tracing_subscriber::Layer;
 
 fn main() {
     let params = Cli::parse();
 
+    // If not provided defaults to `$HOME/.floresta`. Uses a subdirectory for non-mainnet networks.
+    let data_dir = data_dir_path(params.data_dir, params.network);
+
+    // Create the data directory if it doesn't exist
+    fs::create_dir_all(&data_dir).unwrap_or_else(|e| {
+        eprintln!("Could not create data dir {data_dir:?}: {e}");
+        exit(1);
+    });
+
     let config = Config {
+        data_dir,
         disable_dns_seeds: params.connect.is_some() || params.disable_dns_seeds,
         network: params.network,
         debug: params.debug,
-        data_dir: params.data_dir.clone(),
         cfilters: !params.no_cfilters,
         proxy: params.proxy,
         assume_utreexo: !params.no_assume_utreexo,
@@ -78,6 +100,18 @@ fn main() {
             daemon = daemon.pid_file(pid_file);
         }
         daemon.start().expect("Failed to daemonize");
+    }
+
+    let mut _log_guard: Option<WorkerGuard> = None;
+    if config.log_to_stdout || config.log_to_file {
+        let dir = &config.data_dir;
+
+        // Initialize logging (stdout/file) per config and retain the file guard
+        _log_guard = init_logging(dir, config.log_to_file, config.log_to_stdout, config.debug)
+            .unwrap_or_else(|e| {
+                eprintln!("Logging file couldn't be created at {dir:?}: {e}");
+                exit(1);
+            });
     }
 
     let _rt = tokio::runtime::Builder::new_multi_thread()
@@ -124,4 +158,155 @@ fn main() {
     // due to the rpc server, causing a panic.
     drop(florestad);
     drop(_rt);
+    drop(_log_guard); // flush file logs on exit
+}
+
+fn data_dir_path(dir: Option<String>, network: Network) -> String {
+    // base dir: provided `dir` or $HOME/.floresta or "./.floresta"
+    let mut base: PathBuf = dir
+        .as_ref()
+        .map(|s| s.trim_end_matches(['/', '\\']).into())
+        .unwrap_or_else(|| {
+            dirs::home_dir()
+                .unwrap_or_else(|| PathBuf::from("."))
+                .join(".floresta")
+        });
+
+    // network-specific subdir
+    match network {
+        Network::Bitcoin => {} // no subdir
+        Network::Signet => base.push("signet"),
+        Network::Testnet => base.push("testnet3"),
+        Network::Testnet4 => base.push("testnet4"),
+        Network::Regtest => base.push("regtest"),
+    }
+
+    base.to_string_lossy().into_owned()
+}
+
+/// Set up the logger for `florestad`.
+///
+/// This logger will subscribe to `tracing` events, filter them according to the defined log
+/// level, and format them based on the output destination. Logs can be directed to `stdout`, a
+/// file, both, or neither.
+pub fn init_logging(
+    data_dir: &str,
+    log_to_file: bool,
+    log_to_stdout: bool,
+    debug: bool,
+) -> Result<Option<WorkerGuard>, io::Error> {
+    // Get the log level from `--debug`.
+    let log_level = if debug { "debug" } else { "info" };
+
+    // Try to build an `EnvFilter` from the `RUST_LOG` env variable, or fallback to `log_level`.
+    let log_filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(log_level));
+
+    // For the registry, also enable very verbose runtime traces so `tokio-console` works, but keep
+    // human outputs quiet via per-layer filters below.
+    #[cfg(feature = "tokio-console")]
+    let base_filter = EnvFilter::new(format!("{},tokio=trace,runtime=trace", log_filter));
+
+    #[cfg(not(feature = "tokio-console"))]
+    let base_filter = log_filter.clone();
+
+    // Validate the log file path.
+    if log_to_file {
+        let file_path = format!("{data_dir}/debug.log");
+        fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&file_path)?;
+    }
+
+    // Timer for log events.
+    let log_timer = ChronoLocal::new("%Y-%m-%d %H:%M:%S".to_string());
+
+    // Standard Output layer: human-friendly formatting and level; ANSI only on a real TTY.
+    let fmt_layer_stdout = log_to_stdout.then(|| {
+        fmt::layer()
+            .with_writer(io::stdout)
+            .with_ansi(IsTerminal::is_terminal(&io::stdout()))
+            .with_timer(log_timer.clone())
+            .with_target(true)
+            .with_level(true)
+            .with_filter(log_filter.clone())
+    });
+
+    // File layer: non-blocking writer. Keep the `WorkerGuard` so logs flush on drop.
+    let mut guard = None;
+    let fmt_layer_logfile = log_to_file.then(|| {
+        let file_appender = tracing_appender::rolling::never(data_dir, "debug.log");
+        let (non_blocking, file_guard) = tracing_appender::non_blocking(file_appender);
+        guard = Some(file_guard);
+
+        fmt::layer()
+            .with_writer(non_blocking)
+            .with_ansi(false)
+            .with_timer(log_timer)
+            .with_target(true)
+            .with_level(true)
+            .with_filter(log_filter.clone())
+    });
+
+    // Build the registry with its (possibly more permissive) base filter, then attach layers to it.
+    let registry = tracing_subscriber::registry().with(base_filter);
+
+    #[cfg(feature = "tokio-console")]
+    let registry = registry.with(console_subscriber::spawn());
+
+    registry
+        .with(fmt_layer_stdout)
+        .with(fmt_layer_logfile)
+        .init();
+
+    Ok(guard)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_data_dir_path() {
+        let net = Network::Bitcoin;
+        let default_expected = dirs::home_dir()
+            .unwrap_or(PathBuf::from("."))
+            .join(".floresta");
+
+        assert_eq!(
+            data_dir_path(None, net),
+            default_expected.display().to_string(),
+        );
+
+        // Using other made-up directories
+        let mut path = Some("path/to/dir".into());
+        assert_eq!(data_dir_path(path, net), "path/to/dir");
+
+        path = Some("path/to/dir/".into());
+        assert_eq!(data_dir_path(path, net), "path/to/dir");
+
+        // Test removing the '\' separator
+        path = Some(format!("path{}", '\\'));
+        assert_eq!(data_dir_path(path, net), "path");
+
+        // Test removing many separators
+        path = Some("path///".into());
+        assert_eq!(data_dir_path(path, net), "path");
+
+        // Using other networks
+        for &(net, suffix) in &[
+            (Network::Testnet, "testnet3"),
+            (Network::Testnet4, "testnet4"),
+            (Network::Signet, "signet"),
+            (Network::Regtest, "regtest"),
+        ] {
+            let expected = PathBuf::from("path").join(suffix);
+
+            assert_eq!(
+                data_dir_path(Some("path///".into()), net),
+                expected.display().to_string(),
+            );
+        }
+    }
 }
