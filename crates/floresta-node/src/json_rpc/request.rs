@@ -50,7 +50,8 @@ pub mod arg_parser {
             .map_err(|_| JsonRpcError::InvalidParameterType(format!("{opt_name} is out-of-range")))
     }
 
-    /// Extracts a string parameter from the request parameters at the specified index.
+    /// Extracts a string parameter from the request parameters at the specified index and
+    /// applies a mask that trims, replace quotes and make it all lowercase.
     ///
     /// This function checks if the parameter exists and is of type string. Returns an error
     /// otherwise.
@@ -67,7 +68,9 @@ pub mod arg_parser {
             JsonRpcError::InvalidParameterType(format!("{opt_name} must be a string"))
         })?;
 
-        Ok(str.to_string())
+        let mask = str.trim().replace("\"", "").to_lowercase();
+
+        Ok(mask)
     }
 
     /// Extracts a boolean parameter from the request parameters at the specified index.
