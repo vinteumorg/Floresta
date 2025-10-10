@@ -129,7 +129,7 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
             .ok_or(JsonRpcError::TxNotFound)
     }
 
-    fn load_descriptor(&self, descriptor: String) -> Result<bool> {
+    fn import_descriptors(&self, descriptor: String) -> Result<bool> {
         let desc = slice::from_ref(&descriptor);
         let Ok(mut parsed) = parse_descriptors(desc) else {
             return Err(JsonRpcError::InvalidDescriptor);
@@ -413,11 +413,11 @@ async fn handle_json_rpc_request(
         }
 
         // wallet
-        "loaddescriptor" => {
+        "importdescriptors" => {
             let descriptor = get_string(&params, 0, "descriptor")?;
 
             state
-                .load_descriptor(descriptor)
+                .import_descriptors(descriptor)
                 .map(|v| serde_json::to_value(v).unwrap())
         }
 
