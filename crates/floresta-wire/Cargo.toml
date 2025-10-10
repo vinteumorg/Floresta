@@ -42,3 +42,6 @@ floresta-chain = { path = "../floresta-chain", features = ["flat-chainstore"] }
 [features]
 default = []
 metrics = ["dep:metrics"]
+
+[lints]
+workspace = true
