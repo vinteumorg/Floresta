@@ -11,31 +11,33 @@ description = """
 repository = "https://github.com/vinteumorg/Floresta"
 license = "MIT"
 readme.workspace = true # Floresta/README.md
-
 keywords = ["bitcoin", "utreexo", "node", "blockchain", "rust"]
 categories = ["cryptography::cryptocurrencies"]
 
 [dependencies]
-floresta-common = { path = "../floresta-common" }
-floresta-chain = { path = "../floresta-chain" }
-floresta-watch-only = { path = "../floresta-watch-only" }
-floresta-compact-filters = { path = "../floresta-compact-filters" }
-floresta-wire = { path = "../floresta-wire" }
+bitcoin = { workspace = true, features = ["serde", "std", "bitcoinconsensus"] }
+rustreexo = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = "2.0"
+tokio = { workspace = true }
+tokio-rustls = { workspace = true }
+tracing = { workspace = true }
 
-rustreexo = "0.4"
-tokio = { version = "1.0", features = ["full"] }
-tokio-rustls = "0.26"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-bitcoin = { version = "0.32", features = ["serde", "std", "bitcoinconsensus"] }
-thiserror = "1.0"
-tracing = "0.1.41"
+# Local dependencies
+floresta-chain = { workspace = true }
+floresta-compact-filters = { workspace = true }
+floresta-common = { workspace = true }
+floresta-watch-only = { workspace = true }
+floresta-wire = { workspace = true }
 
 [dev-dependencies]
-rand = "0.8.5"
-rcgen = "0.13"
-zstd = "0.13.3"
-floresta-chain = { path = "../floresta-chain", features = ["flat-chainstore"] }
+rand = { workspace = true }
+rcgen = { workspace = true }
+zstd = { workspace = true }
+
+# Local dependencies
+floresta-chain = { workspace = true, features = ["flat-chainstore"] }
 
 [lints]
 workspace = true
