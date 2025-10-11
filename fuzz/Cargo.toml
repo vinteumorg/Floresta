@@ -8,11 +8,13 @@ edition = "2021"
 cargo-fuzz = true
 
 [dependencies]
-libfuzzer-sys = "0.4"
 arbitrary = { version = "1.4.2", features = ["derive"] }
-bitcoin = { version = "0.32", features = ["serde", "std"] }
-floresta-wire = { path = "../crates/floresta-wire" }
-floresta-chain = { path = "../crates/floresta-chain" }
+bitcoin = { workspace = true }
+libfuzzer-sys = "0.4"
+
+# Local dependencies
+floresta-chain = { workspace = true }
+floresta-wire = { workspace = true }
 
 [[bin]]
 name = "local_address_str"
