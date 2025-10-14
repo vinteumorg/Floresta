@@ -1,6 +1,4 @@
 use bitcoin::Network;
-use clap::arg;
-use clap::command;
 use clap::Parser;
 
 #[derive(Parser)]
@@ -30,7 +28,7 @@ pub struct Cli {
     #[arg(long)]
     /// Option for saving log into data_Dir
     ///
-    /// if set, log will be saved into $DATA_DIR/output.log.
+    /// if set, log will be saved into $DATA_DIR/debug.log.
     pub log_to_file: bool,
 
     #[arg(long, value_name = "PATH")]

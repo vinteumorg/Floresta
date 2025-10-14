@@ -8,7 +8,6 @@ readme.workspace = true # Floresta/README.md
 rustreexo = "0.4"
 tokio = { version = "1", features = ["full"] }
 tokio-rustls = "0.26"
-log = "0.4"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 kv = "0.24.0"
@@ -16,7 +15,6 @@ miniscript = "12"
 toml = "0.8.20"
 dirs = "4.0.0"
 bitcoin = { version = "0.32", features = ["serde", "std", "bitcoinconsensus"] }
-fern = { version = "0.6", features = ["colored"] }
 chrono = "0.4.19"
 floresta-compact-filters = { path = "../floresta-compact-filters", optional = true }
 floresta-chain = { path = "../floresta-chain" }
@@ -30,6 +28,10 @@ zmq = { version = "0.10.0", optional = true }
 dns-lookup = "=2.0.4"
 tower-http = { version = "0.6.2", optional = true, features = ["cors"] }
 rcgen = "0.13.2"
+tracing-subscriber = { version = "0.3.20", features = ["chrono", "ansi", "env-filter"] }
+console-subscriber = { version = "0.4", optional = true }
+tracing = "0.1.41"
+tracing-appender = "0.2.3"
 
 [target.'cfg(target_env = "gnu")'.dependencies]
 libc = "0.2.169"
@@ -44,4 +46,5 @@ compact-filters = ["dep:floresta-compact-filters"]
 zmq-server = ["dep:zmq"]
 json-rpc = ["dep:axum", "dep:tower-http", "compact-filters"]
 default = ["json-rpc", "flat-chainstore"]
-metrics = ["dep:metrics", "floresta-wire/metrics"]
+metrics = ["dep:metrics", "floresta-wire/metrics", "floresta-chain/metrics"]
+tokio-console = ["dep:console-subscriber"]

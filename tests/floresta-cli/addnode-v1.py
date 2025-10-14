@@ -126,7 +126,7 @@ class AddnodeTestV1(FlorestaTestFramework):
         self.assertEqual(peer_info[0]["services"], "0000000001000009")
         self.assertMatch(
             peer_info[0]["subver"],
-            re.compile(r"\/Floresta:.*\/"),
+            re.compile(r"\/Floresta\/\d\.\d\.\d\/"),
         )
         self.assertEqual(peer_info[0]["inbound"], True)
 

@@ -29,7 +29,7 @@
 //! Floresta is the Portuguese word for forest. It is a reference to the Utreexo accumulator,
 //! which is a forest of Merkle trees. It's pronounced /floˈɾɛstɐ/.
 
-#![cfg_attr(docsrs, feature(doc_auto_cfg))]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 /// Components to build a utreexo-aware, consensus enforcing Bitcoin node.
 pub use floresta_chain as chain;

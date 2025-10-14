@@ -26,6 +26,7 @@ use bitcoin::consensus::serialize;
 use bitcoin::OutPoint;
 use floresta_chain::BlockConsumer;
 use floresta_chain::UtxoData;
+use tracing::error;
 use zmq::Context;
 use zmq::Socket;
 
@@ -68,7 +69,7 @@ impl BlockConsumer for ZMQServer {
     ) {
         let block = serialize(&block);
         if let Err(e) = self.socket.send(block, zmq::DONTWAIT) {
-            log::error!("while sending block over zmq: {e}");
+            error!("while sending block over zmq: {e}");
         }
     }
 }

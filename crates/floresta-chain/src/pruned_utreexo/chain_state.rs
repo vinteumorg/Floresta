@@ -35,15 +35,15 @@ use bitcoin::Target;
 use bitcoin::Transaction;
 use bitcoin::Work;
 use floresta_common::Channel;
-use log::debug;
-use log::info;
-use log::warn;
 #[cfg(feature = "metrics")]
 use metrics;
 use rustreexo::accumulator::node_hash::BitcoinNodeHash;
 use rustreexo::accumulator::proof::Proof;
 use rustreexo::accumulator::stump::Stump;
 use spin::RwLock;
+use tracing::debug;
+use tracing::info;
+use tracing::warn;
 
 use super::chain_state_builder::BlockchainBuilderError;
 use super::chain_state_builder::ChainStateBuilder;
@@ -62,7 +62,6 @@ use crate::read_lock;
 use crate::write_lock;
 use crate::BestChain;
 use crate::ChainStore;
-use crate::UtreexoBlock;
 
 /// Trait for components that need to receive notifications about new blocks.
 pub trait BlockConsumer: Sync + Send + 'static {
@@ -1022,12 +1021,12 @@ impl<PersistedState: ChainStore> BlockchainInterface for ChainState<PersistedSta
     fn update_acc(
         &self,
         acc: Stump,
-        block: UtreexoBlock,
+        block: Block,
         height: u32,
         proof: Proof,
         del_hashes: Vec<sha256::Hash>,
     ) -> Result<Stump, Self::Error> {
-        Consensus::update_acc(&acc, &block.block, height, proof, del_hashes)
+        Consensus::update_acc(&acc, &block, height, proof, del_hashes)
     }
 
     fn get_chain_tips(&self) -> Result<Vec<BlockHash>, Self::Error> {

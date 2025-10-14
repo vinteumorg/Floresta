@@ -43,6 +43,7 @@
 //!
 //! Most likely we'll only download one chain and all peers will agree with it. Then we can start
 //! downloading the actual blocks and validating them.
+
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::time::Duration;
@@ -52,24 +53,31 @@ use bitcoin::block::Header;
 use bitcoin::consensus::deserialize;
 use bitcoin::p2p::message_blockdata::Inventory;
 use bitcoin::p2p::ServiceFlags;
+use bitcoin::Block;
 use bitcoin::BlockHash;
 use floresta_chain::proof_util;
 use floresta_chain::ChainBackend;
-use floresta_chain::UtreexoBlock;
+use floresta_chain::CompactLeafData;
 use floresta_common::service_flags;
-use log::debug;
-use log::info;
-use log::warn;
+use rand::seq::SliceRandom;
+use rand::thread_rng;
 use rustreexo::accumulator::node_hash::BitcoinNodeHash;
+use rustreexo::accumulator::proof::Proof;
 use rustreexo::accumulator::stump::Stump;
 use tokio::time::timeout;
+use tracing::debug;
+use tracing::error;
+use tracing::info;
+use tracing::warn;
 
 use super::error::WireError;
 use super::node_interface::UserRequest;
 use super::peer::PeerMessages;
 use crate::address_man::AddressState;
+use crate::block_proof::Bitmap;
 use crate::node::periodic_job;
 use crate::node::try_and_log;
+use crate::node::InflightBlock;
 use crate::node::InflightRequests;
 use crate::node::NodeNotification;
 use crate::node::NodeRequest;
@@ -153,7 +161,7 @@ where
 
         for header in headers.iter() {
             if let Err(e) = self.chain.accept_header(*header) {
-                log::error!("Error while downloading headers from peer={peer} err={e}");
+                error!("Error while downloading headers from peer={peer} err={e}");
 
                 self.send_to_peer(peer, NodeRequest::Shutdown).await?;
 
@@ -251,7 +259,7 @@ where
     ) -> Result<Option<PeerId>, WireError> {
         let (mut height, mut hash) = self.chain.get_best_block()?;
         let mut prev_height = 0;
-        // we first norrow down the possible fork point to a couple of blocks, looking
+        // we first narrow down the possible fork point to a couple of blocks, looking
         // for all blocks in a linear search would be too slow
         loop {
             // ask both peers for the utreexo state
@@ -366,17 +374,14 @@ where
             return Ok(None);
         };
 
-        let block = self.chain.get_block_hash(fork + 1).unwrap();
-        self.send_to_peer(peer1, NodeRequest::GetBlock((vec![block], true)))
-            .await?;
+        let block_hash = self.chain.get_block_hash(fork + 1)?;
 
-        let NodeNotification::FromPeer(_, PeerMessages::Block(block)) =
-            self.node_rx.recv().await.unwrap()
-        else {
-            return Ok(None);
-        };
+        let block = self.get_block_and_proof(peer1, block_hash).await?;
+        let proof = block.proof.expect("Block proof should be present");
+        let leaf_data = block.leaf_data.expect("Leaf data should be present");
 
-        let acc1 = self.update_acc(agreed, block, fork + 1)?;
+        let acc1 = self.update_acc(agreed, block.block, proof, &leaf_data, fork + 1)?;
+
         let peer1_acc = Self::parse_acc(peer1_acc)?;
         let peer2_acc = Self::parse_acc(peer2_acc)?;
 
@@ -391,14 +396,105 @@ where
         Ok(Some(peer2))
     }
 
-    /// Updates a Stump, with the data from a Utreexo block
-    fn update_acc(&self, acc: Stump, block: UtreexoBlock, height: u32) -> Result<Stump, WireError> {
-        let (proof, del_hashes, _) = proof_util::process_proof(
-            block.udata.as_ref().unwrap(),
-            &block.block.txdata,
-            height,
-            |h| self.chain.get_block_hash(h),
-        )?;
+    /// Requests a block and its proof from a peer
+    ///
+    /// If you need to see a peer's version of a given block, you can use this method
+    /// to request a block from a specific peer.
+    async fn get_block_and_proof(
+        &mut self,
+        peer: PeerId,
+        block_hash: BlockHash,
+    ) -> Result<InflightBlock, WireError> {
+        self.send_to_peer(peer, NodeRequest::GetBlock(vec![block_hash]))
+            .await?;
+
+        let timeout = Instant::now() + Duration::from_secs(60);
+        let mut block = None;
+        loop {
+            if Instant::now() > timeout {
+                return Err(WireError::PeerTimeout);
+            }
+
+            let Some(NodeNotification::FromPeer(id, message)) = self.node_rx.recv().await else {
+                // Keep waiting until peer message is read or timeout
+                continue;
+            };
+
+            if id != peer {
+                continue;
+            }
+
+            match message {
+                // STEP 1: Receive the block and ask for the proof
+                PeerMessages::Block(recv_block) => {
+                    if recv_block.block_hash() != block_hash {
+                        error!("peer {peer} sent us a block we didn't request");
+                        self.increase_banscore(peer, self.max_banscore).await?;
+                        return Err(WireError::PeerMisbehaving);
+                    }
+
+                    // Check if the blocks was maliciously mutated by our peer
+                    let is_mutated =
+                        !(recv_block.check_merkle_root() && recv_block.check_witness_commitment());
+
+                    if is_mutated {
+                        error!(
+                            "Peer {peer} sent us a mutated block {}",
+                            recv_block.block_hash()
+                        );
+                        self.increase_banscore(peer, self.config.max_banscore)
+                            .await?;
+                        return Err(WireError::PeerMisbehaving);
+                    }
+
+                    block = Some(recv_block);
+                    // ask for the proof. Sending two empty bitmaps means we want the full
+                    // proof and all leaf data
+                    self.send_to_peer(
+                        peer,
+                        NodeRequest::GetBlockProof((block_hash, Bitmap::new(), Bitmap::new())),
+                    )
+                    .await?;
+                }
+
+                // STEP 2: Receive the proof and return the `InflightBlock`
+                PeerMessages::UtreexoProof(uproof) => {
+                    let Some(block) = block else {
+                        error!("peer {peer} sent us a proof without sending the block first");
+                        self.increase_banscore(peer, self.config.max_banscore)
+                            .await?;
+                        return Err(WireError::PeerMisbehaving);
+                    };
+
+                    let proof = Proof {
+                        hashes: uproof.proof_hashes,
+                        targets: uproof.targets,
+                    };
+
+                    return Ok(InflightBlock {
+                        block,
+                        proof: Some(proof),
+                        leaf_data: Some(uproof.leaf_data),
+                        peer,
+                    });
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Updates a Stump, with the data from a block and its proof
+    fn update_acc(
+        &self,
+        acc: Stump,
+        block: Block,
+        proof: Proof,
+        leaf_data: &[CompactLeafData],
+        height: u32,
+    ) -> Result<Stump, WireError> {
+        let (del_hashes, _) = proof_util::process_proof(leaf_data, &block.txdata, height, |h| {
+            self.chain.get_block_hash(h)
+        })?;
 
         Ok(self
             .chain
@@ -524,32 +620,24 @@ where
 
     async fn is_our_chain_invalid(&mut self, other_tip: BlockHash) -> Result<(), WireError> {
         let fork = self.chain.get_fork_point(other_tip)?;
-        self.send_to_random_peer(
-            NodeRequest::GetBlock((vec![fork], true)),
-            service_flags::UTREEXO.into(),
-        )
-        .await?;
-
-        let timeout = Instant::now() + Duration::from_secs(60);
-        let block = loop {
-            let Some(NodeNotification::FromPeer(_, PeerMessages::Block(block))) =
-                self.node_rx.recv().await
-            else {
-                if Instant::now() > timeout {
-                    return Ok(());
-                }
-                continue;
-            };
-            break block;
-        };
         let fork_height = self.chain.get_block_height(&fork)?.unwrap_or(0);
 
-        let (proof, del_hashes, inputs) = proof_util::process_proof(
-            block.udata.as_ref().unwrap(),
-            &block.block.txdata,
-            fork_height,
-            |h| self.chain.get_block_hash(h),
-        )?;
+        let peers = self
+            .peer_by_service
+            .get(&service_flags::UTREEXO.into())
+            .ok_or(WireError::NoPeersAvailable)?;
+
+        let rand_peer = *peers
+            .choose(&mut thread_rng())
+            .ok_or(WireError::NoPeersAvailable)?;
+
+        let block = self.get_block_and_proof(rand_peer, fork).await?;
+        let leaf_data = block.leaf_data.expect("Leaf data should be present");
+        let proof = block.proof.expect("Block proof should be present");
+        let (del_hashes, inputs) =
+            proof_util::process_proof(&leaf_data, &block.block.txdata, fork_height, |h| {
+                self.chain.get_block_hash(h)
+            })?;
 
         let acc = self.find_accumulator_for_block(fork_height, fork).await?;
         let is_valid = self
@@ -854,15 +942,11 @@ where
             }
 
             PeerMessages::Block(block) => {
-                if self
-                    .check_is_user_block_and_reply(block.block, block.udata)
-                    .await?
-                    .is_some()
-                {
-                    // During chain selection we don't ask for blocks, unless it's an explicit
-                    // user request made through the node handle. If it isn't, we punish this
-                    // peer for sending an unrequested block.
-                    log::error!("peer {peer} sent us a block we didn't request");
+                // During chain selection we don't ask for blocks, unless it's an explicit
+                // user request made through the node handle. If it isn't, we punish this
+                // peer for sending an unrequested block.
+                if self.check_is_user_block_and_reply(block).await?.is_some() {
+                    error!("peer {peer} sent us a block we didn't request");
                     self.increase_banscore(peer, 5).await?;
                 }
             }

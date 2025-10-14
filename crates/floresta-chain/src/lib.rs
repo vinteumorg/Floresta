@@ -11,7 +11,7 @@
 //! underlying database. See the ChainStore trait for more information. For a
 //! ready-to-use implementation, see the [`FlatChainStore`] struct.
 
-#![cfg_attr(docsrs, feature(doc_auto_cfg))]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 #![cfg_attr(not(test), no_std)]
 #![cfg_attr(not(test), deny(clippy::unwrap_used))]
 #![allow(clippy::manual_is_multiple_of)]

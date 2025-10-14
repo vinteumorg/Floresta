@@ -129,10 +129,10 @@ Anytime you want to check you service, you may want to use these commands:
 sudo journalctl -xeu florestad.service
 
 # logs when using bitcoin mainnet
-sudo cat /var/lib/florestad/output.log
+sudo cat /var/lib/florestad/debug.log
 
 # logs when using another network (testnet, signet, regtest)
-sudo cat /var/lib/florestad/<network>/output.log
+sudo cat /var/lib/florestad/<network>/debug.log
 ```
 
 #### Electrum

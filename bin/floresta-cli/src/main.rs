@@ -294,7 +294,7 @@ pub enum Methods {
     ///     },
     ///     ...
     ///   ],
-    ///   "logpath" : "str"        (string) The complete file path to the output log
+    ///   "logpath" : "str"        (string) The complete file path to the debug log
     /// }
     #[command(name = "getrpcinfo")]
     GetRpcInfo,

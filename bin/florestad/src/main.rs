@@ -17,6 +17,7 @@
 #![deny(non_upper_case_globals)]
 
 mod cli;
+use std::env;
 use std::process::exit;
 use std::sync::Arc;
 use std::time::Duration;
@@ -27,18 +28,12 @@ use cli::Cli;
 use daemonize::Daemonize;
 use floresta_node::Config;
 use floresta_node::Florestad;
-use log::info;
 use tokio::sync::RwLock;
 use tokio::time::sleep;
 use tokio::time::timeout;
+use tracing::info;
 
 fn main() {
-    #[cfg(feature = "tokio-console")]
-    {
-        // Initialize tokio-console for debugging
-        console_subscriber::init();
-    }
-
     let params = Cli::parse();
 
     let config = Config {
@@ -65,7 +60,7 @@ fn main() {
         generate_cert: params.generate_cert,
         wallet_descriptor: params.wallet_descriptor,
         filters_start_height: params.filters_start_height,
-        user_agent: format!("/Floresta:{}/", env!("GIT_DESCRIBE")),
+        user_agent: env!("USER_AGENT").to_owned(),
         assumeutreexo_value: None,
         electrum_address: params.electrum_address,
         enable_electrum_tls: params.enable_electrum_tls,
@@ -115,7 +110,7 @@ fn main() {
         // wait for shutdown
         loop {
             if florestad.should_stop().await || *_signal.read().await {
-                info!("Stopping Florestad");
+                info!("Stopping Floresta");
                 florestad.stop().await;
                 let _ = timeout(Duration::from_secs(10), florestad.wait_shutdown()).await;
                 break;

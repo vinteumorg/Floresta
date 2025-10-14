@@ -8,7 +8,7 @@ use bitcoin::Block;
 use bitcoin::BlockHash;
 use bitcoin::Transaction;
 use bitcoin::Txid;
-use floresta_chain::UtreexoBlock;
+use rustreexo::accumulator::proof::Proof;
 use serde::Serialize;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::oneshot;
@@ -44,13 +44,39 @@ pub enum AddNode {
 /// all the possible requests that can be made to the node as well as the data that needs to be
 /// sent along with the request.
 pub enum UserRequest {
+    /// Get a block by its hash.
+    ///
+    /// This will cause network requests to be made to fetch the block data.
     Block(BlockHash),
-    UtreexoBlock(BlockHash),
+
+    /// Get the Utreexo proof and LeafData for a block by its hash.
+    UtreexoProof(BlockHash),
+
+    /// Get an unconfirmed transaction from the mempool by its ID.
     MempoolTransaction(Txid),
+
+    /// Return information about all connected peers.
     GetPeerInfo,
+
+    /// Add a peer to the node's peer list.
+    ///
+    /// This function will add this peer to a special list of peers such that, if we lose the
+    /// connection, we will keep trying to connect to it until we succeed.
     Add((IpAddr, u16, bool)),
+
+    /// Removes a node from the node's peer list.
+    ///
+    /// This function will remove a node that was added with [`AddNode::Add`]. This will **not**
+    /// disconnect the peer, but if it disconnects, it will not be reconnected again.
     Remove((IpAddr, u16)),
+
+    /// Attempts to connect to a peer once.
+    ///
+    /// Different from [`AddNode::Add`], this function will try to connect to the peer once, but
+    /// will not add it to the node's added peers list.
     Onetry((IpAddr, u16, bool)),
+
+    /// Ping all connected peers to check if they are alive.
     Ping,
 }
 
@@ -76,13 +102,28 @@ pub struct PeerInfo {
 /// When the user makes a request to the node, the node will respond with some data. This enum
 /// represents all the possible responses that the node can send back to the user.
 pub enum NodeResponse {
+    /// A response containing a block, if we could fetch it.
     Block(Option<Block>),
-    UtreexoBlock(Option<UtreexoBlock>),
+
+    /// A response containing a Utreexo proof, if we could fetch it.
+    UtreexoProof(Option<Proof>),
+
+    /// A response containing a transaction from the mempool, if we could fetch it.
     MempoolTransaction(Option<Transaction>),
+
+    /// A response containing a list of peer information.
     GetPeerInfo(Vec<PeerInfo>),
+
+    /// A response indicating whether a peer was successfully added.
     Add(bool),
+
+    /// A response indicating whether a peer was successfully removed.
     Remove(bool),
+
+    /// A response indicating whether a peer was successfully connected once.
     Onetry(bool),
+
+    /// A response indicating whether the ping was successful.
     Ping(bool),
 }
 
@@ -180,19 +221,6 @@ impl NodeInterface {
         let val = self.send_request(UserRequest::Block(block)).await?;
 
         extract_variant!(Block, val);
-    }
-
-    /// Gets a Utreexo block by its hash.
-    ///
-    /// This is similar to `get_block`, but it returns proof data for the Utreexo accumulator in
-    /// addition to the block itself.
-    pub async fn get_utreexo_block(
-        &self,
-        block: BlockHash,
-    ) -> Result<Option<UtreexoBlock>, oneshot::error::RecvError> {
-        let val = self.send_request(UserRequest::UtreexoBlock(block)).await?;
-
-        extract_variant!(UtreexoBlock, val)
     }
 
     /// Gets a transaction from the mempool by its ID.

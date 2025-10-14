@@ -20,6 +20,7 @@
 //!     leak through the API, as we are not enforcing lifetime or borrowing rules at compile time.
 //!   - Sending is fine: There's nothing in this module that makes it not sendable to between
 //!     threads, as long as the origin thread gives away the ownership.
+use bitcoin::Block;
 use bitcoin::BlockHash;
 use floresta_common::prelude::*;
 use rustreexo::accumulator::node_hash::BitcoinNodeHash;
@@ -28,8 +29,8 @@ extern crate alloc;
 use core::cell::UnsafeCell;
 
 use bitcoin::block::Header as BlockHeader;
-use log::info;
 use rustreexo::accumulator::stump::Stump;
+use tracing::info;
 
 use super::chainparams::ChainParams;
 use super::consensus::Consensus;
@@ -38,7 +39,6 @@ use super::error::BlockchainError;
 use super::BlockchainInterface;
 use super::UpdatableChainstate;
 use crate::pruned_utreexo::utxo_data::UtxoData;
-use crate::UtreexoBlock;
 
 #[doc(hidden)]
 #[derive(Debug)]
@@ -428,7 +428,7 @@ impl BlockchainInterface for PartialChainState {
     fn update_acc(
         &self,
         _acc: Stump,
-        _block: UtreexoBlock,
+        _block: Block,
         _height: u32,
         _proof: rustreexo::accumulator::proof::Proof,
         _del_hashes: Vec<bitcoin::hashes::sha256::Hash>,

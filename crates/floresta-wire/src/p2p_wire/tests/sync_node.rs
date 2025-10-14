@@ -91,7 +91,6 @@ mod tests {
 
     use bitcoin::Network;
     use floresta_chain::pruned_utreexo::BlockchainInterface;
-    use floresta_chain::UtreexoBlock;
 
     use crate::p2p_wire::tests::sync_node::tests_utils::setup_node;
     use crate::p2p_wire::tests::utils::get_essentials;
@@ -127,6 +126,7 @@ mod tests {
         essentials
             .blocks
             .insert(essentials.headers[7].block_hash(), essentials.invalid_block);
+
         let peer = vec![(Vec::new(), essentials.blocks.clone(), HashMap::new())];
         let chain = setup_node(peer, false, Network::Signet).await;
 
@@ -134,47 +134,6 @@ mod tests {
         assert_eq!(
             chain.get_best_block().unwrap().1,
             essentials.headers[6].block_hash()
-        );
-        assert!(!chain.is_in_ibd());
-    }
-
-    #[tokio::test]
-    async fn test_sync_block_without_udata() {
-        // THIS SIMULATION WILL TEST 2 THINGS:
-        //
-        // 1) SENDING IN THE 3RD BLOCK WITHOUT PROOF: THIS WILL BANN THE PEER
-        //
-        // 2) SENDING BLOCKS OUT OF ORDER: AFTER ALL THE BLOCKS ARE RECEIVED FROM THE DISHONEST
-        //    PEER, WE WILL AGAIN REQUEST FOR THE 3RD BLOCK TO A RANDOM PEER. THE SYNC-NODE WILL
-        //    HANDLE IT FINE.
-        //
-        // SO FINALLY THE LAST VALIDATED BLOCK WILL BE 9.
-
-        let mut essentials = get_essentials();
-        let v_blocks = essentials.blocks.clone();
-
-        let u_block = essentials
-            .blocks
-            .get(&essentials.headers[3].block_hash().clone())
-            .unwrap();
-        let block = UtreexoBlock {
-            block: u_block.block.clone(),
-            udata: None,
-        };
-        essentials
-            .blocks
-            .insert(essentials.headers[3].block_hash(), block);
-
-        let liar = (Vec::new(), essentials.blocks, HashMap::new());
-        let honest1 = (Vec::new(), v_blocks.clone(), HashMap::new());
-        let honest2 = (Vec::new(), v_blocks, HashMap::new());
-
-        let chain = setup_node(vec![liar, honest1, honest2], false, Network::Signet).await;
-
-        assert_eq!(chain.get_validation_index().unwrap(), 9);
-        assert_eq!(
-            chain.get_best_block().unwrap().1,
-            essentials.headers[9].block_hash()
         );
         assert!(!chain.is_in_ibd());
     }

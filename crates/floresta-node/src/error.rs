@@ -77,9 +77,6 @@ pub enum FlorestadError {
     /// Creating the data directory.
     CouldNotCreateDataDir(String, std::io::Error),
 
-    /// Initializing the logger error.
-    CouldNotInitializeLogger(fern::InitError),
-
     /// Obtaining a lock on the data directory.
     CouldNotOpenKvDatabase(KvDatabaseError),
 
@@ -187,9 +184,6 @@ impl std::fmt::Display for FlorestadError {
             }
             FlorestadError::CouldNotCreateDataDir(path, err) => {
                 write!(f, "Error while creating data directory {path}: {err}")
-            }
-            FlorestadError::CouldNotInitializeLogger(err) => {
-                write!(f, "Error while initializing logger: {err}")
             }
             FlorestadError::CouldNotOpenKvDatabase(err) => {
                 write!(f, "Cannot open a key-value database: {err}")

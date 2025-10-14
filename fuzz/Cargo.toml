@@ -22,8 +22,8 @@ doc = false
 bench = false
 
 [[bin]]
-name = "utreexo_block_des"
-path = "fuzz_targets/utreexo_block_des.rs"
+name = "utreexo_proof_des"
+path = "fuzz_targets/utreexo_proof_des.rs"
 test = false
 doc = false
 bench = false

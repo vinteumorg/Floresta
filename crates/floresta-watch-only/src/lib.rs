@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-#![cfg_attr(docsrs, feature(doc_auto_cfg))]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 #![allow(clippy::manual_is_multiple_of)]
 
 use core::cmp::Ordering;
@@ -33,6 +33,7 @@ use merkle::MerkleProof;
 use serde::Deserialize;
 use serde::Serialize;
 use sync::RwLock;
+use tracing::error;
 
 #[derive(Debug)]
 pub enum WatchOnlyError<DatabaseError: fmt::Debug> {
@@ -360,7 +361,7 @@ impl<D: AddressCacheDatabase> AddressCacheInner<D> {
         if stats.transaction_count > (stats.derivation_index as usize * 100) {
             let res = self.derive_addresses();
             if res.is_err() {
-                log::error!("Error deriving addresses: {res:?}");
+                error!("Error deriving addresses: {res:?}");
             }
         }
     }

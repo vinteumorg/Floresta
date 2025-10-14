@@ -10,15 +10,18 @@
 //! like requesting blocks, mempool transactions or asking to connect with a given
 //! peer.
 
-#![cfg_attr(docsrs, feature(doc_auto_cfg))]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
-#[cfg(not(target_arch = "wasm32"))]
-mod p2p_wire;
 use bitcoin::block::Header as BlockHeader;
 use bitcoin::Block;
 use bitcoin::Transaction;
+pub use rustreexo;
+#[cfg(not(target_arch = "wasm32"))]
+mod p2p_wire;
 #[cfg(not(target_arch = "wasm32"))]
 pub use p2p_wire::address_man;
+#[cfg(not(target_arch = "wasm32"))]
+pub use p2p_wire::block_proof;
 #[cfg(not(target_arch = "wasm32"))]
 pub use p2p_wire::chain_selector;
 #[cfg(not(target_arch = "wasm32"))]

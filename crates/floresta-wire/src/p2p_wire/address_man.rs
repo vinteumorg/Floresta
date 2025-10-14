@@ -18,12 +18,12 @@ use bitcoin::p2p::ServiceFlags;
 use bitcoin::Network;
 use floresta_chain::DnsSeed;
 use floresta_common::service_flags;
-use log::debug;
-use log::error;
-use log::info;
-use log::warn;
 use serde::Deserialize;
 use serde::Serialize;
+use tracing::debug;
+use tracing::error;
+use tracing::info;
+use tracing::warn;
 
 /// How long we'll wait before trying to connect to a peer that failed
 const RETRY_TIME: u64 = 10 * 60; // 10 minutes
@@ -391,6 +391,10 @@ impl AddressMan {
 
     /// Returns a new random address to open a new connection, we try to get addresses with
     /// a set of features supported for our peers
+    ///
+    /// If no peers are known with the required service bit, we may return a random peer.
+    /// Service bits are learned from DNS seeds or peer gossip and may be outdated or
+    /// inaccurate, so we sometimes try random peers expecting they might implement the service.
     pub fn get_address_to_connect(
         &mut self,
         required_service: ServiceFlags,
