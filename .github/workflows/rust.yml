@@ -44,7 +44,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.74.1 # The version in our `rust-toolchain.toml`
+      - uses: dtolnay/rust-toolchain@1.90.0 # The version in our `rust-toolchain.toml`
         with:
           components: rustfmt, clippy
       - uses: taiki-e/install-action@cargo-hack

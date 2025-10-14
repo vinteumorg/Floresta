@@ -20,7 +20,7 @@ let
     else
       basicDeps;
 
-  # This is the 1.74.1 rustup (and its components) toolchain from our `./rust-toolchain.toml`
+  # This is the 1.90.0 rustup (and its components) toolchain from our `./rust-toolchain.toml`
   florestaRust = pkgs.rust-bin.fromRustupToolchainFile "${src}/rust-toolchain.toml";
 
   # This sets the rustc and cargo to the ones from the florestaRust.
