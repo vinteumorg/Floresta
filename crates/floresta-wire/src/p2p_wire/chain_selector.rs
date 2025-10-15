@@ -163,7 +163,7 @@ where
             if let Err(e) = self.chain.accept_header(*header) {
                 error!("Error while downloading headers from peer={peer} err={e}");
 
-                self.send_to_peer(peer, NodeRequest::Shutdown).await?;
+                self.send_to_peer(peer, NodeRequest::Shutdown)?;
 
                 let peer = self.peers.get(&peer).unwrap();
                 self.common.address_man.update_set_state(
@@ -180,7 +180,7 @@ where
             .and_modify(|e| *e = last)
             .or_insert(last);
 
-        self.request_headers(last, peer).await
+        self.request_headers(last, peer)
     }
 
     /// Takes a serialized accumulator and parses it into a Stump
@@ -216,14 +216,12 @@ where
         self.send_to_peer(
             peer1,
             NodeRequest::GetUtreexoState((block_hash, block_height)),
-        )
-        .await?;
+        )?;
 
         self.send_to_peer(
             peer2,
             NodeRequest::GetUtreexoState((block_hash, block_height)),
-        )
-        .await?;
+        )?;
 
         let mut peer1_version = None;
         let mut peer2_version = None;
@@ -405,8 +403,7 @@ where
         peer: PeerId,
         block_hash: BlockHash,
     ) -> Result<InflightBlock, WireError> {
-        self.send_to_peer(peer, NodeRequest::GetBlock(vec![block_hash]))
-            .await?;
+        self.send_to_peer(peer, NodeRequest::GetBlock(vec![block_hash]))?;
 
         let timeout = Instant::now() + Duration::from_secs(60);
         let mut block = None;
@@ -429,7 +426,7 @@ where
                 PeerMessages::Block(recv_block) => {
                     if recv_block.block_hash() != block_hash {
                         error!("peer {peer} sent us a block we didn't request");
-                        self.increase_banscore(peer, self.max_banscore).await?;
+                        self.increase_banscore(peer, self.max_banscore)?;
                         return Err(WireError::PeerMisbehaving);
                     }
 
@@ -442,8 +439,7 @@ where
                             "Peer {peer} sent us a mutated block {}",
                             recv_block.block_hash()
                         );
-                        self.increase_banscore(peer, self.config.max_banscore)
-                            .await?;
+                        self.increase_banscore(peer, self.config.max_banscore)?;
                         return Err(WireError::PeerMisbehaving);
                     }
 
@@ -453,16 +449,14 @@ where
                     self.send_to_peer(
                         peer,
                         NodeRequest::GetBlockProof((block_hash, Bitmap::new(), Bitmap::new())),
-                    )
-                    .await?;
+                    )?;
                 }
 
                 // STEP 2: Receive the proof and return the `InflightBlock`
                 PeerMessages::UtreexoProof(uproof) => {
                     let Some(block) = block else {
                         error!("peer {peer} sent us a proof without sending the block first");
-                        self.increase_banscore(peer, self.config.max_banscore)
-                            .await?;
+                        self.increase_banscore(peer, self.config.max_banscore)?;
                         return Err(WireError::PeerMisbehaving);
                     };
 
@@ -536,7 +530,7 @@ where
 
             if let Some(liar) = self.find_who_is_lying(peer1, peer2).await? {
                 // if we found a liar, we need to ban them
-                self.send_to_peer(liar, NodeRequest::Shutdown).await?;
+                self.send_to_peer(liar, NodeRequest::Shutdown)?;
                 if liar == peer1 {
                     invalid_accs.insert(peer[0].1.clone());
                 } else {
@@ -544,8 +538,8 @@ where
                 }
             } else {
                 // Both peers were lying
-                self.send_to_peer(peer1, NodeRequest::Shutdown).await?;
-                self.send_to_peer(peer2, NodeRequest::Shutdown).await?;
+                self.send_to_peer(peer1, NodeRequest::Shutdown)?;
+                self.send_to_peer(peer2, NodeRequest::Shutdown)?;
 
                 invalid_accs.insert(peer[0].1.clone());
                 invalid_accs.insert(peer[1].1.clone());
@@ -570,7 +564,7 @@ where
         match self.context.state {
             ChainSelectorState::DownloadingHeaders => {
                 info!("Finished downloading headers from peer={peer}, checking if our peers agree");
-                self.poke_peers().await?;
+                self.poke_peers()?;
                 self.context.state = ChainSelectorState::LookingForForks(Instant::now());
                 self.context.done_peers.insert(peer);
             }
@@ -646,7 +640,7 @@ where
 
         if is_valid.is_err() {
             let best_block = self.chain.get_best_block()?.1;
-            self.ban_peers_on_tip(best_block).await?;
+            self.ban_peers_on_tip(best_block)?;
 
             self.chain.switch_chain(other_tip)?;
             self.chain.invalidate_block(fork)?;
@@ -654,18 +648,18 @@ where
         }
 
         // our chain's block is valid, therefore there's no reason for anyone be in this fork
-        self.ban_peers_on_tip(other_tip).await?;
+        self.ban_peers_on_tip(other_tip)?;
         Ok(())
     }
 
-    async fn ban_peers_on_tip(&mut self, tip: BlockHash) -> Result<(), WireError> {
+    fn ban_peers_on_tip(&mut self, tip: BlockHash) -> Result<(), WireError> {
         for peer in self.common.peers.clone() {
             if self.context.tip_cache.get(&peer.0).copied().eq(&Some(tip)) {
                 self.address_man.update_set_state(
                     peer.1.address_id as usize,
                     AddressState::Banned(ChainSelector::BAN_TIME),
                 );
-                self.send_to_peer(peer.0, NodeRequest::Shutdown).await?;
+                self.send_to_peer(peer.0, NodeRequest::Shutdown)?;
             }
         }
 
@@ -711,13 +705,12 @@ where
     /// peer is following a chain with `tip` inside it. We use this in case some of
     /// our peer is in a fork, so we can learn about all blocks in that fork and
     /// compare the candidate chains to pick the best one.
-    async fn request_headers(&mut self, tip: BlockHash, peer: PeerId) -> Result<(), WireError> {
+    fn request_headers(&mut self, tip: BlockHash, peer: PeerId) -> Result<(), WireError> {
         let locator = self
             .chain
             .get_block_locator_for_tip(tip)
             .unwrap_or_default();
-        self.send_to_peer(peer, NodeRequest::GetHeaders(locator))
-            .await?;
+        self.send_to_peer(peer, NodeRequest::GetHeaders(locator))?;
 
         let peer = self.context.sync_peer;
         self.inflight
@@ -732,11 +725,11 @@ where
     /// agree with our sync peer on what is the best chain. If they are in a fork,
     /// we'll download that fork and compare with our own chain. We should always pick
     /// the most PoW one.
-    async fn poke_peers(&self) -> Result<(), WireError> {
+    fn poke_peers(&self) -> Result<(), WireError> {
         let locator = self.chain.get_block_locator().unwrap();
         for peer in self.common.peer_ids.iter() {
             let get_headers = NodeRequest::GetHeaders(locator.clone());
-            self.send_to_peer(*peer, get_headers).await?;
+            self.send_to_peer(*peer, get_headers)?;
         }
 
         Ok(())
@@ -750,7 +743,7 @@ where
             {
                 match notification {
                     Some(NodeNotification::FromUser(request, responder)) => {
-                        self.perform_user_request(request, responder).await;
+                        self.perform_user_request(request, responder);
                     }
 
                     Some(NodeNotification::FromPeer(peer, notification)) => {
@@ -768,14 +761,14 @@ where
 
                 // Shutdown if needed while in the notifications loop
                 if *self.kill_signal.read().await {
-                    self.shutdown().await;
+                    self.shutdown();
                     return Ok(());
                 }
             }
 
             // Checks if we need to open a new connection
             periodic_job!(
-                self.maybe_open_connection(ServiceFlags::NONE).await,
+                self.maybe_open_connection(ServiceFlags::NONE),
                 self.last_connection,
                 TRY_NEW_CONNECTION,
                 ChainSelector
@@ -783,7 +776,7 @@ where
 
             // Open new feeler connection periodically
             periodic_job!(
-                self.open_feeler_connection().await,
+                self.open_feeler_connection(),
                 self.last_feeler,
                 FEELER_INTERVAL,
                 ChainSelector
@@ -792,7 +785,7 @@ where
             if let ChainSelectorState::LookingForForks(start) = self.context.state {
                 if start.elapsed().as_secs() > 30 {
                     self.context.state = ChainSelectorState::LookingForForks(Instant::now());
-                    self.poke_peers().await?;
+                    self.poke_peers()?;
                 }
             }
 
@@ -801,13 +794,8 @@ where
                 if !self.peer_ids.is_empty() {
                     let new_sync_peer = rand::random::<usize>() % self.peer_ids.len();
                     self.context.sync_peer = *self.peer_ids.get(new_sync_peer).unwrap();
-                    try_and_log!(
-                        self.request_headers(
-                            self.chain.get_best_block()?.1,
-                            self.context.sync_peer
-                        )
-                        .await
-                    );
+                    try_and_log!(self
+                        .request_headers(self.chain.get_best_block()?.1, self.context.sync_peer));
 
                     self.context.state = ChainSelectorState::DownloadingHeaders;
                 }
@@ -820,10 +808,10 @@ where
                 break;
             }
 
-            try_and_log!(self.check_for_timeout().await);
+            try_and_log!(self.check_for_timeout());
 
             if *self.kill_signal.read().await {
-                self.shutdown().await;
+                self.shutdown();
                 break;
             }
         }
@@ -839,8 +827,7 @@ where
         for peer_id in self.common.peer_ids.iter() {
             let peer = self.peers.get(peer_id).unwrap();
             if peer.services.has(ServiceFlags::from(1 << 25)) {
-                self.send_to_peer(*peer_id, NodeRequest::GetUtreexoState((block, height)))
-                    .await?;
+                self.send_to_peer(*peer_id, NodeRequest::GetUtreexoState((block, height)))?;
                 self.common.inflight.insert(
                     InflightRequests::UtreexoState(*peer_id),
                     (*peer_id, Instant::now()),
@@ -874,7 +861,7 @@ where
                     }
 
                     NodeNotification::FromUser(request, responder) => {
-                        self.perform_user_request(request, responder).await;
+                        self.perform_user_request(request, responder);
                     }
                 }
             }
@@ -921,11 +908,10 @@ where
             }
 
             PeerMessages::Ready(version) => {
-                self.handle_peer_ready(peer, &version).await?;
+                self.handle_peer_ready(peer, &version)?;
                 if matches!(self.context.state, ChainSelectorState::LookingForForks(_)) {
                     let locator = self.chain.get_block_locator().unwrap();
-                    self.send_to_peer(peer, NodeRequest::GetHeaders(locator))
-                        .await?;
+                    self.send_to_peer(peer, NodeRequest::GetHeaders(locator))?;
                 }
             }
 
@@ -933,7 +919,7 @@ where
                 if peer == self.context.sync_peer {
                     self.context.state = ChainSelectorState::CreatingConnections;
                 }
-                self.handle_disconnection(peer, idx).await?;
+                self.handle_disconnection(peer, idx)?;
             }
 
             PeerMessages::Addr(addresses) => {
@@ -945,9 +931,9 @@ where
                 // During chain selection we don't ask for blocks, unless it's an explicit
                 // user request made through the node handle. If it isn't, we punish this
                 // peer for sending an unrequested block.
-                if self.check_is_user_block_and_reply(block).await?.is_some() {
+                if self.check_is_user_block_and_reply(block)?.is_some() {
                     error!("peer {peer} sent us a block we didn't request");
-                    self.increase_banscore(peer, 5).await?;
+                    self.increase_banscore(peer, 5)?;
                 }
             }
 
@@ -1000,7 +986,7 @@ where
             PeerMessages::UtreexoState(_) => {
                 warn!("Utreexo state received from peer {peer}, but we didn't ask",);
 
-                self.increase_banscore(peer, 5).await?;
+                self.increase_banscore(peer, 5)?;
             }
 
             _ => {}
