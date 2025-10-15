@@ -40,7 +40,7 @@ pub enum RescanConfidence {
     /// `low`: 90% confidence interval. Returning 23 minutes in seconds for `val`.
     Low,
 
-    /// `raw`: Removes any lookback addition. Returning 0 for `val`
+    /// `exact`: Removes any lookback addition. Returning 0 for `val`
     Exact,
 }
 
@@ -316,7 +316,7 @@ impl Display for JsonRpcError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             JsonRpcError::InvalidTimestamp => write!(f, "Invalid timestamp, ensure that it is between the genesis and the tip."),
-            JsonRpcError::InvalidRescanVal => write!(f, "You rescan request contains invalid values"),
+            JsonRpcError::InvalidRescanVal => write!(f, "Your rescan request contains invalid values"),
             JsonRpcError::NoAddressesToRescan => write!(f, "You do not have any address to proceed with the rescan"),
             JsonRpcError::MissingParameter(opt) => write!(f, "Missing parameter: {opt}"),
             JsonRpcError::InvalidParameterType(opt) => write!(f, "Invalid parameter type for: {opt}"),
