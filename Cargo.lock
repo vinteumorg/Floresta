@@ -1101,7 +1101,7 @@ version = "0.4.0"
 dependencies = [
  "bitcoin 0.32.7",
  "hashbrown 0.15.3",
- "miniscript 12.3.2",
+ "miniscript 12.3.5",
  "sha2",
  "spin",
 ]
@@ -1167,7 +1167,7 @@ dependencies = [
  "kv",
  "libc",
  "metrics",
- "miniscript 12.3.2",
+ "miniscript 12.3.5",
  "pretty_assertions",
  "rcgen",
  "rustreexo",
@@ -1204,6 +1204,7 @@ dependencies = [
  "floresta-chain",
  "floresta-common",
  "kv",
+ "miniscript 12.3.5",
  "rand",
  "serde",
  "serde_json",
@@ -2020,9 +2021,9 @@ dependencies = [
 
 [[package]]
 name = "miniscript"
-version = "12.3.2"
+version = "12.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0760e92feaf4ee26bd2e616f557de64712bf1e75f3b1b218dfb475c0a84c7943"
+checksum = "487906208f38448e186e3deb02f2b8ef046a9078b0de00bdb28bf4fb9b76951c"
 dependencies = [
  "bech32 0.11.0",
  "bitcoin 0.32.7",
