@@ -26,6 +26,8 @@ pub trait FlorestaRPC {
     /// the current height, the best block hash, the difficulty, and whether we are
     /// currently in IBD (Initial Block Download) mode.
     fn get_blockchain_info(&self) -> Result<GetBlockchainInfoRes>;
+    /// Returns the hash of the best (most recent) block in the chain
+    fn get_best_block_hash(&self) -> Result<BlockHash>;
     /// Returns the hash of the block at the given height
     ///
     /// This method returns the hash of the block at the given height. If the height is
@@ -282,6 +284,10 @@ impl<T: JsonRPCClient> FlorestaRPC for T {
 
     fn get_peer_info(&self) -> Result<Vec<PeerInfo>> {
         self.call("getpeerinfo", &[])
+    }
+
+    fn get_best_block_hash(&self) -> Result<BlockHash> {
+        self.call("getbestblockhash", &[])
     }
 
     fn get_block_hash(&self, height: u32) -> Result<BlockHash> {
