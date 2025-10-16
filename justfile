@@ -1,6 +1,7 @@
-# List the available commands
+# Prints welcome message with useful recipes
 default:
-    @just --list
+    @printf "%b\n" "Welcome to the Floresta Project — lets get you up and running!\n\nYou can run the node with:\n\njust run-release\n\nAnd see the docs with:\n\njust open-doc\n\nLearn more about recipes in doc/justfile.md or running just --list\n"
+    @just -l --groups
 
 # Checks whether a command is available.
 [group('Utilitty')]
