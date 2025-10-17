@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::ops::Add;
 use std::slice;
 use std::sync::Arc;
 use std::time::Instant;
@@ -9,11 +10,13 @@ use axum::http::Method;
 use axum::routing::post;
 use axum::Json;
 use axum::Router;
+use bitcoin::block::Header;
 use bitcoin::consensus::deserialize;
 use bitcoin::consensus::encode::serialize_hex;
 use bitcoin::hashes::hex::FromHex;
 use bitcoin::hashes::Hash;
 use bitcoin::hex::DisplayHex;
+use bitcoin::pow::Target;
 use bitcoin::Address;
 use bitcoin::BlockHash;
 use bitcoin::Network;
@@ -21,6 +24,7 @@ use bitcoin::ScriptBuf;
 use bitcoin::TxIn;
 use bitcoin::TxOut;
 use bitcoin::Txid;
+use bitcoin::Work;
 use floresta_chain::ThreadSafeChain;
 use floresta_common::parse_descriptors;
 use floresta_compact_filters::flat_filters_store::FlatFiltersStore;
@@ -38,6 +42,7 @@ use tracing::debug;
 use tracing::error;
 use tracing::info;
 
+use super::res::GetBlockHeaderRes;
 use super::res::GetBlockRes;
 use super::res::JsonRpcError;
 use super::res::RawTxJson;
@@ -232,6 +237,163 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
             .await
             .map_err(|_| JsonRpcError::Node("Failed to get peer info".to_string()))
     }
+
+    async fn get_blockheader(
+        &self,
+        hash: BlockHash,
+        header: Header,
+        verbose: bool,
+    ) -> Result<Value> {
+        if !verbose {
+            let mut raw = Vec::with_capacity(80);
+            raw.extend_from_slice(header.version.to_consensus().to_le_bytes().as_slice());
+            raw.extend_from_slice(header.prev_blockhash.as_byte_array());
+            raw.extend_from_slice(header.merkle_root.as_byte_array());
+            raw.extend_from_slice(header.time.to_le_bytes().as_slice());
+            raw.extend_from_slice(header.bits.to_consensus().to_le_bytes().as_slice());
+            raw.extend_from_slice(header.nonce.to_le_bytes().as_slice());
+            return serde_json::to_value(raw.to_lower_hex_string()).map_err(JsonRpcError::ToValue);
+        }
+
+        let tip = self
+            .chain
+            .get_height()
+            .map_err(|e| JsonRpcError::InvalidHeight(Box::new(e)))?;
+
+        let blockheight = self
+            .chain
+            .get_block_height(&hash)
+            .map_err(|e| JsonRpcError::InvalidBlockHash(Box::new(e)))?
+            .ok_or(JsonRpcError::BlockNotFound)?;
+
+        let block = self.get_block(hash).await?;
+
+        let blockheader = GetBlockHeaderRes {
+            hash: {
+                let mut tmp = hash.to_byte_array();
+                tmp.reverse();
+                tmp.to_lower_hex_string()
+            },
+            confirmations: tip - blockheight + 1,
+            height: blockheight,
+            version: block.version,
+            version_hex: block.version.to_be_bytes().to_lower_hex_string(),
+            merkleroot: {
+                let mut tmp = header.merkle_root.to_byte_array();
+                tmp.reverse();
+                tmp.to_lower_hex_string()
+            },
+            time: header.time,
+            mediantime: {
+                // Mediantime is the time value in the middle
+                // of eleven another time values
+                let range = 11;
+                let start = if blockheight >= range {
+                    blockheight + 1 - range
+                } else {
+                    0
+                };
+                let mut times: Vec<u32> = (start..=blockheight)
+                    .filter_map(|h| {
+                        let tmphash = self
+                            .chain
+                            .get_block_hash(h)
+                            .map_err(|e| JsonRpcError::InvalidHeight(Box::new(e)))
+                            .ok()?;
+                        let tmpheader = self.chain.get_block_header(&tmphash).ok()?;
+                        Some(tmpheader.time)
+                    })
+                    .collect();
+
+                times.sort();
+                let median = times.len() / 2;
+                times[median]
+            },
+            bits: header
+                .bits
+                .to_consensus()
+                .to_be_bytes()
+                .to_lower_hex_string(),
+            target: Target::from_compact(header.bits)
+                .to_be_bytes()
+                .to_lower_hex_string(),
+            nonce: header.nonce,
+            difficulty: {
+                // Bitcoin-core implements the Mainnet target (Target::MAX)
+                // when calculate the difficulty, even in Regtest network,
+                // so we need to implement this bug to be compliant
+                let genesis_target_bytes = Target::MAX.to_be_bytes();
+                let current_target_bytes = header.target().to_be_bytes();
+
+                let genesis_target = bytes_to_u128(&genesis_target_bytes);
+                let current_target = bytes_to_u128(&current_target_bytes);
+
+                genesis_target as f64 / current_target as f64
+            },
+            chainwork: {
+                let mut current = Work::from_be_bytes([0u8; 32]);
+
+                // Iterate per difficulty epoch (2016 blocks), as well
+                // aggregate the targets at heights multiple of 2016.
+                let mut epoch_start = 0u32;
+                while epoch_start <= blockheight {
+                    let epoch_end = core::cmp::min(epoch_start + 2015, blockheight);
+                    let epochs = (epoch_end - epoch_start + 1) as u64;
+
+                    let blk_hash = self
+                        .chain
+                        .get_block_hash(epoch_start)
+                        .map_err(|e| JsonRpcError::InvalidHeight(Box::new(e)))?;
+                    let tmp_header = self
+                        .chain
+                        .get_block_header(&blk_hash)
+                        .map_err(|e| JsonRpcError::InvalidBlockHash(Box::new(e)))?;
+
+                    let accumulated_work =
+                        mul_work_for_epochs(Target::from(tmp_header.bits).to_work(), epochs);
+                    current = current.add(accumulated_work);
+                    epoch_start = epoch_end + 1;
+                }
+
+                current.to_be_bytes().to_lower_hex_string()
+            },
+            n_tx: block.n_tx,
+            previousblockhash: {
+                if block.previousblockhash != "00".repeat(32) {
+                    Some(block.previousblockhash)
+                } else {
+                    None
+                }
+            },
+            nextblockhash: block.nextblockhash,
+        };
+
+        serde_json::to_value(blockheader).map_err(JsonRpcError::ToValue)
+    }
+}
+
+/// Convert the first 16 bytes (two u64s) to form a u128
+///
+/// This is used to extract the u128 value of difficulty's target
+fn bytes_to_u128(bytes: &[u8; 32]) -> u128 {
+    let high = u64::from_be_bytes(bytes[0..8].try_into().unwrap());
+    let low = u64::from_be_bytes(bytes[8..16].try_into().unwrap());
+    ((high as u128) << 64) | (low as u128)
+}
+
+/// Fast multiplication of [Work] scaled on epochs.
+/// This give the amount of accumulated base-work ([u8; 32]) by a epoch-factor.
+fn mul_work_for_epochs(base: Work, mut epochs: u64) -> Work {
+    let mut res = Work::from_be_bytes([0u8; 32]);
+    let mut factor = base;
+    while epochs > 0 {
+        if epochs & 1 == 1 {
+            res = res.add(factor);
+        }
+        factor = factor.add(factor);
+        epochs >>= 1;
+    }
+    res
 }
 
 async fn handle_json_rpc_request(
@@ -312,9 +474,9 @@ async fn handle_json_rpc_request(
 
         "getblockheader" => {
             let hash = get_hash(&params, 0, "block_hash")?;
-            state
-                .get_block_header(hash)
-                .map(|h| serde_json::to_value(h).unwrap())
+            let verbose = get_bool(&params, 1, "verbose")?;
+            let header = state.get_block_header(hash)?;
+            state.get_blockheader(hash, header, verbose).await
         }
 
         "gettxout" => {
@@ -479,13 +641,16 @@ fn get_http_error_code(err: &JsonRpcError) -> u16 {
         | JsonRpcError::InvalidRescanVal
         | JsonRpcError::NoAddressesToRescan
         | JsonRpcError::InvalidParameterType(_)
+        | JsonRpcError::InvalidHeight(_)
+        | JsonRpcError::InvalidBlockHash(_)
         | JsonRpcError::MissingParameter(_)
         | JsonRpcError::Wallet(_) => 400,
 
         // idunnolol
-        JsonRpcError::MethodNotFound | JsonRpcError::BlockNotFound | JsonRpcError::TxNotFound => {
-            404
-        }
+        JsonRpcError::MethodNotFound
+        | JsonRpcError::BlockNotFound
+        | JsonRpcError::TxNotFound
+        | JsonRpcError::ToValue(_) => 404,
 
         // we messed up, sowwy
         JsonRpcError::InInitialBlockDownload
@@ -498,7 +663,9 @@ fn get_http_error_code(err: &JsonRpcError) -> u16 {
 fn get_json_rpc_error_code(err: &JsonRpcError) -> i32 {
     match err {
         // Parse Error
-        JsonRpcError::Decode(_) | JsonRpcError::InvalidParameterType(_) => -32700,
+        JsonRpcError::Decode(_)
+        | JsonRpcError::InvalidParameterType(_)
+        | JsonRpcError::ToValue(_) => -32700,
 
         // Invalid Request
         JsonRpcError::InvalidHex
@@ -516,6 +683,8 @@ fn get_json_rpc_error_code(err: &JsonRpcError) -> i32 {
         | JsonRpcError::InvalidMemInfoMode
         | JsonRpcError::InvalidAddnodeCommand
         | JsonRpcError::InvalidRescanVal
+        | JsonRpcError::InvalidHeight(_)
+        | JsonRpcError::InvalidBlockHash(_)
         | JsonRpcError::NoAddressesToRescan
         | JsonRpcError::Wallet(_) => -32600,
 
