@@ -219,7 +219,7 @@ pub struct GetBlockResVerbose {
     /// difficulty is a multiple of the smallest possible difficulty. So to find the actual
     /// difficulty you have to multiply this by the min_diff.
     /// For mainnet, mindiff is 2 ^ 32
-    pub difficulty: u128,
+    pub difficulty: f64,
 
     /// Commullative work in this network
     ///
@@ -235,6 +235,11 @@ pub struct GetBlockResVerbose {
     #[serde(skip_serializing_if = "Option::is_none")]
     /// The hash of the block coming after this one, if any
     pub nextblockhash: Option<String>,
+
+    /// Represents the current proof-of-work target as a 256-bit number in string format.
+    /// A block's SHA-256 hash must be less than or equal to this value to be accepted by the network.
+    /// Lower values indicate higher mining difficulty.
+    pub target: String,
 }
 
 #[derive(Debug)]
