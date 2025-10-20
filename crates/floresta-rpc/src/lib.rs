@@ -169,6 +169,20 @@ mod tests {
     }
 
     #[test]
+    fn test_get_best_block_hash() {
+        let (_proc, client) = start_florestad();
+
+        let blockhash = client.get_best_block_hash().expect("rpc not working");
+
+        assert_eq!(
+            blockhash,
+            "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206"
+                .parse()
+                .unwrap()
+        );
+    }
+
+    #[test]
     fn test_get_block() {
         let (_proc, client) = start_florestad();
 
