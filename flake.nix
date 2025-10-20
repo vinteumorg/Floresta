@@ -186,8 +186,18 @@
               import ./contrib/nix/build_floresta.nix { inherit packageName pkgs src; };
 
           };
-        devShells =
+        devShells.default =
           let
+            testBinaries = [
+              self.packages.${system}.florestad
+              utreexod-flake.packages.${system}.utreexod
+              pkgs.bitcoind
+            ];
+
+            prepareHook = utils.prepareBinariesScript {
+              binariesToLink = testBinaries;
+              gitRev = self.rev or self.dirtyRev;
+            };
             # This is the dev tools used while developing in Floresta.
             basicDevTools = with pkgs; [
               just
@@ -201,41 +211,22 @@
             debugTools = with pkgs; [
               grafana
             ];
-            testBinaries = [
-              self.packages.${system}.florestad
-              utreexod-flake.packages.${system}.utreexod
-              pkgs.bitcoind
+
+            pythonDevTools = with pkgs; [
+              uv
+              python312
+              # If needed, one can add more tools to be used with python. Uv deal with dependencies declared in pyproject.toml
             ];
-
           in
-          {
-            default = mkShell {
-              buildInputs = basicDevTools ++ debugTools;
+          mkShell {
+            buildInputs = basicDevTools ++ debugTools;
+            packages = basicDevTools ++ pythonDevTools;
 
-              shellHook = "";
-            };
-            func-tests-env =
-              let
-                prepareHook = utils.prepareBinariesScript {
-                  binariesToLink = testBinaries;
-                  gitRev = self.rev or self.dirtyRev;
-                };
-                pythonDevTools = with pkgs; [
-                  uv
-                  python312
-                  # If needed, one can add more tools to be used with python. Uv deal with dependencies declared in pyproject.toml
-                ];
-              in
-              mkShell {
-                packages = basicDevTools ++ pythonDevTools;
+            inputsFrom = testBinaries;
 
-                inputsFrom = testBinaries;
-
-                shellHook = prepareHook + ''
-                  alias run_test="uv run tests/test_runner.py"
-                  echo "run_test alias is set"
-                '';
-              };
+            shellHook = prepareHook + ''
+              just
+            '';
           };
       }
     );
