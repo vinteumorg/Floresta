@@ -314,7 +314,7 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
             root_count,
             root_hashes,
             chain: self.network.to_string(),
-            difficulty: latest_header.difficulty(self.chain.get_params()) as u64,
+            difficulty: latest_header.difficulty_float(),
             progress: validated_blocks as f32 / height as f32,
         })
     }

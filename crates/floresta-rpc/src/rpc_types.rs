@@ -49,7 +49,7 @@ pub struct GetBlockchainInfoRes {
     ///
     /// On average, miners needs to make `difficulty` hashes before finding one that
     /// solves a block's PoW
-    pub difficulty: u64,
+    pub difficulty: f64,
 }
 
 /// The information returned by a get_raw_tx

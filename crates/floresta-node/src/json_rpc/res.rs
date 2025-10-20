@@ -17,7 +17,7 @@ pub struct GetBlockchainInfoRes {
     pub root_hashes: Vec<String>,
     pub chain: String,
     pub progress: f32,
-    pub difficulty: u64,
+    pub difficulty: f64,
 }
 
 /// A confidence enum to auxiliate rescan timestamp values.
