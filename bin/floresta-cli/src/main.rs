@@ -60,6 +60,7 @@ fn do_request(cmd: &Cli, client: Client) -> anyhow::Result<String> {
             serde_json::to_string_pretty(&client.get_block_hash(height)?)?
         }
         Methods::GetBestBlockHash => serde_json::to_string_pretty(&client.get_best_block_hash()?)?,
+        Methods::GetBlockCount => serde_json::to_string_pretty(&client.get_block_count()?)?,
         Methods::GetTxOut { txid, vout } => {
             serde_json::to_string_pretty(&client.get_tx_out(txid, vout)?)?
         }
@@ -172,6 +173,10 @@ pub enum Methods {
     /// Returns the hash of the best (tip) block in the most-work fully-validated chain.
     #[command(name = "getbestblockhash")]
     GetBestBlockHash,
+
+    /// Returns the height of the most-work fully-validated chain.
+    #[command(name = "getblockcount")]
+    GetBlockCount,
 
     /// Returns the proof that one or more transactions were included in a block
     #[command(name = "gettxoutproof")]
