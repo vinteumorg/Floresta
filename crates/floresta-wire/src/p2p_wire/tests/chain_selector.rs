@@ -72,16 +72,16 @@ mod tests {
         let essentials = get_essentials();
         let headers = essentials.headers.to_vec();
         let blocks = essentials.blocks;
-        let true_filters = get_test_filters().unwrap();
-        let mut false_filters_array: Vec<HashMap<BlockHash, Vec<u8>>> = Vec::new();
+        let true_accs = get_test_filters().unwrap();
+        let mut false_accs_array: Vec<HashMap<BlockHash, Vec<u8>>> = Vec::new();
 
         for i in 0..9 {
-            let mut false_filters = true_filters.clone();
+            let mut false_accs = true_accs.clone();
             for (j, _) in headers.iter().enumerate().take(NUM_BLOCKS).skip(i * 2) {
-                false_filters.remove(&headers[j].block_hash());
-                false_filters.insert(headers[j].block_hash(), create_false_acc(j));
+                false_accs.remove(&headers[j].block_hash());
+                false_accs.insert(headers[j].block_hash(), create_false_acc(j));
             }
-            false_filters_array.push(false_filters);
+            false_accs_array.push(false_accs);
         }
 
         let mut peers = Vec::new();
@@ -89,20 +89,22 @@ mod tests {
             let peer = (
                 headers.clone(),
                 blocks.clone(),
-                false_filters_array.pop().unwrap(),
+                false_accs_array.pop().unwrap(),
             );
             peers.push(peer);
         }
 
-        peers.push((headers.clone(), blocks.clone(), true_filters.clone()));
+        peers.push((headers.clone(), blocks.clone(), true_accs.clone()));
 
         let chain = setup_node(peers, true, Network::Signet, &datadir, NUM_BLOCKS).await;
         let best_block = chain.get_best_block().unwrap();
         assert_eq!(best_block.1, headers[NUM_BLOCKS].block_hash());
 
-        let acc_received = chain.acc();
-
-        let acc = Stump {
+        // The data for this accumulator is taken from the signet
+        // files. Leaves are the utxos in the set, but here it only has
+        // coinbase transactions, thus the leaves and the `num_blocks`
+        // are equal.
+        let expected_acc = Stump {
             leaves: 120,
             roots: acchashes![
                 "fbbff1a533f80135a0cb222859297792d5c9d1cec801a2793ac15184905e672c",
@@ -112,6 +114,6 @@ mod tests {
             ]
             .to_vec(),
         };
-        assert_eq!(acc, acc_received);
+        assert_eq!(chain.acc(), expected_acc);
     }
 }
