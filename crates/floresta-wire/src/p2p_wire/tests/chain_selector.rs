@@ -25,33 +25,35 @@ mod tests {
         let essentials = get_essentials();
         let headers = essentials.headers.to_vec();
         let blocks = essentials.blocks;
-        let true_filters = get_test_filters().unwrap();
+        let true_accs = get_test_filters().unwrap();
 
-        let mut false_filters = true_filters.clone();
+        let mut false_accs = true_accs.clone();
 
-        let invalid_filters_iter = headers
+        // We will invalidate headers in the range `STARTING_LIE_BLOCK_HEIGHT..NUM_BLOCKS`
+        let invalid_accs_iter = headers
             .iter()
             .enumerate()
             .take(NUM_BLOCKS)
             .skip(STARTING_LIE_BLOCK_HEIGHT);
 
-        for (i, _) in invalid_filters_iter {
-            false_filters.remove(&headers[i].block_hash());
-            false_filters.insert(headers[i].block_hash(), create_false_acc(i));
+        for (i, header) in invalid_accs_iter {
+            false_accs.insert(header.block_hash(), create_false_acc(i));
         }
 
         let peers = vec![
-            (headers.clone(), blocks.clone(), true_filters),
-            (headers.clone(), blocks.clone(), false_filters),
+            (headers.clone(), blocks.clone(), true_accs),
+            (headers.clone(), blocks.clone(), false_accs),
         ];
 
         let chain = setup_node(peers, true, Network::Signet, &datadir, NUM_BLOCKS).await;
         let best_block = chain.get_best_block().unwrap();
         assert_eq!(best_block.1, headers[NUM_BLOCKS].block_hash());
 
-        let acc_received = chain.acc();
-
-        let acc = Stump {
+        // The data for this accumulator is taken from the signet
+        // files. Leaves are the utxos in the set, but here it only has
+        // coinbase transactions, thus the leaves and the `num_blocks`
+        // are equal.
+        let expected_acc = Stump {
             leaves: 120,
             roots: acchashes![
                 "fbbff1a533f80135a0cb222859297792d5c9d1cec801a2793ac15184905e672c",
@@ -61,7 +63,7 @@ mod tests {
             ]
             .to_vec(),
         };
-        assert_eq!(acc, acc_received);
+        assert_eq!(chain.acc(), expected_acc);
     }
 
     #[tokio::test]
