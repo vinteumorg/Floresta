@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io;
 use std::io::Read;
+use std::sync::Arc;
+use std::time::Duration;
 use std::time::Instant;
 
 use bitcoin::block::Header;
@@ -12,26 +14,40 @@ use bitcoin::p2p::ServiceFlags;
 use bitcoin::Block;
 use bitcoin::BlockHash;
 use bitcoin::Network;
+use floresta_chain::pruned_utreexo::UpdatableChainstate;
+use floresta_chain::AssumeValidArg;
+use floresta_chain::ChainState;
+use floresta_chain::FlatChainStore;
+use floresta_chain::FlatChainStoreConfig;
 use floresta_common::service_flags;
 use floresta_common::service_flags::UTREEXO;
 use hex;
 use rand::rngs::OsRng;
 use rand::RngCore;
+use rustreexo::accumulator::pollard::Pollard;
 use serde::Deserialize;
 use serde::Serialize;
+use tokio::sync::mpsc::unbounded_channel;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 use tokio::task;
+use tokio::time::timeout;
 use zstd;
 
+use crate::address_man::AddressMan;
 use crate::node::ConnectionKind;
 use crate::node::LocalPeerView;
 use crate::node::NodeNotification;
 use crate::node::NodeRequest;
 use crate::node::PeerStatus;
+use crate::node::UtreexoNode;
 use crate::p2p_wire::block_proof::UtreexoProof;
+use crate::p2p_wire::mempool::Mempool;
 use crate::p2p_wire::peer::PeerMessages;
 use crate::p2p_wire::peer::Version;
+use crate::p2p_wire::sync_node::SyncNode;
 use crate::p2p_wire::transport::TransportProtocol;
 use crate::UtreexoNodeConfig;
 
@@ -332,4 +348,61 @@ pub fn get_essentials() -> Essentials {
         blocks,
         invalid_block,
     }
+}
+
+type PeerData = (HeaderList, BlockHashMap, BlockDataMap);
+
+pub async fn setup_node(
+    peers: Vec<PeerData>,
+    pow_fraud_proofs: bool,
+    network: Network,
+    datadir: &str,
+    num_blocks: usize,
+) -> Arc<ChainState<FlatChainStore>> {
+    let config = FlatChainStoreConfig::new(datadir.into());
+
+    let chainstore = FlatChainStore::new(config).unwrap();
+    let mempool = Arc::new(Mutex::new(Mempool::new(Pollard::default(), 1000)));
+    let chain = ChainState::new(chainstore, network, AssumeValidArg::Disabled);
+    let chain = Arc::new(chain);
+
+    let mut headers = get_test_headers();
+    headers.remove(0);
+    headers.truncate(num_blocks);
+    for header in headers {
+        chain.accept_header(header).unwrap();
+    }
+
+    let config = get_node_config(datadir.into(), network, pow_fraud_proofs);
+    let kill_signal = Arc::new(RwLock::new(false));
+    let mut node = UtreexoNode::<Arc<ChainState<FlatChainStore>>, SyncNode>::new(
+        config,
+        chain.clone(),
+        mempool,
+        None,
+        kill_signal.clone(),
+        AddressMan::default(),
+    )
+    .unwrap();
+
+    for (i, peer) in peers.into_iter().enumerate() {
+        let (sender, receiver) = unbounded_channel();
+        let peer = create_peer(
+            peer.0,
+            peer.1,
+            peer.2,
+            node.node_tx.clone(),
+            sender.clone(),
+            receiver,
+            i as u32,
+        );
+
+        node.peers.insert(i as u32, peer);
+    }
+
+    timeout(Duration::from_secs(100), node.run(|_| {}))
+        .await
+        .unwrap();
+
+    chain
 }
