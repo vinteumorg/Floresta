@@ -20,6 +20,7 @@ COPY Cargo.* ./
 COPY bin/ bin/
 COPY crates/ crates/
 COPY fuzz/ fuzz/
+COPY test-rust/ test-rust/
 COPY metrics/ metrics/
 COPY doc/ doc/
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
