@@ -430,14 +430,14 @@ pub enum GetMemInfoRes {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ActiveCommand {
-    method: String,
-    duration: u64,
+    pub method: String,
+    pub duration: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GetRpcInfoRes {
-    active_commands: Vec<ActiveCommand>,
-    logpath: String,
+    pub active_commands: Vec<ActiveCommand>,
+    pub logpath: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
