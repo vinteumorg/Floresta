@@ -1,5 +1,6 @@
 use std::fmt::Display;
 
+use bitcoin::BlockHash;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -276,6 +277,47 @@ pub struct GetBlockResVerbose {
     pub target: String,
 }
 
+/// The information by UTXO
+#[derive(Debug, Deserialize, Serialize)]
+pub struct GetTxOut {
+    /// The hash of the block at the tip of the chain
+    pub bestblock: BlockHash,
+
+    /// The number of confirmations
+    pub confirmations: u32,
+
+    /// The transaction value in BTC
+    pub value: f64,
+
+    #[serde(rename = "scriptPubKey")]
+    /// Script Public Key struct
+    pub script_pubkey: ScriptPubkeyDescription,
+
+    /// Coinbase or not
+    pub coinbase: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+/// Struct helper for RpcGetTxOut
+pub struct ScriptPubkeyDescription {
+    /// Disassembly of the output script
+    pub asm: String,
+
+    /// Inferred descriptor for the output
+    pub desc: String,
+
+    /// The raw output script bytes, hex-encoded
+    pub hex: String,
+
+    /// The type, eg pubkeyhash
+    #[serde(rename = "type")]
+    pub type_field: String,
+
+    /// The Bitcoin address (only if a well-defined address exists)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub address: Option<String>,
+}
+
 /// A confidence enum to auxiliate rescan timestamp values.
 ///
 /// Tells how much confidence you need for this rescan request. That is, the how conservative you want floresta to be when determining which block to start the rescan.
@@ -322,6 +364,9 @@ pub enum Error {
 
     /// The user requested a rescan based on invalid values.
     InvalidRescanVal,
+
+    /// The requested transaction output was not found
+    TxOutNotFound,
 }
 
 impl From<serde_json::Error> for Error {
@@ -347,6 +392,7 @@ impl Display for Error {
             Error::EmptyResponse => write!(f, "got an empty response from server"),
             Error::InvalidVerbosity => write!(f, "invalid verbosity level"),
             Error::InvalidRescanVal => write!(f, "Invalid rescan values"),
+            Error::TxOutNotFound => write!(f, "Transaction output was not found"),
         }
     }
 }
