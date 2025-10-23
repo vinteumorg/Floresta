@@ -1,330 +1,348 @@
-"""
-test_runner.py
-
-Command Line Interface to run an individual test or multiple tests in a suite.
-
-New test suites should be added as a subdirectory of `./tests`.
-
-Running tests using the `uv` Python package manager is recommended, although you can run them
-using your system's Python directly (the use of a virtual environment is highly advised).
-
-Test running is parallelized: each test will spawn a new thread as a subprocess of the main test
-thread, and their logs will be written to a temporary directory.
-
-For more information about how to run the tests, see
-[doc/running_tests.md](doc/running_tests.md).
-
-For more information about how to define a test, see
-[tests/example](./tests/example) files.
-"""
+# i disable all pylint here because this is a temporary file, we will replace it for pytest only soon so i dont want to lose time making it wright
+# pylint: disable-all
 
 import argparse
 import os
-import subprocess
-from collections import defaultdict
-from threading import Thread
-from queue import Queue
-from time import time
-
+import sys
+import time
+import importlib
+from contextlib import redirect_stdout, redirect_stderr
+from io import StringIO
 from test_framework import FlorestaTestFramework
+
 
 INFO_EMOJI = "ℹ️"
 SUCCESS_EMOJI = "✅"
 FAILURE_EMOJI = "❌"
 ALLDONE_EMOJI = "🎉"
-
-# Scripts that are run by default.
-# Longest test should go first,
-# to favor running tests in parallel.
-# We use this like those in  the
-# Bitcoin Core tests/functional/test_runner.py:89
-
-# Tests that are ran by default. The longest running tests should be ran first,
-# so parallelization is used most effectively. This structure is copied from
-# Bitcoin Core's functional tests:
-# https://github.com/bitcoin/bitcoin/blob/master/test/functional/test_runner.py#L89
-BASE_TEST_SUITE = [
-    ("floresta-cli", "addnode-v2"),
-    ("floresta-cli", "addnode-v1"),
-    ("florestad", "reorg-chain"),
-    ("floresta-cli", "getblockcount"),
-    ("floresta-cli", "uptime"),
-    ("floresta-cli", "getbestblockhash"),
-    ("floresta-cli", "getblockhash"),
-    ("floresta-cli", "gettxout"),
-    ("florestad", "restart"),
-    ("florestad", "connect"),
-    ("floresta-cli", "ping"),
-    ("floresta-cli", "getrpcinfo"),
-    ("floresta-cli", "stop"),
-    ("example", "integration"),
-    ("floresta-cli", "getroots"),
-    ("florestad", "tls"),
-    ("example", "electrum"),
-    ("floresta-cli", "getblock"),
-    ("florestad", "tls-fail"),
-    ("example", "functional"),
-    ("floresta-cli", "getmemoryinfo"),
-    ("floresta-cli", "getpeerinfo"),
-    ("floresta-cli", "getblockchaininfo"),
-    ("floresta-cli", "getblockheader"),
-    ("example", "bitcoin"),
-    ("example", "utreexod"),
-]
-
-# Before running the tests, we check if the number of tests
-# in the base test suite matches the number of tests in the
-# `example`, `floresta-cli`, and `florestad` directories.
-COUNT = 0
-for testdir in ("example", "floresta-cli", "florestad"):
-    dirname = os.path.abspath(os.path.dirname(__file__))
-    tests_path = os.path.join(dirname, testdir)
-    for test_name in os.listdir(tests_path):
-        if test_name.endswith(".py"):
-            COUNT += 1
-
-# If the number of tests in the base test suite is not equal
-# to these found in these directories, we raise an error because
-# we forgot to add a test to the base suite.
-if COUNT != len(BASE_TEST_SUITE):
-    raise RuntimeError(
-        f"Number of tests in the base test suite ({len(BASE_TEST_SUITE)})"
-        f" does not match the number of tests found ({COUNT})."
-        " Please update the BASE_TEST_SUITE variable in tests/test_runner.py."
-    )
+WARNING_EMOJI = "⚠️"
+RUNNING_EMOJI = "🏃"
 
 
-def list_test_suites(test_dir: str):
-    """List all test suites inside ./tests"""
-    print(f"{INFO_EMOJI} Available test suites:")
-    print()
-
-    organized_suites: dict[str, list[str]] = defaultdict(list)
-
-    for folder, name in BASE_TEST_SUITE:
-        fullpath = os.path.join(test_dir, folder, f"{name}.py")
-        if os.path.exists(fullpath):
-            organized_suites[folder].append(name)
-
-    for folder in sorted(organized_suites.keys()):
-        print(f"{folder}:")
-        print(f"{'-' * len(folder)}")
-        for name in sorted(organized_suites[folder]):
-            print(f"    {name}")
-        print()
+def import_test_class(module_path, class_name):
+    module = importlib.import_module(module_path)
+    return getattr(module, class_name)
 
 
-def setup_test_suite(args: argparse.Namespace, test_dir: str) -> Queue:
-    """
-    Setup the test suite directories based on the provided arguments.
-    If no test suite is specified, it defaults to the BASE_TEST_SUITE.
-    """
-    task_queue = Queue()
-
-    if not os.path.exists(args.log_dir):
-        os.makedirs(args.log_dir, exist_ok=True)
-
-    if not args.test_suite:
-        for folder, name in BASE_TEST_SUITE:
-            full_path = os.path.join(test_dir, folder)
-            if not os.path.exists(full_path):
-                raise argparse.ArgumentError(
-                    None, f"Test suite '{full_path}' does not exist"
-                )
-
-            if args.test_name and not any(name.startswith(n) for n in args.test_name):
-                continue
-
-            task_queue.put((full_path, name))
-
-    else:
-        for folder in args.test_suite:
-            full_path = os.path.join(test_dir, folder)
-            if not os.path.exists(full_path):
-                raise argparse.ArgumentError(
-                    None, f"Test suite '{full_path}' not found"
-                )
-
-            for file in os.listdir(full_path):
-                if file.endswith(".py"):
-                    if args.test_name and not any(
-                        file.startswith(name) for name in args.test_name
-                    ):
-                        continue
-
-                    name = file.split(".py")[0]
-                    task_queue.put((full_path, name))
-
-    return task_queue
+TEST_REGISTRY = {
+    "addnodev2": import_test_class("floresta-cli.addnode-v2", "AddnodeTestV2"),
+    "addnodev1": import_test_class("floresta-cli.addnode-v1", "AddnodeTestV1"),
+    "reorg_chain": import_test_class("florestad.reorg-chain", "ChainReorgTest"),
+    "getbestblockhash": import_test_class(
+        "floresta-cli.getbestblockhash", "GetBestblockhashTest"
+    ),
+    "getblockcount": import_test_class(
+        "floresta-cli.getblockcount", "GetBlockCountTest"
+    ),
+    "uptime": import_test_class("floresta-cli.uptime", "UptimeTest"),
+    "restart": import_test_class("florestad.restart", "TestRestart"),
+    "connect": import_test_class("florestad.connect", "CliConnectTest"),
+    "stop": import_test_class("floresta-cli.stop", "StopTest"),
+    "ping": import_test_class("floresta-cli.ping", "PingTest"),
+    "getrpcinfo": import_test_class("floresta-cli.getrpcinfo", "GetRpcInfoTest"),
+    "getblockhash": import_test_class("floresta-cli.getblockhash", "GetBlockhashTest"),
+    "tls": import_test_class("florestad.tls", "TestSslInitialization"),
+    "getroots": import_test_class("floresta-cli.getroots", "GetRootsIDBLenZeroTest"),
+    "getblock": import_test_class("floresta-cli.getblock", "GetBlockTest"),
+    "getmemoryinfo": import_test_class(
+        "floresta-cli.getmemoryinfo", "GetMemoryInfoTest"
+    ),
+    "getblockheader": import_test_class(
+        "floresta-cli.getblockheader", "GetBlockheaderHeightZeroTest"
+    ),
+    "getpeerinfo": import_test_class("floresta-cli.getpeerinfo", "GetPeerInfoTest"),
+    "tls_fail": import_test_class("florestad.tls-fail", "TestSslFailInitialization"),
+    "getblockchaininfo": import_test_class(
+        "floresta-cli.getblockchaininfo", "GetBlockchaininfoTest"
+    ),
+}
 
 
-def run_test_workers(task_queue: Queue, args: argparse.Namespace) -> list:
-    """Run the tests in parallel"""
-    results_queue = Queue()
-    workers = []
+class TestResult:
+    """Container for test execution results"""
 
-    for _ in range(args.threads):
-        worker = Thread(target=run_test_worker, args=(task_queue, results_queue, args))
-        worker.start()
-        workers.append(worker)
+    def __init__(self, name, success=False, duration=0.0, error_msg=None):
+        self.name = name
+        self.success = success
+        self.duration = duration
+        self.error_msg = error_msg
 
-    for _ in workers:
-        task_queue.put(None)
 
-    for worker in workers:
-        worker.join()
+class TeeOutput:
+    """Tee output to both a file and capture buffer"""
+
+    def __init__(self, log_file, capture_buffer):
+        self.log_file = log_file
+        self.capture_buffer = capture_buffer
+
+    def write(self, text):
+        self.log_file.write(text)
+        self.log_file.flush()
+        self.capture_buffer.write(text)
+        return len(text)
+
+    def flush(self):
+        self.log_file.flush()
+        self.capture_buffer.flush()
+
+
+def run_test_direct(test_name, test_class, log_path, log_buffer, verbose=False):
+    """Run a single test by directly calling main()"""
+
+    start_time = time.time()
+    success = False
+    output_capture = StringIO()
+    error_msg = None
+
+    # Clear/create the log file first
+    with open(log_path, "w") as f:
+        f.write(f"Starting {test_name} test at {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write("=" * 50 + "\n")
+
+    try:
+        with open(log_path, "a", buffering=log_buffer) as log_file:
+            tee = TeeOutput(log_file, output_capture)
+
+            with redirect_stdout(tee), redirect_stderr(tee):
+                # Create and run the test using main() method
+                test_instance = test_class()
+                test_instance.main()
+
+                success = True
+
+    except SystemExit as e:
+        # Test framework uses sys.exit(0) for success, non-zero for failure
+        success = e.code == 0
+        if not success:
+            error_msg = f"Test exited with code: {e.code}"
+            # Write the exit error to log
+            with open(log_path, "a") as log_file:
+                log_file.write(f"\n{error_msg}\n")
+    except Exception as e:
+        # Capture the exception for reporting
+        error_msg = f"Error running test {test_name}: {e}"
+        with open(log_path, "a") as log_file:
+            log_file.write(f"\n{error_msg}\n")
+            if verbose:
+                import traceback
+
+                log_file.write(traceback.format_exc())
+        success = False
+
+    end_time = time.time()
+    duration = end_time - start_time
+    output = output_capture.getvalue()
+
+    # Write completion info to log
+    with open(log_path, "a") as log_file:
+        log_file.write(f"\n" + "=" * 50 + "\n")
+        log_file.write(f"Test completed: {'SUCCESS' if success else 'FAILED'}\n")
+        log_file.write(f"Duration: {duration:.2f}s\n")
+
+    return TestResult(test_name, success, duration, error_msg)
+
+
+def run_all_tests(
+    test_registry, log_dir, log_buffer, verbose=False, continue_on_failure=True
+):
+    """Run all tests in the registry"""
+
+    print(f"{RUNNING_EMOJI} Running {len(test_registry)} tests...")
+    print("=" * 60)
 
     results = []
-    while not results_queue.empty():
-        results.append(results_queue.get())
+    overall_start_time = time.time()
 
-    return results
+    for test_name, test_class in test_registry.items():
+        log_path = os.path.join(log_dir, f"{test_name}.log")
 
+        print(f"{INFO_EMOJI} Running test: {test_name}")
 
-def run_test_worker(task_queue: Queue, results_queue: Queue, args: argparse.Namespace):
-    """
-    Worker function to run tests pulled from the task queue.
-    Each test is run in a subprocess and logs output to a file.
-    """
-    while True:
-        task = task_queue.get()
-        if task is None:
-            break
+        # Run the test
+        result = run_test_direct(test_name, test_class, log_path, log_buffer, verbose)
+        results.append(result)
 
-        test_suite_dir, name = task
-        os.makedirs(args.log_dir, exist_ok=True)
+        # Show immediate result
+        if result.success:
+            print(f"{SUCCESS_EMOJI} {test_name} PASSED in {result.duration:.2f}s")
+        else:
+            print(f"{FAILURE_EMOJI} {test_name} FAILED in {result.duration:.2f}s")
+            if result.error_msg:
+                print(f"    Error: {result.error_msg}")
 
-        test_filename = os.path.normpath(os.path.join(test_suite_dir, f"{name}.py"))
-        test_log_name = os.path.normpath(os.path.join(args.log_dir, f"{name}.log"))
+            if not continue_on_failure:
+                print(f"{WARNING_EMOJI} Stopping test execution due to failure")
+                break
 
-        cli = ["python", test_filename]
-        cli_msg = " ".join(cli)
-        print(f"\n{INFO_EMOJI} Running '{cli_msg}'")
+        print(f"    Log: {log_path}")
+        print()
 
-        start = time()
-        with open(
-            test_log_name, "wt", encoding="utf-8", buffering=args.log_buffer
-        ) as log_file:
+    overall_end_time = time.time()
+    overall_duration = overall_end_time - overall_start_time
 
-            # Avoid using 'with' for `subprocess.Popen` here, as we need the
-            # process to start and stream output immediately for port detection
-            # to work correctly. Using 'with' might delay output flushing,
-            # which breaks log-based detection of random ports in tests.
-            # pylint: disable=consider-using-with
-            test = subprocess.Popen(cli, stdout=log_file, stderr=log_file)
-            test.wait()
-
-        results_queue.put(
-            (test_filename, test.returncode == 0, test_log_name, start, time())
-        )
-        task_queue.task_done()
+    return results, overall_duration
 
 
-# pylint: disable=too-many-branches,line-too-long
+def print_summary(results, overall_duration, verbose=False, log_dir=None):
+    """Print a summary of all test results"""
+
+    passed = [r for r in results if r.success]
+    failed = [r for r in results if not r.success]
+
+    print("=" * 60)
+    print(f"TEST SUMMARY")
+    print("=" * 60)
+
+    # Overall stats
+    print(f"Total tests: {len(results)}")
+    print(f"Passed: {len(passed)} {SUCCESS_EMOJI}")
+    print(f"Failed: {len(failed)} {FAILURE_EMOJI}")
+    print(f"Overall time: {overall_duration:.2f}s")
+    print()
+
+    # Passed tests
+    if passed:
+        print(f"{SUCCESS_EMOJI} PASSED TESTS:")
+        for result in passed:
+            print(f"  • {result.name:<15} ({result.duration:.2f}s)")
+        print()
+
+    # Failed tests
+    if failed:
+        print(f"{FAILURE_EMOJI} FAILED TESTS:")
+        for result in failed:
+            print(f"  • {result.name:<15} ({result.duration:.2f}s)")
+            if result.error_msg:
+                print(f"    └─ {result.error_msg}")
+        print()
+
+        if verbose and log_dir:
+            print("For detailed error information, check the log files:")
+            for result in failed:
+                log_path = os.path.join(log_dir, f"{result.name}.log")
+                print(f"  • {result.name}: {log_path}")
+            print()
+
+    # Final result
+    if len(failed) == 0:
+        print(f"{ALLDONE_EMOJI} All tests PASSED!")
+        return True
+    else:
+        print(f"{FAILURE_EMOJI} {len(failed)} test(s) FAILED")
+        return False
+
+
 def main():
-    """
-    Create a CLI called `test_runner` with calling arguments
+    """Multi-test runner"""
 
-    usage: test_runner [-h,-l] [-L DATA_DIR] [-t TEST_SUITE] [-k TEST_NAME] [-T THREADS] [-b BUFFER_SIZE]
+    # Get integration test directory
+    try:
+        temp_dir = FlorestaTestFramework.get_integration_test_dir()
+        log_dir = os.path.join(temp_dir, "logs")
+    except RuntimeError as e:
+        print(f"{FAILURE_EMOJI} Environment setup error: {e}")
+        print("Make sure FLORESTA_TEMP_DIR is set")
+        sys.exit(1)
 
-    Functional test runner for Floresta.
+    # Make sure log directory exists
+    os.makedirs(log_dir, exist_ok=True)
 
-    Options:
-        -h, --help                    Show this help message and exit.
-        -L, --log-dir DATA_DIR        Data directory for functional test logs.
-        -t, --test-suite TEST_NAME    Test-suite directory to be tested. May be used more than once.
-        -k, --test-name TEST_NAME     Test name to be tested in a suite. May be used more than once.
-        -l, --list-suites             List all available test-suite directories.
-        -T, --threads THREADS         Number of threads to run tests in parallel (default: 4).
-        -b, --log-buffer BUFFER_SIZE  Changes the `io.DEFAULT_BUFFER_SIZE` for log files (default: 1024).
-                                      Small values may cause issues with large logs.
-    """
-    # Define a global variable for the base log directory
-    # so it can be used in the test framework. But if we just
-    # want to list suites or want see the help, we don't need it.
-    base_log_dir = os.path.normpath(
-        os.path.join(FlorestaTestFramework.get_integration_test_dir(), "logs")
-    )
+    print(f"{INFO_EMOJI} Using log directory: {log_dir}")
+    print()
 
-    # Structure the CLI
-    parser = argparse.ArgumentParser(prog="run_tests")
-    parser.add_argument(
-        "-L",
-        "--log-dir",
-        default=base_log_dir,
-        help="Data directory for functional test logs.",
+    # Argument parser
+    parser = argparse.ArgumentParser(
+        prog="multi_test_runner", description="Run Floresta integration tests"
     )
     parser.add_argument(
         "-t",
-        "--test-suite",
-        action="append",
-        default=None,
-        help="Test-suite directory to be tested. May be used more than once.",
+        "--test",
+        choices=list(TEST_REGISTRY.keys()) + ["all"],
+        default="all",
+        help="Test to run (default: all)",
     )
-    parser.add_argument(
-        "-k",
-        "--test-name",
-        action="append",
-        default=[],
-        help="Test name to be tested in a suite. May be used more than once.",
-    )
-    parser.add_argument(
-        "-l",
-        "--list-suites",
-        action="store_true",
-        default=False,
-        help="List all available test-suite directories.",
-    )
-    parser.add_argument(
-        "-T",
-        "--threads",
-        type=int,
-        default=4,
-        help="Number of threads to run tests in parallel (default: 4).",
-    )
-
-    # See these links for more information:
-    # https://docs.python.org/3/library/io.html#io.DEFAULT_BUFFER_SIZE
-    # https://stackoverflow.com/questions/29712445/what-is-the-use-of-buffering-in-pythons-built-in-open-function
     parser.add_argument(
         "-b",
         "--log-buffer",
         type=int,
         default=1024,
-        help="changes the `io.DEFAULT_BUFFER_SIZE` for log files (default: 1024). Small values may cause issues with large logs.",
+        help="Log buffer size (default: 1024)",
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Show verbose output on failure"
+    )
+    parser.add_argument(
+        "--stop-on-failure",
+        action="store_true",
+        help="Stop running tests after first failure",
+    )
+    parser.add_argument(
+        "--list-tests", action="store_true", help="List available tests and exit"
     )
 
     args = parser.parse_args()
 
-    args.log_dir = os.path.abspath(base_log_dir)
-
-    test_dir = os.path.abspath(os.path.dirname(__file__))
-
-    if args.list_suites:
-        list_test_suites(test_dir)
+    # Handle --list-tests
+    if args.list_tests:
+        print(f"{INFO_EMOJI} Available tests:")
+        for test_name in sorted(TEST_REGISTRY.keys()):
+            print(f"  • {test_name}")
+        print(f"\nTotal: {len(TEST_REGISTRY)} tests")
         return
 
-    task_queue = setup_test_suite(args, test_dir)
-    results = run_test_workers(task_queue, args)
+    # Determine which tests to run
+    if args.test == "all":
+        tests_to_run = TEST_REGISTRY
+        print(f"{INFO_EMOJI} Running ALL tests ({len(tests_to_run)} total)")
+    else:
+        tests_to_run = {args.test: TEST_REGISTRY[args.test]}
+        print(f"{INFO_EMOJI} Running single test: {args.test}")
 
-    passed = [(name, log, start, end) for (name, ok, log, start, end) in results if ok]
-    failed = [
-        (name, log, start, end) for (name, ok, log, start, end) in results if not ok
-    ]
+    print(f"{INFO_EMOJI} Log directory: {log_dir}")
 
-    print("\nTest Summary:")
-    print(f"\n{len(passed)} test(s) passed:")
-    for name, log, start, end in passed:
-        print(f"\n  {SUCCESS_EMOJI} {name}: {log} (took {end - start:.2f}s)")
+    # Run the tests
+    overall_start_time = time.time()
 
-    if failed:
-        print(f"\n{len(failed)} test(s) failed:")
-        for name, log, start, end in failed:
-            print(f"\n  {FAILURE_EMOJI} {name} failed: {log} (took {end - start:.2f}s)")
-        raise SystemExit(
-            f"\n{FAILURE_EMOJI} Some tests failed. Check the logs in {args.log_dir}."
+    if len(tests_to_run) == 1:
+        # Single test mode - use original behavior
+        test_name = list(tests_to_run.keys())[0]
+        test_class = list(tests_to_run.values())[0]
+        log_path = os.path.join(log_dir, f"{test_name}.log")
+
+        result = run_test_direct(
+            test_name, test_class, log_path, args.log_buffer, args.verbose
         )
-    print(f"\n{ALLDONE_EMOJI} ALL TESTS PASSED! GOOD JOB!")
+
+        if result.success:
+            print(f"{SUCCESS_EMOJI} {test_name} PASSED in {result.duration:.2f}s")
+            print(f"{ALLDONE_EMOJI} Test completed successfully!")
+        else:
+            print(f"{FAILURE_EMOJI} {test_name} FAILED in {result.duration:.2f}s")
+            if args.verbose and result.error_msg:
+                print(f"Error: {result.error_msg}")
+
+        print(f"Full log: {log_path}")
+
+        if not result.success:
+            sys.exit(1)
+    else:
+        # Multi-test mode
+        results, overall_duration = run_all_tests(
+            tests_to_run,
+            log_dir,
+            args.log_buffer,
+            args.verbose,
+            continue_on_failure=not args.stop_on_failure,
+        )
+
+        # Print summary
+        all_passed = print_summary(results, overall_duration, args.verbose, log_dir)
+
+        if not all_passed:
+            sys.exit(1)
+
+    overall_end_time = time.time()
+    print(f"Total runtime: {overall_end_time - overall_start_time:.2f}s")
 
 
 if __name__ == "__main__":
