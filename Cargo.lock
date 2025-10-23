@@ -1146,6 +1146,7 @@ dependencies = [
  "floresta-chain",
  "floresta-wire",
  "libfuzzer-sys",
+ "tempfile",
 ]
 
 [[package]]
