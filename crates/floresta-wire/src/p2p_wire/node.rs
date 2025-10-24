@@ -452,7 +452,7 @@ where
         }
 
         let peers = peers.into_iter().flatten().collect();
-        try_and_log!(responder.send(NodeResponse::GetPeerInfo(peers)));
+        try_and_debug!(responder.send(NodeResponse::GetPeerInfo(peers)));
     }
 
     // Helper function to resolve an IpAddr to AddrV2
@@ -600,7 +600,7 @@ where
         let req = match user_req {
             UserRequest::Ping => {
                 self.broadcast_to_peers(NodeRequest::Ping).await;
-                try_and_log!(responder.send(NodeResponse::Ping(true)));
+                try_and_debug!(responder.send(NodeResponse::Ping(true)));
 
                 return;
             }
@@ -888,7 +888,7 @@ where
                     | BlockValidationErrors::BIP94TimeWarp
                     | BlockValidationErrors::UnspendableUTXO
                     | BlockValidationErrors::CoinbaseNotMatured => {
-                        try_and_log!(self.chain.invalidate_block(block.block_hash()));
+                        try_and_warn!(self.chain.invalidate_block(block.block_hash()));
                     }
                     BlockValidationErrors::InvalidProof => {}
                     BlockValidationErrors::BlockExtendsAnOrphanChain
@@ -1581,12 +1581,12 @@ where
 
     pub(crate) async fn shutdown(&mut self) {
         info!("Shutting down node...");
-        try_and_warn!(self.save_utreexo_peers());
+        try_and_debug!(self.save_utreexo_peers());
         for peer in self.peer_ids.iter() {
-            try_and_log!(self.send_to_peer(*peer, NodeRequest::Shutdown).await);
+            try_and_debug!(self.send_to_peer(*peer, NodeRequest::Shutdown).await);
         }
-        try_and_log!(self.save_peers());
-        try_and_log!(self.chain.flush());
+        try_and_debug!(self.save_peers());
+        try_and_debug!(self.chain.flush());
     }
 
     pub(crate) async fn handle_broadcast(&self) -> Result<(), WireError> {
@@ -1618,7 +1618,7 @@ where
                                 .collect::<Vec<_>>();
 
                             let targets = proof.targets.clone();
-                            try_and_log!(mempool.accept_to_mempool(
+                            try_and_debug!(mempool.accept_to_mempool(
                                 transaction,
                                 proof,
                                 &leaves,
@@ -1703,7 +1703,7 @@ where
         self.last_dns_seed_call = Instant::now();
 
         info!("We've been running for a while and we don't have any peers, asking for DNS peers");
-        try_and_log!(self.get_peers_from_dns());
+        try_and_debug!(self.get_peers_from_dns());
     }
 
     /// If we don't have any peers, we use the hardcoded addresses.
@@ -2089,11 +2089,11 @@ where
     }
 }
 
-/// Run a task and log any errors that might occur.
-macro_rules! try_and_log {
+/// Run a task and log any errors that might occur with `Debug` level
+macro_rules! try_and_debug {
     ($what:expr) => {
         if let Err(error) = $what {
-            tracing::error!("{}: {} - {:?}", line!(), file!(), error);
+            tracing::debug!("{}: {} - {:?}", line!(), file!(), error);
         }
     };
 }
@@ -2112,7 +2112,7 @@ macro_rules! try_and_warn {
 macro_rules! periodic_job {
     ($what:expr, $timer:expr, $interval:ident, $context:ty) => {
         if $timer.elapsed() > Duration::from_secs(<$context>::$interval) {
-            try_and_log!($what);
+            crate::p2p_wire::node::try_and_debug!($what);
             $timer = Instant::now();
         }
     };
@@ -2125,7 +2125,7 @@ macro_rules! periodic_job {
 }
 
 pub(crate) use periodic_job;
-pub(crate) use try_and_log;
+pub(crate) use try_and_debug;
 pub(crate) use try_and_warn;
 
 #[cfg(test)]

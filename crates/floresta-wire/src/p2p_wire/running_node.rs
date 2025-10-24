@@ -29,7 +29,7 @@ use tracing::warn;
 use super::error::WireError;
 use super::peer::PeerMessages;
 use crate::node::periodic_job;
-use crate::node::try_and_log;
+use crate::node::try_and_debug;
 use crate::node::try_and_warn;
 use crate::node::ConnectionKind;
 use crate::node::InflightRequests;
@@ -274,7 +274,7 @@ where
             context: ChainSelector::default(),
         };
 
-        try_and_log!(UtreexoNode::<Chain, ChainSelector>::run(&mut ibd).await);
+        try_and_warn!(UtreexoNode::<Chain, ChainSelector>::run(&mut ibd).await);
 
         self = UtreexoNode {
             common: ibd.common,
@@ -283,7 +283,7 @@ where
 
         if *self.kill_signal.read().await {
             self.shutdown().await;
-            try_and_log!(stop_signal.send(()));
+            try_and_debug!(stop_signal.send(()));
             return;
         }
 
@@ -340,11 +340,11 @@ where
             while let Ok(Some(notification)) =
                 timeout(Duration::from_millis(100), self.node_rx.recv()).await
             {
-                try_and_log!(self.handle_notification(notification).await);
+                try_and_debug!(self.handle_notification(notification).await);
             }
 
             // Jobs that don't need a connected peer
-            try_and_log!(self.process_pending_blocks().await);
+            try_and_debug!(self.process_pending_blocks().await);
 
             // Save our peers db
             periodic_job!(
@@ -372,7 +372,7 @@ where
             );
 
             // Check if some of our peers have timed out a request
-            try_and_log!(self.check_for_timeout().await);
+            try_and_debug!(self.check_for_timeout().await);
 
             // Open new feeler connection periodically
             periodic_job!(
@@ -416,7 +416,7 @@ where
                 ASSUME_STALE,
                 RunningNode
             );
-            try_and_log!(self.download_filters().await);
+            try_and_debug!(self.download_filters().await);
 
             // requests that need a utreexo peer
             if !self.has_utreexo_peers() {
@@ -425,7 +425,7 @@ where
 
             // Check if we haven't missed any block
             if self.inflight.len() < RunningNode::MAX_INFLIGHT_REQUESTS {
-                try_and_log!(self.ask_missed_block().await);
+                try_and_debug!(self.ask_missed_block().await);
             }
         }
 
