@@ -80,6 +80,7 @@ use std::io::Seek;
 use std::io::SeekFrom;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
+use std::path::Path;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
 use std::sync::PoisonError;
@@ -671,16 +672,18 @@ impl FlatChainStore {
         // Maybe migrate our database if it's the old version 0
         migrate_v0_to_v1::maybe_migrate(&metadata_path, file_mode)?;
 
-        let metadata = unsafe { Self::init_file(&metadata_path, size_of::<Metadata>(), file_mode) };
+        // Check if metadata file exists before attempting to load
+        let metadata_exists = Path::new(&metadata_path).metadata().is_ok();
 
-        let Ok(metadata_file) = metadata else {
-            // if we can't get the metadata file, assume it doesn't exist and create
-            // a new one
+        if !metadata_exists {
+            // Metadata doesn't exist, create a new chain store
             let mut store = Self::create_chain_store(config)?;
             store.flush()?;
-
             return Ok(store);
-        };
+        }
+
+        let metadata_file =
+            unsafe { Self::init_file(&metadata_path, size_of::<Metadata>(), file_mode) }?;
 
         let metadata = metadata_file.as_ptr() as *const Metadata;
         let metadata = unsafe {
@@ -1395,6 +1398,15 @@ mod tests {
         };
 
         FlatChainStore::new(config)
+    }
+
+    #[test]
+    fn test_create_chainstore_from_existing_dir() {
+        let id = rand::random::<u64>();
+        let path = format!("./tmp-db/{id}/");
+        fs::create_dir_all(&path).expect("Failed to create temp dir");
+        let _ = get_test_chainstore(Some(id)).expect("Should create a chainstore");
+        fs::remove_dir_all(&path).expect("Failed to remove temp dir");
     }
 
     #[test]
