@@ -10,6 +10,10 @@ use bitcoin::OutPoint;
 use bitcoin::Script;
 use bitcoin::ScriptBuf;
 use bitcoin::Txid;
+use floresta_rpc::rpc_types::GetBlockResVerbose;
+use floresta_rpc::rpc_types::GetBlockchainInfoRes;
+use floresta_rpc::rpc_types::GetTxOutProof;
+use floresta_rpc::rpc_types::RescanConfidence;
 use miniscript::descriptor::checksum;
 use serde::Deserialize;
 use serde::Serialize;
@@ -17,13 +21,9 @@ use serde_json::json;
 use serde_json::Value;
 use tracing::debug;
 
-use super::res::GetBlockResVerbose;
-use super::res::GetBlockchainInfoRes;
-use super::res::GetTxOutProof;
-use super::res::JsonRpcError;
 use super::server::RpcChain;
 use super::server::RpcImpl;
-use crate::json_rpc::res::RescanConfidence;
+use crate::json_rpc::res::JsonRpcError;
 
 #[derive(Debug, Serialize, Deserialize)]
 /// Struct helper for RpcGetTxOut
