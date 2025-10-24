@@ -6,6 +6,8 @@ The development of Floresta is a community effort and welcomes contributions fro
 We welcome contributions in many forms, including bug reports, feature requests, code contributions, and documentation improvements. From any contributors
 with any level of experience or expertise. We only ask that you respect others and follow the process outlined in this document.
 
+As well, we strongly recommend checking existing documentation in [docs/](docs/README.md) if you have any doubts.
+
 Communications Channels
 -----------------------
 
@@ -21,6 +23,20 @@ To contribute a patch, the workflow is as follows:
   1. Fork Repository
   2. Create topic branch
   3. Commit patches
+
+### Development Tools
+
+We maintain support for a set of tools that might help a contributor such as.
+
+[`Just` in docs/](docs/justfile.md)
+
+[`Docker` in docs/](docs/docker.md)
+
+[`Nix` in docs/](docs/nix.md)
+
+`uv` - for running python script and managing its dependencies.
+
+`cargo` - the package manager for Rust projects. 
 
 ### Commits
 
