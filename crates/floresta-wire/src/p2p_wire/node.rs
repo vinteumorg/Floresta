@@ -394,7 +394,7 @@ where
     /// This function will check if any of our inflight requests have timed out, and if so,
     /// it will remove them from the inflight list and increase the banscore of the peer that
     /// sent the request. It will also resend the request to another peer.
-    pub(crate) async fn check_for_timeout(&mut self) -> Result<(), WireError> {
+    pub(crate) fn check_for_timeout(&mut self) -> Result<(), WireError> {
         let now = Instant::now();
 
         let timed_out_fn = |req: &InflightRequests, time: &Instant| match req {
@@ -422,14 +422,14 @@ where
 
             if let InflightRequests::Connect(_) = req {
                 // ignore the output as it might fail due to the task being cancelled
-                let _ = self.send_to_peer(peer, NodeRequest::Shutdown).await;
+                let _ = self.send_to_peer(peer, NodeRequest::Shutdown);
                 self.peers.remove(&peer);
                 continue;
             }
 
             debug!("Request timed out: {req:?}");
-            self.increase_banscore(peer, 1).await?;
-            self.redo_inflight_request(req).await?;
+            self.increase_banscore(peer, 1)?;
+            self.redo_inflight_request(req)?;
         }
 
         Ok(())
@@ -467,7 +467,7 @@ where
 
     /// Handles addnode-RPC `Add` requests, adding a new peer to the `added_peers` list. This means
     /// the peer is marked as a "manually added peer". We then try to connect to it, or retry later.
-    pub async fn handle_addnode_add_peer(
+    pub fn handle_addnode_add_peer(
         &mut self,
         addr: IpAddr,
         port: u16,
@@ -496,7 +496,7 @@ where
         // Implementation detail for `addnode`: on bitcoin-core, the node doesn't connect immediately
         // after adding a peer, it just adds it to the `added_peers` list. Here we do almost the same,
         // but we do an early connection attempt to the peer, so we can start communicating with.
-        self.maybe_open_connection_with_added_peers().await
+        self.maybe_open_connection_with_added_peers()
     }
 
     /// Handles remove node requests, removing a peer from the node.
@@ -529,7 +529,7 @@ where
 
     /// Handles addnode onetry requests, connecting to the node and this will try to connect to the given address and port.
     /// If it's successful, it will add the node to the peers list, but not to the added_peers list (e.g., it won't be reconnected if disconnected).
-    pub async fn handle_addnode_onetry_peer(
+    pub fn handle_addnode_onetry_peer(
         &mut self,
         addr: IpAddr,
         port: u16,
@@ -560,7 +560,6 @@ where
         // Return true if exists or false if anything fails during connection
         // We allow V1 fallback iff the `v2` flag is not set
         self.open_connection(kind, peer_id as usize, address, !v2_transport)
-            .await
     }
 
     /// Sends the same request to all connected peers
@@ -570,7 +569,7 @@ where
     /// propagate the error to the caller, as this would request an early return from the function,
     /// which would prevent us from sending the request to the peers the comes after the first
     /// erroing one.
-    async fn broadcast_to_peers(&mut self, request: NodeRequest) {
+    fn broadcast_to_peers(&mut self, request: NodeRequest) {
         for peer in self.peers.values() {
             if peer.state != PeerStatus::Ready {
                 continue;
@@ -586,7 +585,7 @@ where
     ///
     /// These are requests made by some consumer of `floresta-wire` using the [`NodeInterface`], and may
     /// be a mempool transaction, a block, or a connection request.
-    pub(crate) async fn perform_user_request(
+    pub(crate) fn perform_user_request(
         &mut self,
         user_req: UserRequest,
         responder: oneshot::Sender<NodeResponse>,
@@ -599,7 +598,7 @@ where
 
         let req = match user_req {
             UserRequest::Ping => {
-                self.broadcast_to_peers(NodeRequest::Ping).await;
+                self.broadcast_to_peers(NodeRequest::Ping);
                 try_and_log!(responder.send(NodeResponse::Ping(true)));
 
                 return;
@@ -614,17 +613,16 @@ where
                 return;
             }
             UserRequest::Add((addr, port, v2transport)) => {
-                let node_response =
-                    match self.handle_addnode_add_peer(addr, port, v2transport).await {
-                        Ok(_) => {
-                            info!("Added peer {addr}:{port}");
-                            NodeResponse::Add(true)
-                        }
-                        Err(err) => {
-                            warn!("{err:?}");
-                            NodeResponse::Add(false)
-                        }
-                    };
+                let node_response = match self.handle_addnode_add_peer(addr, port, v2transport) {
+                    Ok(_) => {
+                        info!("Added peer {addr}:{port}");
+                        NodeResponse::Add(true)
+                    }
+                    Err(err) => {
+                        warn!("{err:?}");
+                        NodeResponse::Add(false)
+                    }
+                };
 
                 let _ = responder.send(node_response);
                 return;
@@ -645,10 +643,7 @@ where
                 return;
             }
             UserRequest::Onetry((addr, port, v2transport)) => {
-                let node_response = match self
-                    .handle_addnode_onetry_peer(addr, port, v2transport)
-                    .await
-                {
+                let node_response = match self.handle_addnode_onetry_peer(addr, port, v2transport) {
                     Ok(_) => {
                         info!("Connected to peer {addr}:{port}");
                         NodeResponse::Onetry(true)
@@ -664,7 +659,7 @@ where
             }
         };
 
-        let peer = self.send_to_random_peer(req, ServiceFlags::NONE).await;
+        let peer = self.send_to_random_peer(req, ServiceFlags::NONE);
         if let Ok(peer) = peer {
             self.inflight_user_requests
                 .insert(user_req, (peer, Instant::now(), responder));
@@ -676,7 +671,7 @@ where
     ///
     /// This function will return the given block if it isn't a user request. This is to avoid cloning
     /// the block.
-    pub(crate) async fn check_is_user_block_and_reply(
+    pub(crate) fn check_is_user_block_and_reply(
         &mut self,
         block: Block,
     ) -> Result<Option<Block>, WireError> {
@@ -698,7 +693,7 @@ where
         Ok(Some(block))
     }
 
-    pub(crate) async fn attach_proof(
+    pub(crate) fn attach_proof(
         &mut self,
         uproof: UtreexoProof,
         peer: PeerId,
@@ -712,7 +707,7 @@ where
                 "Received utreexo proof for block {}, but we don't have it",
                 uproof.block_hash
             );
-            self.increase_banscore(peer, 5).await?;
+            self.increase_banscore(peer, 5)?;
 
             return Ok(());
         };
@@ -728,7 +723,7 @@ where
         Ok(())
     }
 
-    pub(crate) async fn request_block_proof(
+    pub(crate) fn request_block_proof(
         &mut self,
         block: Block,
         peer: PeerId,
@@ -737,7 +732,7 @@ where
         self.inflight.remove(&InflightRequests::Blocks(block_hash));
 
         // Reply and return early if it's a user-requested block. Else continue handling it.
-        let Some(block) = self.check_is_user_block_and_reply(block).await? else {
+        let Some(block) = self.check_is_user_block_and_reply(block)? else {
             return Ok(());
         };
 
@@ -769,8 +764,7 @@ where
         self.send_to_random_peer(
             NodeRequest::GetBlockProof((block_hash, Bitmap::new(), Bitmap::new())),
             UTREEXO.into(),
-        )
-        .await?;
+        )?;
 
         self.inflight.insert(
             InflightRequests::UtreexoProof(block_hash),
@@ -784,7 +778,7 @@ where
 
     /// Processes ready blocks in order, stopping at the tip or the first missing block/proof.
     /// Call again when new blocks or proofs arrive.
-    pub(crate) async fn process_pending_blocks(&mut self) -> Result<(), WireError>
+    pub(crate) fn process_pending_blocks(&mut self) -> Result<(), WireError>
     where
         Chain::Error: From<UtreexoLeafError>,
     {
@@ -809,7 +803,7 @@ where
             }
 
             let start = Instant::now();
-            self.process_block(next_block, next_block_hash).await?;
+            self.process_block(next_block, next_block_hash)?;
 
             let elapsed = start.elapsed().as_secs();
             self.block_sync_avg.add(elapsed);
@@ -829,11 +823,7 @@ where
     ///
     /// This function will take the next block in our chain, process its proof and validate it.
     /// If everything is correct, it will connect the block to our chain.
-    async fn process_block(
-        &mut self,
-        block_height: u32,
-        block_hash: BlockHash,
-    ) -> Result<(), WireError>
+    fn process_block(&mut self, block_height: u32, block_hash: BlockHash) -> Result<(), WireError>
     where
         Chain::Error: From<UtreexoLeafError>,
     {
@@ -913,7 +903,7 @@ where
                     .update_set_state(peer.address_id as usize, AddressState::Banned(T::BAN_TIME));
             }
 
-            self.send_to_peer(peer, NodeRequest::Shutdown).await?;
+            self.send_to_peer(peer, NodeRequest::Shutdown)?;
             return Err(WireError::PeerMisbehaving);
         }
 
@@ -1117,11 +1107,7 @@ where
         metrics.peer_count.set(self.peer_ids.len() as f64);
     }
 
-    pub(crate) async fn handle_disconnection(
-        &mut self,
-        peer: u32,
-        idx: usize,
-    ) -> Result<(), WireError> {
+    pub(crate) fn handle_disconnection(&mut self, peer: u32, idx: usize) -> Result<(), WireError> {
         if let Some(p) = self.peers.remove(&peer) {
             std::mem::drop(p.channel);
             if matches!(p.kind, ConnectionKind::Regular(_)) && p.state == PeerStatus::Ready {
@@ -1163,7 +1149,7 @@ where
 
         for req in inflight {
             self.inflight.remove(&req.0);
-            self.redo_inflight_request(req.0.clone()).await?;
+            self.redo_inflight_request(req.0.clone())?;
         }
 
         #[cfg(feature = "metrics")]
@@ -1175,7 +1161,7 @@ where
     /// Asks all utreexo peers for proofs of blocks that we have, but haven't received proofs
     /// for yet, and don't have any GetProofs inflight. This may be caused by a peer disconnecting
     /// while we didn't have more utreexo peers to redo the request.
-    pub(crate) async fn ask_for_missed_proofs(&mut self) -> Result<(), WireError> {
+    pub(crate) fn ask_for_missed_proofs(&mut self) -> Result<(), WireError> {
         // If we have no peers, we can't ask for proofs
         if !self.has_utreexo_peers() {
             return Ok(());
@@ -1201,12 +1187,10 @@ where
             .collect::<Vec<_>>();
 
         for block_hash in pending_blocks {
-            let peer = self
-                .send_to_random_peer(
-                    NodeRequest::GetBlockProof((block_hash, Bitmap::new(), Bitmap::new())),
-                    service_flags::UTREEXO.into(),
-                )
-                .await?;
+            let peer = self.send_to_random_peer(
+                NodeRequest::GetBlockProof((block_hash, Bitmap::new(), Bitmap::new())),
+                service_flags::UTREEXO.into(),
+            )?;
 
             self.inflight.insert(
                 InflightRequests::UtreexoProof(block_hash),
@@ -1217,10 +1201,7 @@ where
         Ok(())
     }
 
-    pub(crate) async fn redo_inflight_request(
-        &mut self,
-        req: InflightRequests,
-    ) -> Result<(), WireError> {
+    pub(crate) fn redo_inflight_request(&mut self, req: InflightRequests) -> Result<(), WireError> {
         match req {
             InflightRequests::UtreexoProof(block_hash) => {
                 if !self.has_utreexo_peers() {
@@ -1240,12 +1221,10 @@ where
                     return Ok(());
                 }
 
-                let peer = self
-                    .send_to_random_peer(
-                        NodeRequest::GetBlockProof((block_hash, Bitmap::new(), Bitmap::new())),
-                        service_flags::UTREEXO.into(),
-                    )
-                    .await?;
+                let peer = self.send_to_random_peer(
+                    NodeRequest::GetBlockProof((block_hash, Bitmap::new(), Bitmap::new())),
+                    service_flags::UTREEXO.into(),
+                )?;
 
                 self.inflight.insert(
                     InflightRequests::UtreexoProof(block_hash),
@@ -1254,25 +1233,21 @@ where
             }
 
             InflightRequests::Blocks(block) => {
-                self.request_blocks(vec![block]).await?;
+                self.request_blocks(vec![block])?;
             }
             InflightRequests::Headers => {
-                let peer = self
-                    .send_to_random_peer(
-                        NodeRequest::GetHeaders(vec![]),
-                        service_flags::UTREEXO.into(),
-                    )
-                    .await?;
+                let peer = self.send_to_random_peer(
+                    NodeRequest::GetHeaders(vec![]),
+                    service_flags::UTREEXO.into(),
+                )?;
                 self.inflight
                     .insert(InflightRequests::Headers, (peer, Instant::now()));
             }
             InflightRequests::UtreexoState(_) => {
-                let peer = self
-                    .send_to_random_peer(
-                        NodeRequest::GetUtreexoState((self.chain.get_block_hash(0).unwrap(), 0)),
-                        service_flags::UTREEXO.into(),
-                    )
-                    .await?;
+                let peer = self.send_to_random_peer(
+                    NodeRequest::GetUtreexoState((self.chain.get_block_hash(0).unwrap(), 0)),
+                    service_flags::UTREEXO.into(),
+                )?;
                 self.inflight
                     .insert(InflightRequests::UtreexoState(peer), (peer, Instant::now()));
             }
@@ -1280,17 +1255,15 @@ where
                 if !self.has_compact_filters_peer() {
                     return Ok(());
                 }
-                let peer = self
-                    .send_to_random_peer(
-                        NodeRequest::GetFilter((self.chain.get_block_hash(0).unwrap(), 0)),
-                        ServiceFlags::COMPACT_FILTERS,
-                    )
-                    .await?;
+                let peer = self.send_to_random_peer(
+                    NodeRequest::GetFilter((self.chain.get_block_hash(0).unwrap(), 0)),
+                    ServiceFlags::COMPACT_FILTERS,
+                )?;
                 self.inflight
                     .insert(InflightRequests::GetFilters, (peer, Instant::now()));
             }
             InflightRequests::Connect(_) => {
-                // WE DON'T NEED TO DO ANYTHING HERE
+                // We don't need to do anything here
             }
         }
 
@@ -1305,7 +1278,7 @@ where
         peer.services.has(needs)
     }
 
-    pub(crate) async fn handle_peer_ready(
+    pub(crate) fn handle_peer_ready(
         &mut self,
         peer: u32,
         version: &Version,
@@ -1321,7 +1294,7 @@ where
                 .unwrap()
                 .as_secs();
 
-            self.send_to_peer(peer, NodeRequest::Shutdown).await?;
+            self.send_to_peer(peer, NodeRequest::Shutdown)?;
             self.address_man
                 .update_set_service_flag(version.address_id, version.services)
                 .update_set_state(version.address_id, AddressState::Tried(now));
@@ -1331,8 +1304,7 @@ where
 
         if version.kind == ConnectionKind::Extra {
             let locator = self.chain.get_block_locator()?;
-            self.send_to_peer(peer, NodeRequest::GetHeaders(locator))
-                .await?;
+            self.send_to_peer(peer, NodeRequest::GetHeaders(locator))?;
 
             self.inflight
                 .insert(InflightRequests::Headers, (peer, Instant::now()));
@@ -1421,11 +1393,7 @@ where
         Ok(())
     }
 
-    pub(crate) async fn send_to_peer(
-        &self,
-        peer_id: u32,
-        req: NodeRequest,
-    ) -> Result<(), WireError> {
+    pub(crate) fn send_to_peer(&self, peer_id: u32, req: NodeRequest) -> Result<(), WireError> {
         if let Some(peer) = &self.peers.get(&peer_id) {
             if peer.state == PeerStatus::Awaiting {
                 return Ok(());
@@ -1441,11 +1409,7 @@ where
     /// will cause our peer to be banned for one BANTIME.
     /// The amount of each increment is given by factor, and it's calibrated for each misbehaving
     /// action that a peer may incur in.
-    pub(crate) async fn increase_banscore(
-        &mut self,
-        peer_id: u32,
-        factor: u32,
-    ) -> Result<(), WireError> {
+    pub(crate) fn increase_banscore(&mut self, peer_id: u32, factor: u32) -> Result<(), WireError> {
         let Some(peer) = self.common.peers.get_mut(&peer_id) else {
             return Ok(());
         };
@@ -1485,7 +1449,7 @@ where
     }
 
     #[inline]
-    pub(crate) async fn send_to_random_peer(
+    pub(crate) fn send_to_random_peer(
         &mut self,
         req: NodeRequest,
         required_service: ServiceFlags,
@@ -1557,7 +1521,7 @@ where
         Ok(())
     }
 
-    pub(crate) async fn init_peers(&mut self) -> Result<(), WireError> {
+    pub(crate) fn init_peers(&mut self) -> Result<(), WireError> {
         let anchors = self.common.address_man.start_addr_man(self.datadir.clone());
 
         if !self.config.disable_dns_seeds {
@@ -1572,18 +1536,17 @@ where
                 address,
                 // Using V1 transport fallback as utreexo nodes have limited support
                 true,
-            )
-            .await?;
+            )?;
         }
 
         Ok(())
     }
 
-    pub(crate) async fn shutdown(&mut self) {
+    pub(crate) fn shutdown(&mut self) {
         info!("Shutting down node...");
         try_and_warn!(self.save_utreexo_peers());
         for peer in self.peer_ids.iter() {
-            try_and_log!(self.send_to_peer(*peer, NodeRequest::Shutdown).await);
+            try_and_log!(self.send_to_peer(*peer, NodeRequest::Shutdown));
         }
         try_and_log!(self.save_peers());
         try_and_log!(self.chain.flush());
@@ -1651,10 +1614,8 @@ where
         Ok(())
     }
 
-    pub(crate) async fn ask_for_addresses(&mut self) -> Result<(), WireError> {
-        let _ = self
-            .send_to_random_peer(NodeRequest::GetAddresses, ServiceFlags::NONE)
-            .await?;
+    pub(crate) fn ask_for_addresses(&mut self) -> Result<(), WireError> {
+        let _ = self.send_to_random_peer(NodeRequest::GetAddresses, ServiceFlags::NONE)?;
         Ok(())
     }
 
@@ -1738,7 +1699,7 @@ where
         self.address_man.add_fixed_addresses(net);
     }
 
-    pub(crate) async fn maybe_open_connection_with_added_peers(&mut self) -> Result<(), WireError> {
+    pub(crate) fn maybe_open_connection_with_added_peers(&mut self) -> Result<(), WireError> {
         if self.added_peers.is_empty() {
             return Ok(());
         }
@@ -1769,14 +1730,13 @@ where
                     peers_count as usize,
                     address,
                     added_peer.v1_fallback,
-                )
-                .await?
+                )?
             }
         }
         Ok(())
     }
 
-    pub(crate) async fn maybe_open_connection(
+    pub(crate) fn maybe_open_connection(
         &mut self,
         required_service: ServiceFlags,
     ) -> Result<(), WireError> {
@@ -1793,26 +1753,26 @@ where
         self.maybe_use_hadcoded_addresses(needs_utreexo);
 
         // try to connect with manually added peers
-        self.maybe_open_connection_with_added_peers().await?;
+        self.maybe_open_connection_with_added_peers()?;
 
         let connection_kind = ConnectionKind::Regular(required_service);
         if self.peers.len() < T::MAX_OUTGOING_PEERS {
-            self.create_connection(connection_kind).await?;
+            self.create_connection(connection_kind)?;
         }
 
         Ok(())
     }
 
-    pub(crate) async fn open_feeler_connection(&mut self) -> Result<(), WireError> {
+    pub(crate) fn open_feeler_connection(&mut self) -> Result<(), WireError> {
         // No feeler if `-connect` is set
         if self.fixed_peer.is_some() {
             return Ok(());
         }
-        self.create_connection(ConnectionKind::Feeler).await?;
+        self.create_connection(ConnectionKind::Feeler)?;
         Ok(())
     }
 
-    pub(crate) async fn request_blocks(&mut self, blocks: Vec<BlockHash>) -> Result<(), WireError> {
+    pub(crate) fn request_blocks(&mut self, blocks: Vec<BlockHash>) -> Result<(), WireError> {
         let should_request = |block: &BlockHash| {
             let is_inflight = self
                 .inflight
@@ -1827,9 +1787,8 @@ where
             return Ok(());
         }
 
-        let peer = self
-            .send_to_random_peer(NodeRequest::GetBlock(blocks.clone()), ServiceFlags::NETWORK)
-            .await?;
+        let peer =
+            self.send_to_random_peer(NodeRequest::GetBlock(blocks.clone()), ServiceFlags::NETWORK)?;
 
         for block in blocks.iter() {
             self.inflight
@@ -1839,10 +1798,7 @@ where
         Ok(())
     }
 
-    pub(crate) async fn create_connection(
-        &mut self,
-        kind: ConnectionKind,
-    ) -> Result<(), WireError> {
+    pub(crate) fn create_connection(&mut self, kind: ConnectionKind) -> Result<(), WireError> {
         let required_services = match kind {
             ConnectionKind::Regular(services) => services,
             _ => ServiceFlags::NONE,
@@ -1897,8 +1853,7 @@ where
             || kind == ConnectionKind::Regular(UTREEXO.into())
             || is_fixed;
 
-        self.open_connection(kind, peer_id, address, allow_v1)
-            .await?;
+        self.open_connection(kind, peer_id, address, allow_v1)?;
 
         Ok(())
     }
@@ -1944,8 +1899,7 @@ where
             user_agent,
             cancellation_sender,
             transport_protocol,
-        )
-        .await;
+        );
 
         Ok(())
     }
@@ -1989,8 +1943,7 @@ where
             user_agent,
             cancellation_sender,
             transport_protocol,
-        )
-        .await;
+        );
         Ok(())
     }
 
@@ -2005,7 +1958,7 @@ where
     /// We don't open the connection here, we create a [`Peer`] actor that will try to open
     /// a connection with the given address and kind. If it succeeds, it will send a
     /// [`PeerMessages::Ready`] to the node after handshaking.
-    pub(crate) async fn open_connection(
+    pub(crate) fn open_connection(
         &mut self,
         kind: ConnectionKind,
         peer_id: usize,
