@@ -1,5 +1,6 @@
 use std::fmt::Display;
 
+use bitcoin::BlockHash;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -49,7 +50,7 @@ pub struct GetBlockchainInfoRes {
     ///
     /// On average, miners needs to make `difficulty` hashes before finding one that
     /// solves a block's PoW
-    pub difficulty: u64,
+    pub difficulty: f64,
 }
 
 /// The information returned by a get_raw_tx
@@ -258,7 +259,7 @@ pub struct GetBlockResVerbose {
     /// difficulty is a multiple of the smallest possible difficulty. So to find the actual
     /// difficulty you have to multiply this by the min_diff.
     /// For mainnet, mindiff is 2 ^ 32
-    pub difficulty: u128,
+    pub difficulty: f64,
     /// Commullative work in this network
     ///
     /// This is a estimate of how many hashes the network has ever made to produce this chain
@@ -270,6 +271,51 @@ pub struct GetBlockResVerbose {
     #[serde(skip_serializing_if = "Option::is_none")]
     /// The hash of the block coming after this one, if any
     pub nextblockhash: Option<String>,
+    /// Represents the current proof-of-work target as a 256-bit number in string format.
+    /// A block's SHA-256 hash must be less than or equal to this value to be accepted by the network.
+    /// Lower values indicate higher mining difficulty.
+    pub target: String,
+}
+
+/// The information by UTXO
+#[derive(Debug, Deserialize, Serialize)]
+pub struct GetTxOut {
+    /// The hash of the block at the tip of the chain
+    pub bestblock: BlockHash,
+
+    /// The number of confirmations
+    pub confirmations: u32,
+
+    /// The transaction value in BTC
+    pub value: f64,
+
+    #[serde(rename = "scriptPubKey")]
+    /// Script Public Key struct
+    pub script_pubkey: ScriptPubkeyDescription,
+
+    /// Coinbase or not
+    pub coinbase: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+/// Struct helper for RpcGetTxOut
+pub struct ScriptPubkeyDescription {
+    /// Disassembly of the output script
+    pub asm: String,
+
+    /// Inferred descriptor for the output
+    pub desc: String,
+
+    /// The raw output script bytes, hex-encoded
+    pub hex: String,
+
+    /// The type, eg pubkeyhash
+    #[serde(rename = "type")]
+    pub type_field: String,
+
+    /// The Bitcoin address (only if a well-defined address exists)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub address: Option<String>,
 }
 
 /// A confidence enum to auxiliate rescan timestamp values.
@@ -318,6 +364,9 @@ pub enum Error {
 
     /// The user requested a rescan based on invalid values.
     InvalidRescanVal,
+
+    /// The requested transaction output was not found
+    TxOutNotFound,
 }
 
 impl From<serde_json::Error> for Error {
@@ -343,6 +392,7 @@ impl Display for Error {
             Error::EmptyResponse => write!(f, "got an empty response from server"),
             Error::InvalidVerbosity => write!(f, "invalid verbosity level"),
             Error::InvalidRescanVal => write!(f, "Invalid rescan values"),
+            Error::TxOutNotFound => write!(f, "Transaction output was not found"),
         }
     }
 }

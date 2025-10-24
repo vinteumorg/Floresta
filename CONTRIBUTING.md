@@ -34,7 +34,7 @@ When adding a new feature ensure that it is covered by functional tests where po
 When refactoring, structure your PR to make it easy to review and don't
 hesitate to split it into multiple small, focused PRs.
 
-The Minimum Supported Rust Version is **1.74.1** (enforced by our CI).
+The Minimum Supported Rust Version is **1.90.0** (enforced by our CI).
 
 Commits should cover both the issue fixed and the solution's rationale.
 

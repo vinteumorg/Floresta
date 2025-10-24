@@ -234,11 +234,18 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
             block.header.time
         };
 
+        let witness_block_size = block
+            .txdata
+            .iter()
+            .map(|tx| tx.total_size() - tx.base_size())
+            .sum::<usize>();
+        let strippedsize = block.total_size() - witness_block_size;
+
         let block = GetBlockResVerbose {
-            bits: serialize_hex(&block.header.bits),
-            chainwork: block.header.work().to_string(),
+            bits: serialize_hex(&block.header.bits.to_consensus().to_be()),
+            chainwork: serialize_hex(&block.header.work().to_be_bytes()),
             confirmations: (tip - height) + 1,
-            difficulty: block.header.difficulty(self.chain.get_params()),
+            difficulty: block.header.difficulty_float(),
             hash: block.header.block_hash().to_string(),
             height,
             merkleroot: block.header.merkle_root.to_string(),
@@ -252,7 +259,7 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
                 .map(|tx| tx.compute_txid().to_string())
                 .collect(),
             version: block.header.version.to_consensus(),
-            version_hex: serialize_hex(&block.header.version),
+            version_hex: serialize_hex(&(block.header.version.to_consensus() as u32).to_be()),
             weight: block.weight().to_wu() as usize,
             mediantime: median_time_past,
             n_tx: block.txdata.len(),
@@ -261,7 +268,8 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
                 .get_block_hash(height + 1)
                 .ok()
                 .map(|h| h.to_string()),
-            strippedsize: block.total_size(),
+            strippedsize,
+            target: serialize_hex(&block.header.target().to_be_bytes()),
         };
 
         Ok(block)
@@ -306,7 +314,7 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
             root_count,
             root_hashes,
             chain: self.network.to_string(),
-            difficulty: latest_header.difficulty(self.chain.get_params()) as u64,
+            difficulty: latest_header.difficulty_float(),
             progress: validated_blocks as f32 / height as f32,
         })
     }

@@ -66,7 +66,7 @@ Example `peers.json`:
 
 ## Minimum Supported Rust Version (MSRV)
 
-This library should compile with any combination of features on **Rust 1.74.1**.
+This library should compile with any combination of features on **Rust 1.90.0**.
 
 ## License
 

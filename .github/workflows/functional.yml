@@ -7,8 +7,11 @@ on:
 
 jobs:
   functional:
-    name: Functional
+    name: Functional ${{ matrix.type }}
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        type: [python, rust]
 
     steps:
       - uses: actions/checkout@v4
@@ -16,11 +19,13 @@ jobs:
       # These are the minimal deps defined by bitcoin core at
       # https://github.com/bitcoin/bitcoin/blob/master/doc/build-unix.md
       - name: Prepare bitcoin-core deps
+        if: matrix.type == 'python'
         run: sudo apt install build-essential cmake pkgconf python3 libevent-dev libboost-dev
 
       # see more at
       # https://docs.astral.sh/uv/guides/integration/github/
       - name: Install uv
+        if: matrix.type == 'python'
         uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"
@@ -28,18 +33,22 @@ jobs:
           cache-dependency-glob: "uv.lock"
 
       - name: Prepare environment
+        if: matrix.type == 'python'
         run: uv sync --all-extras --dev
 
       - name: Run black formatting
+        if: matrix.type == 'python'
         run: uv run black --check --verbose ./tests
 
       - name: Run pylint linter
+        if: matrix.type == 'python'
         run: uv run pylint --verbose ./tests
 
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
 
-      - name: Run functional tests tasks
+      - name: Prepare and run functional tests in python
+        if: matrix.type == 'python'
         run: |
           tests/prepare.sh
           tests/run.sh
@@ -57,3 +66,16 @@ jobs:
             cat "$logfile" || echo "Failed to read $logfile"
             echo "::endgroup::"
           done
+
+      - name: Prepare Bitcoind and Utreexod binaries
+        if: matrix.type == 'rust'
+        run: |
+          source ./test-rust/scripts/prepare.sh
+          echo "BITCOIND_EXE=$BITCOIND_EXE" >> "$GITHUB_ENV"
+          echo "UTREEXOD_EXE=$UTREEXOD_EXE" >> "$GITHUB_ENV"
+
+      - name: Build and test Rust
+        if: matrix.type == 'rust'
+        run: |
+          cargo build --bin florestad --release
+          cargo test --features=functional-tests  -p test-functional -- --test-threads=1
