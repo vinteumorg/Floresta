@@ -1,5 +1,8 @@
-use serde::Deserialize;
-use serde::Serialize;
+use floresta_rpc::rpc_types::ActiveCommand;
+use floresta_rpc::rpc_types::GetMemInfoRes;
+use floresta_rpc::rpc_types::GetMemInfoStats;
+use floresta_rpc::rpc_types::GetRpcInfoRes;
+use floresta_rpc::rpc_types::MemInfoLocked;
 
 use super::res::JsonRpcError;
 use super::server::RpcChain;
@@ -131,38 +134,4 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
     pub(super) fn uptime(&self) -> u64 {
         self.start_time.elapsed().as_secs()
     }
-}
-
-#[derive(Debug, Default, Serialize, Deserialize)]
-pub struct GetMemInfoStats {
-    locked: MemInfoLocked,
-}
-
-#[derive(Debug, Default, Serialize, Deserialize)]
-pub struct MemInfoLocked {
-    used: u64,
-    free: u64,
-    total: u64,
-    locked: u64,
-    chunks_used: u64,
-    chunks_free: u64,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum GetMemInfoRes {
-    Stats(GetMemInfoStats),
-    MallocInfo(String),
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ActiveCommand {
-    method: String,
-    duration: u64,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct GetRpcInfoRes {
-    active_commands: Vec<ActiveCommand>,
-    logpath: String,
 }

@@ -25,6 +25,13 @@ use floresta_chain::ThreadSafeChain;
 use floresta_common::parse_descriptors;
 use floresta_compact_filters::flat_filters_store::FlatFiltersStore;
 use floresta_compact_filters::network_filters::NetworkFilters;
+use floresta_rpc::rpc_types::GetBlockRes;
+use floresta_rpc::rpc_types::RawTxJson;
+use floresta_rpc::rpc_types::RescanConfidence;
+use floresta_rpc::rpc_types::ScriptPubKeyJson;
+use floresta_rpc::rpc_types::ScriptSigJson;
+use floresta_rpc::rpc_types::TxInJson;
+use floresta_rpc::rpc_types::TxOutJson;
 use floresta_watch_only::kv_database::KvDatabase;
 use floresta_watch_only::AddressCache;
 use floresta_watch_only::CachedTransaction;
@@ -38,14 +45,6 @@ use tracing::debug;
 use tracing::error;
 use tracing::info;
 
-use super::res::GetBlockRes;
-use super::res::JsonRpcError;
-use super::res::RawTxJson;
-use super::res::RpcError;
-use super::res::ScriptPubKeyJson;
-use super::res::ScriptSigJson;
-use super::res::TxInJson;
-use super::res::TxOutJson;
 use crate::json_rpc::request::arg_parser::get_bool;
 use crate::json_rpc::request::arg_parser::get_hash;
 use crate::json_rpc::request::arg_parser::get_hashes_array;
@@ -53,7 +52,8 @@ use crate::json_rpc::request::arg_parser::get_numeric;
 use crate::json_rpc::request::arg_parser::get_optional_field;
 use crate::json_rpc::request::arg_parser::get_string;
 use crate::json_rpc::request::RpcRequest;
-use crate::json_rpc::res::RescanConfidence;
+use crate::json_rpc::res::JsonRpcError;
+use crate::json_rpc::res::RpcError;
 
 pub(super) struct InflightRpc {
     pub method: String,
