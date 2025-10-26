@@ -45,7 +45,7 @@ let
         inherit buildFeatures;
 
         pname = "floresta";
-        cargoBuildFlags = [ ];
+        cargoBuildFlags = [ "--release" ];
         description = "Floresta packages, CLI and Node";
 
         # We need to get a different toml for different packages
@@ -62,6 +62,7 @@ let
         pname = "libfloresta";
         cargoBuildFlags = [
           "--lib"
+          "--release"
         ]; # flag for compiling the lib of this workspace
 
         description = "Floresta library";
@@ -76,6 +77,7 @@ let
         cargoBuildFlags = [
           "--bin"
           "${packageName}"
+          "--release"
         ]; # flag for compiling the florestad binary
         description = "Floresta Node";
 
@@ -89,11 +91,23 @@ let
         cargoBuildFlags = [
           "--bin"
           "${packageName}"
+          "--release"
         ]; # flag for compiling the floresta-cli binary
         description = "Floresta CLI";
 
         # We need to get a different toml for different packages
         cargoToml = builtins.fromTOML (builtins.readFile "${src}/bin/floresta-cli/Cargo.toml");
+      }
+    else if packageName == "floresta-debug" then
+      {
+        pname = "${packageName}";
+        cargoBuildFlags = [ ];
+        description = "Floresta in debug mode with more metadata for on-the-run development";
+
+        buildFeatures = buildFeatures ++ [ "metrics" ];
+
+        # We need to get a different toml for different packages
+        cargoToml = builtins.fromTOML (builtins.readFile "${src}/bin/florestad/Cargo.toml");
       }
     else
       throw "Requested packageName '${packageName}' not found. Available packages: florestalib, florestad, floresta-cli and all (exports everything)";

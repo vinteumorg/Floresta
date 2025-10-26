@@ -206,10 +206,6 @@
               grafana
             ];
 
-            debugTools = with pkgs; [
-              grafana
-            ];
-
             testBinaries = [
               self.packages.${system}.florestad
               utreexod-flake.packages.${system}.utreexod
