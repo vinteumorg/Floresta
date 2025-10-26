@@ -179,6 +179,12 @@
               in
               import ./contrib/nix/build_floresta.nix { inherit packageName pkgs src; };
 
+            floresta-debug =
+              let
+                packageName = "floresta-debug";
+              in
+              import ./contrib/nix/build_floresta.nix { inherit packageName pkgs src; };
+
             default =
               let
                 packageName = "all";
@@ -201,6 +207,7 @@
             debugTools = with pkgs; [
               grafana
             ];
+
             testBinaries = [
               self.packages.${system}.florestad
               utreexod-flake.packages.${system}.utreexod
@@ -209,11 +216,13 @@
 
           in
           {
+
             default = mkShell {
               buildInputs = basicDevTools ++ debugTools;
 
               shellHook = "";
             };
+
             func-tests-env =
               let
                 prepareHook = utils.prepareBinariesScript {
