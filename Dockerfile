@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y \
 
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 ENV PATH="/root/.cargo/bin:${PATH}"
-RUN rustup default 1.74.0
+RUN rustup default 1.90.0
 
 WORKDIR /opt/app
 
@@ -20,6 +20,7 @@ COPY Cargo.* ./
 COPY bin/ bin/
 COPY crates/ crates/
 COPY fuzz/ fuzz/
+COPY test-rust/ test-rust/
 COPY metrics/ metrics/
 COPY doc/ doc/
 RUN --mount=type=cache,target=/usr/local/cargo/registry \

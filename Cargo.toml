@@ -1,5 +1,6 @@
 [workspace]
 resolver = "2"
+exclude = ["test-rust"]
 members = [
     # Libraries
     "crates/floresta",
@@ -19,6 +20,7 @@ members = [
     # Tests and monitoring
     "metrics",
     "fuzz",
+    "test-rust",
 ]
 
 default-members = [
