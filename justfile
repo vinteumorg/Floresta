@@ -134,7 +134,7 @@ format:
 
 # Test all feature combinations in each crate (arg: optional, e.g., --quiet or --verbose)
 test-features arg="":
-    cargo install cargo-hack --locked
+    cargo install cargo-hack --version 0.6.34 --locked
     ./contrib/feature_matrix.sh test {{arg}}
 
 # Format code and run clippy for all feature combinations in each crate (arg: optional, e.g., '-- -D warnings')
@@ -142,7 +142,7 @@ lint-features arg="":
     @just fmt
     @just doc-check
 
-    cargo install cargo-hack --locked
+    cargo install cargo-hack --version 0.6.34 --locked
     ./contrib/feature_matrix.sh clippy '{{arg}}'
 
     @just spell-check
