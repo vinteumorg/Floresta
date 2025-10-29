@@ -133,18 +133,19 @@ format:
 
 # Test all feature combinations in each crate (arg: optional, e.g., --quiet or --verbose)
 test-features arg="":
-    cargo install cargo-hack --locked
+    @just check-command "cargo-hack" "test-features" "cargo install cargo-hack --locked --version 0.6.34"
     ./contrib/feature_matrix.sh test {{arg}}
 
 # Format code and run clippy for all feature combinations in each crate (arg: optional, e.g., '-- -D warnings')
 lint-features arg="":
+    @just check-command "cargo-hack" "lint-features" "cargo install cargo-hack --locked --version 0.6.34"
+
     @just fmt
     @just doc-check
+    @just spell-check
 
-    cargo install cargo-hack --locked
     ./contrib/feature_matrix.sh clippy '{{arg}}'
 
-    @just spell-check
     @just test-functional-uv-fmt
 
 # Remove test-generated data
@@ -153,9 +154,11 @@ clean-data:
 
 # Run all needed checks before contributing code (pre-commit check)
 pcc:
-    @just lint-features '-- -D warnings'
-    @just test-features
-    @just test-functional
+    @just check-command "cargo-hack" "pcc" "cargo install cargo-hack --locked --version 0.6.34"
+
+    just lint-features '-- -D warnings'
+    just test-features
+    just test-functional
 
 # Must have pandoc installed
 # Needs sudo to overwrite existing man pages
