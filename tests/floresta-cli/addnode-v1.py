@@ -19,7 +19,6 @@ PING_TIMEOUT = 40
 
 
 class AddnodeTestV1(FlorestaTestFramework):
-
     nodes = [-1, -1]
 
     def set_test_params(self):
@@ -124,10 +123,16 @@ class AddnodeTestV1(FlorestaTestFramework):
         self.assertEqual(peer_info[0]["addrbind"], f"{bitcoind_host}:{bitcoind_port}")
         self.assertEqual(peer_info[0]["startingheight"], 0)
         self.assertEqual(peer_info[0]["services"], "0000000001000009")
-        self.assertMatch(
-            peer_info[0]["subver"],
-            re.compile(r"\/Floresta\/\d\.\d\.\d\/"),
+
+        pattern = re.compile(
+            r"^/Floresta/"
+            r"\d+\.\d+\.\d+"
+            r"(?:-\d+-g[a-f0-9]+)?"
+            r"(?:-dirty)?"
+            r"/?$"
         )
+
+        self.assertMatch(peer_info[0]["subver"], pattern)
         self.assertEqual(peer_info[0]["inbound"], True)
 
     def test_should_bitcoind_disconnect(self):
