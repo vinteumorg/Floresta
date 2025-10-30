@@ -60,6 +60,7 @@ fn do_request(cmd: &Cli, client: Client) -> anyhow::Result<String> {
             serde_json::to_string_pretty(&client.get_block_hash(height)?)?
         }
         Methods::GetBestBlockHash => serde_json::to_string_pretty(&client.get_best_block_hash()?)?,
+        Methods::GetBlockCount => serde_json::to_string_pretty(&client.get_block_count()?)?,
         Methods::GetTxOut { txid, vout } => {
             serde_json::to_string_pretty(&client.get_tx_out(txid, vout)?)?
         }
@@ -177,6 +178,15 @@ pub enum Methods {
         disable_help_subcommand = true
     )]
     GetBestBlockHash,
+
+    #[doc = include_str!("../../../doc/rpc/getblockcount.md")]
+    #[command(
+        name = "getblockcount",
+        about = "Returns the height of the most-work chain.",
+        long_about = Some(include_str!("../../../doc/rpc/getblockcount.md")),
+        disable_help_subcommand = true
+    )]
+    GetBlockCount,
 
     /// Returns the proof that one or more transactions were included in a block
     #[command(name = "gettxoutproof")]
