@@ -318,6 +318,9 @@ pub enum Error {
 
     /// The user requested a rescan based on invalid values.
     InvalidRescanVal,
+
+    /// The requested transaction output was not found
+    TxOutNotFound,
 }
 
 impl From<serde_json::Error> for Error {
@@ -343,6 +346,7 @@ impl Display for Error {
             Error::EmptyResponse => write!(f, "got an empty response from server"),
             Error::InvalidVerbosity => write!(f, "invalid verbosity level"),
             Error::InvalidRescanVal => write!(f, "Invalid rescan values"),
+            Error::TxOutNotFound => write!(f, "Transaction output was not found"),
         }
     }
 }
