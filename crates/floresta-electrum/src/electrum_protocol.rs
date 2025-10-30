@@ -202,8 +202,12 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
         let (tx, rx) = unbounded_channel();
         let unconfirmed = address_cache.find_unconfirmed().unwrap();
         for tx in unconfirmed {
-            chain.broadcast(&tx).expect("Invalid chain");
+            let txid = tx.compute_txid();
+            if let Err(e) = node_interface.broadcast_transaction(tx).await? {
+                error!("Could not re-broadcast tx: {txid} due to {e}");
+            }
         }
+
         Ok(ElectrumServer {
             chain,
             address_cache,
@@ -430,10 +434,17 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                     Vec::from_hex(&tx).map_err(|_| super::error::Error::InvalidParams)?;
                 let tx: Transaction =
                     deserialize(&hex).map_err(|_| super::error::Error::InvalidParams)?;
-                self.chain
-                    .broadcast(&tx)
-                    .map_err(|e| super::error::Error::Blockchain(Box::new(e)))?;
-                let id = tx.compute_txid();
+
+                let txid = tx.compute_txid();
+                if let Err(e) = self
+                    .node_interface
+                    .broadcast_transaction(tx.clone())
+                    .await?
+                {
+                    error!("Could not broadcast transaction {txid} due to {e:?}");
+                    return Err(super::error::Error::Mempool(e));
+                };
+
                 let updated = self
                     .address_cache
                     .cache_mempool_transaction(&tx)
@@ -442,7 +453,7 @@ impl<Blockchain: BlockchainInterface> ElectrumServer<Blockchain> {
                     .collect::<Vec<_>>();
 
                 self.wallet_notify(&updated).await;
-                json_rpc_res!(request, id)
+                json_rpc_res!(request, txid)
             }
             "blockchain.transaction.get" => {
                 let tx_id = get_arg!(request, Txid, 0);
@@ -1060,7 +1071,7 @@ mod test {
             UtreexoNode::new(
                 u_config,
                 chain.clone(),
-                Arc::new(Mutex::new(Mempool::new(0))),
+                Arc::new(Mutex::new(Mempool::new(10_000))),
                 None,
                 Arc::new(RwLock::new(false)),
                 AddressMan::default(),
@@ -1079,6 +1090,8 @@ mod test {
         let non_tls_listener = Arc::new(TcpListener::bind(e_addr).await.unwrap());
         let assigned_port = non_tls_listener.local_addr().unwrap().port();
 
+        let (stop_signal, _) = tokio::sync::oneshot::channel();
+        task::spawn(chain_provider.run(stop_signal));
         task::spawn(client_accept_loop(
             non_tls_listener,
             electrum_server.message_transmitter.clone(),
