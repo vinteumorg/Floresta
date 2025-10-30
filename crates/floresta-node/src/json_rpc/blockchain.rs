@@ -1,7 +1,10 @@
+use std::ops::Add;
+
 use bitcoin::block::Header;
 use bitcoin::consensus::encode::serialize_hex;
 use bitcoin::consensus::Encodable;
 use bitcoin::constants::genesis_block;
+use bitcoin::hex::DisplayHex;
 use bitcoin::Address;
 use bitcoin::Block;
 use bitcoin::BlockHash;
@@ -10,6 +13,7 @@ use bitcoin::OutPoint;
 use bitcoin::Script;
 use bitcoin::ScriptBuf;
 use bitcoin::Txid;
+use bitcoin::Work;
 use miniscript::descriptor::checksum;
 use serde::Deserialize;
 use serde::Serialize;
@@ -219,6 +223,8 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
             .map_err(|_| JsonRpcError::Chain)?
             .unwrap();
 
+        let chain_work = self.calculate_chainwork_by_height(height)?;
+
         let median_time_past = if height > 11 {
             let mut last_block_times: Vec<_> = ((height - 11)..height)
                 .map(|h| {
@@ -234,11 +240,18 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
             block.header.time
         };
 
+        let witness_block_size = block
+            .txdata
+            .iter()
+            .map(|tx| tx.total_size() - tx.base_size())
+            .sum::<usize>();
+        let strippedsize = block.total_size() - witness_block_size;
+
         let block = GetBlockResVerbose {
-            bits: serialize_hex(&block.header.bits),
-            chainwork: block.header.work().to_string(),
+            bits: serialize_hex(&block.header.bits.to_consensus().to_be()),
+            chainwork: chain_work.to_be_bytes().to_lower_hex_string(),
             confirmations: (tip - height) + 1,
-            difficulty: block.header.difficulty(self.chain.get_params()),
+            difficulty: block.header.difficulty_float(),
             hash: block.header.block_hash().to_string(),
             height,
             merkleroot: block.header.merkle_root.to_string(),
@@ -252,7 +265,7 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
                 .map(|tx| tx.compute_txid().to_string())
                 .collect(),
             version: block.header.version.to_consensus(),
-            version_hex: serialize_hex(&block.header.version),
+            version_hex: serialize_hex(&(block.header.version.to_consensus() as u32).to_be()),
             weight: block.weight().to_wu() as usize,
             mediantime: median_time_past,
             n_tx: block.txdata.len(),
@@ -261,7 +274,8 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
                 .get_block_hash(height + 1)
                 .ok()
                 .map(|h| h.to_string()),
-            strippedsize: block.total_size(),
+            strippedsize,
+            target: serialize_hex(&block.header.target().to_be_bytes()),
         };
 
         Ok(block)
@@ -344,6 +358,78 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
     // getmempoolentry
     // getmempoolinfo
     // getrawmempool
+
+    fn calculate_chainwork_by_height(&self, block_height: u32) -> Result<Work, JsonRpcError> {
+        let mut total_chainwork = Work::from_be_bytes([0u8; 32]);
+        for epoch_start_height in (0..=block_height).step_by(2016) {
+            // Calculate the number of blocks in this epoch
+            let epoch_end_height = core::cmp::min(epoch_start_height + 2015, block_height);
+            let blocks_in_epoch = (epoch_end_height - epoch_start_height + 1) as u64;
+
+            // Get the block hash and header at the start of the epoch
+            let epoch_block_hash = self
+                .chain
+                .get_block_hash(epoch_start_height)
+                .map_err(|_| JsonRpcError::BlockNotFound)?;
+            let epoch_block_header = self
+                .chain
+                .get_block_header(&epoch_block_hash)
+                .map_err(|_| JsonRpcError::BlockNotFound)?;
+
+            let epoch_chainwork =
+                Self::multiply_work_by_u64(epoch_block_header.work(), blocks_in_epoch)?;
+            total_chainwork = total_chainwork.add(epoch_chainwork);
+        }
+        Ok(total_chainwork)
+    }
+
+    fn multiply_work_by_u64(work: Work, factor: u64) -> Result<Work, JsonRpcError> {
+        if factor == 0 {
+            return Ok(Work::from_be_bytes([0u8; 32]));
+        } else if factor == 1 {
+            return Ok(work);
+        }
+
+        // Convert Work to little-endian bytes for easier manipulation (least significant byte first)
+        let work_bytes = work.to_le_bytes();
+        let mut carry_high: u128 = 0;
+        let mut result_bytes = [0u8; 32];
+        let word_size = 8usize;
+        let num_words = work_bytes.len() / word_size;
+
+        // Multiply each 8-byte word (u64) of Work by the factor, propagating carry
+        // Work is processed in little-endian order (from least significant byte to most significant byte),
+        // but result is stored in big-endian
+        for i in 0..num_words {
+            let word = match work_bytes[i * word_size..(i + 1) * word_size].try_into() {
+                Ok(arr) => u64::from_le_bytes(arr),
+                Err(_) => {
+                    let err_msg = "Failed to multiply the chain work".to_string();
+                    return Err(JsonRpcError::ChainWorkError(err_msg));
+                }
+            };
+
+            // Multiply the word by factor and add carry from previous step
+            // Use u128 to avoid overflow during multiplication
+            let product = (word as u128) * (factor as u128) + carry_high;
+            carry_high = product >> 64;
+
+            // Store the low 64 bits of the product in the result
+            // Result is built in big-endian order, so calculate the index accordingly
+            let byte_index = num_words - i;
+            result_bytes[(byte_index - 1) * word_size..byte_index * word_size]
+                .copy_from_slice(&(product as u64).to_be_bytes());
+        }
+
+        if carry_high > 0 {
+            return Err(JsonRpcError::ChainWorkError(format!(
+                "Overflow in the multiplication of Work by factor {}. Carry: {}",
+                factor, carry_high
+            )));
+        }
+
+        Ok(Work::from_be_bytes(result_bytes))
+    }
 
     /// Check if the script is anchor type
     fn is_anchor_type(script: &Script) -> bool {
