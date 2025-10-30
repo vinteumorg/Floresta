@@ -32,6 +32,7 @@ tracing-subscriber = { version = "0.3.20", features = ["chrono", "ansi", "env-fi
 console-subscriber = { version = "0.4", optional = true }
 tracing = "0.1.41"
 tracing-appender = "0.2.3"
+corepc-types = "0.10.1"
 
 [target.'cfg(target_env = "gnu")'.dependencies]
 libc = "0.2.169"
