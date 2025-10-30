@@ -372,6 +372,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0fda569d741b895131a88ee5589a467e73e9c4718e958ac9308e4f7dc44b6945"
 dependencies = [
  "base58ck",
+ "base64 0.21.7",
  "bech32 0.11.0",
  "bitcoin-internals 0.3.0",
  "bitcoin-io 0.1.3",
@@ -746,6 +747,17 @@ name = "core-foundation-sys"
 version = "0.8.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
+
+[[package]]
+name = "corepc-types"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c22db78b0223b66f82f92b14345f06307078f76d94b18280431ea9bc6cd9cbb6"
+dependencies = [
+ "bitcoin 0.32.7",
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "cpufeatures"
@@ -1157,6 +1169,7 @@ dependencies = [
  "bitcoin 0.32.7",
  "chrono",
  "console-subscriber",
+ "corepc-types",
  "dirs",
  "dns-lookup 2.0.4",
  "floresta-chain",
@@ -1190,6 +1203,7 @@ version = "0.4.0"
 dependencies = [
  "bitcoin 0.32.7",
  "clap",
+ "corepc-types",
  "jsonrpc",
  "rand",
  "rcgen",
