@@ -218,8 +218,7 @@ impl<T: AsyncWrite + Unpin + Send + Sync> Peer<T> {
         if err.is_err() {
             debug!("Peer {} connection loop closed: {err:?}", self.id);
         }
-        self.send_to_node(PeerMessages::Disconnected(self.address_id))
-            .await;
+        self.send_to_node(PeerMessages::Disconnected(self.address_id));
         // force the stream to shutdown to prevent leaking resources
         if let Err(shutdown_err) = self.writer.shutdown().await {
             debug!(
@@ -419,7 +418,7 @@ impl<T: AsyncWrite + Unpin + Send + Sync> Peer<T> {
                             Inventory::Block(block_hash)
                             | Inventory::WitnessBlock(block_hash)
                             | Inventory::CompactBlock(block_hash) => {
-                                self.send_to_node(PeerMessages::NewBlock(block_hash)).await;
+                                self.send_to_node(PeerMessages::NewBlock(block_hash));
                             }
                             _ => {}
                         }
@@ -429,7 +428,7 @@ impl<T: AsyncWrite + Unpin + Send + Sync> Peer<T> {
                     self.write(NetworkMessage::Headers(Vec::new())).await?;
                 }
                 NetworkMessage::Headers(headers) => {
-                    self.send_to_node(PeerMessages::Headers(headers)).await;
+                    self.send_to_node(PeerMessages::Headers(headers));
                 }
                 NetworkMessage::SendHeaders => {
                     self.send_headers = true;
@@ -442,7 +441,7 @@ impl<T: AsyncWrite + Unpin + Send + Sync> Peer<T> {
                     self.write(NetworkMessage::FeeFilter(1000)).await?;
                 }
                 NetworkMessage::AddrV2(addresses) => {
-                    self.send_to_node(PeerMessages::Addr(addresses)).await;
+                    self.send_to_node(PeerMessages::Addr(addresses));
                 }
                 NetworkMessage::GetBlocks(_) => {
                     self.write(NetworkMessage::Inv(Vec::new())).await?;
@@ -456,11 +455,11 @@ impl<T: AsyncWrite + Unpin + Send + Sync> Peer<T> {
                     }
                 }
                 NetworkMessage::Tx(tx) => {
-                    self.send_to_node(PeerMessages::Transaction(tx)).await;
+                    self.send_to_node(PeerMessages::Transaction(tx));
                 }
                 NetworkMessage::NotFound(inv) => {
                     for inv_el in inv {
-                        self.send_to_node(PeerMessages::NotFound(inv_el)).await;
+                        self.send_to_node(PeerMessages::NotFound(inv_el));
                     }
                 }
                 NetworkMessage::SendAddrV2 => {
@@ -481,13 +480,12 @@ impl<T: AsyncWrite + Unpin + Send + Sync> Peer<T> {
                     }
 
                     let utreexo_proof: UtreexoProof = deserialize(&payload)?;
-                    self.send_to_node(PeerMessages::UtreexoProof(utreexo_proof))
-                        .await;
+                    self.send_to_node(PeerMessages::UtreexoProof(utreexo_proof));
 
                     return Ok(());
                 }
                 NetworkMessage::Block(block) => {
-                    self.send_to_node(PeerMessages::Block(block)).await;
+                    self.send_to_node(PeerMessages::Block(block));
                 }
                 NetworkMessage::CFilter(filter_msg) => match filter_msg.filter_type {
                     0 => {
@@ -496,12 +494,10 @@ impl<T: AsyncWrite + Unpin + Send + Sync> Peer<T> {
                         self.send_to_node(PeerMessages::BlockFilter((
                             filter_msg.block_hash,
                             filter,
-                        )))
-                        .await;
+                        )));
                     }
                     1 => {
-                        self.send_to_node(PeerMessages::UtreexoState(filter_msg.filter))
-                            .await;
+                        self.send_to_node(PeerMessages::UtreexoState(filter_msg.filter));
                     }
                     _ => {}
                 },
@@ -549,8 +545,7 @@ impl<T: AsyncWrite + Unpin + Send + Sync> Peer<T> {
                         services: self.services,
                         kind: self.kind,
                         transport_protocol: self.transport_protocol,
-                    }))
-                    .await;
+                    }));
                 }
                 bitcoin::p2p::message::NetworkMessage::SendAddrV2 => {
                     self.wants_addrv2 = true;
@@ -596,7 +591,7 @@ impl<T: AsyncWrite + Unpin + Send + Sync> Peer<T> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub async fn create_peer<W: AsyncWrite + Unpin + Send + Sync + 'static>(
+    pub fn create_peer<W: AsyncWrite + Unpin + Send + Sync + 'static>(
         id: u32,
         mempool: Arc<Mutex<Mempool>>,
         node_tx: UnboundedSender<NodeNotification>,
@@ -642,6 +637,7 @@ impl<T: AsyncWrite + Unpin + Send + Sync> Peer<T> {
         let pong = make_pong(nonce);
         self.write(pong).await
     }
+
     async fn handle_version(&mut self, version: VersionMessage) -> Result<()> {
         self.user_agent = version.user_agent;
         self.blocks_only = !version.relay;
@@ -655,7 +651,8 @@ impl<T: AsyncWrite + Unpin + Send + Sync> Peer<T> {
         self.state = State::SentVerack;
         self.write(verack).await
     }
-    async fn send_to_node(&self, message: PeerMessages) {
+
+    fn send_to_node(&self, message: PeerMessages) {
         let message = NodeNotification::FromPeer(self.id, message);
         let _ = self.node_tx.send(message);
     }

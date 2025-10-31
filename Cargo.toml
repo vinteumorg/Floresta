@@ -37,3 +37,6 @@ default-members = [
 
 [workspace.package]
 readme = "README.md"
+
+[workspace.lints.clippy]
+unused_async = "deny"

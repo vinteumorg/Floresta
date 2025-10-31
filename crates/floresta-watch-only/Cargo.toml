@@ -27,3 +27,6 @@ default = ["std"]
 memory-database = []
 # The default features in common are `std` and `descriptors-std` (which is a superset of `descriptors-no-std`)
 std = ["floresta-common/default", "serde/std"]
+
+[lints]
+workspace = true

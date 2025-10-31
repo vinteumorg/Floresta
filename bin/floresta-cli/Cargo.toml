@@ -21,3 +21,6 @@ bitcoin = { version = "0.32", features = ["serde", "std"] }
 serde_json = "1.0"
 anyhow = "1.0"
 floresta-rpc = { path = "../../crates/floresta-rpc", features = ["clap"] }
+
+[lints]
+workspace = true
