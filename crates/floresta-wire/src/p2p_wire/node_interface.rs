@@ -17,6 +17,7 @@ use super::node::ConnectionKind;
 use super::node::NodeNotification;
 use super::node::PeerStatus;
 use super::transport::TransportProtocol;
+use crate::mempool::AcceptToMempoolError;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 /// A request to addnode that can be made to the node.
@@ -36,7 +37,7 @@ pub enum AddNode {
     Onetry((IpAddr, u16)),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 /// A request that can be made to the node.
 ///
 /// While the node is running, consumers may want to request some useful data, like block data,
@@ -78,6 +79,9 @@ pub enum UserRequest {
 
     /// Ping all connected peers to check if they are alive.
     Ping,
+
+    /// Adds a transaction to mempool and advertises it
+    SendTransaction(Transaction),
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -125,6 +129,9 @@ pub enum NodeResponse {
 
     /// A response indicating whether the ping was successful.
     Ping(bool),
+
+    /// Transaction broadcast
+    TransactionBroadcastResult(Result<Txid, AcceptToMempoolError>),
 }
 
 #[derive(Debug, Clone)]
@@ -163,6 +170,17 @@ impl NodeInterface {
             .send(NodeNotification::FromUser(request, tx)); // Send the request to the node
 
         rx.await
+    }
+
+    pub async fn broadcast_transaction(
+        &self,
+        transaction: Transaction,
+    ) -> Result<Result<Txid, AcceptToMempoolError>, oneshot::error::RecvError> {
+        let val = self
+            .send_request(UserRequest::SendTransaction(transaction))
+            .await?;
+
+        extract_variant!(TransactionBroadcastResult, val)
     }
 
     /// Connects to a specified address and port.

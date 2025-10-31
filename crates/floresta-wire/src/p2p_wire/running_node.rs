@@ -394,13 +394,6 @@ where
                 ASK_FOR_PEERS_INTERVAL,
                 RunningNode
             );
-            // Try broadcast transactions
-            periodic_job!(
-                self.handle_broadcast().await,
-                self.last_broadcast,
-                BROADCAST_DELAY,
-                RunningNode
-            );
             // Send our addresses to our peers
             periodic_job!(
                 self.send_addresses().await,
