@@ -199,6 +199,7 @@
               just
               rustup
               git
+              typos
               rust-bin.stable.latest.default
               (rust-bin.selectLatestNightlyWith (toolchain: toolchain.default))
               typos
