@@ -1,6 +1,4 @@
 use std::fs;
-use std::io;
-use std::io::IsTerminal;
 #[cfg(feature = "metrics")]
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
@@ -58,16 +56,10 @@ use tracing::debug;
 use tracing::error;
 use tracing::info;
 use tracing::warn;
-use tracing_appender::non_blocking::WorkerGuard;
-use tracing_subscriber::fmt;
-use tracing_subscriber::fmt::time::ChronoLocal;
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::EnvFilter;
-use tracing_subscriber::Layer;
 
 use crate::config_file::ConfigFile;
 use crate::error::FlorestadError;
+use crate::florestad::fs::OpenOptions;
 #[cfg(feature = "json-rpc")]
 use crate::json_rpc;
 use crate::wallet_input::InitialWalletSetup;
@@ -98,9 +90,7 @@ pub struct Config {
     /// This directory must be readable and writable by our process. We'll use this dir to store
     /// both chain and wallet data, so this should be kept in a non-volatile medium. We are not
     /// particularly aggressive in disk usage, so we don't need a fast disk to work.
-    ///
-    /// If not set, it defaults to $HOME/.floresta
-    pub data_dir: Option<String>,
+    pub data_dir: String,
 
     /// We consider blocks prior to this one to have a valid signature
     ///
@@ -235,17 +225,17 @@ pub struct Config {
     pub backfill: bool,
 }
 
-impl Default for Config {
-    fn default() -> Self {
+impl Config {
+    pub fn new(network: Network, data_dir: String) -> Self {
         Self {
             disable_dns_seeds: false,
-            data_dir: None,
+            data_dir,
             assume_valid: None,
             wallet_xpub: None,
             wallet_descriptor: None,
             config_file: None,
             proxy: None,
-            network: Network::Bitcoin,
+            network,
             cfilters: false,
             filters_start_height: None,
             #[cfg(feature = "zmq-server")]
@@ -257,7 +247,7 @@ impl Default for Config {
             log_to_file: false,
             assume_utreexo: false,
             debug: false,
-            user_agent: String::default(),
+            user_agent: String::new(),
             assumeutreexo_value: None,
             electrum_address: None,
             enable_electrum_tls: false,
@@ -285,8 +275,6 @@ pub struct Florestad {
     #[cfg(feature = "json-rpc")]
     /// A handle to our json-rpc server
     json_rpc: OnceLock<tokio::task::JoinHandle<()>>,
-
-    logger_guard: Arc<Mutex<Option<WorkerGuard>>>,
 }
 
 impl Florestad {
@@ -371,35 +359,23 @@ impl Florestad {
 
     /// Actually runs florestad, spawning all modules and waiting until
     /// someone asks to stop.
+    ///
+    /// This function will return an error if the configured data directory path is not an
+    /// **existing and writable directory**, or cannot be validated as such.
     pub async fn start(&self) -> Result<(), FlorestadError> {
-        let data_dir = Self::data_dir_path(&self.config);
+        let data_dir = &self.config.data_dir;
 
-        // Create the data directory if it doesn't exist
-        if !Path::new(&data_dir).exists() {
-            fs::create_dir_all(&data_dir)
-                .map_err(|e| FlorestadError::CouldNotCreateDataDir(data_dir.clone(), e))?;
-        }
-
-        // Setup global logger
-        if self.config.log_to_stdout || self.config.log_to_file {
-            let guard = Self::setup_logger(
-                &data_dir,
-                self.config.log_to_file,
-                self.config.log_to_stdout,
-                self.config.debug,
-            );
-
-            *self.logger_guard.lock().unwrap() = guard?;
-        }
+        // Check that the directory exists and is writable
+        Florestad::validate_data_dir(data_dir)?;
 
         info!("Loading watch-only wallet");
-        let mut wallet = Self::load_wallet(&data_dir)?;
+        let mut wallet = Self::load_wallet(data_dir)?;
         wallet
             .setup()
             .map_err(FlorestadError::CouldNotInitializeWallet)?;
 
         // Try to add more wallets to watch if needed
-        self.setup_wallet(&data_dir, &mut wallet)?;
+        self.setup_wallet(data_dir, &mut wallet)?;
 
         info!("Loading blockchain database");
         let assume_valid = self
@@ -622,7 +598,7 @@ impl Florestad {
             }
 
             // Assemble TLS configuration from file.
-            let tls_config = self.create_tls_config(&data_dir)?;
+            let tls_config = self.create_tls_config(data_dir)?;
 
             // Electrum TLS accept loop.
             let tls_listener = TcpListener::bind(electrum_addr_tls)
@@ -676,124 +652,36 @@ impl Florestad {
         Ok(())
     }
 
-    fn data_dir_path(config: &Config) -> String {
-        // base dir: config.data_dir or $HOME/.floresta or "./.floresta"
-        let mut base: PathBuf = config
-            .data_dir
-            .as_ref()
-            .map(|s| s.trim_end_matches(['/', '\\']).into())
-            .unwrap_or_else(|| {
-                dirs::home_dir()
-                    .unwrap_or_else(|| PathBuf::from("."))
-                    .join(".floresta")
-            });
-
-        // network-specific subdir
-        match config.network {
-            Network::Bitcoin => {} // no subdir
-            Network::Signet => base.push("signet"),
-            Network::Testnet => base.push("testnet3"),
-            Network::Testnet4 => base.push("testnet4"),
-            Network::Regtest => base.push("regtest"),
-        }
-
-        base.to_string_lossy().into_owned()
-    }
-
-    /// Setup the logger for `florestad`.
-    ///
-    /// This logger will subscribe to `tracing` events, filter them according to the defined log level, and format them based
-    /// on the output destination. Logs can be directed to `stdout`, a file, both, or neither.
-    pub fn setup_logger(
-        data_dir: &str,
-        log_to_file: bool,
-        log_to_stdout: bool,
-        debug: bool,
-    ) -> Result<Option<WorkerGuard>, FlorestadError> {
-        // Get the log level from `debug`.
-        let log_level = if debug { "debug" } else { "info" };
-
-        // Try to build an `EnvFilter` from the `RUST_LOG` environment variable, or fallback to `log_level`.
-        let log_filter =
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(log_level));
-
-        // For the registry, also enable very verbose runtime traces so
-        // tokio-console works, but keep human outputs quiet via per-layer filters below.
-        #[cfg(feature = "tokio-console")]
-        let base_filter = EnvFilter::new(format!("{},tokio=trace,runtime=trace", log_filter));
-
-        #[cfg(not(feature = "tokio-console"))]
-        let base_filter = log_filter.clone();
-
-        // Validate the log file path.
-        if log_to_file {
-            let file_path = format!("{data_dir}/debug.log");
-            std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&file_path)?;
-        }
-
-        // Timer for log events.
-        let log_timer = ChronoLocal::new("%Y-%m-%d %H:%M:%S".to_string());
-
-        // Standard Output layer: human-friendly formatting and level; ANSI only on a real TTY.
-        let fmt_layer_stdout = log_to_stdout.then(|| {
-            fmt::layer()
-                .with_writer(io::stdout)
-                .with_ansi(IsTerminal::is_terminal(&io::stdout()))
-                .with_timer(log_timer.clone())
-                .with_target(true)
-                .with_level(true)
-                .with_filter(log_filter.clone())
-        });
-
-        // File layer: non-blocking writer. Keep the `WorkerGuard` so logs flush on drop.
-        let mut guard = None;
-        let fmt_layer_logfile = log_to_file.then(|| {
-            let file_appender = tracing_appender::rolling::never(data_dir, "debug.log");
-            let (non_blocking, file_guard) = tracing_appender::non_blocking(file_appender);
-            guard = Some(file_guard);
-            fmt::layer()
-                .with_writer(non_blocking)
-                .with_ansi(false)
-                .with_timer(log_timer)
-                .with_target(true)
-                .with_level(true)
-                .with_filter(log_filter.clone())
-        });
-
-        // Build the registry with its (possibly more permissive) base filter, then attach layers to it.
-        let registry = tracing_subscriber::registry().with(base_filter);
-
-        // Spawn the `console_subscriber` in the background
-        // and apply it's [`Layer`] to the [`Registry`], if
-        // the `tokio-console` feature is enabled.
-        #[cfg(feature = "tokio-console")]
-        let registry = registry.with(console_subscriber::spawn());
-
-        // Apply the `stdout` and logfile's [`Layer`]s to the [`Registry`].
-        registry
-            .with(fmt_layer_stdout)
-            .with(fmt_layer_logfile)
-            .init();
-
-        Ok(guard)
-    }
-
     pub fn from_config(config: Config) -> Self {
-        Self {
-            config,
-            stop_signal: Arc::new(RwLock::new(false)),
-            stop_notify: Arc::new(Mutex::new(None)),
-            #[cfg(feature = "json-rpc")]
-            json_rpc: OnceLock::new(),
-            logger_guard: Arc::new(Mutex::new(None)),
-        }
+        Self::from(config)
     }
 
-    pub fn new() -> Self {
-        Self::from_config(Config::default())
+    pub fn new(network: Network, data_dir: String) -> Self {
+        Self::from_config(Config::new(network, data_dir))
+    }
+
+    fn validate_data_dir(path: &str) -> Result<(), FlorestadError> {
+        let p = Path::new(path);
+
+        let md = fs::metadata(p).map_err(|_| FlorestadError::InvalidDataDir(path.into()))?;
+        if !md.is_dir() {
+            return Err(FlorestadError::InvalidDataDir(path.into()));
+        }
+
+        // Reliable cross-platform writability test:
+        let probe = p.join(".perm_probe");
+        if OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&probe)
+            .is_err()
+        {
+            return Err(FlorestadError::InvalidDataDir(path.into()));
+        }
+        let _ = fs::remove_file(probe);
+
+        Ok(())
     }
 
     /// Loads a config file from disk, returns default if it cannot load it
@@ -1036,12 +924,6 @@ impl Florestad {
     }
 }
 
-impl Default for Florestad {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl From<Config> for Florestad {
     fn from(config: Config) -> Self {
         Self {
@@ -1050,55 +932,6 @@ impl From<Config> for Florestad {
             stop_notify: Arc::new(Mutex::new(None)),
             #[cfg(feature = "json-rpc")]
             json_rpc: OnceLock::new(),
-            logger_guard: Arc::new(Mutex::new(None)),
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_data_dir_path() {
-        let mut config = Config::default();
-
-        let expected = dirs::home_dir()
-            .unwrap_or(PathBuf::from("."))
-            .join(".floresta");
-
-        assert_eq!(
-            Florestad::data_dir_path(&config),
-            expected.display().to_string(),
-        );
-
-        // Using other made-up directories
-        config.data_dir = Some("path/to/dir".to_string());
-        assert_eq!(Florestad::data_dir_path(&config), "path/to/dir");
-
-        config.data_dir = Some("path/to/dir/".to_string());
-        assert_eq!(Florestad::data_dir_path(&config), "path/to/dir");
-
-        config.data_dir = Some(format!("path{}", '\\')); // test removing the \ separator
-        assert_eq!(Florestad::data_dir_path(&config), "path");
-
-        config.data_dir = Some("path///".to_string()); // test removing many separators
-        assert_eq!(Florestad::data_dir_path(&config), "path");
-
-        // Using other networks
-        for &(net, suffix) in &[
-            (Network::Testnet, "testnet3"),
-            (Network::Testnet4, "testnet4"),
-            (Network::Signet, "signet"),
-            (Network::Regtest, "regtest"),
-        ] {
-            let expected = PathBuf::from("path").join(suffix);
-            config.network = net;
-
-            assert_eq!(
-                Florestad::data_dir_path(&config),
-                expected.display().to_string(),
-            );
         }
     }
 }

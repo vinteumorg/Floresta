@@ -74,8 +74,8 @@ pub enum FlorestadError {
     /// Writing a file to the filesystem.
     CouldNotWriteFile(String, std::io::Error),
 
-    /// Creating the data directory.
-    CouldNotCreateDataDir(String, std::io::Error),
+    /// Data directory doesn't exist or is not writable.
+    InvalidDataDir(String),
 
     /// Obtaining a lock on the data directory.
     CouldNotOpenKvDatabase(KvDatabaseError),
@@ -106,7 +106,7 @@ pub enum FlorestadError {
     CouldNotCreateTLSDataDir(String, std::io::Error),
 
     /// Failed to provide a valid xpub.
-    InvalidProvidedXpub(String, crate::slip132::Error),
+    InvalidProvidedXpub(String, slip132::Error),
 
     /// Failed to obtain the wallet cache.
     CouldNotObtainWalletCache(WatchOnlyError<KvDatabaseError>),
@@ -182,8 +182,8 @@ impl std::fmt::Display for FlorestadError {
             FlorestadError::CouldNotWriteFile(path, err) => {
                 write!(f, "Error while creating file {path}: {err}")
             }
-            FlorestadError::CouldNotCreateDataDir(path, err) => {
-                write!(f, "Error while creating data directory {path}: {err}")
+            FlorestadError::InvalidDataDir(path) => {
+                write!(f, "Data directory doesn't exist or is not writable: {path}")
             }
             FlorestadError::CouldNotOpenKvDatabase(err) => {
                 write!(f, "Cannot open a key-value database: {err}")

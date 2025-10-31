@@ -13,9 +13,7 @@ serde_json = "1.0"
 kv = "0.24.0"
 miniscript = "12"
 toml = "0.8.20"
-dirs = "4.0.0"
 bitcoin = { version = "0.32", features = ["serde", "std", "bitcoinconsensus"] }
-chrono = "0.4.19"
 floresta-compact-filters = { path = "../floresta-compact-filters", optional = true }
 floresta-chain = { path = "../floresta-chain" }
 floresta-common = { path = "../floresta-common" }
@@ -28,10 +26,7 @@ zmq = { version = "0.10.0", optional = true }
 dns-lookup = "=2.0.4"
 tower-http = { version = "0.6.2", optional = true, features = ["cors"] }
 rcgen = "0.13.2"
-tracing-subscriber = { version = "0.3.20", features = ["chrono", "ansi", "env-filter"] }
-console-subscriber = { version = "0.4", optional = true }
 tracing = "0.1.41"
-tracing-appender = "0.2.3"
 corepc-types = "0.10.1"
 
 [target.'cfg(target_env = "gnu")'.dependencies]
@@ -48,4 +43,3 @@ zmq-server = ["dep:zmq"]
 json-rpc = ["dep:axum", "dep:tower-http", "compact-filters"]
 default = ["json-rpc", "flat-chainstore"]
 metrics = ["dep:metrics", "floresta-wire/metrics", "floresta-chain/metrics"]
-tokio-console = ["dep:console-subscriber"]
