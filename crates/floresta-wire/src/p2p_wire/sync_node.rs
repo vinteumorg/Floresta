@@ -20,7 +20,7 @@ use super::error::WireError;
 use super::node_interface::UserRequest;
 use super::peer::PeerMessages;
 use crate::node::periodic_job;
-use crate::node::try_and_log;
+use crate::node::try_and_debug;
 use crate::node::ConnectionKind;
 use crate::node::InflightRequests;
 use crate::node::NodeNotification;
@@ -110,7 +110,7 @@ where
             }
         }
 
-        try_and_log!(self.request_blocks(blocks).await);
+        try_and_debug!(self.request_blocks(blocks).await);
     }
 
     async fn ask_for_missed_blocks(&mut self) -> Result<(), WireError> {
@@ -185,7 +185,7 @@ where
 
         loop {
             while let Ok(Some(msg)) = timeout(Duration::from_secs(1), self.node_rx.recv()).await {
-                try_and_log!(self.handle_message(msg).await);
+                try_and_debug!(self.handle_message(msg).await);
             }
 
             if *self.kill_signal.read().await {
@@ -224,7 +224,7 @@ where
                 SyncNode
             );
 
-            try_and_log!(self.check_for_timeout().await);
+            try_and_debug!(self.check_for_timeout().await);
 
             let assume_stale = Instant::now()
                 .duration_since(self.common.last_tip_update)
@@ -232,19 +232,19 @@ where
                 > SyncNode::ASSUME_STALE;
 
             if assume_stale {
-                try_and_log!(self.create_connection(ConnectionKind::Extra).await);
+                try_and_debug!(self.create_connection(ConnectionKind::Extra).await);
                 self.last_tip_update = Instant::now();
                 continue;
             }
 
-            try_and_log!(self.process_pending_blocks().await);
+            try_and_debug!(self.process_pending_blocks().await);
             if !self.has_utreexo_peers() {
                 continue;
             }
 
             // Ask for missed blocks or proofs if they are no longer inflight or pending
-            try_and_log!(self.ask_for_missed_blocks().await);
-            try_and_log!(self.ask_for_missed_proofs().await);
+            try_and_debug!(self.ask_for_missed_blocks().await);
+            try_and_debug!(self.ask_for_missed_proofs().await);
 
             self.get_blocks_to_download().await;
         }
@@ -287,11 +287,11 @@ where
                     }
 
                     PeerMessages::Ready(version) => {
-                        try_and_log!(self.handle_peer_ready(peer, &version).await);
+                        try_and_debug!(self.handle_peer_ready(peer, &version).await);
                     }
 
                     PeerMessages::Disconnected(idx) => {
-                        try_and_log!(self.handle_disconnection(peer, idx).await);
+                        try_and_debug!(self.handle_disconnection(peer, idx).await);
                     }
 
                     PeerMessages::Addr(addresses) => {
