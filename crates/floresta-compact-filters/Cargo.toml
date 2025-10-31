@@ -15,3 +15,5 @@ bitcoin = "0.32"
 floresta-chain = { path = "../floresta-chain", default-features = false }
 kv = "0.24.0"
 
+[lints]
+workspace = true

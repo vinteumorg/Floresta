@@ -31,3 +31,6 @@ clap = ["dep:clap"]
 [dev-dependencies]
 rand = "0.8.5"
 rcgen = "0.13"
+
+[lints]
+workspace = true

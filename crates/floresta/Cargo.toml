@@ -58,6 +58,9 @@ flat-chainstore = ["floresta-chain/flat-chainstore"]
 [lib]
 crate-type = ["cdylib", "rlib", "staticlib"]
 
+[lints]
+workspace = true
+
 [[example]]
 name = "node"
 path = "examples/node.rs"

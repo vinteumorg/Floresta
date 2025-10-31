@@ -26,3 +26,6 @@ std = ["bitcoin/std", "sha2/std"]
 # Both features can be set at the same time, but for `no_std` only the latter should be used
 descriptors-std = ["miniscript/std"]
 descriptors-no-std = ["miniscript/no-std"]
+
+[lints]
+workspace = true
