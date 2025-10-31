@@ -83,7 +83,7 @@ struct BlockFile {
 pub struct TestPeer {
     headers: Vec<Header>,
     blocks: HashMap<BlockHash, Block>,
-    filters: HashMap<BlockHash, Vec<u8>>,
+    accs: HashMap<BlockHash, Vec<u8>>,
     node_tx: UnboundedSender<NodeNotification>,
     node_rx: UnboundedReceiver<NodeRequest>,
     peer_id: u32,
@@ -94,14 +94,14 @@ impl TestPeer {
         node_tx: UnboundedSender<NodeNotification>,
         headers: Vec<Header>,
         blocks: HashMap<BlockHash, Block>,
-        filters: HashMap<BlockHash, Vec<u8>>,
+        accs: HashMap<BlockHash, Vec<u8>>,
         node_rx: UnboundedReceiver<NodeRequest>,
         peer_id: u32,
     ) -> Self {
         TestPeer {
             headers,
             blocks,
-            filters,
+            accs,
             node_tx,
             node_rx,
             peer_id,
@@ -150,11 +150,11 @@ impl TestPeer {
                         .unwrap();
                 }
                 NodeRequest::GetUtreexoState((hash, _)) => {
-                    let filters = self.filters.get(&hash).unwrap().clone();
+                    let accs = self.accs.get(&hash).unwrap().clone();
                     self.node_tx
                         .send(NodeNotification::FromPeer(
                             self.peer_id,
-                            PeerMessages::UtreexoState(filters),
+                            PeerMessages::UtreexoState(accs),
                         ))
                         .unwrap();
                 }
@@ -202,13 +202,13 @@ impl TestPeer {
 pub fn create_peer(
     headers: Vec<Header>,
     blocks: HashMap<BlockHash, Block>,
-    filters: HashMap<BlockHash, Vec<u8>>,
+    accs: HashMap<BlockHash, Vec<u8>>,
     node_sender: UnboundedSender<NodeNotification>,
     sender: UnboundedSender<NodeRequest>,
     node_rcv: UnboundedReceiver<NodeRequest>,
     peer_id: u32,
 ) -> LocalPeerView {
-    let mut peer = TestPeer::new(node_sender, headers, blocks, filters, node_rcv, peer_id);
+    let mut peer = TestPeer::new(node_sender, headers, blocks, accs, node_rcv, peer_id);
     task::spawn(async move {
         peer.run().await;
     });
@@ -309,7 +309,7 @@ pub fn get_test_blocks() -> io::Result<HashMap<BlockHash, Block>> {
     Ok(u_blocks)
 }
 
-pub fn get_test_filters() -> io::Result<HashMap<BlockHash, Vec<u8>>> {
+pub fn get_test_accs() -> io::Result<HashMap<BlockHash, Vec<u8>>> {
     let mut contents = String::new();
     File::open("./src/p2p_wire/tests/test_data/roots.json")
         .unwrap()
@@ -317,15 +317,15 @@ pub fn get_test_filters() -> io::Result<HashMap<BlockHash, Vec<u8>>> {
         .unwrap();
     let roots: Vec<UtreexoRoots> = serde_json::from_str(&contents).unwrap();
     let headers = get_test_headers();
-    let mut filters = HashMap::new();
+    let mut accs = HashMap::new();
 
     for root in roots.into_iter() {
         let buffer = serialize(root.clone());
 
         // Insert the serialised Utreexo-Root along with its corresponding BlockHash in the HashMap
-        filters.insert(headers[root.numleaves].block_hash(), buffer);
+        accs.insert(headers[root.numleaves].block_hash(), buffer);
     }
-    Ok(filters)
+    Ok(accs)
 }
 
 pub fn generate_invalid_block() -> Block {

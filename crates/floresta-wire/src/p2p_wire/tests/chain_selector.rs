@@ -12,7 +12,7 @@ mod tests {
 
     use crate::p2p_wire::tests::utils::create_false_acc;
     use crate::p2p_wire::tests::utils::get_essentials;
-    use crate::p2p_wire::tests::utils::get_test_filters;
+    use crate::p2p_wire::tests::utils::get_test_accs;
     use crate::p2p_wire::tests::utils::setup_node;
     const STARTING_LIE_BLOCK_HEIGHT: usize = 30;
 
@@ -24,7 +24,7 @@ mod tests {
         let essentials = get_essentials();
         let headers = essentials.headers.to_vec();
         let blocks = essentials.blocks;
-        let true_accs = get_test_filters().unwrap();
+        let true_accs = get_test_accs().unwrap();
 
         let mut false_accs = true_accs.clone();
 
@@ -71,7 +71,7 @@ mod tests {
         let essentials = get_essentials();
         let headers = essentials.headers.to_vec();
         let blocks = essentials.blocks;
-        let true_accs = get_test_filters().unwrap();
+        let true_accs = get_test_accs().unwrap();
         let mut false_accs_array: Vec<HashMap<BlockHash, Vec<u8>>> = Vec::new();
 
         for i in 0..9 {
