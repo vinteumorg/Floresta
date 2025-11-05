@@ -27,7 +27,7 @@ tokio = { version = "1.0", features = ["full"] }
 tokio-rustls = "0.26"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-bitcoin = { version = "0.32", features = ["serde", "std", "bitcoinconsensus"] }
+bitcoin = { version = "0.32", features = ["serde", "std"] }
 thiserror = "1.0"
 tracing = "0.1.41"
 
