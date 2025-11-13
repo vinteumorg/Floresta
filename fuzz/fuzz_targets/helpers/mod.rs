@@ -1,4 +1,4 @@
 //! Helper modules for fuzzing
 
-pub mod rpc_helper;
 pub mod logging;
+pub mod rpc_helper;
