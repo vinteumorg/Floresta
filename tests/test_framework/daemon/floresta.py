@@ -32,7 +32,7 @@ class FlorestaDaemon(BaseDaemon):
             "--debug",
             "--log-to-file",
             "--data-dir",
-            "--cfilters",
+            "--no-cfilters",
             "-p",
             "--proxy",
             "--wallet-xpub",

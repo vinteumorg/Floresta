@@ -39,13 +39,13 @@ pub struct Cli {
     /// Defaults to `~/.floresta`. The passed value should be an absolute path.
     pub data_dir: Option<String>,
 
-    #[arg(long, default_value_t = true)]
-    /// Whether to build Compact Block Filters
+    #[arg(long)]
+    /// Whether Compact Block Filters should be disabled
     ///
     /// Those filters let you query for chain data after IBD, like wallet rescan,
     /// finding a utxo, finding specific tx_ids.
-    /// Will cause more disk usage
-    pub cfilters: bool,
+    /// Will cause less disk usage if disabled.
+    pub no_cfilters: bool,
 
     #[arg(long, short, default_value = None, value_name = "address[:<port>]")]
     /// The url of a proxy we should open p2p connections through (e.g. 127.0.0.1:9050)

@@ -45,7 +45,7 @@ fn main() {
         network: params.network,
         debug: params.debug,
         data_dir: params.data_dir.clone(),
-        cfilters: params.cfilters,
+        cfilters: !params.no_cfilters,
         proxy: params.proxy,
         assume_utreexo: !params.no_assume_utreexo,
         connect: params.connect,
