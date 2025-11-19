@@ -10,6 +10,7 @@ use bitcoin::OutPoint;
 use bitcoin::Script;
 use bitcoin::ScriptBuf;
 use bitcoin::Txid;
+use bitcoin::VarInt;
 use corepc_types::v29::GetTxOut;
 use corepc_types::ScriptPubkey;
 use floresta_chain::extensions::HeaderExt;
@@ -191,6 +192,12 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
 
         let target = header.get_target_hex();
 
+        // Stripped size is the size of the block without witness data
+        // Header + VarInt for number of transactions + sum of base sizes of each transaction
+        let mut strippedsize = Header::SIZE;
+        strippedsize += VarInt::from(block.txdata.len()).size();
+        strippedsize += block.txdata.iter().map(|tx| tx.base_size()).sum::<usize>();
+
         let block = GetBlockResVerbose {
             bits,
             chainwork,
@@ -214,7 +221,7 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
             mediantime,
             n_tx: block.txdata.len(),
             nextblockhash,
-            strippedsize: block.total_size(),
+            strippedsize,
             target,
         };
 
