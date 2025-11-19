@@ -181,26 +181,31 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
 
         let chain_work = self.calculate_chainwork_by_height(height)?;
 
-        let median_time_past = if height > 11 {
-            let mut last_block_times: Vec<_> = ((height - 11)..height)
-                .map(|h| {
-                    self.chain
-                        .get_block_header(&self.chain.get_block_hash(h).unwrap())
-                        .unwrap()
-                        .time
-                })
-                .collect();
-            last_block_times.sort();
-            last_block_times[5]
-        } else {
-            block.header.time
-        };
+        let mut block_timestamps = Vec::new();
+        let mut current_header = block.header;
+        for _ in 0..=min(height, 10) {
+            block_timestamps.push(current_header.time);
+            if let Ok(prev_header) = self.chain.get_block_header(&current_header.prev_blockhash) {
+                current_header = prev_header;
+            } else {
+                break;
+            }
+        }
+        block_timestamps.sort();
+        let median_time_past = block_timestamps[block_timestamps.len() / 2];
+
+        let witness_block_size = block
+            .txdata
+            .iter()
+            .map(|tx| tx.total_size() - tx.base_size())
+            .sum::<usize>();
+        let strippedsize = block.total_size() - witness_block_size;
 
         let block = GetBlockResVerbose {
-            bits: serialize_hex(&block.header.bits),
+            bits: serialize_hex(&block.header.bits.to_consensus().to_be()),
             chainwork: chain_work.to_be_bytes().to_lower_hex_string(),
             confirmations: (tip - height) + 1,
-            difficulty: block.header.difficulty(self.chain.get_params()),
+            difficulty: block.header.difficulty_float(),
             hash: block.header.block_hash().to_string(),
             height,
             merkleroot: block.header.merkle_root.to_string(),
@@ -214,7 +219,7 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
                 .map(|tx| tx.compute_txid().to_string())
                 .collect(),
             version: block.header.version.to_consensus(),
-            version_hex: serialize_hex(&block.header.version),
+            version_hex: serialize_hex(&(block.header.version.to_consensus() as u32).to_be()),
             weight: block.weight().to_wu() as usize,
             mediantime: median_time_past,
             n_tx: block.txdata.len(),
@@ -223,7 +228,8 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
                 .get_block_hash(height + 1)
                 .ok()
                 .map(|h| h.to_string()),
-            strippedsize: block.total_size(),
+            strippedsize,
+            target: serialize_hex(&block.header.target().to_be_bytes()),
         };
 
         Ok(block)
