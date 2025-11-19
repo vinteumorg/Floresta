@@ -7,7 +7,11 @@ use serde_json::Value;
 /// Represents a JSON-RPC 2.0 request.
 pub struct RpcRequest {
     /// The JSON-RPC version, typically "2.0".
-    pub jsonrpc: String,
+    ///
+    /// For JSON-RPC 2.0, this field is required. For earlier versions, it may be omitted.
+    ///
+    /// Source: <`https://json-rpc.dev/docs/reference/version-diff`>
+    pub jsonrpc: Option<String>,
 
     /// The method to be invoked, e.g., "getblock", "sendtransaction".
     pub method: String,
