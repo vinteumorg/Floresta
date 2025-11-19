@@ -247,8 +247,7 @@ fuzz_target!(|input: FuzzInput| {
                     if let Some(expected_hash) = height_to_hash.get(&height) {
                         assert_eq!(
                             retrieved_hash, *expected_hash,
-                            "Height {} returned wrong hash. Expected {:?}, got {:?}",
-                            height, expected_hash, retrieved_hash
+                            "Height {height} returned wrong hash. Expected {expected_hash:?}, got {retrieved_hash:?}",
                         );
                     }
                 }
