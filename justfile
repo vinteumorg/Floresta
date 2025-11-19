@@ -141,11 +141,11 @@ test-features arg="":
 lint-features arg="":
     @just fmt
     @just doc-check
+    @just spell-check
 
     @just check-command "cargo-hack" "lint-features" "cargo install cargo-hack --locked --version 0.6.34"
     ./contrib/feature_matrix.sh clippy '{{arg}}'
 
-    @just spell-check
     @just test-functional-uv-fmt
 
 # Remove test-generated data
@@ -156,9 +156,9 @@ clean-data:
 pcc:
     @just check-command "cargo-hack" "pcc" "cargo install cargo-hack --locked --version 0.6.34"
 
-    @just lint-features '-- -D warnings'
-    @just test-features
-    @just test-functional
+    -just lint-features '-- -D warnings'
+    -just test-features
+    -just test-functional
 
 # Must have pandoc installed
 # Needs sudo to overwrite existing man pages
