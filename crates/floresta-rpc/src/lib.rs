@@ -109,14 +109,14 @@ mod tests {
             // Wait some time for florestad to start
             sleep(Duration::from_secs(3));
 
-            match client.get_blockchain_info() {
+            match client.uptime() {
                 Ok(_) => break,
                 Err(_) if retries > 1 => retries -= 1,
                 Err(e) => {
-                    println!("Asked florestad for blockchain info, got: {e:?}");
+                    println!("Got error {e:?}, sending kill signal...");
                     fld.kill().unwrap();
 
-                    panic!("Florestad didn't start after 30 seconds");
+                    panic!("Could not communicate with florestad after 30 seconds");
                 }
             }
         }
