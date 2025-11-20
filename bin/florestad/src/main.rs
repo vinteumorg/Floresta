@@ -205,7 +205,7 @@ pub fn init_logging(
     // For the registry, also enable very verbose runtime traces so `tokio-console` works, but keep
     // human outputs quiet via per-layer filters below.
     #[cfg(feature = "tokio-console")]
-    let base_filter = EnvFilter::new(format!("{},tokio=trace,runtime=trace", log_filter));
+    let base_filter = EnvFilter::new(format!("{log_filter},tokio=trace,runtime=trace"));
 
     #[cfg(not(feature = "tokio-console"))]
     let base_filter = log_filter.clone();

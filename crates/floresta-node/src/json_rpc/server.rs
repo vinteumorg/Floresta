@@ -244,8 +244,10 @@ async fn handle_json_rpc_request(
         id,
     } = req;
 
-    if jsonrpc != "2.0" {
-        return Err(JsonRpcError::InvalidRequest);
+    if let Some(version) = jsonrpc {
+        if !["1.0", "2.0"].contains(&version.as_str()) {
+            return Err(JsonRpcError::InvalidRequest);
+        }
     }
 
     state.inflight.write().await.insert(
