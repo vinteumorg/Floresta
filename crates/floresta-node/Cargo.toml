@@ -5,35 +5,37 @@ edition = "2021"
 readme.workspace = true # Floresta/README.md
 
 [dependencies]
-rustreexo = "0.4"
-tokio = { version = "1", features = ["full"] }
-tokio-rustls = "0.26"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-kv = "0.24.0"
-miniscript = "12"
-toml = "0.8.20"
-bitcoin = { version = "0.32", features = ["serde", "std", "bitcoinconsensus"] }
-floresta-compact-filters = { path = "../floresta-compact-filters", optional = true }
-floresta-chain = { path = "../floresta-chain" }
-floresta-common = { path = "../floresta-common" }
-floresta-electrum = { path = "../floresta-electrum" }
-floresta-watch-only = { path = "../floresta-watch-only" }
-floresta-wire = { path = "../floresta-wire" }
-metrics = { path = "../../metrics", optional = true }
-axum = { version = "0.7", optional = true }
-zmq = { version = "0.10.0", optional = true }
-dns-lookup = "=2.0.4"
-tower-http = { version = "0.6.2", optional = true, features = ["cors"] }
-rcgen = "0.13.2"
-tracing = "0.1.41"
-corepc-types = "0.10.1"
+axum = { workspace = true, optional = true }
+bitcoin = { workspace = true, features = ["serde", "std", "bitcoinconsensus"] }
+corepc-types = { workspace = true }
+dns-lookup = { workspace = true }
+kv = { workspace = true }
+miniscript = { workspace = true, features = ["std"] }
+rcgen = { workspace = true }
+rustreexo = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tokio-rustls = { workspace = true }
+toml = { workspace = true }
+tower-http = { version = "0.6", optional = true, features = ["cors"] }
+tracing = { workspace = true }
+zmq = { version = "0.10", optional = true }
 
-[target.'cfg(target_env = "gnu")'.dependencies]
-libc = "0.2.169"
+# Local dependencies
+floresta-chain = { workspace = true }
+floresta-compact-filters = { workspace = true, optional = true }
+floresta-common = { workspace = true }
+floresta-electrum = { workspace = true }
+floresta-watch-only = { workspace = true }
+floresta-wire = { workspace = true }
+metrics = { workspace = true,  optional = true }
 
 [dev-dependencies]
-pretty_assertions = "1"
+pretty_assertions = "1.4"
+
+[target.'cfg(target_env = "gnu")'.dependencies]
+libc = "0.2"
 
 [features]
 kv-chainstore = ["floresta-chain/kv-chainstore"]

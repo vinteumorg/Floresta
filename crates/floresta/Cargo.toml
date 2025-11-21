@@ -19,26 +19,25 @@ description = """
 repository = "https://github.com/vinteumorg/Floresta"
 license = "MIT"
 readme.workspace = true # Floresta/README.md
-
 keywords = ["bitcoin", "utreexo", "node", "blockchain", "rust"]
 categories = ["cryptography::cryptocurrencies"]
 
 [dependencies]
-floresta-common = { path = "../floresta-common", version = "0.4.0" }
-floresta-chain = { path = "../floresta-chain", version = "0.4.0" }
-floresta-wire = { path = "../floresta-wire", version = "0.4.0" }
-floresta-watch-only = { path = "../floresta-watch-only", optional = true, version = "0.4.0" }
-floresta-electrum = { path = "../floresta-electrum", optional = true, version = "0.4.0" }
+# Local dependencies
+floresta-chain = { workspace = true }
+floresta-common = { workspace = true }
+floresta-electrum = { workspace = true, optional = true }
+floresta-watch-only = { workspace = true, optional = true }
+floresta-wire = { workspace = true }
 
 [dev-dependencies]
-rustreexo = "0.4"
-miniscript = "11"
-tokio = { version = "1", features = ["full"] }
-bitcoin = { version = "0.32", features = [
-    "serde",
-    "bitcoinconsensus",
-], default-features=false }
-floresta = { version = "0.4.0", path = "../floresta", features = [
+bitcoin = { workspace = true, features = [ "serde", "bitcoinconsensus" ] }
+miniscript = { workspace = true, features = ["std"] }
+rustreexo = { workspace = true }
+tokio = { workspace = true }
+
+# Local dependencies
+floresta = { path = "../floresta", features = [
     "bitcoinconsensus",
     "memory-database",
     "electrum-server",

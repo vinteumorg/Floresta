@@ -6,10 +6,10 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-sysinfo = "0.33"
-axum = "0.7"
-prometheus-client = "0.22.3"
-tokio = { version = "1", features = ["full"] }
+axum = { workspace = true }
+prometheus-client = "0.22"
+sysinfo = "0.36"
+tokio = { workspace = true }
 
 [lints]
 workspace = true
