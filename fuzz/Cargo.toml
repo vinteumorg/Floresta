@@ -8,15 +8,14 @@ edition = "2021"
 cargo-fuzz = true
 
 [dependencies]
+arbitrary = { version = "1.4", features = ["derive"] }
+bitcoin = { workspace = true }
 libfuzzer-sys = "0.4"
-arbitrary = { version = "1.4.2", features = ["derive"] }
-bitcoin = { version = "0.32", features = ["serde", "std"] }
-floresta-wire = { path = "../crates/floresta-wire" }
-floresta-chain = { path = "../crates/floresta-chain", features = ["flat-chainstore"] }
-tempfile = "3.20.0"
+tempfile = { workspace = true }
 
-[lints]
-workspace = true
+# Local dependencies
+floresta-chain = { workspace = true, features = ["flat-chainstore"] }
+floresta-wire = { workspace = true }
 
 [[bin]]
 name = "local_address_str"
@@ -73,3 +72,6 @@ path = "fuzz_targets/disk_block_header_roundtrip.rs"
 test = false
 doc = false
 bench = false
+
+[lints]
+workspace = true
