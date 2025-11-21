@@ -5,6 +5,7 @@ use bitcoin::block::Header;
 use bitcoin::consensus::encode::serialize_hex;
 use bitcoin::consensus::Encodable;
 use bitcoin::constants::genesis_block;
+use bitcoin::hashes::Hash;
 use bitcoin::hex::DisplayHex;
 use bitcoin::Address;
 use bitcoin::Block;
@@ -15,6 +16,7 @@ use bitcoin::Script;
 use bitcoin::ScriptBuf;
 use bitcoin::Txid;
 use bitcoin::Work;
+use corepc_types::v29::GetBlockVerboseOne;
 use corepc_types::v29::GetTxOut;
 use corepc_types::ScriptPubkey;
 use miniscript::descriptor::checksum;
@@ -22,7 +24,6 @@ use serde_json::json;
 use serde_json::Value;
 use tracing::debug;
 
-use super::res::GetBlockResVerbose;
 use super::res::GetBlockchainInfoRes;
 use super::res::GetTxOutProof;
 use super::res::JsonRpcError;
@@ -170,7 +171,7 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
     pub(super) async fn get_block(
         &self,
         hash: BlockHash,
-    ) -> Result<GetBlockResVerbose, JsonRpcError> {
+    ) -> Result<GetBlockVerboseOne, JsonRpcError> {
         let block = self.get_block_inner(hash).await?;
         let tip = self.chain.get_height().map_err(|_| JsonRpcError::Chain)?;
         let height = self
@@ -202,19 +203,24 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
             .map(|tx| tx.total_size() - tx.base_size())
             .sum::<usize>();
         let strippedsize = block.total_size() - witness_block_size;
+        let previous_block_hash = if block.header.prev_blockhash == BlockHash::all_zeros() {
+            None
+        } else {
+            Some(block.header.prev_blockhash.to_string())
+        };
 
-        let block = GetBlockResVerbose {
+        let block = GetBlockVerboseOne {
             bits: serialize_hex(&block.header.bits.to_consensus().to_be()),
-            chainwork: chain_work.to_be_bytes().to_lower_hex_string(),
-            confirmations: (tip - height) + 1,
+            chain_work: chain_work.to_be_bytes().to_lower_hex_string(),
+            confirmations: ((tip - height) + 1) as i64,
             difficulty: block.header.difficulty_float(),
             hash: block.header.block_hash().to_string(),
-            height,
-            merkleroot: block.header.merkle_root.to_string(),
-            nonce: block.header.nonce,
-            previousblockhash: block.header.prev_blockhash.to_string(),
-            size: block.total_size(),
-            time: block.header.time,
+            height: height.into(),
+            merkle_root: block.header.merkle_root.to_string(),
+            nonce: block.header.nonce as i64,
+            previous_block_hash,
+            size: block.total_size() as i64,
+            time: block.header.time as i64,
             tx: block
                 .txdata
                 .iter()
@@ -222,15 +228,15 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
                 .collect(),
             version: block.header.version.to_consensus(),
             version_hex: serialize_hex(&(block.header.version.to_consensus() as u32).to_be()),
-            weight: block.weight().to_wu() as usize,
-            mediantime: median_time_past,
-            n_tx: block.txdata.len(),
-            nextblockhash: self
+            weight: block.weight().to_wu(),
+            median_time: Some(median_time_past as i64),
+            n_tx: block.txdata.len() as i64,
+            next_block_hash: self
                 .chain
                 .get_block_hash(height + 1)
                 .ok()
                 .map(|h| h.to_string()),
-            strippedsize,
+            stripped_size: Some(strippedsize as i64),
             target: serialize_hex(&block.header.target().to_be_bytes()),
         };
 
