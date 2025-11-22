@@ -2,7 +2,7 @@
 //! vectors in `testdata/bitcoin-core`. We parse them and check the flags that are supported by
 //! Floresta's consensus.
 
-#![cfg(all(feature = "bitcoinconsensus", feature = "test-utils"))]
+#![cfg(all(feature = "bitcoinkernel", feature = "test-utils"))]
 
 mod util;
 
@@ -21,8 +21,8 @@ use util::fmt_shift_flags;
 use util::trim_flags;
 use util::VERIFY_FLAGS_COUNT;
 
-// All the accepted flags in the bitcoinconsensus interface (TODO update with libbitcoinkernel-supported flags)
-const VERIFY_ALL: u32 = bitcoinconsensus::VERIFY_ALL_PRE_TAPROOT;
+// All the accepted flags in the bitcoinkernel interface (TODO update with libbitcoinkernel-supported flags)
+const VERIFY_ALL: u32 = bitcoinkernel::VERIFY_ALL_PRE_TAPROOT | bitcoinkernel::VERIFY_TAPROOT;
 
 // The dummy height that we use for all the test transactions
 const TX_HEIGHT: u32 = 100_000;
