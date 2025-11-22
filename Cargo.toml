@@ -36,6 +36,7 @@ default-members = [
 ]
 
 [workspace.package]
+rust-version = "1.81.0" # MSRV declaration
 readme = "README.md"
 
 [workspace.lints.clippy]

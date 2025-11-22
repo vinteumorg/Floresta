@@ -79,7 +79,6 @@
               fileSet = lib.fileset.unions [
                 ./Cargo.toml
                 ./Cargo.lock
-                ./rust-toolchain.toml
                 ./.rustfmt.toml
                 ./crates
                 ./bin
@@ -150,7 +149,6 @@
               fileset = lib.fileset.unions [
                 ./Cargo.toml
                 ./Cargo.lock
-                ./rust-toolchain.toml
                 ./.rustfmt.toml
                 ./crates
                 ./metrics
