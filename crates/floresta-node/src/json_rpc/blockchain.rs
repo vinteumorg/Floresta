@@ -250,6 +250,12 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
 
         let validated_blocks = self.chain.get_validation_index().unwrap();
 
+        let validated_percentage = if height != 0 {
+            validated_blocks as f32 / height as f32
+        } else {
+            0.0
+        };
+
         Ok(GetBlockchainInfoRes {
             best_block: hash.to_string(),
             height,
@@ -262,7 +268,7 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
             root_hashes,
             chain: self.network.to_string(),
             difficulty: latest_header.difficulty(self.chain.get_params()) as u64,
-            progress: validated_blocks as f32 / height as f32,
+            progress: validated_percentage,
         })
     }
 

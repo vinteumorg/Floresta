@@ -42,9 +42,8 @@ pub struct GetBlockchainInfoRes {
     pub chain: String,
     /// The validation progress
     ///
-    /// 0% means we didn't validate any block. 100% means we've validated all blocks, so
-    /// validated == height
-    pub progress: Option<f32>,
+    /// 0 means we didn't validate any block. 1 means we've validated all blocks. so validated == height.
+    pub progress: f32,
     /// Current network "difficulty"
     ///
     /// On average, miners needs to make `difficulty` hashes before finding one that

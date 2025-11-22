@@ -21,7 +21,7 @@ class GetBlockchaininfoTest(FlorestaTestFramework):
     latest_block_time = 1296688602
     latest_work = "2"
     leaf_count = 0
-    progress = None
+    progress = 0
     root_count = 0
     root_hashes = []
     validated = 0
