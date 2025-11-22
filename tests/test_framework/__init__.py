@@ -784,6 +784,16 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
             raise AssertionError(f"Actual: {thing}\nExpected: not None")
 
     # pylint: disable=invalid-name
+    def assertEqualFloat(self, condition: float, expected: float):
+        """
+        Assert that two numeric values are equal up to 3 decimal places.
+        """
+
+        if not round(condition, 3) == round(expected, 3):
+            self.stop()
+            raise AssertionError(f"Actual: {condition}\nExpected: {expected}")
+
+    # pylint: disable=invalid-name
     def assertEqual(self, condition: Any, expected: Any):
         """
         Assert if the condition is True, otherwise
