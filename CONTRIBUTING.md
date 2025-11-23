@@ -6,6 +6,8 @@ The development of Floresta is a community effort and welcomes contributions fro
 We welcome contributions in many forms, including bug reports, feature requests, code contributions, and documentation improvements. From any contributors
 with any level of experience or expertise. We only ask that you respect others and follow the process outlined in this document.
 
+As well, we strongly recommend checking existing documentation in [docs/](docs/README.md) if you have any doubts.
+
 Communications Channels
 -----------------------
 
