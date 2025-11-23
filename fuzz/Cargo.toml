@@ -12,11 +12,13 @@ libfuzzer-sys = "0.4"
 arbitrary = { version = "1.4.2", features = ["derive"] }
 bitcoin = { version = "0.32", features = ["serde", "std"] }
 floresta-wire = { path = "../crates/floresta-wire" }
-floresta-chain = { path = "../crates/floresta-chain", features = ["flat-chainstore"] }
-tempfile = "3.20.0"
+floresta-chain = { path = "../crates/floresta-chain" }
+serde_json = "1.0.145"
+reqwest = { version = "0.12", features = ["blocking", "json"] }
+chrono = "0.4"
+hex = "0.4.3"
 
-[lints]
-workspace = true
+
 
 [[bin]]
 name = "local_address_str"
@@ -70,6 +72,13 @@ bench = false
 [[bin]]
 name = "disk_block_header_roundtrip"
 path = "fuzz_targets/disk_block_header_roundtrip.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "block_parsing_differential"
+path = "fuzz_targets/block_parsing_differential.rs"
 test = false
 doc = false
 bench = false
