@@ -71,6 +71,11 @@ jobs:
             ./.apt-state
           key: ${{ runner.os }}-apt-${{ env.APT_HASH }}
 
+      - name: Install Boost
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libboost-all-dev
+
       # Install system dependencies only if cache miss
       - name: Install libfuzzer dependencies
         if: steps.cache-apt.outputs.cache-hit != 'true'
