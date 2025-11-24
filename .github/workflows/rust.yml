@@ -33,7 +33,7 @@ jobs:
 
       - name: Run cargo clippy
         run: ./contrib/feature_matrix.sh clippy '-- -D warnings'
-        shell: bash   # Ensure the script runs using bash on all platforms
+        shell: bash # Ensure the script runs using bash on all platforms
 
   cross-testing:
     strategy:
@@ -43,7 +43,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.74.1 # The version in our `rust-toolchain.toml`
+      - uses: dtolnay/rust-toolchain@1.81.0 # The version in our `Cargo.toml`
         with:
           components: rustfmt, clippy
       - uses: taiki-e/install-action@cargo-hack
@@ -81,7 +81,7 @@ jobs:
       # Run the feature testing script
       - name: Run feature tests
         run: ./contrib/feature_matrix.sh test --verbose
-        shell: bash   # Ensure the script runs using bash on all platforms
+        shell: bash # Ensure the script runs using bash on all platforms
 
       # Save cache only if the previous steps succeeded and there was not an exact cache key match
       # This happens everytime we modify any `cargo.lock` or `cargo.toml`, or each two weeks (caching recent changes)

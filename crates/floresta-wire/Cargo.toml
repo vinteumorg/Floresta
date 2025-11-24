@@ -33,6 +33,8 @@ bip324 = { version = "0.7.0", features = [ "tokio" ] }
 ureq = { version = "3.0.11", features = ["socks-proxy", "json", "rustls-no-provider"], default-features = false }
 rustls = "0.23.27"
 tracing = "0.1.41"
+aws-lc-rs = "=1.13.1" # need due to Nix incompatibility with newer versions of aws-lc-rs
+home = "=0.5.11" # need due to Nix incompatibility with newer versions of home
 
 [dev-dependencies]
 zstd = "0.13.3"

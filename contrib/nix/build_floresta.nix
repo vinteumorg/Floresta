@@ -24,12 +24,15 @@ let
     else
       basicDeps;
 
-  # This is the 1.74.1 rustup (and its components) toolchain from our `./rust-toolchain.toml`
-  florestaRust = pkgs.rust-bin.fromRustupToolchainFile "${src}/rust-toolchain.toml";
+  # Rust toolchain with 1.81.0+ compatibility (MSRV defined in Cargo.toml)
+  florestaRust = pkgs.rust-bin.stable."1.81.0".default.override {
+    extensions = [
+      "rustfmt"
+      "clippy"
+    ];
+  };
 
   # This sets the rustc and cargo to the ones from the florestaRust.
-  #
-  # Defined in Flake.nix directly from the rust-toolchain.
   buildRustPackage = pkgs.rustPlatform.buildRustPackage.override {
     rustc = florestaRust;
     cargo = florestaRust;
@@ -42,7 +45,7 @@ let
         inherit buildFeatures;
 
         pname = "floresta";
-        cargoBuildFlags = [ "--release" ];
+        cargoBuildFlags = [ ];
         description = "Floresta packages, CLI and Node";
 
         # We need to get a different toml for different packages
@@ -59,7 +62,6 @@ let
         pname = "libfloresta";
         cargoBuildFlags = [
           "--lib"
-          "--release"
         ]; # flag for compiling the lib of this workspace
 
         description = "Floresta library";
@@ -74,7 +76,6 @@ let
         cargoBuildFlags = [
           "--bin"
           "${packageName}"
-          "--release"
         ]; # flag for compiling the florestad binary
         description = "Floresta Node";
 
@@ -88,7 +89,6 @@ let
         cargoBuildFlags = [
           "--bin"
           "${packageName}"
-          "--release"
         ]; # flag for compiling the floresta-cli binary
         description = "Floresta CLI";
 
