@@ -1,25 +1,3 @@
-### What is the purpose of this pull request?
-
-- [ ] Bug fix
-- [ ] Documentation update
-- [ ] New feature
-- [ ] Test
-- [ ] Other: <!-- Please describe it -->
-
-### Which crates are being modified?
-
-- [ ] floresta-chain
-- [ ] floresta-common
-- [ ] floresta-compact-filters
-- [ ] floresta-electrum
-- [ ] floresta-node
-- [ ] floresta-rpc
-- [ ] floresta-watch-only
-- [ ] floresta-wire
-- [ ] bin/florestad
-- [ ] bin/floresta-cli
-- [ ] Other: <!-- Please describe it -->
-
 ### Description and Notes
 
 <!-- Describe the purpose of this PR, what's being added and/or fixed. If there's an open issue for it, link it here -->
@@ -31,7 +9,7 @@
 
 ### Contributor Checklist
 
-<!-- Feel free to remove this section once you've confirmed all items -->
+<!-- Please remove this section once you've confirmed all items -->
 
 - [ ] I've followed the [contribution guidelines](https://github.com/vinteumorg/Floresta/blob/master/CONTRIBUTING.md)
 - [ ] I've verified one of the following:
