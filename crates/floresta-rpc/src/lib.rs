@@ -21,6 +21,7 @@ pub mod rpc_types;
 
 #[cfg(all(test, feature = "with-jsonrpc", not(target_os = "windows")))]
 mod tests {
+    use std::env;
     use std::fs;
     use std::net::TcpListener;
     use std::path::Path;
@@ -57,6 +58,11 @@ mod tests {
     /// you can poke at the stdin and out for this process. You don't have to kill it though,
     /// once the handle goes out of scope, the process will be killed.
     ///
+    /// This function tries to find florestad under these directories below, preferring them in the according order:
+    /// - $PROJECT_ROOT/target/release/florestad.
+    /// - $PROJECT_ROOT/target/debug/florestad.
+    /// - $FLORESTA_TEMP_DIR/binaries/florestad.
+    ///
     /// The process created by this method will run in a random datadir and use random ports
     /// for both RPC and Electrum. The datadir will be in the current dir, under a `tmp` subdir.
     /// If you're at $HOME/floresta it will run on $HOME/floresta/tmp/<random_name>/
@@ -69,10 +75,21 @@ mod tests {
 
         let release_found = Path::new(&release_path).try_exists().unwrap();
         // If release target not found, default to the debug path
-        let florestad_path = match release_found {
+        let mut florestad_path = match release_found {
             true => release_path,
             false => debug_path,
         };
+
+        if env::var("FLORESTA_TEMP_DIR").is_ok() {
+            let given_test_setup = env::var("FLORESTA_TEMP_DIR").unwrap();
+            let test_binaries_path = format!("{given_test_setup}/binaries/florestad");
+
+            florestad_path = if Path::new(&test_binaries_path).try_exists().unwrap() {
+                test_binaries_path
+            } else {
+                florestad_path
+            };
+        }
 
         // florestad not being found normally means that we dont want to run these tests
         if !Path::new(&florestad_path).try_exists().unwrap() {
