@@ -11,26 +11,25 @@ broadcasting transactions through a simple and efficient API.
 """
 repository = "https://github.com/vinteumorg/Floresta"
 readme.workspace = true # Floresta/README.md
-
 keywords = ["bitcoin", "utreexo", "node", "blockchain", "rust"]
 categories = ["cryptography::cryptocurrencies", "command-line-utilities"]
 
 [dependencies]
-bitcoin = { version = "0.32", features = ["serde", "std"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-jsonrpc = { version = "0.18.0", features = ["minreq_http"], optional = true }
-clap = { version = "4.0.29", features = ["derive"], optional = true }
-corepc-types = "0.10.1"
+bitcoin = { workspace = true }
+clap = { workspace = true, optional = true }
+corepc-types = { workspace = true }
+jsonrpc = { version = "0.18", features = ["minreq_http"], optional = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+rand = { workspace = true }
+rcgen = { workspace = true }
 
 [features]
 default = ["with-jsonrpc"]
 with-jsonrpc = ["dep:jsonrpc"]
 clap = ["dep:clap"]
-
-[dev-dependencies]
-rand = "0.8.5"
-rcgen = "0.13"
 
 [lints]
 workspace = true

@@ -9,16 +9,11 @@ repository = "https://github.com/vinteumorg/Floresta"
 readme.workspace = true # Floresta/README.md
 
 [dependencies]
-# Common dependencies
-sha2 = { version = "0.10.6", default-features = false }
-bitcoin = { version = "0.32", default-features = false, features = ["serde"] }
-spin = "0.9.8"
-
-# No-std specific dependencies
-hashbrown = { version = "0.15.2" }
-
-# Optional as descriptors feature
-miniscript = { version = "12", default-features = false, optional = true }
+bitcoin = { workspace = true, features = ["serde"] }
+hashbrown = { version = "0.16" }
+miniscript = { workspace = true, optional = true }
+sha2 = { workspace = true }
+spin = { workspace = true }
 
 [features]
 default = ["std", "descriptors-std"]

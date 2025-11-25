@@ -39,5 +39,43 @@ default-members = [
 rust-version = "1.81.0" # MSRV declaration
 readme = "README.md"
 
+# Version Convention: Use major.minor only (e.g., "1.9" not "1.9.1")
+# We accept all compatible patch versions, so specifying patch level is misleading.
+# For exact versions when needed, use "=1.9.1"
+[workspace.dependencies]
+axum = "0.8"
+bitcoin = { version = "0.32", features = ["serde"] }
+clap = { version = "4.5", features = ["derive"] }
+corepc-types = "0.11"
+console-subscriber = "0.5"
+dns-lookup = "2.1"
+hex = "0.4"
+kv = "0.24"
+miniscript = { version = "12.3", default-features = false }
+rand = "0.8"
+rcgen = "0.13"
+rustreexo = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = { version = "0.10", default-features = false }
+spin = "0.10"
+tempfile = "3.23"
+tokio = { version = "1.48", features = ["full"] }
+tokio-rustls = "0.26"
+toml = "0.9"
+tracing = "0.1"
+zstd = "0.13"
+
+# Local dependencies
+floresta-chain = { path = "crates/floresta-chain" }
+floresta-common = { path = "crates/floresta-common" }
+floresta-compact-filters = { path = "crates/floresta-compact-filters" }
+floresta-electrum = { path = "crates/floresta-electrum" }
+floresta-node = { path = "crates/floresta-node", default-features = false }
+floresta-rpc = { path = "crates/floresta-rpc" }
+floresta-watch-only = { path = "crates/floresta-watch-only" }
+floresta-wire = { path = "crates/floresta-wire" }
+metrics = { path = "metrics" }
+
 [workspace.lints.clippy]
 unused_async = "deny"

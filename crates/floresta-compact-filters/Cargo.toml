@@ -11,9 +11,11 @@ BIP158 compact filters for easy rescan of the blockchain in light clients.
 readme.workspace = true # Floresta/README.md
 
 [dependencies]
-bitcoin = "0.32"
-floresta-chain = { path = "../floresta-chain", default-features = false }
-kv = "0.24.0"
+bitcoin = { workspace = true }
+kv = { workspace = true }
+
+# Local dependencies
+floresta-chain = { workspace = true }
 
 [lints]
 workspace = true

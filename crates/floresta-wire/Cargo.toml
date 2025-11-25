@@ -11,35 +11,33 @@ description = """
 repository = "https://github.com/vinteumorg/Floresta"
 license = "MIT"
 readme = "README.md"
-
 keywords = ["bitcoin", "utreexo", "p2p", "networking"]
 categories = ["cryptography::cryptocurrencies", "network-programming"]
 
 [dependencies]
-rustreexo = "0.4"
-tokio = { version = "1", features = ["full"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-rand = "0.8.5"
-bitcoin = { version = "0.32", features = ["serde", "std", "bitcoinconsensus"] }
-dns-lookup = "1.0.8"
-floresta-chain = { path = "../floresta-chain" }
-floresta-compact-filters = { path = "../floresta-compact-filters" }
-floresta-common = { path = "../floresta-common" }
-oneshot = "0.1.5"
-ahash = "0.8.11"
-metrics = { path = "../../metrics", optional = true }
-bip324 = { version = "0.7.0", features = [ "tokio" ] }
-ureq = { version = "3.0.11", features = ["socks-proxy", "json", "rustls-no-provider"], default-features = false }
-rustls = "0.23.27"
-tracing = "0.1.41"
+ahash = "0.8"
 aws-lc-rs = "=1.13.1" # need due to Nix incompatibility with newer versions of aws-lc-rs
+bip324 = { version = "=0.7.0", features = [ "tokio" ] }
+bitcoin = { workspace = true, features = ["serde", "std", "bitcoinconsensus"] }
+dns-lookup = { workspace = true }
 home = "=0.5.11" # need due to Nix incompatibility with newer versions of home
+rand = { workspace = true }
+rustls = "=0.23.27"
+rustreexo = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+ureq = { version = "3.1", features = ["socks-proxy", "json", "rustls-no-provider"], default-features = false }
+
+# Local dependencies
+floresta-chain = { workspace = true, features = ["flat-chainstore"] }
+floresta-compact-filters = { workspace = true }
+floresta-common = { workspace = true }
+metrics = { workspace = true,  optional = true }
 
 [dev-dependencies]
-zstd = "0.13.3"
-hex = "0.4.3"
-floresta-chain = { path = "../floresta-chain", features = ["flat-chainstore"] }
+zstd = { workspace = true }
 
 [features]
 default = []
