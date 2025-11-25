@@ -140,10 +140,13 @@ By default, the `prepare.sh` script will obtain a runnable `bitcoind` binary in 
 Additionally, you can use some arguments in those scripts:
 
 ```bash
-./tests/prepare.sh --build && ./tests/run.sh --preserve-data-dir
+./tests/prepare.sh --build --release && ./tests/run.sh --preserve-data-dir
 ```
 
-The `--build` argument will force the script to build `utreexod` even if it is already built.
+The `--build` argument will force the script to fetch the `bitcoind` binary again and to build the `utreexod`.
+
+The `--release` argument will build the `florestad` binary in release mode, which is optimized for production use. If this flag is not provided, the binary will be built in debug mode by default.
+
 The `--preserve-data-dir` argument will keep the data and logs directories after running the tests
 (this is useful if you want to keep the data for debugging purposes).
 
