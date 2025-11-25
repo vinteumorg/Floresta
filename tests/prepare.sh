@@ -1,29 +1,22 @@
 #!/usr/bin/env bash
 
-# Prepare a directory with the right testing binaries to avoid conflicts with different versions of floresta.
-#
-# What this script do ?
-#
-# 0. While checking build dependencies;
-#
-# 1. Clone and build utreexod at $FLORESTA_TEMP_DIR/binaries/utreexod.
-#
-# 2. Build florestad at $FLORESTA_TEMP_DIR/binaries/florestad.
-#
-# 3. export FLORESTA_TEMP_DIR which points to /tmp/floresta-functional-tests.${HEAD_COMMIT_HASH}/binaries
-
 set -e
 
-# We expect for the current dir to be the root dir of the project.
+BITCOIN_REVISION="${BITCOIN_REVISION:-30.0}"
+# We Need for the current dir to be the root dir of the project.
 FLORESTA_PROJ_DIR=$(git rev-parse --show-toplevel)
-
-# This helps us to keep track of the actual version being tested without conflicting with any already installed binaries.
-GIT_DESCRIBE=$(git describe --tags --always)
-
-export FLORESTA_TEMP_DIR="/tmp/floresta-func-tests.${GIT_DESCRIBE}"
-
+TEMP_DIR="/tmp/floresta-func-tests"
+BINARIES_DIR="$TEMP_DIR/binaries"
 # Dont use mktemp so we can have deterministic results for each version of floresta.
-mkdir -p $FLORESTA_TEMP_DIR/binaries
+mkdir -p "$BINARIES_DIR"
+
+create_disposable_dir() {
+    DISPOSABLE_DIR=$(mktemp -d)
+    trap 'rm -rf -- "$DISPOSABLE_DIR"' RETURN
+    echo "$DISPOSABLE_DIR"
+    # Change to the disposable directory
+    pushd "$DISPOSABLE_DIR" >/dev/null
+}
 
 check_installed() {
     if ! command -v "$1" &>/dev/null; then
@@ -32,69 +25,113 @@ check_installed() {
     fi
 }
 
-build_core() {
-    # Download and build bitcoind only
-    mkdir -p "$FLORESTA_TEMP_DIR/binaries/build"
-    cd "$FLORESTA_TEMP_DIR/binaries/build" || exit 1
-
-    echo "Downloading and Building Bitcoin Core..."
-    git clone https://github.com/bitcoin/bitcoin
-    cd bitcoin || exit 1
-
-    # If BITCOIN_REVISION is set, check it out
-    # if not, set the default to 29 (the last one)
-    bitcoin_rev="${BITCOIN_REVISION:-29.0}"
-    if [ -n "$bitcoin_rev" ]; then
-        # Check if the revision exists as a tag only
-        if git --no-pager tag -l | grep -q "^v$bitcoin_rev$"; then
-            git checkout "v$bitcoin_rev"
-        else
-            echo "bitcoin 'v$bitcoin_rev' is not a valid tag."
+# If the user provided a bitcoind binary via BITCOIND_EXE, use it.
+try_use_provided_bitcoind() {
+    if [ -n "${BITCOIND_EXE:-}" ]; then
+        if [ ! -f "$BITCOIND_EXE" ] || [ ! -x "$BITCOIND_EXE" ]; then
+            echo "BITCOIND_EXE is set but does not point to an executable: $BITCOIND_EXE" >&2
+            # Fail hard because user explicitly requested a custom binary.
             exit 1
         fi
+        cp "$BITCOIND_EXE" "$BINARIES_DIR/bitcoind"
+        chmod +x "$BINARIES_DIR/bitcoind"
+        echo "Using user-provided bitcoind: $BINARIES_DIR/bitcoind"
+        return 0
     fi
+    return 1
+}
 
-    # Check compatibility with cmake arguments with those used with make
-    # See https://gist.github.com/hebasto/2ef97d3a726bfce08ded9df07f7dab5e and
-    # https://github.com/bitcoin-core/bitcoin-devwiki/wiki/Autotools-to-CMake-Options-Mapping
-    major_version="${bitcoin_rev%%.*}"
-    if [ "$major_version" -ge 29 ]; then
-        cmake -S . -B build \
-            -DBUILD_CLI=OFF \
-            -DBUILD_TESTS=OFF \
-            -DENABLE_WALLET=OFF \
-            -DCMAKE_BUILD_TYPE=MinSizeRel \
-            -DENABLE_EXTERNAL_SIGNER=OFF \
-            -DINSTALL_MAN=OFF
-        cmake_nprocs="${BUILD_BITCOIND_NPROCS:-4}"
-        cmake --build build --target bitcoind -j"${cmake_nprocs}"
-        mv $FLORESTA_TEMP_DIR/binaries/build/bitcoin/build/bin/bitcoind $FLORESTA_TEMP_DIR/binaries/bitcoind
+download_prebuilt_bitcoind() {
+    UNAME_S="$(uname -s)"
+
+    if [ "$UNAME_S" = "Linux" ]; then
+        PLATFORM="x86_64-linux-gnu"
+
+        HASH=$(case "$BITCOIN_REVISION" in
+            "30.0") echo "00964ae375084113b1162f2f493b9372421608af23539766e315a3cb0ee54248" ;;
+            "29.0") echo "a681e4f6ce524c338a105f214613605bac6c33d58c31dc5135bbc02bc458bb6c" ;;
+            "28.3") echo "732b8d5d56ffd341d4b7c8caeddcaa60c712e36b7e7665dc485bcb37f0f81d98" ;;
+            "27.2") echo "6ebc56ca1397615d5a6df2b5cf6727b768e3dcac320c2d5c2f321dcaabc7efa2" ;;
+            *) echo "" ;;
+        esac)
+    elif [ "$UNAME_S" = "Darwin" ]; then
+        PLATFORM="x86_64-apple-darwin"
+
+        HASH=$(case "$BITCOIN_REVISION" in
+            "30.0") echo "4eadf7b06dca695b940ad30f46247aacbd439544a1be25b0ef3baab73777b3d2" ;;
+            "29.0") echo "5bb824fc86a15318d6a83a1b821ff4cd4b3d3d0e1ec3d162b805ccf7cae6fca8" ;;
+            "28.3") echo "9a98cca968edf2cf4de07e5fdf83716e93b870699f5d36cb8cb5af1cc1b63fdc" ;;
+            "27.2") echo "acc223af46c178064c132b235392476f66d486453ddbd6bca6f1f8411547da78" ;;
+            *) echo "" ;;
+        esac)
     else
-        ./autogen.sh
-        ./configure \
-            --without-gui \
-            --disable-tests \
-            --disable-bench \
-            --disable-wallet
-        make_nprocs="${BUILD_BITCOIND_NPROCS:-4}"
-        make -j"$(make_nprocs)"
-        mv $FLORESTA_TEMP_DIR/binaries/build/bitcoin/src/bitcoind $FLORESTA_TEMP_DIR/binaries/bitcoind
+        echo "Unsupported platform for prebuilt bitcoind: $UNAME_S"
+        return 1
     fi
 
-    rm -rf $FLORESTA_TEMP_DIR/binaries/build
+    if [ -z "$HASH" ]; then
+        echo "No prebuilt hash for bitcoin version $BITCOIN_REVISION on platform $PLATFORM"
+        return 1
+    fi
+
+    FILE_NAME="bitcoin-${BITCOIN_REVISION}-${PLATFORM}.tar.gz"
+    DL_URL="https://bitcoincore.org/bin/bitcoin-core-${BITCOIN_REVISION}/${FILE_NAME}"
+
+    # Change to a disposable directory for download and extraction
+    DISPOSABLE_DIR=$(create_disposable_dir)
+
+    echo "Downloading $DL_URL"
+    if ! curl -L -o "$FILE_NAME" "$DL_URL"; then
+        echo "Failed to download $DL_URL"
+        return 1
+    fi
+
+    echo "${HASH}  ${FILE_NAME}" | shasum -a 256 -c - >/dev/null 2>&1 || {
+        echo "SHA256 mismatch for $FILE_NAME"
+        return 1
+    }
+
+    if ! tar xzf "$FILE_NAME"; then
+        echo "Failed to extract $FILE_NAME"
+        return 1
+    fi
+
+    cp "bitcoin-${BITCOIN_REVISION}/bin/bitcoind" "$BINARIES_DIR/bitcoind"
+    chmod +x "$BINARIES_DIR/bitcoind"
+
+    echo "bitcoind downloaded to $BINARIES_DIR/bitcoind"
+    return 0
+}
+
+ensure_bitcoind() {
+    mkdir -p "$BINARIES_DIR"
+
+    # 1) user-provided binary
+    if try_use_provided_bitcoind; then
+        return 0
+    fi
+
+    # 2) try download prebuilt tarball for supported versions/platforms
+    if download_prebuilt_bitcoind; then
+        return 0
+    fi
+
+    echo "Failed to obtain bitcoind (tried BITCOIND_EXE and prebuilt tarball)"
+    return 1
 }
 
 build_utreexod() {
-    # Download and build utreexod
-    mkdir -p $FLORESTA_TEMP_DIR/binaries/build
-    cd $FLORESTA_TEMP_DIR/binaries/build
+    check_installed go
+
+    # Change to a disposable directory for download and build
+    DISPOSABLE_DIR=$(create_disposable_dir)
+
     echo "Downloading and Building utreexod..."
-    git clone https://github.com/utreexo/utreexod
+    git clone https://github.com/utreexo/utreexod "$DISPOSABLE_DIR/utreexod"
 
-    cd utreexod
+    cd "$DISPOSABLE_DIR/utreexod"
 
-    go build -o $FLORESTA_TEMP_DIR/binaries/. .
-    rm -rf $FLORESTA_TEMP_DIR/binaries/build
+    go build -o "$BINARIES_DIR/." .
 }
 
 build_floresta() {
@@ -105,35 +142,30 @@ build_floresta() {
     cd $FLORESTA_PROJ_DIR
     cargo build --bin florestad --release
 
-    ln -fs $(pwd)/target/release/florestad $FLORESTA_TEMP_DIR/binaries/florestad
+    ln -fs $(pwd)/target/release/florestad "$BINARIES_DIR/florestad"
 }
 
 check_installed git
-check_installed gcc
-check_installed make
-check_installed cmake
-check_installed go
 check_installed cargo
-check_installed uv
 
 build_floresta
 
 # Check if utreexod is already built or if --build is passed
-if [ ! -f $FLORESTA_TEMP_DIR/binaries/utreexod ] || [ "$1" == "--build" ]; then
+if [ ! -f "$BINARIES_DIR/utreexod" ] || [ "$1" == "--build" ]; then
     build_utreexod
 else
     echo "Utreexod already built, skipping..."
 fi
 
-# Check if utreexod is already built or if --build is passed
-if [ ! -f $FLORESTA_TEMP_DIR/binaries/bitcoind ] || [ "$1" == "--build" ]; then
-    build_core
+# Ensure bitcoind is obtained (downloaded, built, or reused) if --build is passed or not already present
+if [ ! -f "$BINARIES_DIR/bitcoind" ] || [ "$1" == "--build" ]; then
+    ensure_bitcoind
 else
-    echo "Bitcoind already built, skipping..."
+    echo "Bitcoind already built/downloaded, skipping..."
 fi
 
 echo "All done!"
 
-echo "Temporary Directory at $FLORESTA_TEMP_DIR"
+echo "Temporary Directory at $TEMP_DIR"
 
 exit 0
