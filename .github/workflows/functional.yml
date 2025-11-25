@@ -40,7 +40,7 @@ jobs:
 
       - name: Run functional tests tasks
         run: |
-          tests/prepare.sh
+          tests/prepare.sh --release
           tests/run.sh
 
       - name: Log tests on failure

@@ -2,6 +2,19 @@
 
 set -e
 
+# Parse CLI flags:
+# --build    : force rebuilding utreexod/bitcoind even if present
+# --release  : build florestad in release mode (default: debug)
+FORCE_BUILD=0
+BUILD_RELEASE=0
+for arg in "$@"; do
+    case "$arg" in
+        --build) FORCE_BUILD=1 ;;
+        --release) BUILD_RELEASE=1 ;;
+        *) ;;
+    esac
+done
+
 BITCOIN_REVISION="${BITCOIN_REVISION:-30.0}"
 # We expect for the current dir to be the root dir of the project.
 FLORESTA_PROJ_DIR=$(git rev-parse --show-toplevel)
@@ -206,10 +219,19 @@ build_floresta() {
     # causing collisions with the tests.
     echo "Building florestad..."
 
-    cd $FLORESTA_PROJ_DIR
-    cargo build --bin florestad --release
+    cd "$FLORESTA_PROJ_DIR"
 
-    ln -fs $(pwd)/target/release/florestad "$BINARIES_DIR/florestad"
+    if [ "$BUILD_RELEASE" -eq 1 ]; then
+        echo "Building florestad (release)..."
+        cargo build --bin florestad --release
+        profile="release"
+    else
+        echo "Building florestad (debug)..."
+        cargo build --bin florestad
+        profile="debug"
+    fi
+
+    ln -fs "$(pwd)/target/${profile}/florestad" "$BINARIES_DIR/florestad"
 }
 
 check_installed git
@@ -218,14 +240,14 @@ check_installed cargo
 build_floresta
 
 # Check if utreexod is already built or if --build is passed
-if [ ! -f "$BINARIES_DIR/utreexod" ] || [ "$1" == "--build" ]; then
+if [ ! -f "$BINARIES_DIR/utreexod" ] || [ "$FORCE_BUILD" -eq 1 ]; then
     build_utreexod
 else
     echo "Utreexod already built, skipping..."
 fi
 
 # Ensure bitcoind is obtained (downloaded, built, or reused) if --build is passed or not already present
-if [ ! -f "$BINARIES_DIR/bitcoind" ] || [ "$1" == "--build" ]; then
+if [ ! -f "$BINARIES_DIR/bitcoind" ] || [ "$FORCE_BUILD" -eq 1 ]; then
     ensure_bitcoind
 else
     echo "Bitcoind already built/downloaded, skipping..."
