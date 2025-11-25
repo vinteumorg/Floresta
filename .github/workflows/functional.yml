@@ -40,7 +40,7 @@ jobs:
 
       - name: Prepare functional tests tasks
         run: |
-          tests/prepare.sh
+          tests/prepare.sh --release
 
       - name: Run functional tests tasks
         run: |
