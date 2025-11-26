@@ -76,7 +76,8 @@ use super::peer::PeerMessages;
 use crate::address_man::AddressState;
 use crate::block_proof::Bitmap;
 use crate::node::periodic_job;
-use crate::node::try_and_log;
+use crate::node::try_and_debug;
+use crate::node::try_and_warn;
 use crate::node::InflightBlock;
 use crate::node::InflightRequests;
 use crate::node::NodeNotification;
@@ -747,7 +748,7 @@ where
                     }
 
                     Some(NodeNotification::FromPeer(peer, notification)) => {
-                        try_and_log!(self.handle_peer_notification(notification, peer).await);
+                        try_and_debug!(self.handle_peer_notification(notification, peer).await);
                     }
 
                     Some(NodeNotification::DnsSeedAddresses(addresses)) => {
@@ -794,9 +795,8 @@ where
                 if !self.peer_ids.is_empty() {
                     let new_sync_peer = rand::random::<usize>() % self.peer_ids.len();
                     self.context.sync_peer = *self.peer_ids.get(new_sync_peer).unwrap();
-                    try_and_log!(self
+                    try_and_debug!(self
                         .request_headers(self.chain.get_best_block()?.1, self.context.sync_peer));
-
                     self.context.state = ChainSelectorState::DownloadingHeaders;
                 }
             }
@@ -804,12 +804,11 @@ where
             // We downloaded all headers in the most-pow chain, and all our peers agree
             // this is the most-pow chain, we're done!
             if self.context.state == ChainSelectorState::Done {
-                try_and_log!(self.chain.flush());
+                try_and_warn!(self.chain.flush());
                 break;
             }
 
-            try_and_log!(self.check_for_timeout());
-
+            try_and_debug!(self.check_for_timeout());
             if *self.kill_signal.read().await {
                 self.shutdown();
                 break;
