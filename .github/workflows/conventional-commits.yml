@@ -1,0 +1,13 @@
+name: Conventional Commits
+
+on:
+  pull_request: # We only need to check commit messages in PRs
+
+jobs:
+  conventional-commits:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: webiny/action-conventional-commits@v1.3.0
+        with:
+          allowed-commit-types: "feat,fix,docs,style,refactor,test,perf,ci,chore,fuzz,bench"
