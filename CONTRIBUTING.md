@@ -40,7 +40,38 @@ Commits should cover both the issue fixed and the solution's rationale.
 
 
 These [guidelines](https://chris.beams.io/posts/git-commit/) should be kept in mind. Commit
-messages follow the ["Conventional Commits 1.0.0"](https://www.conventionalcommits.org/en/v1.0.0/) to make commit histories easier to read by humans and automated tools. We encourage contributors to [GPG sign](https://docs.github.com/en/authentication/managing-commit-signature-verification/signing-commits) their commits.
+messages follow the ["Conventional Commits 1.0.0"](https://www.conventionalcommits.org/en/v1.0.0/) to make commit histories easier to read by humans and automated tools. The types of commits we use are:
+
+  - bench: benchmark related changes
+  - chore: maintenance tasks
+  - ci: continuous integration
+  - docs: documentation changes
+  - feat: new feature
+  - fix: bug fix
+  - fuzz: adding a new fuzz target or fixing an existing one
+  - perf: code change that improves performance
+  - refactor: code change that neither fixes a bug nor adds a feature
+  - style: formatting, missing semi colons, etc; no code change
+  - test: adding missing tests or correcting existing tests
+
+For `scope`, consider using one of the following where applicable:
+
+  - chain
+  - consensus
+  - cli
+  - common
+  - deps
+  - electrum
+  - filters
+  - florestad
+  - integration, functional, unit (to be used in test commits)
+  - mempool
+  - node
+  - rpc
+  - wallet
+  - wire
+
+It is required to [GPG sign](https://docs.github.com/en/authentication/managing-commit-signature-verification/signing-commits) your commits.
 
 Peer review
 -----------
