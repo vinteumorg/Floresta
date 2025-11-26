@@ -264,7 +264,6 @@ where
             }
 
             NodeNotification::FromPeer(peer, notification) => {
-                #[cfg(feature = "metrics")]
                 self.register_message_time(&notification, peer);
 
                 match notification {
