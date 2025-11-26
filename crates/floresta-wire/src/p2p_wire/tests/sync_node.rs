@@ -1,107 +1,26 @@
 #[cfg(test)]
-mod tests_utils {
-    use std::sync::Arc;
-    use std::time::Duration;
-
-    use bitcoin::Network;
-    use floresta_chain::pruned_utreexo::UpdatableChainstate;
-    use floresta_chain::AssumeValidArg;
-    use floresta_chain::ChainState;
-    use floresta_chain::FlatChainStore;
-    use floresta_chain::FlatChainStoreConfig;
-    use rustreexo::accumulator::pollard::Pollard;
-    use tokio::sync::Mutex;
-    use tokio::sync::RwLock;
-    use tokio::time::timeout;
-
-    use crate::address_man::AddressMan;
-    use crate::mempool::Mempool;
-    use crate::node::UtreexoNode;
-    use crate::p2p_wire::sync_node::SyncNode;
-    use crate::p2p_wire::tests::utils::create_peer;
-    use crate::p2p_wire::tests::utils::get_node_config;
-    use crate::p2p_wire::tests::utils::get_test_headers;
-    use crate::p2p_wire::tests::utils::BlockDataMap;
-    use crate::p2p_wire::tests::utils::BlockHashMap;
-    use crate::p2p_wire::tests::utils::HeaderList;
-
-    type PeerData = (HeaderList, BlockHashMap, BlockDataMap);
-
-    pub async fn setup_node(
-        peers: Vec<PeerData>,
-        pow_fraud_proofs: bool,
-        network: Network,
-    ) -> Arc<ChainState<FlatChainStore>> {
-        let datadir = format!("./tmp-db/{}.sync_node", rand::random::<u32>());
-        let config = FlatChainStoreConfig::new(datadir.clone());
-
-        let chainstore = FlatChainStore::new(config).unwrap();
-        let mempool = Arc::new(Mutex::new(Mempool::new(Pollard::default(), 1000)));
-        let chain = ChainState::new(chainstore, network, AssumeValidArg::Disabled);
-        let chain = Arc::new(chain);
-
-        // Adding 9 signet headers in the chain-state prior validation
-        let mut headers = get_test_headers();
-        headers.remove(0);
-        headers.truncate(9);
-        for header in headers {
-            chain.accept_header(header).unwrap();
-        }
-
-        let config = get_node_config(datadir, network, pow_fraud_proofs);
-
-        let kill_signal = Arc::new(RwLock::new(false));
-        let mut node = UtreexoNode::<Arc<ChainState<FlatChainStore>>, SyncNode>::new(
-            config,
-            chain.clone(),
-            mempool,
-            None,
-            kill_signal.clone(),
-            AddressMan::default(),
-        )
-        .unwrap();
-
-        for (i, peer) in peers.into_iter().enumerate() {
-            let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
-            let peer = create_peer(
-                peer.0,
-                peer.1,
-                peer.2,
-                node.node_tx.clone(),
-                sender.clone(),
-                receiver,
-                i as u32,
-            );
-
-            let _peer = peer.clone();
-
-            node.peers.insert(i as u32, peer);
-        }
-
-        timeout(Duration::from_secs(100), node.run(|_| {}))
-            .await
-            .unwrap();
-        chain
-    }
-}
-
-#[cfg(test)]
 mod tests {
     use std::collections::HashMap;
 
     use bitcoin::Network;
     use floresta_chain::pruned_utreexo::BlockchainInterface;
 
-    use crate::p2p_wire::tests::sync_node::tests_utils::setup_node;
     use crate::p2p_wire::tests::utils::get_essentials;
+    use crate::p2p_wire::tests::utils::setup_node;
+
+    const NUM_BLOCKS: usize = 9;
 
     #[tokio::test]
     async fn test_sync_valid_blocks() {
+        let datadir = format!("./tmp-db/{}.sync_node", rand::random::<u32>());
+
         let essentials = get_essentials();
         let chain = setup_node(
             vec![(Vec::new(), essentials.blocks.clone(), HashMap::new())],
             false,
             Network::Signet,
+            &datadir,
+            NUM_BLOCKS,
         )
         .await;
 
@@ -121,6 +40,8 @@ mod tests {
         // THIS SIMULATION WILL TEST:
         // 1) SENDING BLOCK WITH A BADMERKLEROOT: 7TH BLOCK WILL BE INVALIDATED.
 
+        let datadir = format!("./tmp-db/{}.sync_node", rand::random::<u32>());
+
         let mut essentials = get_essentials();
 
         essentials
@@ -128,7 +49,7 @@ mod tests {
             .insert(essentials.headers[7].block_hash(), essentials.invalid_block);
 
         let peer = vec![(Vec::new(), essentials.blocks.clone(), HashMap::new())];
-        let chain = setup_node(peer, false, Network::Signet).await;
+        let chain = setup_node(peer, false, Network::Signet, &datadir, NUM_BLOCKS).await;
 
         assert_eq!(chain.get_validation_index().unwrap(), 6);
         assert_eq!(
