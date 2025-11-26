@@ -42,7 +42,8 @@ jobs:
       - name: Run functional tests tasks
         run: |
           tests/prepare.sh
-          tests/run.sh
+          tests/run.sh --test-framework
+          tests/run.sh --pytest tests/example/* -n 4
 
       - name: Log tests on failure
         if: failure()
