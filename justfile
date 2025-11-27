@@ -67,7 +67,8 @@ test-functional-uv-fmt:
 # Run the functional tests
 test-functional:
     @just test-functional-prepare
-    @just test-functional-run
+    @just test-functional-run --test-runner
+    @just test-functional-run --pytest tests/example/* -n 4
 
 # Run the benchmarks
 bench:
