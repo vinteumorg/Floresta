@@ -480,6 +480,7 @@ fn get_http_error_code(err: &JsonRpcError) -> u16 {
         | JsonRpcError::NoAddressesToRescan
         | JsonRpcError::InvalidParameterType(_)
         | JsonRpcError::MissingParameter(_)
+        | JsonRpcError::ChainWork(_)
         | JsonRpcError::Wallet(_) => 400,
 
         // idunnolol
@@ -517,6 +518,7 @@ fn get_json_rpc_error_code(err: &JsonRpcError) -> i32 {
         | JsonRpcError::InvalidAddnodeCommand
         | JsonRpcError::InvalidRescanVal
         | JsonRpcError::NoAddressesToRescan
+        | JsonRpcError::ChainWork(_)
         | JsonRpcError::Wallet(_) => -32600,
 
         // server error
