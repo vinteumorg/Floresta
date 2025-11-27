@@ -1,7 +1,9 @@
 """Test framework for Floresta integration tests.
 
 This module provides a test framework for running integration tests with
-Bitcoin daemons (bitcoind, florestad, utreexod).
+Test framework for Floresta external integration and functional tests.
+
+Similarly to Bitcoin Core's test_framework](https://github.com/bitcoin/bitcoin/blob/master/test/functional/test_framework/test_framework.py), we define tools and methods to help testing various Floresta features against expected standards and other alternative bitcoin clients such as utreexod and Bitcoin Core itself.
 """
 
 import os
@@ -14,7 +16,7 @@ import shutil
 import signal
 import contextlib
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Pattern
+from typing import Any, List, Pattern
 
 from test_framework.crypto.pkcs8 import (
     create_pkcs8_private_key,
@@ -213,10 +215,10 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
             Path to integration test directory
 
         Raises:
-            RuntimeError: If FLORESTA_TEMP_DIR not set
+            RuntimeError: If FLORESTA_TEMP_DIR is not set
         """
         if os.getenv("FLORESTA_TEMP_DIR") is None:
-            raise RuntimeError("FLORESTA_TEMP_DIR not set")
+            raise RuntimeError("FLORESTA_TEMP_DIR is not set")
         return os.getenv("FLORESTA_TEMP_DIR")
 
     @staticmethod

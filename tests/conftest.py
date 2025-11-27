@@ -207,7 +207,7 @@ def skip_if_no_binaries(request):
 
 # Fixtures for specific test scenarios from your current tests
 @pytest.fixture
-def addnode_setup(node_manager) -> Dict[str, Node]:
+def floresta_addnode_setup(node_manager) -> Dict[str, Node]:
     """Setup for addnode tests (equivalent to your AddnodeTest)"""
     florestad = node_manager.create_node(variant="florestad", testname="pytest_addnode")
     node_manager.start_node(florestad)
@@ -215,7 +215,7 @@ def addnode_setup(node_manager) -> Dict[str, Node]:
 
 
 @pytest.fixture
-def electrum_setup(node_manager) -> Dict[str, Node]:
+def floresta_electrum_setup(node_manager) -> Dict[str, Node]:
     """Setup for electrum tests"""
     florestad = node_manager.create_node(
         variant="florestad",
