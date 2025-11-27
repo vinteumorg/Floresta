@@ -58,7 +58,7 @@ fn main() {
         #[cfg(not(unix))]
         log_to_file: params.log_to_file,
         assume_valid: params.assume_valid,
-        log_to_stdout: true,
+        log_to_stdout: false,
         #[cfg(feature = "zmq-server")]
         zmq_address: params.zmq_address,
         #[cfg(feature = "json-rpc")]
