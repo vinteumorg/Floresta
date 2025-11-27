@@ -145,7 +145,7 @@ def print_summary(results, overall_duration, verbose=False):
     failed = [r for r in results if not r.success]
 
     print("=" * 60)
-    print(f"TEST SUMMARY")
+    print("TEST SUMMARY")
     print("=" * 60)
 
     # Overall stats
@@ -185,7 +185,7 @@ def main():
 
     # Get integration test directory
     try:
-        temp_dir = FlorestaTestFramework.get_integration_test_dir()
+        FlorestaTestFramework.get_integration_test_dir()
     except RuntimeError as e:
         print(f"{FAILURE_EMOJI} Environment setup error: {e}")
         print("Make sure FLORESTA_TEMP_DIR is set")
@@ -193,7 +193,7 @@ def main():
 
     # Argument parser
     parser = argparse.ArgumentParser(
-        prog="multi_test_runner", description="Run Floresta integration tests"
+        prog="test_runner", description="Run Floresta integration tests"
     )
     parser.add_argument(
         "-t",

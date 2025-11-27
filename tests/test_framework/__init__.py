@@ -14,7 +14,7 @@ import shutil
 import signal
 import contextlib
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Pattern
+from typing import Any, List, Pattern
 
 from test_framework.crypto.pkcs8 import (
     create_pkcs8_private_key,

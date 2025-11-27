@@ -215,7 +215,7 @@ def addnode_setup(node_manager) -> Dict[str, Node]:
 
 
 @pytest.fixture
-def electrum_setup(node_manager) -> Dict[str, Node]:
+def floresta_electrum_setup(node_manager) -> Dict[str, Node]:
     """Setup for electrum tests"""
     florestad = node_manager.create_node(
         variant="florestad",
