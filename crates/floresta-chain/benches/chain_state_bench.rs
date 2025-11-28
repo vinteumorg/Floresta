@@ -17,12 +17,8 @@ use floresta_chain::pruned_utreexo::utxo_data::UtxoData;
 use floresta_chain::pruned_utreexo::UpdatableChainstate;
 use floresta_chain::AssumeValidArg;
 use floresta_chain::ChainState;
-#[cfg(feature = "flat-chainstore")]
 use floresta_chain::FlatChainStore;
-#[cfg(feature = "flat-chainstore")]
 use floresta_chain::FlatChainStoreConfig;
-#[cfg(feature = "kv-chainstore")]
-use floresta_chain::KvChainStore;
 use rustreexo::accumulator::proof::Proof;
 
 /// Reads the first 151 blocks (or 150 blocks on top of genesis) from blocks.txt, which are regtest
@@ -57,17 +53,6 @@ fn read_mainnet_headers() -> Vec<BlockHeader> {
     headers
 }
 
-#[cfg(feature = "kv-chainstore")]
-fn setup_test_chain<'a>(
-    network: Network,
-    assume_valid_arg: AssumeValidArg,
-) -> ChainState<KvChainStore<'a>> {
-    let test_id = rand::random::<u64>();
-    let chainstore = KvChainStore::new(format!("./tmp-db/{test_id}/")).unwrap();
-    ChainState::new(chainstore, network, assume_valid_arg)
-}
-
-#[cfg(feature = "flat-chainstore")]
 fn setup_test_chain(
     network: Network,
     assume_valid_arg: AssumeValidArg,
@@ -112,19 +97,6 @@ fn decode_block_and_inputs(
 }
 
 fn initialize_chainstore_benchmark(c: &mut Criterion) {
-    #[cfg(feature = "kv-chainstore")]
-    c.bench_function("initialize_chainstore", |b| {
-        b.iter_batched(
-            || {
-                let test_id = rand::random::<u64>();
-                format!("./tmp-db/{test_id}/")
-            },
-            |datadir| KvChainStore::new(datadir).unwrap(),
-            BatchSize::SmallInput,
-        )
-    });
-
-    #[cfg(feature = "flat-chainstore")]
     c.bench_function("initialize_chainstore", |b| {
         b.iter_batched(
             || {
@@ -172,18 +144,6 @@ fn accept_headers_benchmark(c: &mut Criterion) {
 fn connect_blocks_benchmark(c: &mut Criterion) {
     let blocks = read_blocks_txt();
 
-    #[cfg(feature = "kv-chainstore")]
-    let setup_chain = || {
-        let chain = setup_test_chain(Network::Regtest, AssumeValidArg::Disabled);
-        // We need to accept the headers before connecting blocks
-        blocks
-            .iter()
-            .for_each(|block| chain.accept_header(block.header).unwrap());
-
-        chain
-    };
-
-    #[cfg(feature = "flat-chainstore")]
     let setup_chain = || {
         let chain = setup_test_chain(Network::Regtest, AssumeValidArg::Disabled);
         // We need to accept the headers before connecting blocks
@@ -256,7 +216,6 @@ fn validate_many_inputs_block_benchmark(c: &mut Criterion) {
     group.finish();
 }
 
-#[cfg(feature = "flat-chainstore")]
 fn chainstore_checksum_benchmark(c: &mut Criterion) {
     use floresta_chain::ChainStore;
     use floresta_chain::DiskBlockHeader;
@@ -289,11 +248,6 @@ fn chainstore_checksum_benchmark(c: &mut Criterion) {
             BatchSize::SmallInput,
         )
     });
-}
-
-#[cfg(not(feature = "flat-chainstore"))]
-fn chainstore_checksum_benchmark(_c: &mut Criterion) {
-    // No-op as we only support the checksum in flat-chainstore
 }
 
 criterion_group!(
