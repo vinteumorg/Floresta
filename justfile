@@ -1,5 +1,4 @@
-# List the available commands
-default:
+_default:
   @just --list
 
 # Checks whether a command is available.
