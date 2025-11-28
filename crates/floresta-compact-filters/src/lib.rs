@@ -22,7 +22,6 @@ use bitcoin::bip158;
 use flat_filters_store::FlatFiltersStore;
 
 pub mod flat_filters_store;
-pub mod kv_filter_database;
 pub mod network_filters;
 
 /// A database that stores our compact filters

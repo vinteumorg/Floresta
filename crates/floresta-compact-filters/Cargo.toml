@@ -12,7 +12,6 @@ readme.workspace = true # Floresta/README.md
 
 [dependencies]
 bitcoin = { workspace = true }
-kv = { workspace = true }
 
 # Local dependencies
 floresta-chain = { workspace = true }
