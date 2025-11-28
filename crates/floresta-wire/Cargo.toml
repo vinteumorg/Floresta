@@ -31,7 +31,7 @@ tracing = { workspace = true }
 ureq = { version = "3.1", features = ["socks-proxy", "json", "rustls-no-provider"], default-features = false }
 
 # Local dependencies
-floresta-chain = { workspace = true, features = ["flat-chainstore"] }
+floresta-chain = { workspace = true }
 floresta-compact-filters = { workspace = true }
 floresta-common = { workspace = true }
 metrics = { workspace = true,  optional = true }

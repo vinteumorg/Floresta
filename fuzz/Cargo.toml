@@ -14,7 +14,7 @@ libfuzzer-sys = "0.4"
 tempfile = { workspace = true }
 
 # Local dependencies
-floresta-chain = { workspace = true, features = ["flat-chainstore"] }
+floresta-chain = { workspace = true }
 floresta-wire = { workspace = true }
 
 [[bin]]

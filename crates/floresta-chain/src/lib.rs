@@ -22,10 +22,7 @@ pub use pruned_utreexo::chain_state::*;
 pub use pruned_utreexo::chainparams::*;
 pub use pruned_utreexo::chainstore::*;
 pub use pruned_utreexo::error::*;
-#[cfg(feature = "flat-chainstore")]
 pub use pruned_utreexo::flat_chain_store::*;
-#[cfg(feature = "kv-chainstore")]
-pub use pruned_utreexo::kv_chainstore::*;
 pub use pruned_utreexo::udata::*;
 pub use pruned_utreexo::utxo_data::*;
 pub use pruned_utreexo::BlockchainInterface;

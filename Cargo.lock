@@ -980,7 +980,6 @@ dependencies = [
  "criterion",
  "floresta-common",
  "hex",
- "kv",
  "lru",
  "memmap2",
  "metrics",

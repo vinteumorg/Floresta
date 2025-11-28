@@ -20,10 +20,6 @@ use crate::DatabaseError;
 /// the [ChainState](super::chain_state::ChainState) to save and retrieve data about the blockchain,
 /// likely on disk.
 ///
-/// Right now, you can use the [FlatChainStore](super::flat_chain_store::FlatChainStore) or
-/// [KvChainStore](super::kv_chainstore::KvChainStore) implementations. The former is the store that
-/// we use at production, while the latter is a simpler key-value store.
-///
 /// This trait requires an associated error type that implements [DatabaseError]; a marker trait
 /// satisfied by any `T: std::error::Error + std::fmt::Display`. This is useful to abstract the
 /// database implementation from the blockchain.

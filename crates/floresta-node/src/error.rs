@@ -3,7 +3,6 @@ use std::net::AddrParseError;
 use bitcoin::consensus::encode;
 use floresta_chain::BlockValidationErrors;
 use floresta_chain::BlockchainError;
-#[cfg(feature = "flat-chainstore")]
 use floresta_chain::FlatChainstoreError;
 #[cfg(feature = "compact-filters")]
 use floresta_compact_filters::IterableFilterStoreError;
@@ -126,17 +125,11 @@ pub enum FlorestadError {
     /// Resolve a hostname error.
     CouldNotResolveHostname(std::io::Error),
 
-    #[cfg(feature = "flat-chainstore")]
     /// Create a flat chain store error.
     CouldNotCreateFlatChainStore(FlatChainstoreError),
 
-    #[cfg(feature = "flat-chainstore")]
     /// Load a flat chain store error.
     CouldNotLoadFlatChainStore(BlockchainError),
-
-    #[cfg(feature = "kv-chainstore")]
-    /// Load a key-value chain store error.
-    CouldNotLoadKvChainStore(BlockchainError),
 }
 
 impl std::fmt::Display for FlorestadError {
@@ -237,19 +230,12 @@ impl std::fmt::Display for FlorestadError {
                 write!(f, "Could not resolve hostname: {host}")
             }
 
-            #[cfg(feature = "flat-chainstore")]
             FlorestadError::CouldNotCreateFlatChainStore(err) => {
                 write!(f, "Failure while creating chainstore: {err:?}")
             }
 
-            #[cfg(feature = "flat-chainstore")]
             FlorestadError::CouldNotLoadFlatChainStore(err) => {
                 write!(f, "Failure while loading flat chainstore: {err:?}")
-            }
-
-            #[cfg(feature = "kv-chainstore")]
-            FlorestadError::CouldNotLoadKvChainStore(err) => {
-                write!(f, "Failure while loading key-value chainstore: {err:?}")
             }
         }
     }
