@@ -37,10 +37,8 @@ daemonize = { version = "0.5.0" }
 toml = { workspace = true }
 
 [features]
-default = ["flat-chainstore", "json-rpc"]
+default = ["json-rpc"]
 compact-filters = ["floresta-node/compact-filters"]
-kv-chainstore = ["floresta-node/kv-chainstore"]
-flat-chainstore = ["floresta-node/flat-chainstore"]
 zmq-server = ["floresta-node/zmq-server"]
 json-rpc = ["floresta-node/json-rpc", "compact-filters"]
 metrics = ["floresta-node/metrics"]
