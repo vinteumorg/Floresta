@@ -37,7 +37,7 @@ rcgen = { workspace = true }
 zstd = { workspace = true }
 
 # Local dependencies
-floresta-chain = { workspace = true, features = ["flat-chainstore"] }
+floresta-chain = { workspace = true }
 
 [lints]
 workspace = true
