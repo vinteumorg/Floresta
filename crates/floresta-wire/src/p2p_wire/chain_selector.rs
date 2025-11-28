@@ -403,7 +403,8 @@ where
         peer: PeerId,
         block_hash: BlockHash,
     ) -> Result<InflightBlock, WireError> {
-        self.send_to_peer(peer, NodeRequest::GetBlock(vec![block_hash]))?;
+        self.send_to_peer(peer, NodeRequest::GetBlock(vec![block_hash]))
+            .await?;
 
         let timeout = Instant::now() + Duration::from_secs(60);
         let mut block = None;
@@ -426,7 +427,7 @@ where
                 PeerMessages::Block(recv_block) => {
                     if recv_block.block_hash() != block_hash {
                         error!("peer {peer} sent us a block we didn't request");
-                        self.increase_banscore(peer, self.max_banscore)?;
+                        self.increase_banscore(peer, self.max_banscore).await?;
                         return Err(WireError::PeerMisbehaving);
                     }
 
@@ -439,7 +440,8 @@ where
                             "Peer {peer} sent us a mutated block {}",
                             recv_block.block_hash()
                         );
-                        self.increase_banscore(peer, self.config.max_banscore)?;
+                        self.increase_banscore(peer, self.config.max_banscore)
+                            .await?;
                         return Err(WireError::PeerMisbehaving);
                     }
 
@@ -449,14 +451,16 @@ where
                     self.send_to_peer(
                         peer,
                         NodeRequest::GetBlockProof((block_hash, Bitmap::new(), Bitmap::new())),
-                    )?;
+                    )
+                    .await?;
                 }
 
                 // STEP 2: Receive the proof and return the `InflightBlock`
                 PeerMessages::UtreexoProof(uproof) => {
                     let Some(block) = block else {
                         error!("peer {peer} sent us a proof without sending the block first");
-                        self.increase_banscore(peer, self.config.max_banscore)?;
+                        self.increase_banscore(peer, self.config.max_banscore)
+                            .await?;
                         return Err(WireError::PeerMisbehaving);
                     };
 
@@ -931,9 +935,9 @@ where
                 // During chain selection we don't ask for blocks, unless it's an explicit
                 // user request made through the node handle. If it isn't, we punish this
                 // peer for sending an unrequested block.
-                if self.check_is_user_block_and_reply(block)?.is_some() {
+                if self.check_is_user_block_and_reply(block).await?.is_some() {
                     error!("peer {peer} sent us a block we didn't request");
-                    self.increase_banscore(peer, 5)?;
+                    self.increase_banscore(peer, 5).await?;
                 }
             }
 

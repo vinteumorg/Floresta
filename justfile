@@ -148,6 +148,9 @@ lint-features arg="":
     @just spell-check
     @just test-functional-uv-fmt
 
+    @just spell-check
+    @just test-functional-uv-fmt
+
 # Remove test-generated data
 clean-data:
     ./contrib/clean_data.sh

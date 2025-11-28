@@ -693,7 +693,7 @@ where
         Ok(Some(block))
     }
 
-    pub(crate) fn attach_proof(
+    pub(crate) async fn attach_proof(
         &mut self,
         uproof: UtreexoProof,
         peer: PeerId,
@@ -707,7 +707,7 @@ where
                 "Received utreexo proof for block {}, but we don't have it",
                 uproof.block_hash
             );
-            self.increase_banscore(peer, 5)?;
+            self.increase_banscore(peer, 5).await?;
 
             return Ok(());
         };
@@ -723,7 +723,7 @@ where
         Ok(())
     }
 
-    pub(crate) fn request_block_proof(
+    pub(crate) async fn request_block_proof(
         &mut self,
         block: Block,
         peer: PeerId,
@@ -732,7 +732,7 @@ where
         self.inflight.remove(&InflightRequests::Blocks(block_hash));
 
         // Reply and return early if it's a user-requested block. Else continue handling it.
-        let Some(block) = self.check_is_user_block_and_reply(block)? else {
+        let Some(block) = self.check_is_user_block_and_reply(block).await? else {
             return Ok(());
         };
 
@@ -764,7 +764,8 @@ where
         self.send_to_random_peer(
             NodeRequest::GetBlockProof((block_hash, Bitmap::new(), Bitmap::new())),
             UTREEXO.into(),
-        )?;
+        )
+        .await?;
 
         self.inflight.insert(
             InflightRequests::UtreexoProof(block_hash),
@@ -778,7 +779,7 @@ where
 
     /// Processes ready blocks in order, stopping at the tip or the first missing block/proof.
     /// Call again when new blocks or proofs arrive.
-    pub(crate) fn process_pending_blocks(&mut self) -> Result<(), WireError>
+    pub(crate) async fn process_pending_blocks(&mut self) -> Result<(), WireError>
     where
         Chain::Error: From<UtreexoLeafError>,
     {
@@ -803,7 +804,7 @@ where
             }
 
             let start = Instant::now();
-            self.process_block(next_block, next_block_hash)?;
+            self.process_block(next_block, next_block_hash).await?;
 
             let elapsed = start.elapsed().as_secs();
             self.block_sync_avg.add(elapsed);
@@ -823,7 +824,11 @@ where
     ///
     /// This function will take the next block in our chain, process its proof and validate it.
     /// If everything is correct, it will connect the block to our chain.
-    fn process_block(&mut self, block_height: u32, block_hash: BlockHash) -> Result<(), WireError>
+    async fn process_block(
+        &mut self,
+        block_height: u32,
+        block_hash: BlockHash,
+    ) -> Result<(), WireError>
     where
         Chain::Error: From<UtreexoLeafError>,
     {
@@ -1161,7 +1166,7 @@ where
     /// Asks all utreexo peers for proofs of blocks that we have, but haven't received proofs
     /// for yet, and don't have any GetProofs inflight. This may be caused by a peer disconnecting
     /// while we didn't have more utreexo peers to redo the request.
-    pub(crate) fn ask_for_missed_proofs(&mut self) -> Result<(), WireError> {
+    pub(crate) async fn ask_for_missed_proofs(&mut self) -> Result<(), WireError> {
         // If we have no peers, we can't ask for proofs
         if !self.has_utreexo_peers() {
             return Ok(());
@@ -1187,10 +1192,12 @@ where
             .collect::<Vec<_>>();
 
         for block_hash in pending_blocks {
-            let peer = self.send_to_random_peer(
-                NodeRequest::GetBlockProof((block_hash, Bitmap::new(), Bitmap::new())),
-                service_flags::UTREEXO.into(),
-            )?;
+            let peer = self
+                .send_to_random_peer(
+                    NodeRequest::GetBlockProof((block_hash, Bitmap::new(), Bitmap::new())),
+                    service_flags::UTREEXO.into(),
+                )
+                .await?;
 
             self.inflight.insert(
                 InflightRequests::UtreexoProof(block_hash),
@@ -1201,7 +1208,10 @@ where
         Ok(())
     }
 
-    pub(crate) fn redo_inflight_request(&mut self, req: InflightRequests) -> Result<(), WireError> {
+    pub(crate) async fn redo_inflight_request(
+        &mut self,
+        req: InflightRequests,
+    ) -> Result<(), WireError> {
         match req {
             InflightRequests::UtreexoProof(block_hash) => {
                 if !self.has_utreexo_peers() {
@@ -1221,10 +1231,12 @@ where
                     return Ok(());
                 }
 
-                let peer = self.send_to_random_peer(
-                    NodeRequest::GetBlockProof((block_hash, Bitmap::new(), Bitmap::new())),
-                    service_flags::UTREEXO.into(),
-                )?;
+                let peer = self
+                    .send_to_random_peer(
+                        NodeRequest::GetBlockProof((block_hash, Bitmap::new(), Bitmap::new())),
+                        service_flags::UTREEXO.into(),
+                    )
+                    .await?;
 
                 self.inflight.insert(
                     InflightRequests::UtreexoProof(block_hash),
@@ -1233,7 +1245,7 @@ where
             }
 
             InflightRequests::Blocks(block) => {
-                self.request_blocks(vec![block])?;
+                self.request_blocks(vec![block]).await?;
             }
             InflightRequests::Headers => {
                 let peer = self.send_to_random_peer(
@@ -1542,7 +1554,7 @@ where
         Ok(())
     }
 
-    pub(crate) fn shutdown(&mut self) {
+    pub(crate) async fn shutdown(&mut self) {
         info!("Shutting down node...");
         try_and_warn!(self.save_utreexo_peers());
         for peer in self.peer_ids.iter() {
@@ -1787,8 +1799,9 @@ where
             return Ok(());
         }
 
-        let peer =
-            self.send_to_random_peer(NodeRequest::GetBlock(blocks.clone()), ServiceFlags::NETWORK)?;
+        let peer = self
+            .send_to_random_peer(NodeRequest::GetBlock(blocks.clone()), ServiceFlags::NETWORK)
+            .await?;
 
         for block in blocks.iter() {
             self.inflight

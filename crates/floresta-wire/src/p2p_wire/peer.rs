@@ -480,12 +480,13 @@ impl<T: AsyncWrite + Unpin + Send + Sync> Peer<T> {
                     }
 
                     let utreexo_proof: UtreexoProof = deserialize(&payload)?;
-                    self.send_to_node(PeerMessages::UtreexoProof(utreexo_proof));
+                    self.send_to_node(PeerMessages::UtreexoProof(utreexo_proof))
+                        .await;
 
                     return Ok(());
                 }
                 NetworkMessage::Block(block) => {
-                    self.send_to_node(PeerMessages::Block(block));
+                    self.send_to_node(PeerMessages::Block(block)).await;
                 }
                 NetworkMessage::CFilter(filter_msg) => match filter_msg.filter_type {
                     0 => {

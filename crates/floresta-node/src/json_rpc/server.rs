@@ -167,15 +167,16 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
         Ok(true)
     }
 
-    fn rescan_blockchain(
+    async fn rescan_blockchain(
         &self,
         start: Option<u32>,
         stop: Option<u32>,
         use_timestamp: bool,
         confidence: Option<RescanConfidence>,
     ) -> Result<bool> {
-        let (start_height, stop_height) =
-            self.get_rescan_interval(use_timestamp, start, stop, confidence)?;
+        let (start_height, stop_height) = self
+            .get_rescan_interval(use_timestamp, start, stop, confidence)
+            .await?;
 
         if stop_height != 0 && start_height >= stop_height {
             // When stop height is a non zero value it needs atleast to be greater than start_height.
@@ -231,6 +232,20 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
             .await
             .map_err(|_| JsonRpcError::Node("Failed to get peer info".to_string()))
     }
+
+    async fn get_blockheader(&self, hash: BlockHash, verbose: bool) -> Result<Value> {
+        if !verbose {
+            let blockheader = self
+                .chain
+                .get_block_header(&hash)
+                .map_err(|e| JsonRpcError::InvalidHeader(Box::new(e)))?;
+            let raw = bitcoin::consensus::encode::serialize_hex(&blockheader);
+            return serde_json::to_value(raw).map_err(JsonRpcError::ToValue);
+        }
+
+        let blockheader = self.get_block_header(hash).await?;
+        serde_json::to_value(blockheader).map_err(JsonRpcError::ToValue)
+    }
 }
 
 async fn handle_json_rpc_request(
@@ -244,10 +259,8 @@ async fn handle_json_rpc_request(
         id,
     } = req;
 
-    if let Some(version) = jsonrpc {
-        if !["1.0", "2.0"].contains(&version.as_str()) {
-            return Err(JsonRpcError::InvalidRequest);
-        }
+    if jsonrpc != "2.0" {
+        return Err(JsonRpcError::InvalidRequest);
     }
 
     state.inflight.write().await.insert(
@@ -313,9 +326,9 @@ async fn handle_json_rpc_request(
 
         "getblockheader" => {
             let hash = get_hash(&params, 0, "block_hash")?;
-            state
-                .get_block_header(hash)
-                .map(|h| serde_json::to_value(h).unwrap())
+            let verbose = get_bool(&params, 1, "verbose")?;
+
+            state.get_blockheader(hash, verbose).await
         }
 
         "gettxout" => {
@@ -440,6 +453,7 @@ async fn handle_json_rpc_request(
 
             state
                 .rescan_blockchain(start_height, stop_height, use_timestamp, Some(confidence))
+                .await
                 .map(|v| serde_json::to_value(v).unwrap())
         }
 
@@ -479,13 +493,17 @@ fn get_http_error_code(err: &JsonRpcError) -> u16 {
         | JsonRpcError::InvalidRescanVal
         | JsonRpcError::NoAddressesToRescan
         | JsonRpcError::InvalidParameterType(_)
+        | JsonRpcError::InvalidHeight(_)
+        | JsonRpcError::InvalidBlockHash(_)
+        | JsonRpcError::InvalidHeader(_)
         | JsonRpcError::MissingParameter(_)
         | JsonRpcError::Wallet(_) => 400,
 
         // idunnolol
-        JsonRpcError::MethodNotFound | JsonRpcError::BlockNotFound | JsonRpcError::TxNotFound => {
-            404
-        }
+        JsonRpcError::MethodNotFound
+        | JsonRpcError::BlockNotFound
+        | JsonRpcError::TxNotFound
+        | JsonRpcError::ToValue(_) => 404,
 
         // we messed up, sowwy
         JsonRpcError::InInitialBlockDownload
@@ -498,7 +516,9 @@ fn get_http_error_code(err: &JsonRpcError) -> u16 {
 fn get_json_rpc_error_code(err: &JsonRpcError) -> i32 {
     match err {
         // Parse Error
-        JsonRpcError::Decode(_) | JsonRpcError::InvalidParameterType(_) => -32700,
+        JsonRpcError::Decode(_)
+        | JsonRpcError::InvalidParameterType(_)
+        | JsonRpcError::ToValue(_) => -32700,
 
         // Invalid Request
         JsonRpcError::InvalidHex
@@ -516,6 +536,9 @@ fn get_json_rpc_error_code(err: &JsonRpcError) -> i32 {
         | JsonRpcError::InvalidMemInfoMode
         | JsonRpcError::InvalidAddnodeCommand
         | JsonRpcError::InvalidRescanVal
+        | JsonRpcError::InvalidHeight(_)
+        | JsonRpcError::InvalidBlockHash(_)
+        | JsonRpcError::InvalidHeader(_)
         | JsonRpcError::NoAddressesToRescan
         | JsonRpcError::Wallet(_) => -32600,
 

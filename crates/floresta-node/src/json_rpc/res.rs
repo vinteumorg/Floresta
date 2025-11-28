@@ -237,6 +237,62 @@ pub struct GetBlockResVerbose {
     pub nextblockhash: Option<String>,
 }
 
+/// A bitcoin block header in verbose mode
+#[derive(Debug, Deserialize, Serialize)]
+pub struct GetBlockHeaderResVerbose {
+    /// The block hash (same as provided)
+    pub hash: String,
+
+    /// The number of confirmations, or -1 if the block is not on the main chain
+    pub confirmations: u32,
+
+    /// The block height or index
+    pub height: u32,
+
+    /// The block version
+    pub version: i32,
+
+    /// The block version formatted in hexadecimal
+    #[serde(rename = "versionHex")]
+    pub version_hex: String,
+
+    /// The merkle root
+    pub merkleroot: String,
+
+    /// The block time expressed in UNIX epoch time
+    pub time: u32,
+
+    /// The median block time expressed in UNIX epoch time
+    pub mediantime: u32,
+
+    /// The nonce
+    pub nonce: u32,
+
+    /// nBits: compact representation of the block difficulty target
+    pub bits: String,
+
+    /// The difficulty target
+    pub target: String,
+
+    /// The difficulty
+    pub difficulty: f64,
+
+    /// Expected number of hashes required to produce the current chain
+    pub chainwork: String,
+
+    /// The number of transactions in the block
+    #[serde(rename = "nTx")]
+    pub n_tx: usize,
+
+    /// The hash of the previous block (if available)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub previousblockhash: Option<String>,
+
+    /// The hash of the next block (if available)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nextblockhash: Option<String>,
+}
+
 #[derive(Debug)]
 pub enum JsonRpcError {
     /// There was a rescan request but we do not have any addresses in the watch-only wallet.
@@ -310,6 +366,15 @@ pub enum JsonRpcError {
 
     /// Raised if when the rescanblockchain command, with the timestamp flag activated, contains some timestamp thats less than the genesis one and not zero which is the default value for this arg.
     InvalidTimestamp,
+
+    /// Raised when we fail to parse a value to a proper json
+    ToValue(serde_json::Error),
+
+    InvalidHeight(Box<dyn std::error::Error + Send + Sync>),
+
+    InvalidBlockHash(Box<dyn std::error::Error + Send + Sync>),
+
+    InvalidHeader(Box<dyn std::error::Error + Send + Sync + 'static>),
 }
 
 impl Display for JsonRpcError {
@@ -339,6 +404,10 @@ impl Display for JsonRpcError {
             JsonRpcError::Wallet(e) => write!(f, "Wallet error: {e}"),
             JsonRpcError::Filters(e) => write!(f, "Error with filters: {e}"),
             JsonRpcError::InvalidAddnodeCommand => write!(f, "Invalid addnode command"),
+            JsonRpcError::ToValue(e) => write!(f, "Failed to convert data: {e}"),
+            JsonRpcError::InvalidHeight(e) => write!(f, "Invalid height: {e}"),
+            JsonRpcError::InvalidBlockHash(e) => write!(f, "Invalid blockhash: {e}"),
+            JsonRpcError::InvalidHeader(e) => write!(f, "Invalid header: {e}")
         }
     }
 }

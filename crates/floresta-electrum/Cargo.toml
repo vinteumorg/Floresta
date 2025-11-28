@@ -11,6 +11,7 @@ description = """
 repository = "https://github.com/vinteumorg/Floresta"
 license = "MIT"
 readme.workspace = true # Floresta/README.md
+
 keywords = ["bitcoin", "utreexo", "node", "blockchain", "rust"]
 categories = ["cryptography::cryptocurrencies"]
 
@@ -24,12 +25,14 @@ tokio = { workspace = true }
 tokio-rustls = { workspace = true }
 tracing = { workspace = true }
 
-# Local dependencies
-floresta-chain = { workspace = true }
-floresta-compact-filters = { workspace = true }
-floresta-common = { workspace = true }
-floresta-watch-only = { workspace = true }
-floresta-wire = { workspace = true }
+rustreexo = "0.4"
+tokio = { version = "1.0", features = ["full"] }
+tokio-rustls = "0.26"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+bitcoin = { version = "0.32", features = ["serde", "std", "bitcoinconsensus"] }
+thiserror = "1.0"
+tracing = "0.1.41"
 
 [dev-dependencies]
 rand = { workspace = true }

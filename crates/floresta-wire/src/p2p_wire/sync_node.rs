@@ -133,7 +133,7 @@ where
     ///   - we have enough utreexo peers to download proofs from (at least 2)
     ///   - we have enough peers to download blocks from (at most `MAX_OUTGOING_PEERS`)
     ///   - if some of peers are too slow, and potentially stalling our block download (TODO)
-    fn check_connections(&mut self) -> Result<(), WireError> {
+    async fn check_connections(&mut self) -> Result<(), WireError> {
         let total_peers = self.peers.len();
         let utreexo_peers = self
             .peer_by_service
@@ -158,15 +158,16 @@ where
                 .expect("infallible: the `if` clause implies we have some non-utreexo peers");
 
             info!("Disconnecting non-utreexo peer {peer_to_disconnect} to open up more space for utreexo peers");
-            self.send_to_peer(peer_to_disconnect, NodeRequest::Shutdown)?;
+            self.send_to_peer(peer_to_disconnect, NodeRequest::Shutdown)
+                .await?;
         }
 
         if utreexo_peers < 2 {
             info!("Not enough utreexo peers (we have {utreexo_peers}), opening a new connection");
-            self.maybe_open_connection(UTREEXO.into())?;
+            self.maybe_open_connection(UTREEXO.into()).await?;
         }
 
-        self.maybe_open_connection(ServiceFlags::NETWORK)
+        self.maybe_open_connection(ServiceFlags::NETWORK).await
     }
 
     /// Starts the sync node by updating the last block requested and starting the main loop.
@@ -236,14 +237,14 @@ where
                 continue;
             }
 
-            try_and_log!(self.process_pending_blocks());
+            try_and_log!(self.process_pending_blocks().await);
             if !self.has_utreexo_peers() {
                 continue;
             }
 
             // Ask for missed blocks or proofs if they are no longer inflight or pending
-            try_and_log!(self.ask_for_missed_blocks());
-            try_and_log!(self.ask_for_missed_proofs());
+            try_and_log!(self.ask_for_missed_blocks().await);
+            try_and_log!(self.ask_for_missed_proofs().await);
 
             self.get_blocks_to_download();
         }
@@ -279,10 +280,10 @@ where
                             return Ok(());
                         }
 
-                        self.request_block_proof(block, peer)?;
+                        self.request_block_proof(block, peer).await?;
 
-                        self.process_pending_blocks()?;
-                        self.get_blocks_to_download();
+                        self.process_pending_blocks().await?;
+                        self.get_blocks_to_download().await;
                     }
 
                     PeerMessages::Ready(version) => {
@@ -353,6 +354,12 @@ where
                         self.attach_proof(uproof, peer)?;
                         self.process_pending_blocks()?;
                         self.get_blocks_to_download();
+                    }
+
+                    PeerMessages::UtreexoProof(uproof) => {
+                        self.attach_proof(uproof, peer).await?;
+                        self.process_pending_blocks().await?;
+                        self.get_blocks_to_download().await;
                     }
 
                     _ => {}

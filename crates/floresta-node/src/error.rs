@@ -74,8 +74,8 @@ pub enum FlorestadError {
     /// Writing a file to the filesystem.
     CouldNotWriteFile(String, std::io::Error),
 
-    /// Data directory doesn't exist or is not writable.
-    InvalidDataDir(String),
+    /// Creating the data directory.
+    CouldNotCreateDataDir(String, std::io::Error),
 
     /// Obtaining a lock on the data directory.
     CouldNotOpenKvDatabase(KvDatabaseError),
@@ -182,8 +182,8 @@ impl std::fmt::Display for FlorestadError {
             FlorestadError::CouldNotWriteFile(path, err) => {
                 write!(f, "Error while creating file {path}: {err}")
             }
-            FlorestadError::InvalidDataDir(path) => {
-                write!(f, "Data directory doesn't exist or is not writable: {path}")
+            FlorestadError::CouldNotCreateDataDir(path, err) => {
+                write!(f, "Error while creating data directory {path}: {err}")
             }
             FlorestadError::CouldNotOpenKvDatabase(err) => {
                 write!(f, "Cannot open a key-value database: {err}")
