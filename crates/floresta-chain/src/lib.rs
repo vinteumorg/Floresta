@@ -32,3 +32,4 @@ pub use pruned_utreexo::BlockchainInterface;
 pub use pruned_utreexo::ChainBackend;
 pub use pruned_utreexo::Notification;
 pub use pruned_utreexo::ThreadSafeChain;
+pub mod extensions;
