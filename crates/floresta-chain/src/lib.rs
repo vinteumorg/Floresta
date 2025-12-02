@@ -16,6 +16,8 @@
 #![cfg_attr(not(test), deny(clippy::unwrap_used))]
 #![allow(clippy::manual_is_multiple_of)]
 
+pub mod extensions;
+
 pub mod pruned_utreexo;
 pub(crate) use floresta_common::prelude;
 pub use pruned_utreexo::chain_state::*;
