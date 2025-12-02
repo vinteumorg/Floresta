@@ -1,6 +1,8 @@
 use std::fmt::Display;
 
 use axum::response::IntoResponse;
+use floresta_chain::extensions::ChainWorkError;
+use floresta_chain::extensions::HeaderExtError;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -219,9 +221,9 @@ pub struct GetBlockResVerbose {
     /// difficulty is a multiple of the smallest possible difficulty. So to find the actual
     /// difficulty you have to multiply this by the min_diff.
     /// For mainnet, mindiff is 2 ^ 32
-    pub difficulty: u128,
+    pub difficulty: f64,
 
-    /// Commullative work in this network
+    /// Cumulative work in this network
     ///
     /// This is a estimate of how many hashes the network has ever made to produce this chain
     pub chainwork: String,
@@ -235,6 +237,11 @@ pub struct GetBlockResVerbose {
     #[serde(skip_serializing_if = "Option::is_none")]
     /// The hash of the block coming after this one, if any
     pub nextblockhash: Option<String>,
+
+    /// Represents the current proof-of-work target as a 256-bit number in string format.
+    /// A block's SHA-256 hash must be less than or equal to this value to be accepted by the network.
+    /// Lower values indicate higher mining difficulty.
+    pub target: String,
 }
 
 #[derive(Debug)]
@@ -305,6 +312,9 @@ pub enum JsonRpcError {
     /// This error is returned when there is an error with block filters, e.g., if the filters are not available or when there is an issue with the filter data
     Filters(String),
 
+    /// This error is returned when there is an error calculating the chain work
+    ChainWork(String),
+
     /// This error is returned when the addnode command is invalid, e.g., if the command is not recognized or when the parameters are incorrect
     InvalidAddnodeCommand,
 
@@ -338,6 +348,7 @@ impl Display for JsonRpcError {
             JsonRpcError::InvalidMemInfoMode => write!(f, "Invalid meminfo mode, should be stats or mallocinfo"),
             JsonRpcError::Wallet(e) => write!(f, "Wallet error: {e}"),
             JsonRpcError::Filters(e) => write!(f, "Error with filters: {e}"),
+            JsonRpcError::ChainWork(e) => write!(f, "Error calculating chain work: {e}"),
             JsonRpcError::InvalidAddnodeCommand => write!(f, "Invalid addnode command"),
         }
     }
@@ -355,5 +366,22 @@ impl IntoResponse for JsonRpcError {
             .header("Content-Type", "application/json")
             .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
             .unwrap()
+    }
+}
+
+impl From<HeaderExtError> for JsonRpcError {
+    fn from(e: HeaderExtError) -> Self {
+        match e {
+            HeaderExtError::Chain(_) => JsonRpcError::Chain,
+            HeaderExtError::BlockNotFound => JsonRpcError::BlockNotFound,
+            HeaderExtError::ChainWork(err) => match err {
+                ChainWorkError::Overflow => {
+                    JsonRpcError::ChainWork("Overflow in the multiplication of Work".to_string())
+                }
+                ChainWorkError::ParseFailed => {
+                    JsonRpcError::ChainWork("Failed to parse or process the chain work".to_string())
+                }
+            },
+        }
     }
 }
