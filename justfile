@@ -70,7 +70,6 @@ test-functional:
 
 # Run the benchmarks
 bench:
-    cargo bench -p floresta-chain --no-default-features --features test-utils,kv-chainstore
     cargo bench -p floresta-chain --no-default-features --features test-utils,flat-chainstore
 
 # Generate the public documentation for all crates
@@ -103,18 +102,15 @@ lint:
         --exclude florestad \
         --exclude floresta-node
 
-    # Run both cases in floresta-chain (one with kv, another with flat)
-    cargo +nightly clippy -p floresta-chain --all-targets --no-default-features --features kv-chainstore
+    # Run linting on `floresta-chain` with the `flat-chainstore` feature.
     cargo +nightly clippy -p floresta-chain --all-targets \
         --features bitcoinconsensus,metrics,test-utils,flat-chainstore
 
-    # Run both cases in florestad (one with kv, another with flat)
-    cargo +nightly clippy -p florestad --all-targets --no-default-features --features kv-chainstore
+    # Run linting on `florestad` with the `flat-chainstore` feature.
     cargo +nightly clippy -p florestad --all-targets \
         --features compact-filters,zmq-server,json-rpc,metrics,tokio-console,flat-chainstore
 
-    # Run both cases in floresta-node (one with kv, another with flat)
-    cargo +nightly clippy -p floresta-node --all-targets --no-default-features --features kv-chainstore
+    # Run linting in floresta-node` with the `flat-chainstore` feature.
     cargo +nightly clippy -p floresta-node --all-targets \
         --features compact-filters,zmq-server,json-rpc,metrics,flat-chainstore
 
