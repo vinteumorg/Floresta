@@ -16,12 +16,8 @@ pub use floresta_chain::AssumeUtreexoValue;
 use floresta_chain::AssumeValidArg;
 use floresta_chain::BlockchainError;
 use floresta_chain::ChainState;
-#[cfg(feature = "flat-chainstore")]
 use floresta_chain::FlatChainStore as ChainStore;
-#[cfg(feature = "flat-chainstore")]
 use floresta_chain::FlatChainStoreConfig;
-#[cfg(all(feature = "kv-chainstore", not(doc)))]
-use floresta_chain::KvChainStore as ChainStore;
 #[cfg(feature = "compact-filters")]
 use floresta_compact_filters::flat_filters_store::FlatFiltersStore;
 #[cfg(feature = "compact-filters")]
@@ -65,16 +61,6 @@ use crate::json_rpc;
 use crate::wallet_input::InitialWalletSetup;
 #[cfg(feature = "zmq-server")]
 use crate::zmq::ZMQServer;
-
-// flat-chainstore and kv-chainstore are mutually exclusive
-#[cfg(all(feature = "flat-chainstore", feature = "kv-chainstore", not(doc)))]
-compile_error!(
-    "You cannot use both flat-chainstore and kv-chainstore at the same time. Please choose one."
-);
-
-// at least one of flat-chainstore or kv-chainstore must be enabled
-#[cfg(not(any(feature = "flat-chainstore", feature = "kv-chainstore")))]
-compile_error!("You must enable either the flat-chainstore or kv-chainstore feature.");
 
 #[derive(Clone)]
 /// General configuration for the floresta daemon.
@@ -719,34 +705,11 @@ impl Florestad {
         None
     }
 
-    #[cfg(feature = "flat-chainstore")]
     fn load_chain_store(data_dir: String) -> Result<ChainStore, FlorestadError> {
         let config = FlatChainStoreConfig::new(data_dir + "/chaindata");
         ChainStore::new(config).map_err(FlorestadError::CouldNotCreateFlatChainStore)
     }
 
-    #[cfg(all(feature = "kv-chainstore", not(doc)))]
-    fn load_chain_state<'a>(
-        data_dir: String,
-        network: Network,
-        assume_valid: Option<bitcoin::BlockHash>,
-    ) -> Result<ChainState<ChainStore<'a>>, FlorestadError> {
-        let assume_valid = assume_valid
-            .map(AssumeValidArg::UserInput)
-            .unwrap_or(AssumeValidArg::Hardcoded);
-
-        let db = ChainStore::new(data_dir.clone())?;
-
-        ChainState::load_chain_state(db, network, assume_valid).or_else(|err| match err {
-            BlockchainError::ChainNotInitialized => {
-                let db = ChainStore::new(data_dir)?;
-                Ok(ChainState::new(db, network, assume_valid))
-            }
-            anyerr => Err(FlorestadError::CouldNotLoadKvChainStore(anyerr)),
-        })
-    }
-
-    #[cfg(feature = "flat-chainstore")]
     fn load_chain_state(
         data_dir: String,
         network: Network,

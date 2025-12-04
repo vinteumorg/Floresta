@@ -3,7 +3,6 @@ use std::net::AddrParseError;
 use bitcoin::consensus::encode;
 use floresta_chain::BlockValidationErrors;
 use floresta_chain::BlockchainError;
-#[cfg(feature = "flat-chainstore")]
 use floresta_chain::FlatChainstoreError;
 #[cfg(feature = "compact-filters")]
 use floresta_compact_filters::IterableFilterStoreError;
@@ -16,9 +15,6 @@ use crate::slip132;
 pub enum FlorestadError {
     /// Encoding/decoding error.
     Encode(encode::Error),
-
-    /// Key-value database error
-    Db(kv::Error),
 
     /// Integer parsing error.
     ParseNum(std::num::ParseIntError),
@@ -126,24 +122,17 @@ pub enum FlorestadError {
     /// Resolve a hostname error.
     CouldNotResolveHostname(std::io::Error),
 
-    #[cfg(feature = "flat-chainstore")]
     /// Create a flat chain store error.
     CouldNotCreateFlatChainStore(FlatChainstoreError),
 
-    #[cfg(feature = "flat-chainstore")]
     /// Load a flat chain store error.
     CouldNotLoadFlatChainStore(BlockchainError),
-
-    #[cfg(feature = "kv-chainstore")]
-    /// Load a key-value chain store error.
-    CouldNotLoadKvChainStore(BlockchainError),
 }
 
 impl std::fmt::Display for FlorestadError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             FlorestadError::Encode(err) => write!(f, "Encode error: {err}"),
-            FlorestadError::Db(err) => write!(f, "Database error {err}"),
             FlorestadError::ParseNum(err) => write!(f, "int parse error: {err}"),
             FlorestadError::Rustreexo(err) => write!(f, "Rustreexo error: {err}"),
             FlorestadError::Io(err) => write!(f, "Io error {err}"),
@@ -236,20 +225,11 @@ impl std::fmt::Display for FlorestadError {
             FlorestadError::CouldNotResolveHostname(host) => {
                 write!(f, "Could not resolve hostname: {host}")
             }
-
-            #[cfg(feature = "flat-chainstore")]
             FlorestadError::CouldNotCreateFlatChainStore(err) => {
                 write!(f, "Failure while creating chainstore: {err:?}")
             }
-
-            #[cfg(feature = "flat-chainstore")]
             FlorestadError::CouldNotLoadFlatChainStore(err) => {
                 write!(f, "Failure while loading flat chainstore: {err:?}")
-            }
-
-            #[cfg(feature = "kv-chainstore")]
-            FlorestadError::CouldNotLoadKvChainStore(err) => {
-                write!(f, "Failure while loading key-value chainstore: {err:?}")
             }
         }
     }
@@ -268,7 +248,6 @@ macro_rules! impl_from_error {
 }
 
 impl_from_error!(Encode, encode::Error);
-impl_from_error!(Db, kv::Error);
 impl_from_error!(ParseNum, std::num::ParseIntError);
 impl_from_error!(Rustreexo, String);
 impl_from_error!(Io, std::io::Error);

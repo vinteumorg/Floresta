@@ -1492,7 +1492,7 @@ macro_rules! write_lock {
     };
 }
 
-#[cfg(all(test, any(feature = "kv-chainstore", feature = "flat-chainstore")))]
+#[cfg(all(test, feature = "flat-chainstore"))]
 mod test {
     use core::str::FromStr;
     use std::format;
@@ -1525,22 +1525,8 @@ mod test {
     use crate::pruned_utreexo::utxo_data::UtxoData;
     use crate::AssumeValidArg;
     use crate::BlockchainError;
-    #[cfg(feature = "flat-chainstore")]
     use crate::FlatChainStore;
-    #[cfg(feature = "kv-chainstore")]
-    use crate::KvChainStore;
 
-    #[cfg(feature = "kv-chainstore")]
-    fn setup_test_chain<'a>(
-        network: Network,
-        assume_valid_arg: AssumeValidArg,
-    ) -> ChainState<KvChainStore<'a>> {
-        let test_id = rand::random::<u64>();
-        let chainstore = KvChainStore::new(format!("./tmp-db/{test_id}/")).unwrap();
-        ChainState::new(chainstore, network, assume_valid_arg)
-    }
-
-    #[cfg(feature = "flat-chainstore")]
     fn setup_test_chain(
         network: Network,
         assume_valid_arg: AssumeValidArg,

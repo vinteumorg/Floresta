@@ -27,8 +27,6 @@ crates="\
     fuzz \
     metrics"
 
-chainstore_feats="flat-chainstore,kv-chainstore"
-
 for crate in $crates; do
     # Determine the path to the crate
     if [ "$crate" = "fuzz" ] || [ "$crate" = "metrics" ]; then
@@ -51,23 +49,16 @@ for crate in $crates; do
         skip_default="--skip default"
     fi
 
-    # For floresta-chain, floresta-node and florestad, require exactly one of 'flat-chainstore' or 'kv-chainstore'
-    if [ "$crate" = "floresta-chain" ] || [ "$crate" = "florestad" ] || [ "$crate" = "floresta-node" ]; then
-        store_feature="--mutually-exclusive-features $chainstore_feats --at-least-one-of $chainstore_feats"
-    else
-        store_feature=""
-    fi
-
     # Navigate to the crate's directory
     cd "$path" || exit 1
     printf "\033[1;35mRunning cargo %s for all feature combinations in %s...\033[0m\n" "$action" "$crate"
 
     if [ "$action" = "clippy" ]; then
         # shellcheck disable=SC2086
-        cargo +nightly hack clippy --all-targets --feature-powerset $skip_default $store_feature $cargo_arg
+        cargo +nightly hack clippy --all-targets --feature-powerset $skip_default $cargo_arg
     elif [ "$action" = "test" ]; then
         # shellcheck disable=SC2086
-        cargo hack test --release --feature-powerset $skip_default $store_feature -v $cargo_arg
+        cargo hack test --release --feature-powerset $skip_default -v $cargo_arg
     fi
 
     cd - > /dev/null || exit 1
