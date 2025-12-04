@@ -15,6 +15,11 @@
     };
     utreexod-flake = {
       url = "github:jaoleal/utreexod-flake";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    floresta-flake = {
+      url = "github:jaoleal/floresta-flake";
+      inputs.nixpkgs.follows = "nixpkgs";
     };
   };
 
@@ -26,6 +31,7 @@
       flake-utils,
       pre-commit-hooks,
       utreexod-flake,
+      floresta-flake,
     }:
     flake-utils.lib.eachDefaultSystem (
       system:
@@ -106,7 +112,7 @@
                     inherit cargo;
                     clippy = cargo;
                   };
-                  enable = true;
+                  enable = false;
                   settings.denyWarnings = true;
                   settings.extraArgs = "--no-deps";
                 };
@@ -114,7 +120,7 @@
                   packageOverrides = {
                     inherit cargo;
                   };
-                  enable = true;
+                  enable = false;
                 };
               };
             };
@@ -142,54 +148,6 @@
               };
             };
         };
-        packages =
-          let
-            src = lib.fileset.toSource {
-              root = ./.;
-              fileset = lib.fileset.unions [
-                ./Cargo.toml
-                ./Cargo.lock
-                ./.rustfmt.toml
-                ./crates
-                ./metrics
-                ./bin
-                ./fuzz
-                ./doc/rpc
-              ];
-            };
-          in
-          {
-            florestad =
-              let
-                packageName = "florestad";
-              in
-              import ./contrib/nix/build_floresta.nix { inherit packageName pkgs src; };
-
-            floresta-cli =
-              let
-                packageName = "floresta-cli";
-              in
-              import ./contrib/nix/build_floresta.nix { inherit packageName pkgs src; };
-
-            libfloresta =
-              let
-                packageName = "libfloresta";
-              in
-              import ./contrib/nix/build_floresta.nix { inherit packageName pkgs src; };
-
-            floresta-debug =
-              let
-                packageName = "floresta-debug";
-              in
-              import ./contrib/nix/build_floresta.nix { inherit packageName pkgs src; };
-
-            default =
-              let
-                packageName = "all";
-              in
-              import ./contrib/nix/build_floresta.nix { inherit packageName pkgs src; };
-
-          };
         devShells =
           let
             # This is the dev tools used while developing in Floresta.
@@ -207,7 +165,6 @@
             ];
 
             testBinaries = [
-              self.packages.${system}.florestad
               utreexod-flake.packages.${system}.utreexod
               pkgs.bitcoind
             ];
