@@ -9,7 +9,6 @@ just bench
 Under the hood this runs:
 
 ```bash
-cargo bench -p floresta-chain --no-default-features --features test-utils,kv-chainstore
 cargo bench -p floresta-chain --no-default-features --features test-utils,flat-chainstore
 ```
 
@@ -20,7 +19,6 @@ By default, benchmarks that are resource-intensive are excluded to allow for qui
 EXPENSIVE_BENCHES=1 just bench
 
 # or, without Just:
-EXPENSIVE_BENCHES=1 cargo bench -p floresta-chain --no-default-features --features test-utils,kv-chainstore
 EXPENSIVE_BENCHES=1 cargo bench -p floresta-chain --no-default-features --features test-utils,flat-chainstore
 ```
 

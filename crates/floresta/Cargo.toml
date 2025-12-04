@@ -51,7 +51,6 @@ electrum-server = ["dep:floresta-electrum"]
 watch-only-wallet = ["dep:floresta-watch-only"]
 # Works only if `watch-only-wallet` is set
 memory-database = ["floresta-watch-only?/memory-database"]
-kv-chainstore = ["floresta-chain/kv-chainstore"]
 flat-chainstore = ["floresta-chain/flat-chainstore"]
 
 [lib]

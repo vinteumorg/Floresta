@@ -27,7 +27,7 @@ crates="\
     fuzz \
     metrics"
 
-chainstore_feats="flat-chainstore,kv-chainstore"
+chainstore_features="flat-chainstore"
 
 for crate in $crates; do
     # Determine the path to the crate
@@ -51,9 +51,9 @@ for crate in $crates; do
         skip_default="--skip default"
     fi
 
-    # For floresta-chain, floresta-node and florestad, require exactly one of 'flat-chainstore' or 'kv-chainstore'
+    # For floresta-chain, floresta-node and florestad, require exactly 'flat-chainstore'
     if [ "$crate" = "floresta-chain" ] || [ "$crate" = "florestad" ] || [ "$crate" = "floresta-node" ]; then
-        store_feature="--mutually-exclusive-features $chainstore_feats --at-least-one-of $chainstore_feats"
+        store_feature="--features $chainstore_features"
     else
         store_feature=""
     fi

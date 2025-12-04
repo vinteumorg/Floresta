@@ -11,8 +11,6 @@ pub mod chain_state;
 pub mod chain_state_builder;
 pub mod chainparams;
 pub mod chainstore;
-#[cfg(feature = "kv-chainstore")]
-pub mod kv_chainstore;
 #[macro_use]
 pub mod error;
 pub mod consensus;

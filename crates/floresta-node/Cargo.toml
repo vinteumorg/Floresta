@@ -38,7 +38,6 @@ pretty_assertions = "1.4"
 libc = "0.2"
 
 [features]
-kv-chainstore = ["floresta-chain/kv-chainstore"]
 flat-chainstore = ["floresta-chain/flat-chainstore"]
 compact-filters = ["dep:floresta-compact-filters"]
 zmq-server = ["dep:zmq"]

@@ -202,6 +202,4 @@ impl Display for BlockchainError {
     }
 }
 
-#[cfg(feature = "kv-chainstore")]
-impl DatabaseError for kv::Error {}
 impl Error for BlockchainError {}
