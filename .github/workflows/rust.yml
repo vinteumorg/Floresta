@@ -20,6 +20,11 @@ jobs:
         with:
           components: rustfmt, clippy
 
+      - name: Install Boost
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libboost-all-dev
+
       - name: Spell check
         uses: crate-ci/typos@v1
 
@@ -47,6 +52,37 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: taiki-e/install-action@cargo-hack
+
+      - name: Install Boost (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libboost-all-dev
+
+      - name: Install Boost (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew update
+          brew install boost
+
+      - name: Install Boost (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          triplet=x64-windows
+          vcpkgRoot="${VCPKG_INSTALLATION_ROOT:-C:/vcpkg}"
+
+          "$vcpkgRoot/vcpkg.exe" install \
+            boost-system \
+            boost-filesystem \
+            boost-thread \
+            boost-multi-index \
+            --triplet "$triplet" \
+            --clean-after-build \
+            --disable-metrics
+
+          boostRoot="$vcpkgRoot/installed/$triplet"
+          echo "BOOST_ROOT=$boostRoot" >> "$GITHUB_ENV"
 
       # Bi-weekly numbers to refresh caches every two weeks, ensuring recent project changes are cached
       - name: Set bi-weekly cache key
