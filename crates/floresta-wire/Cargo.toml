@@ -18,7 +18,7 @@ categories = ["cryptography::cryptocurrencies", "network-programming"]
 ahash = "0.8"
 aws-lc-rs = "=1.13.1" # need due to Nix incompatibility with newer versions of aws-lc-rs
 bip324 = { version = "=0.7.0", features = [ "tokio" ] }
-bitcoin = { workspace = true, features = ["serde", "std", "bitcoinconsensus"] }
+bitcoin = { workspace = true, features = ["serde", "std"] }
 dns-lookup = { workspace = true }
 home = "=0.5.11" # need due to Nix incompatibility with newer versions of home
 rand = { workspace = true }
