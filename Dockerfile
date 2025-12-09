@@ -1,4 +1,4 @@
-FROM debian:11.6-slim@sha256:171530d298096f0697da36b3324182e872db77c66452b85783ea893680cc1b62 AS builder
+FROM debian:13.2-slim@sha256:18764e98673c3baf1a6f8d960b5b5a1ec69092049522abac4e24a7726425b016 AS builder
 
 ARG BUILD_FEATURES=""
 
@@ -8,6 +8,8 @@ RUN apt-get update && apt-get install -y \
     clang \
     libclang-dev \
     curl \
+    clang \
+    libclang-dev \
     git \
     libssl-dev \
     pkg-config \
@@ -33,7 +35,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     cargo build --release; \
     fi
 
-FROM debian:11.6-slim@sha256:171530d298096f0697da36b3324182e872db77c66452b85783ea893680cc1b62
+FROM debian:13.2-slim@sha256:18764e98673c3baf1a6f8d960b5b5a1ec69092049522abac4e24a7726425b016
 
 COPY --from=builder /opt/app/target/release/florestad /usr/local/bin/florestad
 COPY --from=builder /opt/app/target/release/floresta-cli /usr/local/bin/floresta-cli

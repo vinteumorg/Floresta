@@ -32,3 +32,4 @@ config.toml
 
 # tests pycache
 tests/**/__pycache__/*
+.cz.toml
