@@ -550,7 +550,7 @@ pub mod proof_util {
     }
 }
 
-#[cfg(all(test, feature = "flat-chainstore"))]
+#[cfg(test)]
 mod test {
     extern crate std;
 

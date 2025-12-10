@@ -50,7 +50,6 @@ jobs:
       # Run benchmarks
       - name: Run cargo bench
         run: |
-          cargo bench --package floresta-chain --no-default-features --features test-utils,kv-chainstore
           cargo bench --package floresta-chain --no-default-features --features test-utils,flat-chainstore
 
       # Save cache only if the previous steps succeeded and there was not an exact cache key match
