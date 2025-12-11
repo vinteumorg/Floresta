@@ -300,7 +300,9 @@ pub enum Methods {
         height_hint: Option<u32>,
     },
 
-    /// Returns stats about our memory usage
+    /// Returns statistics about Floresta's memory usage.
+    ///
+    /// Returns zeroed values for all runtimes that are not *-gnu or MacOS.
     #[command(name = "getmemoryinfo")]
     GetMemoryInfo { mode: Option<String> },
 

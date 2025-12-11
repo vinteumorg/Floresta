@@ -9,7 +9,6 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
     pub(super) fn get_memory_info(&self, mode: &str) -> Result<GetMemInfoRes, JsonRpcError> {
         #[cfg(target_env = "gnu")]
         match mode {
-            // only available for glibc
             "stats" => {
                 let info = unsafe { libc::mallinfo() };
 
@@ -28,7 +27,7 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
             }
 
             "mallocinfo" => {
-                // a xml with the allocator statistics
+                // A XML with the allocator statistics
                 let info = unsafe { libc::mallinfo() };
                 let info_str = format!(
                     "<malloc version=\"2.0\"><heap nr=\"1\"><allocated>{}</allocated><free>{}</free><total>{}</total><locked>{}</locked><chunks nr=\"{}\"><used>{}</used><free>{}</free></chunks></heap></malloc>",
@@ -47,8 +46,52 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
             _ => Err(JsonRpcError::InvalidMemInfoMode),
         }
 
-        #[cfg(not(target_env = "gnu"))]
-        // just return zeroed stats
+        #[cfg(target_os = "macos")]
+        match mode {
+            "stats" => {
+                let mut info: libc::malloc_statistics_t = unsafe { std::mem::zeroed() };
+                unsafe {
+                    libc::malloc_zone_statistics(std::ptr::null_mut(), &mut info);
+                }
+
+                let stats = GetMemInfoStats {
+                    locked: MemInfoLocked {
+                        used: info.size_in_use as u64,
+                        free: info.size_allocated.saturating_sub(info.size_in_use) as u64,
+                        total: info.size_allocated as u64,
+                        locked: info.size_allocated as u64,
+                        chunks_used: info.blocks_in_use as u64,
+                        chunks_free: 0, // Not available on MacOS
+                    },
+                };
+
+                Ok(GetMemInfoRes::Stats(stats))
+            }
+            "mallocinfo" => {
+                // A XML with the allocator statistics
+                let mut info: libc::malloc_statistics_t = unsafe { std::mem::zeroed() };
+                unsafe {
+                    libc::malloc_zone_statistics(std::ptr::null_mut(), &mut info);
+                }
+
+                let info_str = format!(
+                    "<malloc version=\"2.0\"><heap nr=\"1\"><allocated>{}</allocated><free>{}</free><total>{}</total><locked>{}</locked><chunks nr=\"{}\"><used>{}</used><free>{}</free></chunks></heap></malloc>",
+                    info.size_allocated,
+                    info.size_in_use,
+                    info.size_allocated - info.size_in_use,
+                    info.size_allocated,
+                    info.size_allocated,
+                    info.blocks_in_use,
+                    0
+                );
+
+                Ok(GetMemInfoRes::MallocInfo(info_str))
+            }
+            _ => Err(JsonRpcError::InvalidMemInfoMode),
+        }
+
+        #[cfg(not(any(target_env = "gnu", target_os = "macos")))]
+        // Just return zeroed stats for non-GNU and non-MacOS targets
         match mode {
             "stats" => Ok(GetMemInfoRes::Stats(GetMemInfoStats::default())),
             "mallocinfo" => Ok(GetMemInfoRes::MallocInfo(String::new())),
