@@ -27,7 +27,7 @@ serde = { workspace = true, optional = true }
 sha2 = { workspace = true, features = ["std"] }
 spin = { workspace = true }
 tracing = { workspace = true }
-xxhash-rust = { version = "0.8", features = ["xxh3"] }
+twox-hash = { version = "2.1", default-features = false, features = ["xxhash3_64", "std"], optional = true }
 
 # Local dependencies
 floresta-common = { workspace = true, features = ["std"] }
@@ -47,7 +47,7 @@ default = []
 bitcoinconsensus = ["bitcoin/bitcoinconsensus", "dep:bitcoinconsensus"]
 metrics = ["dep:metrics"]
 test-utils = ["dep:serde"]
-flat-chainstore = ["dep:memmap2", "dep:lru"]
+flat-chainstore = ["dep:memmap2", "dep:lru", "dep:twox-hash"]
 
 [[bench]]
 name = "chain_state_bench"

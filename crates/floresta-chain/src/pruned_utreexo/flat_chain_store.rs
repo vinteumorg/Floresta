@@ -94,7 +94,7 @@ use lru::LruCache;
 use memmap2::MmapMut;
 use memmap2::MmapOptions;
 use tracing::info;
-use xxhash_rust::xxh3;
+use twox_hash::XxHash3_64;
 
 use crate::BestChain;
 use crate::ChainStore;
@@ -789,7 +789,7 @@ impl FlatChainStore {
         // a function that computes the xxHash of a memory map
         let checksum_fn = |mmap: &MmapMut| {
             let mmap_as_slice = mmap.iter().as_slice();
-            let hash = xxh3::xxh3_64(mmap_as_slice);
+            let hash = XxHash3_64::oneshot(mmap_as_slice);
 
             FileChecksum(hash)
         };
@@ -1336,7 +1336,7 @@ mod tests {
     use bitcoin::Network;
     use floresta_common::bhash;
     use tempfile::TempDir;
-    use xxhash_rust::xxh3;
+    use twox_hash::XxHash3_64;
 
     use super::FlatChainStore;
     use super::FlatChainStoreConfig;
@@ -1505,13 +1505,19 @@ mod tests {
     #[test]
     // Sanity check
     fn test_checksum() {
-        assert_eq!(xxh3::xxh3_64("a".as_bytes()), 0xe6c632b61e964e1f);
-        assert_eq!(xxh3::xxh3_64("abc1".as_bytes()), 0xec035b7226cacedf);
-        assert_eq!(xxh3::xxh3_64("abc 1".as_bytes()), 0x5740573263e9d84d);
-        assert_eq!(xxh3::xxh3_64("Floresta".as_bytes()), 0x066d384879d98e84);
-        assert_eq!(xxh3::xxh3_64("floresta".as_bytes()), 0x58d9f8aa416ed680);
+        assert_eq!(XxHash3_64::oneshot("a".as_bytes()), 0xe6c632b61e964e1f);
+        assert_eq!(XxHash3_64::oneshot("abc1".as_bytes()), 0xec035b7226cacedf);
+        assert_eq!(XxHash3_64::oneshot("abc 1".as_bytes()), 0x5740573263e9d84d);
         assert_eq!(
-            xxh3::xxh3_64("floresta-chain".as_bytes()),
+            XxHash3_64::oneshot("Floresta".as_bytes()),
+            0x066d384879d98e84
+        );
+        assert_eq!(
+            XxHash3_64::oneshot("floresta".as_bytes()),
+            0x58d9f8aa416ed680
+        );
+        assert_eq!(
+            XxHash3_64::oneshot("floresta-chain".as_bytes()),
             0x066540290fdae363
         );
     }
