@@ -63,7 +63,6 @@ class UptimeTest(FlorestaTestFramework):
         """
         self.test_node_uptime(node=self.florestad, test_time=15, margin=15)
         self.test_node_uptime(node=self.bitcoind, test_time=15, margin=15)
-        self.stop()
 
 
 if __name__ == "__main__":

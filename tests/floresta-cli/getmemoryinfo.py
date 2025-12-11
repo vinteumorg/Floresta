@@ -84,9 +84,6 @@ class GetMemoryInfoTest(FlorestaTestFramework):
         self.test_mode_stats_ibd(self.florestad)
         self.test_mode_mallocinfo_ibd(self.florestad)
 
-        # Stop the node
-        self.stop()
-
 
 if __name__ == "__main__":
     GetMemoryInfoTest().main()

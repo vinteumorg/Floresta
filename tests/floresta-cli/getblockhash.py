@@ -98,9 +98,6 @@ class GetBlockhashTest(FlorestaTestFramework):
             for _hash in [hash_utreexod, hash_bitcoind]:
                 self.assertEqual(hash_floresta, _hash)
 
-        # stop the node
-        self.stop()
-
 
 if __name__ == "__main__":
     GetBlockhashTest().main()

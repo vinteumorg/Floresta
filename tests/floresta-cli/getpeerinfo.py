@@ -33,9 +33,6 @@ class GetPeerInfoTest(FlorestaTestFramework):
         self.assertIsSome(result)
         self.assertEqual(len(result), 0)
 
-        # stop the node
-        self.stop()
-
 
 if __name__ == "__main__":
     GetPeerInfoTest().main()

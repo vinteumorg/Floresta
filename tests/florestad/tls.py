@@ -47,9 +47,6 @@ class TestSslInitialization(FlorestaTestFramework):
         self.assertEqual(id, 0)
         self.assertEqual(jsonrpc, "2.0")
 
-        # stop the node
-        self.stop()
-
 
 if __name__ == "__main__":
     TestSslInitialization().main()

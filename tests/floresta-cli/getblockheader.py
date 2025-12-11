@@ -63,9 +63,6 @@ class GetBlockheaderHeightZeroTest(FlorestaTestFramework):
         self.assertEqual(response["bits"], GetBlockheaderHeightZeroTest.bits)
         self.assertEqual(response["nonce"], GetBlockheaderHeightZeroTest.nonce)
 
-        # stop the node
-        self.stop()
-
 
 if __name__ == "__main__":
     GetBlockheaderHeightZeroTest().main()

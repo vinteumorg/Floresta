@@ -40,10 +40,6 @@ class CliConnectTest(FlorestaTestFramework):
         res = self.utreexod.rpc.get_peerinfo()
         self.assertEqual(len(res), 1)
 
-        # Stop the nodes
-        self.log("=== Stopping nodes")
-        self.stop()
-
 
 if __name__ == "__main__":
     CliConnectTest().main()

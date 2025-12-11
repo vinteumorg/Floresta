@@ -130,9 +130,6 @@ class GetTxoutTest(FlorestaTestFramework):
                         txout_bitcoind["scriptPubKey"][key],
                     )
 
-        # stop the node
-        self.stop()
-
 
 if __name__ == "__main__":
     GetTxoutTest().main()
