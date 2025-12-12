@@ -19,7 +19,6 @@ PING_TIMEOUT = 45
 
 
 class AddnodeTestV2(FlorestaTestFramework):
-
     nodes = [-1, -1]
 
     def set_test_params(self):
@@ -92,7 +91,7 @@ class AddnodeTestV2(FlorestaTestFramework):
         # should be in the `getpeerinfo` list.
         self.assertEqual(peer_info[0]["address"], f"127.0.0.1:{bitcoind_port}")
         self.assertEqual(peer_info[0]["initial_height"], 0)
-        self.assertEqual(peer_info[0]["kind"], "regular")
+        self.assertEqual(peer_info[0]["kind"], "manual")
 
         self.assertEqual(
             peer_info[0]["services"],
@@ -119,9 +118,9 @@ class AddnodeTestV2(FlorestaTestFramework):
         self.assertEqual(peer_info[0]["addrlocal"], "127.0.0.1:38332")
         self.assertEqual(peer_info[0]["startingheight"], 0)
         self.assertEqual(peer_info[0]["services"], "0000000001000009")
-        self.assertMatch(
-            peer_info[0]["subver"],
-            re.compile(r"\/Floresta\/\d\.\d\.\d\/"),
+        self.assertHasAny(
+            peer_info,
+            re.compile(r"\/Floresta\/\d\.\d\.\d(?:[^\s/]*)\/"),
         )
         self.assertEqual(peer_info[0]["inbound"], True)
 
@@ -290,7 +289,7 @@ class AddnodeTestV2(FlorestaTestFramework):
         self.assertEqual(len(peer_info), 1)
         self.assertEqual(peer_info[0]["address"], f"127.0.0.1:{bitcoind_port}")
         self.assertEqual(peer_info[0]["initial_height"], 0)
-        self.assertEqual(peer_info[0]["kind"], "regular")
+        self.assertEqual(peer_info[0]["kind"], "manual")
 
         self.assertEqual(
             peer_info[0]["services"],
