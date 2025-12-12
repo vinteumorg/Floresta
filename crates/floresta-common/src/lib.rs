@@ -201,3 +201,57 @@ pub mod prelude {
     pub use std::vec;
     pub use std::vec::Vec;
 }
+
+#[cfg(test)]
+mod tests {
+    use bitcoin::hashes::Hash;
+    use bitcoin::hex::DisplayHex;
+    use bitcoin::ScriptBuf;
+
+    use super::prelude::*;
+
+    #[test]
+    fn test_get_hash_from_u8() {
+        let data = b"Hello, world!";
+        let hash = super::get_hash_from_u8(data);
+        let expected =
+            String::from("315f5bdb76d078c43b8ac0064e4a0164612b1fce77c869345bfc94c75894edd3");
+        assert_eq!(hash.as_byte_array().to_lower_hex_string(), expected);
+    }
+
+    #[test]
+    fn test_get_spk_hash() {
+        // Example taken from Electrum protocol documentation
+        // https://electrum-protocol.readthedocs.io/en/latest/protocol-basics.html#script-hashes
+
+        let spk =
+            ScriptBuf::from_hex("76a91462e907b15cbf27d5425399ebf6f0fb50ebb88f1888ac").unwrap(); // P2PKH script
+        let hash = super::get_spk_hash(&spk);
+        let expected =
+            String::from("8b01df4e368ea28f8dc0423bcf7a4923e3a12d307c875e47a0cfbf90b5c39161");
+
+        assert_eq!(hash.as_byte_array().to_lower_hex_string(), expected);
+    }
+
+    #[test]
+    fn test_fractional_avg() {
+        let mut avg = super::FractionAvg::new(0, 0);
+        assert_eq!(avg.value(), 0.0); // not initialized, should return 0
+        avg.add(10);
+        avg.add(20);
+        avg.add(30);
+        assert_eq!(avg.value(), 20.0);
+
+        avg.add(40);
+        assert_eq!(avg.value(), 25.0);
+
+        avg.add(50);
+        assert_eq!(avg.value(), 30.0);
+
+        avg.add(1);
+        assert_eq!(avg.value(), 25.166_666_666_666_668);
+
+        avg.add(99);
+        assert_eq!(avg.value(), 35.714_285_714_285_715);
+    }
+}
