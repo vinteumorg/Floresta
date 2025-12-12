@@ -1,48 +1,90 @@
 # Nix on floresta project
 
-Nix is a declarative package manager that uses the equally named Nix programing language to build expressions.
-You can learn more about Nix in their [page](https://nixos.org/) but let's focus on what it does inside this project.
+Nix is a declarative package manager that uses the equally named Nix programing
+language to build deterministic expressions. You can learn more about Nix in
+their [page](https://nixos.org/) but let's focus on what it does inside this project.
 
 To accomplish any of the steps down below you only need nix installed.
 
-
-- [Building floresta with Nix](#building-floresta-with-nix)
 - [Using Floresta in a Nix expression](#using-floresta-in-a-nix-expression)
-- [With flakes](#with-flakes)
-- [Dev: devShells](#Dev-environments-with-devshells)
-- [Dev: checks](#Running-flake-checks)
+- [Building with flakes from the project root](#with-flakes)
+- [Dev: devShells](#dev-environments-with-devshells)
 
 ## Building floresta with nix
 
-  The nix expressions in this project provides few ways to use floresta via nix.
+In the Floresta project, the Nix packaging logic is maintained in a separate
+flake: [floresta-flake](https://github.com/jaoleal/Floresta-flake) due to
+nix being a choke point on development.
 
-  ### Using Floresta in a Nix expression.
+This repository only keeps the Nix development tooling (such as devShells) and
+re-exports the set of packages and the `florestaBuild` helper function from
+that external flake, so they can be used directly from the main Floresta repository.
 
-  You can consume its flake as a input for another flake.
+### Using Floresta in a Nix expression
 
-  Example from: https://github.com/jaoleal/nix_floresta_example
+Example from: [floresta-flake](https://github.com/jaoleal/nix_floresta_example)
 
-  ```Nix
-  {
-    description = "A very basic flake example about consuming the floresta project";
+```Nix
+{
+  description = "A very basic flake example for using the Floresta project with Nix";
 
-    inputs = {
-      nixpkgs.url = "github:nixos/nixpkgs?ref=nixos-unstable";
-      floresta-master.url = "github:vinteumorg/floresta"; # Using the latest nix expressions
-      floresta-by-tag.url = "github:vinteumorg/floresta?tag=0.X.0"; # you can specify a tag.
-      # *Attention*: The flake and nix expressions inside floresta became stable on 0.8.0
+  inputs = {
+    nixpkgs.url = "github:nixos/nixpkgs?ref=nixos-unstable";
+    floresta.url = "github:vinteumorg/floresta"; # Using the latest nix
+    # expressions from the main repository of the project.
+    floresta-flake.url = "github:jaoleal/floresta-flake"; # Using the
+    # decoupled nix flake, this one that contains all the nix heavy work to
+    # avoid bloating the main repository.
+    rust-overlay = {
+      url = "github:oxalica/rust-overlay";
+      inputs.nixpkgs.follows = "nixpkgs";
     };
+  };
 
-    outputs =
-      { self, ... }@inputs:
-      let
-        # Specify your system, these are the ones we support by now: platforms = [ "aarch64-linux" "x86_64-linux" "aarch64-darwin" "x86_64-darwin" ];
-        system = "x86_64-linux";
-        floresta = inputs.floresta-master.packages.${system}.default; # the "default" package will retrieve these components: [ libfloresta, florestad , floresta-cli ]
-        florestad = inputs.floresta-master.packages.${system}.florestad;
-        floresta-cli = inputs.floresta-master.packages.${system}.floresta-cli;
-      in
-      (import inputs.nixpkgs { inherit system; }).lib.mkShell {
+  outputs =
+    { self, ... }@inputs:
+    let
+      # Specify your system, these are the ones we support by now: platforms =
+      # [ "aarch64-linux" "x86_64-linux" "aarch64-darwin" "x86_64-darwin" ];
+      system = "x86_64-linux";
+      floresta = inputs.floresta.packages.${system}.default; # the "default"
+      # package will retrieve these components:
+      # [ libfloresta, florestad , floresta-cli ]
+      florestad = inputs.floresta.packages.${system}.florestad;
+      floresta-cli = inputs.floresta.packages.${system}.floresta-cli;
+
+      # This is re exported from the floresta-flake repository that contains
+      # the nix heavy work. Ideally, all project specific features offered by
+      # the flake.nix
+      #
+      # on the floresta main repository is re exported from this other flake,
+      # the code is maintained there due to some nix maintainabilitty issues.
+      custom-floresta = inputs.floresta-flake.lib.${system}.florestaBuild {
+        pkgs = import inputs.nixpkgs {
+          inherit system;
+          overlays = [ (import inputs.rust-overlay) ];
+          # Calling directly this method depends on rust-overlay.
+        };
+        packageName = "florestad"; # The package to select:
+        # ["florestad", "floresta-cli", "all", "libfloresta", "floresta-debug"]
+        features = [ ]; # The features to append during build time.
+        # The caller may want to pass his own version of the codebase.
+        #
+        # Note that this expression only supports florestas codebases after the
+        # structure changes, that is, the binaries under bin/.
+        src = (import inputs.nixpkgs { inherit system; }).fetchFromGitHub {
+          rev = "master"; # The default keep up with master.
+          owner = "vinteumorg";
+          repo = "floresta";
+          sha256 = "sha256-N9QC0N0rCr+9pgp9wtcKT38/3jzNdOE8IaixOWwvg98=";
+        };
+      };
+    in
+    {
+      # You can easily try the florestaBuild method by `nix build`.
+      packages.${system}.default = custom-floresta;
+
+      devShells.${system}.default = (import inputs.nixpkgs { inherit system; }).mkShell {
 
         nativeBuildInputs = [
           floresta
@@ -61,79 +103,59 @@ To accomplish any of the steps down below you only need nix installed.
 
           echo "$ floresta-cli getblockchaininfo"
         '';
-      } // ./checks;
-  }
-  ```
+      };
+    };
+}
+```
 
-  ### With flakes
+### With flakes
 
-  From the root source of this project you have the following alternatives to build using flakes:
+From the root source of this project you have the following alternatives to
+build using flakes:
 
-  ```Bash
-  # The default building derivation, build all the components this project provide: florestad, floresta-cli and libfloresta.
-  $ nix build
+```Bash
+# The default building derivation, build all the components this project
+# provide: florestad, floresta-cli and libfloresta.
+$ nix build
 
-  $ ls ./result/bin/
-  floresta-cli  florestad
+$ ls ./result/bin/
+floresta-cli  florestad
 
-  $ ls ./result/lib/
-  libfloresta.a  libfloresta_chain.so  libfloresta.so
-  ```
+$ ls ./result/lib/
+libfloresta.a  libfloresta_chain.so  libfloresta.so
+```
 
-  You can specify the component to build a derivation only for it.
+You can specify the component to build a derivation only for it.
 
-  ```Bash
-  # The available options are: florestad, floresta-cli and libfloresta
-  $ nix build .#florestad
+```Bash
+# The available options are: florestad, floresta-cli and libfloresta
+$ nix build .#florestad
 
-  $ ls ./result/bin
-  florestad
-  ```
-  It's recommended to use the default build command.
+$ ls ./result/bin
+florestad
+```
+
+It's recommended to use the default build command.
 
 ## Dev environments with devshells
 
-This project offers two devshells that facilitates development for nix users.
+This project offers devshells that offers git hooks and all dependencies needed.
 
 ```Bash
-# This command will source the default devshell which include just and rustup.
+# The default devshell which include githooks and project dependencies.
 $ nix develop
 
-$ exit # To exit the shell
-
-# you can also use the func-tests-env which is a helper to run
-# the projects functional tests
-$ nix develop .#func-tests-env
+# `python-deps` carries all what is needed to run the python tests.
+$ nix develop .#python-deps
 
 ```
 
-The `func-tests-env` devshell provides:
-  - `uv`.
-  - Python dependencies
-  - `utreexod` included in `$PATH` and linked in `$FLORESTA_TEMP_DIR`
-  - `florestad` included in `$PATH` and linked in `$FLORESTA_TEMP_DIR`
-- `run_test` alias. `run_test="uv run tests/test_runner.py"`
+What the `python-deps` devshell provides:
+
+- `uv`
+- `python`
+- `black` fmt git hook
+- `utreexod` included in `$PATH` and linked in `$FLORESTA_TEMP_DIR`
+- `florestad` included in `$PATH` and linked in `$FLORESTA_TEMP_DIR`
 
 You can find more information about our tests in [running tests](./running-tests.md)
-
-## Running flake checks
-
-This project also integrates some checks for CI.
-
-```Bash
-# This command will run all the checks set by flake.nix
-$ nix flake check
-```
-Checks enabled:
-
-1. Nix
-  - nixfmt-rfc-style
-  - statix
-  - flake-checker
-
-2. Rust
-  - clippy (check mode)
-  - rustfmt (check mode)
-
-3. Python
-  - black (check mode)
