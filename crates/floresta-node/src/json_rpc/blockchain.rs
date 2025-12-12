@@ -1,7 +1,12 @@
-use bitcoin::block::Header;
+use std::ops::Add;
+use std::str::FromStr;
+
+use bitcoin::consensus::encode::serialize;
 use bitcoin::consensus::encode::serialize_hex;
 use bitcoin::consensus::Encodable;
 use bitcoin::constants::genesis_block;
+use bitcoin::hex::DisplayHex;
+use bitcoin::pow::Target;
 use bitcoin::Address;
 use bitcoin::Block;
 use bitcoin::BlockHash;
@@ -9,7 +14,9 @@ use bitcoin::MerkleBlock;
 use bitcoin::OutPoint;
 use bitcoin::Script;
 use bitcoin::ScriptBuf;
+use bitcoin::Transaction;
 use bitcoin::Txid;
+use bitcoin::Work;
 use corepc_types::v29::GetTxOut;
 use corepc_types::ScriptPubkey;
 use miniscript::descriptor::checksum;
@@ -17,12 +24,14 @@ use serde_json::json;
 use serde_json::Value;
 use tracing::debug;
 
+use super::res::GetBlockResRedundantVerbose;
 use super::res::GetBlockResVerbose;
 use super::res::GetBlockchainInfoRes;
 use super::res::GetTxOutProof;
 use super::res::JsonRpcError;
 use super::server::RpcChain;
 use super::server::RpcImpl;
+use crate::json_rpc::res::GetBlockHeaderResVerbose;
 use crate::json_rpc::res::RescanConfidence;
 
 impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
@@ -52,7 +61,7 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
             .map_err(|_| JsonRpcError::BlockNotFound)
     }
 
-    pub fn get_rescan_interval(
+    pub async fn get_rescan_interval(
         &self,
         use_timestamp: bool,
         start: Option<u32>,
@@ -66,9 +75,13 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
             let confidence = confidence.unwrap_or(RescanConfidence::Medium);
             // `get_block_height_by_timestamp` already does the time validity checks.
 
-            let start_height = self.get_block_height_by_timestamp(start, &confidence)?;
+            let start_height = self
+                .get_block_height_by_timestamp(start, &confidence)
+                .await?;
 
-            let stop_height = self.get_block_height_by_timestamp(stop, &RescanConfidence::Exact)?;
+            let stop_height = self
+                .get_block_height_by_timestamp(stop, &RescanConfidence::Exact)
+                .await?;
 
             return Ok((start_height, stop_height));
         }
@@ -88,18 +101,18 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
     /// Retrieves the height of the block that was mined in the given timestamp.
     ///
     /// `timestamp` has an alias, 0 will directly refer to the network's genesis timestamp.
-    pub fn get_block_height_by_timestamp(
+    pub async fn get_block_height_by_timestamp(
         &self,
         timestamp: u32,
         confidence: &RescanConfidence,
     ) -> Result<u32, JsonRpcError> {
         /// Simple helper to avoid code reuse.
-        fn get_block_time<BlockChain: RpcChain>(
+        async fn get_block_time<BlockChain: RpcChain>(
             provider: &RpcImpl<BlockChain>,
             at: u32,
         ) -> Result<u32, JsonRpcError> {
             let hash = provider.get_block_hash(at)?;
-            let block = provider.get_block_header(hash)?;
+            let block = provider.get_block_header_res_verbose(hash).await?;
             Ok(block.time)
         }
 
@@ -114,7 +127,7 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
             .get_best_block()
             .map_err(|_| JsonRpcError::BlockNotFound)?;
 
-        let tip_time = get_block_time(self, tip_height)?;
+        let tip_time = get_block_time(self, tip_height).await?;
 
         if timestamp < genesis_timestamp || timestamp > tip_time {
             return Err(JsonRpcError::InvalidTimestamp);
@@ -128,7 +141,7 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
         for _ in 0..max_iters {
             let cut = (high + low) / 2;
 
-            let block_timestamp = get_block_time(self, cut)?;
+            let block_timestamp = get_block_time(self, cut).await?;
 
             if block_timestamp == adjusted_target {
                 debug!("found a precise block; returning {cut}");
@@ -150,19 +163,106 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
         // This is pretty much unreachable.
         Err(JsonRpcError::BlockNotFound)
     }
+
+    /// Convert the first 16 bytes (two u64s) to form a u128
+    ///
+    /// This is used to extract the u128 value of difficulty's target
+    fn bytes_to_u128(bytes: &[u8; 32]) -> u128 {
+        let high = u64::from_be_bytes(bytes[0..8].try_into().unwrap());
+        let low = u64::from_be_bytes(bytes[8..16].try_into().unwrap());
+        ((high as u128) << 64) | (low as u128)
+    }
+
+    /// Fast multiplication of [Work] scaled on epochs.
+    /// This give the amount of accumulated base-work ([u8; 32]) by a epoch-factor.
+    fn mul_work_for_epochs(base: Work, mut epochs: u64) -> Work {
+        let mut res = Work::from_be_bytes([0u8; 32]);
+        let mut factor = base;
+        while epochs > 0 {
+            if epochs & 1 == 1 {
+                res = res.add(factor);
+            }
+            factor = factor.add(factor);
+            epochs >>= 1;
+        }
+        res
+    }
 }
 
 // blockchain rpcs
 impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
     // dumputxoutset
 
-    // getbestblockhash
+    /// Returns a [Result<BlockHash, JsonRpcError>] of the best (tip) block in the most-work fully-validated chain
+    /// or the a [JsonRpcError::BlockNotFound].
     pub(super) fn get_best_block_hash(&self) -> Result<BlockHash, JsonRpcError> {
-        Ok(self.chain.get_best_block().unwrap().1)
+        let best_block = self
+            .chain
+            .get_best_block()
+            .map_err(|_| JsonRpcError::BlockNotFound)?;
+        Ok(best_block.1)
     }
 
-    // getblock
-    pub(super) async fn get_block(
+    /// Returns a [Result<u32, JsonRpcError>] where the `u32` is the Median Time Past (BIP113-style)
+    /// for a given block height, or either [JsonRpcError::Chain] of the provided `height` is invalid or
+    /// [JsonRpcError::BlockNotFound] if the a blockhash was not found for provided `height`.
+    fn compute_median_time_past(&self, height: u32) -> Result<u32, JsonRpcError> {
+        // Special case: for height 0, just return block time
+        if height == 0 {
+            let hash = self
+                .chain
+                .get_block_hash(0)
+                .map_err(|_| JsonRpcError::Chain)?;
+
+            let header = self
+                .chain
+                .get_block_header(&hash)
+                .map_err(|_| JsonRpcError::BlockNotFound)?;
+
+            return Ok(header.time);
+        }
+
+        let mut timestamps = Vec::with_capacity(11);
+        let mut h = height;
+        for _ in 0..11 {
+            let hash = self
+                .chain
+                .get_block_hash(h)
+                .map_err(|_| JsonRpcError::Chain)?;
+
+            let header = self
+                .chain
+                .get_block_header(&hash)
+                .map_err(|_| JsonRpcError::BlockNotFound)?;
+
+            timestamps.push(header.time);
+
+            if h == 0 {
+                break;
+            }
+            h -= 1;
+        }
+
+        timestamps.sort_unstable();
+        Ok(timestamps[timestamps.len() / 2])
+    }
+
+    /// Compute the strippedsize of a block, where stripptedsize is defined as the
+    /// amount of data contained in a block less the witness data.
+    fn compute_stripped_size(block: &Block) -> usize {
+        let mut stripped_block = block.clone();
+
+        for tx in &mut stripped_block.txdata {
+            tx.input.iter_mut().for_each(|input| input.witness.clear());
+        }
+
+        serialize(&stripped_block).len()
+    }
+
+    /// Returns an [Result<GetBlockResVerbose, JsonRpcError>] with information about block `hash`
+    /// and information about each transaction, or [JsonRpcError::Chain] if the provided `hash`
+    /// was not found.
+    pub(super) async fn get_block_res_verbose(
         &self,
         hash: BlockHash,
     ) -> Result<GetBlockResVerbose, JsonRpcError> {
@@ -174,26 +274,57 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
             .map_err(|_| JsonRpcError::Chain)?
             .unwrap();
 
-        let median_time_past = if height > 11 {
-            let mut last_block_times: Vec<_> = ((height - 11)..height)
-                .map(|h| {
-                    self.chain
-                        .get_block_header(&self.chain.get_block_hash(h).unwrap())
-                        .unwrap()
-                        .time
-                })
-                .collect();
-            last_block_times.sort();
-            last_block_times[5]
-        } else {
-            block.header.time
-        };
-
         let block = GetBlockResVerbose {
-            bits: serialize_hex(&block.header.bits),
-            chainwork: block.header.work().to_string(),
+            bits: block
+                .header
+                .bits
+                .to_consensus()
+                .to_be_bytes()
+                .as_hex()
+                .to_string(),
+            target: Target::from_compact(block.header.bits)
+                .to_be_bytes()
+                .to_lower_hex_string(),
+            chainwork: {
+                let mut current = Work::from_be_bytes([0u8; 32]);
+
+                // Iterate per difficulty epoch (2016 blocks), as well
+                // aggregate the targets at heights multiple of 2016.
+                let mut epoch_start = 0u32;
+                while epoch_start <= height {
+                    let epoch_end = core::cmp::min(epoch_start + 2015, height);
+                    let epochs = (epoch_end - epoch_start + 1) as u64;
+
+                    let blk_hash = self
+                        .chain
+                        .get_block_hash(epoch_start)
+                        .map_err(|_| JsonRpcError::BlockNotFound)?;
+                    let tmp_header = self
+                        .chain
+                        .get_block_header(&blk_hash)
+                        .map_err(|_| JsonRpcError::BlockNotFound)?;
+
+                    let accumulated_work =
+                        Self::mul_work_for_epochs(Target::from(tmp_header.bits).to_work(), epochs);
+                    current = current.add(accumulated_work);
+                    epoch_start = epoch_end + 1;
+                }
+
+                current.to_be_bytes().to_lower_hex_string()
+            },
             confirmations: (tip - height) + 1,
-            difficulty: block.header.difficulty(self.chain.get_params()),
+            difficulty: {
+                // Bitcoin-core implements the Mainnet target (Target::MAX)
+                // when calculate the difficulty, even in Regtest network,
+                // so we need to implement this bug to be compliant
+                let genesis_target_bytes = Target::MAX.to_be_bytes();
+                let current_target_bytes = block.header.target().to_be_bytes();
+
+                let genesis_target = Self::bytes_to_u128(&genesis_target_bytes);
+                let current_target = Self::bytes_to_u128(&current_target_bytes);
+
+                genesis_target as f64 / current_target as f64
+            },
             hash: block.header.block_hash().to_string(),
             height,
             merkleroot: block.header.merkle_root.to_string(),
@@ -207,25 +338,69 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
                 .map(|tx| tx.compute_txid().to_string())
                 .collect(),
             version: block.header.version.to_consensus(),
-            version_hex: serialize_hex(&block.header.version),
+            version_hex: serialize_hex(&block.header.version.to_consensus().to_be_bytes()),
             weight: block.weight().to_wu() as usize,
-            mediantime: median_time_past,
+            mediantime: if height == 0 {
+                block.header.time
+            } else {
+                self.compute_median_time_past(height)?
+            },
             n_tx: block.txdata.len(),
             nextblockhash: self
                 .chain
                 .get_block_hash(height + 1)
                 .ok()
                 .map(|h| h.to_string()),
-            strippedsize: block.total_size(),
+            strippedsize: Self::compute_stripped_size(&block),
         };
 
         Ok(block)
     }
 
-    pub(super) async fn get_block_serialized(
+    fn get_raw_transactions(&self, txid: &str) -> Result<Transaction, JsonRpcError> {
+        let txid_raw = Txid::from_str(txid).map_err(JsonRpcError::InvalidTxid)?;
+        let cached = self
+            .wallet
+            .get_transaction(&txid_raw)
+            .ok_or(JsonRpcError::TxNotFound)?;
+        Ok(cached.tx)
+    }
+
+    pub(super) async fn get_block_res_redundant_verbose(
         &self,
         hash: BlockHash,
-    ) -> Result<String, JsonRpcError> {
+    ) -> Result<GetBlockResRedundantVerbose, JsonRpcError> {
+        let block = self.get_block_res_verbose(hash).await?;
+        let txs = block
+            .tx
+            .iter()
+            .map(|s| self.get_raw_transactions(s).unwrap())
+            .collect();
+        Ok(GetBlockResRedundantVerbose {
+            bits: block.bits,
+            target: block.target,
+            chainwork: block.chainwork,
+            confirmations: block.confirmations,
+            hash: block.hash,
+            strippedsize: block.strippedsize,
+            size: block.size,
+            height: block.height,
+            version: block.version,
+            version_hex: block.version_hex,
+            merkleroot: block.merkleroot,
+            weight: block.weight,
+            tx: txs,
+            time: block.time,
+            mediantime: block.mediantime,
+            nonce: block.nonce,
+            difficulty: block.difficulty,
+            n_tx: block.n_tx,
+            previousblockhash: block.previousblockhash,
+            nextblockhash: block.nextblockhash,
+        })
+    }
+
+    pub(super) async fn get_block_res_hex(&self, hash: BlockHash) -> Result<String, JsonRpcError> {
         let block = self.get_block_inner(hash).await?;
         Ok(serialize_hex(&block))
     }
@@ -280,18 +455,71 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
     // getblockfilter
     // getblockfrompeer (just call getblock)
 
-    // getblockhash
+    /// getblockhash
     pub(super) fn get_block_hash(&self, height: u32) -> Result<BlockHash, JsonRpcError> {
         self.chain
             .get_block_hash(height)
             .map_err(|_| JsonRpcError::BlockNotFound)
     }
 
-    // getblockheader
-    pub(super) fn get_block_header(&self, hash: BlockHash) -> Result<Header, JsonRpcError> {
-        self.chain
+    /// Returns an [Result<GetBlockHeaderResVerbose, JsonRpcError>] with information about blockheader ‘hash’,
+    /// or either [JsonRpcError::BlockNotFound] if a valid [bitcoin::block::Header] was not
+    /// found, [JsonRpcError::BlockNotFound] if the provided `hash` do not exist.
+    pub(super) async fn get_block_header_res_verbose(
+        &self,
+        hash: BlockHash,
+    ) -> Result<GetBlockHeaderResVerbose, JsonRpcError> {
+        let header = self
+            .chain
             .get_block_header(&hash)
-            .map_err(|_| JsonRpcError::BlockNotFound)
+            .map_err(|_| JsonRpcError::BlockNotFound)?;
+
+        let tip = self
+            .chain
+            .get_height()
+            .map_err(|_| JsonRpcError::BlockNotFound)?;
+
+        let blockheight = self
+            .chain
+            .get_block_height(&hash)
+            .map_err(|_| JsonRpcError::BlockNotFound)?
+            .ok_or(JsonRpcError::BlockNotFound)?;
+
+        let block = self.get_block_res_verbose(hash).await?;
+        let blockheader = GetBlockHeaderResVerbose {
+            hash: block.hash,
+            confirmations: tip - blockheight + 1,
+            height: blockheight,
+            version: block.version,
+            version_hex: block.version_hex,
+            merkleroot: block.merkleroot,
+            time: header.time,
+            mediantime: block.mediantime,
+            bits: block.bits,
+            target: block.target,
+            nonce: header.nonce,
+            difficulty: block.difficulty,
+            chainwork: block.chainwork,
+            n_tx: block.n_tx,
+            previousblockhash: {
+                if block.previousblockhash != "00".repeat(32) {
+                    Some(block.previousblockhash)
+                } else {
+                    None
+                }
+            },
+            nextblockhash: block.nextblockhash,
+        };
+        Ok(blockheader)
+    }
+
+    pub(super) fn get_block_header_res_hex(&self, hash: BlockHash) -> Result<String, JsonRpcError> {
+        let blockheader = self
+            .chain
+            .get_block_header(&hash)
+            .map_err(|_| JsonRpcError::BlockNotFound)?;
+        let hex = bitcoin::consensus::encode::serialize_hex(&blockheader);
+        Ok(hex)
     }
 
     // getblockstats

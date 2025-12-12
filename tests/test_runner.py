@@ -52,22 +52,22 @@ BASE_TEST_SUITE = [
     ("floresta-cli", "getbestblockhash"),
     ("floresta-cli", "getblockhash"),
     ("floresta-cli", "gettxout"),
+    ("floresta-cli", "getblock"),
     ("florestad", "restart"),
+    ("floresta-cli", "getblockheader"),
     ("florestad", "connect"),
     ("floresta-cli", "ping"),
-    ("floresta-cli", "getrpcinfo"),
     ("floresta-cli", "stop"),
+    ("floresta-cli", "getrpcinfo"),
     ("example", "integration"),
-    ("floresta-cli", "getroots"),
-    ("florestad", "tls"),
-    ("example", "electrum"),
-    ("floresta-cli", "getblock"),
-    ("florestad", "tls-fail"),
     ("example", "functional"),
-    ("floresta-cli", "getmemoryinfo"),
+    ("floresta-cli", "getroots"),
+    ("florestad", "tls-fail"),
     ("floresta-cli", "getpeerinfo"),
+    ("florestad", "tls"),
     ("floresta-cli", "getblockchaininfo"),
-    ("floresta-cli", "getblockheader"),
+    ("floresta-cli", "getmemoryinfo"),
+    ("example", "electrum"),
     ("example", "bitcoin"),
     ("example", "utreexod"),
 ]
@@ -205,7 +205,6 @@ def run_test_worker(task_queue: Queue, results_queue: Queue, args: argparse.Name
         with open(
             test_log_name, "wt", encoding="utf-8", buffering=args.log_buffer
         ) as log_file:
-
             # Avoid using 'with' for `subprocess.Popen` here, as we need the
             # process to start and stream output immediately for port detection
             # to work correctly. Using 'with' might delay output flushing,
