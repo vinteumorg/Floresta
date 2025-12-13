@@ -63,6 +63,7 @@
                 };
                 check-merge-conflicts.enable = true;
                 nixfmt-rfc-style.enable = true;
+                commitizen.enable = true; # The default commitizen rules are conventional commits.
                 statix.enable = true;
                 flake-checker.enable = true;
                 typos = {
@@ -71,6 +72,36 @@
                 };
               };
             };
+            # Floresta flavored commitizen config file.
+            #
+            # Since floresta doesnt use any hooks and these are only
+            # inside this
+            czFlorestaConfigFile = pkgs.writeText ".cz.toml" ''
+              [tool.commitizen]
+              name = "cz_customize"
+
+              [tool.commitizen.customize]
+              types = [
+                { type = "feat",    description = "A new feature" },
+                { type = "fix",     description = "A bug fix" },
+                { type = "docs",    description = "Documentation changes" },
+                { type = "style",   description = "Code style changes (formatting, missing semicolons, etc.)" },
+                { type = "refactor",description = "Code changes that neither fix a bug nor add a feature" },
+                { type = "test",    description = "Adding missing tests or correcting existing tests" },
+                { type = "perf",    description = "A code change that improves performance" },
+                { type = "ci",      description = "Changes to CI configuration files and scripts" },
+                { type = "chore",   description = "Other changes that don't modify src or test files" },
+                { type = "fuzz",    description = "Fuzzing-related changes" },
+                { type = "bench",   description = "Benchmark-related changes" }
+              ]
+
+              schema_pattern = '^(feat|fix|docs|style|refactor|test|perf|ci|chore|fuzz|bench)(\([^)]+\))?: [^\n]+(\n\n[\s\S]+)?$'
+            '';
+
+            czHook = ''
+              cp -f ${czFlorestaConfigFile} .cz.toml
+              echo "Commitizen config written"
+            '';
           in
           {
             default =
