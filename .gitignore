@@ -32,3 +32,6 @@ config.toml
 
 # tests pycache
 tests/**/__pycache__/*
+
+# commitizen under nixdevshell
+.cz.toml

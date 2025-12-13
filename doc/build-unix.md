@@ -32,4 +32,4 @@ cargo install --path ./bin/florestad --locked
 cargo install --path ./bin/floresta-cli --locked
 ```
 
-If you are using Nix, you can add Florestad to your system following the instructions [here](nix.md).
+If you are using Nix, you can get floresta packages into your system following the instructions [here](nix.md).
