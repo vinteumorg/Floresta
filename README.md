@@ -27,6 +27,16 @@ Detailed documentation for `libfloresta` is available [here](https://docs.getflo
 
 Further information can be found in the [doc folder](/doc).
 
+Also, we maintain support for a set of tools that a developer might be familiar.
+
+- `Just`: A command runner that lets you declare reusable receipts. You can use our `just` receipts to streamline your development process, testing and running Floresta. For more info, check out out [documentation](docs/justfile.md).
+
+- `Docker`: Floresta comes with a ready-to-use Docker integration, that lets you deploy it with a single command-line. Our [documentation](docs/docker.md) shows how to configure and run Floresta on container environments.
+
+- `Nix`: [The functional and deterministic package manager](https://nixos.org/learn/), we offer packages and tooling for nix users check out [out docs on nix](docs/nix.md) to see what's available.
+
+- `uv` - This alternative Python package manager is used for our integration tests, that are written in Python. It manages dependencies, creates virtual environments and runs our tests in a seemingness way.
+
 ## Community
 
 If you want to discuss this project, you can join our Discord server [here](https://discord.gg/5Wj8fjjS93). If you want to disclose a security vulnerability, please email `Davidson Souza at me AT dlsouza DOT lol`, using the PGP key [`2C8E0F 836FD7D BBBB9E 9B2EF899 64EC3AB 22B2E3`](https://blog.dlsouza.lol/assets/gpg.asc).
