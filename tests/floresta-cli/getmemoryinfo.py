@@ -5,7 +5,7 @@ This functional test cli utility to interact with a Floresta node with `getmemor
 """
 
 import sys
-from test_framework import FlorestaTestFramework, Node
+from test_framework import FlorestaTestFramework, Node, NodeType
 
 
 class GetMemoryInfoTest(FlorestaTestFramework):
@@ -19,7 +19,7 @@ class GetMemoryInfoTest(FlorestaTestFramework):
         Setup the two node florestad process with different data-dirs, electrum-addresses
         and rpc-addresses in the same regtest network
         """
-        self.florestad = self.add_node(variant="florestad")
+        self.florestad = self.add_node_default(variant=NodeType.FLORESTAD)
 
     def test_mode_stats_ibd(self, node: Node):
         """
