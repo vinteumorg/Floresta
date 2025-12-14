@@ -8,9 +8,7 @@ The directories used between each power-on/power-off must not be corrupted.
 
 import filecmp
 
-from test_framework import FlorestaTestFramework
-
-DATA_DIR = FlorestaTestFramework.get_integration_test_dir()
+from test_framework import FlorestaTestFramework, NodeType
 
 
 class TestRestart(FlorestaTestFramework):
@@ -24,16 +22,13 @@ class TestRestart(FlorestaTestFramework):
         Here we define setup for test
         """
 
-        self.data_dirs = TestRestart.create_data_dirs(
-            DATA_DIR, self.__class__.__name__.lower(), 2
-        )
-
         self.florestas = [
-            self.add_node(
-                variant="florestad",
-                extra_args=[f"--data-dir={datadir}"],
-            )
-            for datadir in self.data_dirs
+            self.add_node_default_args(
+                variant=NodeType.FLORESTAD,
+            ),
+            self.add_node_default_args(
+                variant=NodeType.FLORESTAD,
+            ),
         ]
 
     def run_test(self):
@@ -49,17 +44,19 @@ class TestRestart(FlorestaTestFramework):
         # this is done by waiting for the RPC port (the run_node
         # method does this for us, but let's wait a bit more)
         self.run_node(self.florestas[0])
-        self.florestas[0].rpc.wait_for_connections(opened=True)
+        self.florestas[0].rpc.wait_for_connection(opened=True)
         self.florestas[0].stop()
 
         # start second node then stop
         self.run_node(self.florestas[1])
-        self.florestas[1].rpc.wait_for_connections(opened=True)
+        self.florestas[1].rpc.wait_for_connection(opened=True)
         self.florestas[1].stop()
 
         # check for any corruption
         # if any files are different, we will get a list of them
-        result = filecmp.dircmp(self.data_dirs[0], self.data_dirs[1])
+        result = filecmp.dircmp(
+            self.florestas[0].daemon.data_dir, self.florestas[1].daemon.data_dir
+        )
         self.assertEqual(len(result.diff_files), 0)
 
 
