@@ -36,6 +36,9 @@ pretty_assertions = "1.4"
 [target.'cfg(target_env = "gnu")'.dependencies]
 libc = "0.2"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+
 [features]
 compact-filters = ["dep:floresta-compact-filters"]
 zmq-server = ["dep:zmq"]
