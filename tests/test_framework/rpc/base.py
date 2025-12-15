@@ -50,18 +50,6 @@ class BaseRPC(ABC):
     def get_jsonrpc_version(self) -> str:
         """Get the JSON-RPC version used by this RPC connection."""
 
-    @abstractmethod
-    def get_blockchain_info(self) -> dict:
-        """
-        Get the blockchain info by performing `perform_request('getblockchaininfo')`
-        """
-
-    @abstractmethod
-    def stop(self):
-        """
-        Perform the `stop` RPC command to the daemon and some cleanup on process and files
-        """
-
     @property
     def address(self) -> str:
         """Get the RPC server address."""
@@ -203,3 +191,76 @@ class BaseRPC(ABC):
         if not success:
             state = "open" if opened else "closed"
             raise TimeoutError(f"{self.address} not {state} after {timeout} seconds")
+
+    def get_blockchain_info(self) -> dict:
+        """
+        Get the blockchain info by performing `perform_request('getblockchaininfo')`
+        """
+        return self.perform_request("getblockchaininfo")
+
+    def stop(self):
+        """
+        Perform the `stop` RPC command to the daemon and wait for the connection to close
+        """
+        result = self.perform_request("stop")
+        self.wait_for_connection(opened=False)
+        return result
+
+    # pylint: disable=R0801
+    def get_bestblockhash(self) -> str:
+        """
+        Get the hash of the best block in the chain performing
+        `perform_request('getbestblockhash')`
+        """
+        return self.perform_request("getbestblockhash")
+
+    def get_blockhash(self, height: int) -> str:
+        """
+        Get the blockhash associated with a given height performing
+        `perform_request('getblockhash', params=[<int>])`
+        """
+        return self.perform_request("getblockhash", [height])
+
+    def get_block_count(self) -> int:
+        """
+        Get block count of the node by performing `perform_request('getblockcount')`
+        """
+        return self.perform_request("getblockcount")
+
+    def get_peerinfo(self):
+        """
+        Get the peer information by performing `perform_request('getpeerinfo')`
+        """
+        return self.perform_request("getpeerinfo")
+
+    def get_rpcinfo(self):
+        """
+        Returns stats about our RPC server performing
+        `perform_request('getrpcinfo')`
+        """
+        return self.perform_request("getrpcinfo")
+
+    def uptime(self) -> int:
+        """
+        Get the uptime of the node by performing `perform_request('uptime')`
+        """
+        return self.perform_request("uptime")
+
+    def get_txout(self, txid: str, vout: int, include_mempool: bool) -> dict:
+        """
+        Get transaction output by performing `perform_request('gettxout', params=[str, int])`
+
+        Args:
+            txid: The transaction ID
+            vout: The output index
+
+        Returns:
+            The transaction output information
+        """
+        return self.perform_request("gettxout", params=[txid, vout, include_mempool])
+
+    def ping(self):
+        """
+        Tells our node to send a ping to all its peers
+        """
+        return self.perform_request("ping")
