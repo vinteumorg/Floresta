@@ -14,8 +14,8 @@ import time
 from test_framework import FlorestaTestFramework
 
 DATA_DIR = FlorestaTestFramework.get_integration_test_dir()
-TIMEOUT = 15
-PING_TIMEOUT = 45
+TIMEOUT = 1
+PING_TIMEOUT = 1
 
 
 class AddnodeTestV2(FlorestaTestFramework):
