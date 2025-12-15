@@ -108,9 +108,14 @@ class Node:
                     f"Unsupported variant: {variant}. Use 'florestad', 'utreexod' or 'bitcoind'."
                 )
 
+        if variant == NodeType.BITCOIND:
+            electrum = None
+        else:
+            electrum = ElectrumClient(electrum_config)
+
         self.daemon = daemon
         self.rpc = rpc
-        self._config_electrum = electrum_config
+        self.electrum = electrum
         self._variant = variant
 
     @property
@@ -126,13 +131,6 @@ class Node:
         Get the P2P URL to connect to the node.
         """
         return self.daemon.p2p_url
-
-    @property
-    def config_electrum(self) -> ConfigElectrum:
-        """
-        Get the Electrum URL to connect to the node.
-        """
-        return self._config_electrum
 
     def start(self):
         """
