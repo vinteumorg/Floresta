@@ -175,18 +175,55 @@ impl Serialize for ConnectionKind {
 }
 
 #[derive(Debug, Clone)]
+/// Local information kept about each peer
 pub struct LocalPeerView {
+    /// Average message times from this peer
+    ///
+    /// This is measured in milliseconds, and it's recorded every time we get
+    /// a response from a peer
+    pub(crate) message_times: FractionAvg,
+
+    /// The state in which this peer is, e.g., awaiting handshake, ready, banned, etc.
     pub(crate) state: PeerStatus,
+
+    /// An id identifying this peer's address in our address manager
     pub(crate) address_id: u32,
+
+    /// A channel used to send requests to this peer
     pub(crate) channel: UnboundedSender<NodeRequest>,
+
+    /// Services this peer claims to support
     pub(crate) services: ServiceFlags,
+
+    /// A version string that identifies which software this peer is running
     pub(crate) user_agent: String,
+
+    /// This peer's IP address
     pub(crate) address: IpAddr,
+
+    /// The port we used to connect to this peer
     pub(crate) port: u16,
+
+    /// The last time we received a message from this peer
     pub(crate) _last_message: Instant,
+
+    /// The kind of connection we have with this peer
+    ///
+    /// We use different connections with different goals, e.g., feeler connections,
+    /// regular connections, extra connections to find about new tips, etc.
     pub(crate) kind: ConnectionKind,
+
+    /// The latest height this peer has announced to us
     pub(crate) height: u32,
+
+    /// The banscore of this peer
+    ///
+    /// This is a score kept for each peer, every time this peer misbehaves, we
+    /// increase this score. If the score reaches a certain threshold, we ban
+    /// the peer.
     pub(crate) banscore: u32,
+
+    /// The transport protocol this peer is using (v1 or v2)
     pub(crate) transport_protocol: TransportProtocol,
 }
 
@@ -659,7 +696,7 @@ where
             }
         };
 
-        let peer = self.send_to_random_peer(req, ServiceFlags::NONE);
+        let peer = self.send_to_fastest_peer(req, ServiceFlags::NONE);
         if let Ok(peer) = peer {
             self.inflight_user_requests
                 .insert(user_req, (peer, Instant::now(), responder));
@@ -691,6 +728,34 @@ where
         }
 
         Ok(Some(block))
+    }
+
+    /// Returns the fastest peer that supports the given service flags and is initialized.
+    fn get_fastest_peer(&self, service: ServiceFlags) -> Option<(&u32, &LocalPeerView)> {
+        let should_send = |(_, peer): &(&PeerId, &LocalPeerView)| {
+            peer.services.has(service) && peer.state == PeerStatus::Ready
+        };
+
+        self.peers
+            .iter()
+            .filter(should_send)
+            .min_by_key(|(_, peer)| peer.message_times.value().round() as u64)
+    }
+
+    /// Sends a request to the fastest initialized peer that supports
+    /// required service flags.
+    pub(crate) fn send_to_fastest_peer(
+        &self,
+        request: NodeRequest,
+        required_service: ServiceFlags,
+    ) -> Result<PeerId, WireError> {
+        let (peer_id, peer) = self
+            .get_fastest_peer(required_service)
+            .ok_or(WireError::NoPeersAvailable)?;
+
+        peer.channel.send(request)?;
+
+        Ok(*peer_id)
     }
 
     pub(crate) fn attach_proof(
@@ -761,7 +826,7 @@ where
             block_hash, inflight_block.peer
         );
 
-        self.send_to_random_peer(
+        self.send_to_fastest_peer(
             NodeRequest::GetBlockProof((block_hash, Bitmap::new(), Bitmap::new())),
             UTREEXO.into(),
         )?;
@@ -923,14 +988,18 @@ where
         }
     }
 
-    #[cfg(feature = "metrics")]
-    /// Register a message on `self.inflights` hooking it to metrics
+    /// Register a message on `self.inflights` and record the time taken to respond to it.
+    ///
+    /// We need this information for two purposes:
+    /// 1. To calculate the average time taken to respond to messages from peers, which we use
+    ///    to select the fastest peer when sending requests.
+    /// 2. If `metrics` feature is enabled, we record the time taken for all peers on a histogram,
+    ///    and expose it as a prometheus metric.
     pub(crate) fn register_message_time(
-        &self,
+        &mut self,
         notification: &PeerMessages,
         peer: PeerId,
     ) -> Option<()> {
-        use metrics::get_metrics;
         let now = Instant::now();
 
         let when = match notification {
@@ -965,9 +1034,19 @@ where
             _ => return None,
         };
 
-        let metrics = get_metrics();
-        let elapsed = now.duration_since(when).as_secs_f64();
-        metrics.message_times.observe(elapsed);
+        let elapsed = now.duration_since(when);
+        if let Some(peer) = self.peers.get_mut(&peer) {
+            peer.message_times.add(elapsed.as_millis() as u64);
+        }
+
+        #[cfg(feature = "metrics")]
+        {
+            use metrics::get_metrics;
+            let metrics = get_metrics();
+
+            metrics.message_times.observe(elapsed.as_secs_f64());
+        }
+
         Some(())
     }
 
@@ -1187,7 +1266,7 @@ where
             .collect::<Vec<_>>();
 
         for block_hash in pending_blocks {
-            let peer = self.send_to_random_peer(
+            let peer = self.send_to_fastest_peer(
                 NodeRequest::GetBlockProof((block_hash, Bitmap::new(), Bitmap::new())),
                 service_flags::UTREEXO.into(),
             )?;
@@ -1221,7 +1300,7 @@ where
                     return Ok(());
                 }
 
-                let peer = self.send_to_random_peer(
+                let peer = self.send_to_fastest_peer(
                     NodeRequest::GetBlockProof((block_hash, Bitmap::new(), Bitmap::new())),
                     service_flags::UTREEXO.into(),
                 )?;
@@ -1236,15 +1315,16 @@ where
                 self.request_blocks(vec![block])?;
             }
             InflightRequests::Headers => {
-                let peer = self.send_to_random_peer(
+                let peer = self.send_to_fastest_peer(
                     NodeRequest::GetHeaders(vec![]),
                     service_flags::UTREEXO.into(),
                 )?;
+
                 self.inflight
                     .insert(InflightRequests::Headers, (peer, Instant::now()));
             }
             InflightRequests::UtreexoState(_) => {
-                let peer = self.send_to_random_peer(
+                let peer = self.send_to_fastest_peer(
                     NodeRequest::GetUtreexoState((self.chain.get_block_hash(0).unwrap(), 0)),
                     service_flags::UTREEXO.into(),
                 )?;
@@ -1255,10 +1335,11 @@ where
                 if !self.has_compact_filters_peer() {
                     return Ok(());
                 }
-                let peer = self.send_to_random_peer(
+                let peer = self.send_to_fastest_peer(
                     NodeRequest::GetFilter((self.chain.get_block_hash(0).unwrap(), 0)),
                     ServiceFlags::COMPACT_FILTERS,
                 )?;
+
                 self.inflight
                     .insert(InflightRequests::GetFilters, (peer, Instant::now()));
             }
@@ -1781,14 +1862,15 @@ where
 
             !(is_inflight || is_pending)
         };
+
         let blocks: Vec<_> = blocks.into_iter().filter(should_request).collect();
         // if there's no block to request, don't propagate any message
         if blocks.is_empty() {
             return Ok(());
         }
 
-        let peer =
-            self.send_to_random_peer(NodeRequest::GetBlock(blocks.clone()), ServiceFlags::NETWORK)?;
+        let peer = self
+            .send_to_fastest_peer(NodeRequest::GetBlock(blocks.clone()), ServiceFlags::NETWORK)?;
 
         for block in blocks.iter() {
             self.inflight
@@ -2011,6 +2093,7 @@ where
         self.peers.insert(
             peer_count,
             LocalPeerView {
+                message_times: FractionAvg::new(0, 0),
                 address: address.get_net_address(),
                 port: address.get_port(),
                 user_agent: "".to_string(),

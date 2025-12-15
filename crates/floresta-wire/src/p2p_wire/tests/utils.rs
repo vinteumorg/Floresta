@@ -16,6 +16,7 @@ use bitcoin::Network;
 use floresta_common::bhash;
 use floresta_common::service_flags;
 use floresta_common::service_flags::UTREEXO;
+use floresta_common::FractionAvg;
 use serde::Deserialize;
 use serde::Serialize;
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -174,6 +175,7 @@ pub fn create_peer(
     });
 
     LocalPeerView {
+        message_times: FractionAvg::new(0, 0),
         address: "127.0.0.1".parse().unwrap(),
         services: service_flags::UTREEXO.into(),
         user_agent: "/utreexo:0.1.0/".to_string(),
