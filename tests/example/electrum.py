@@ -46,10 +46,7 @@ class ElectrumTest(FlorestaTestFramework):
         # Create an instance of the Electrum Client,
         # a small implementation of the electrum
         # protocol, to test our own electrum implementation
-        host = self.florestad.config_electrum.host
-        port = self.florestad.config_electrum.port
-        electrum = ElectrumClient(host, port)
-        rpc_response = electrum.get_version()
+        rpc_response = self.florestad.electrum.get_version()
 
         # Make assertions with our framework. Avoid usage of
         # native `assert` clauses. For more information, see
