@@ -239,6 +239,7 @@ def main():
         -b, --log-buffer BUFFER_SIZE  Changes the `io.DEFAULT_BUFFER_SIZE` for log files (default: 1024).
                                       Small values may cause issues with large logs.
     """
+    start_time = time()
     # Define a global variable for the base log directory
     # so it can be used in the test framework. But if we just
     # want to list suites or want see the help, we don't need it.
@@ -324,7 +325,10 @@ def main():
         raise SystemExit(
             f"\n{FAILURE_EMOJI} Some tests failed. Check the logs in {args.log_dir}."
         )
-    print(f"\n{ALLDONE_EMOJI} ALL TESTS PASSED! GOOD JOB!")
+    end_time = time()
+    print(
+        f"\n{ALLDONE_EMOJI} ALL TESTS PASSED! GOOD JOB! (took {end_time - start_time:.2f}s)"
+    )
 
 
 if __name__ == "__main__":
