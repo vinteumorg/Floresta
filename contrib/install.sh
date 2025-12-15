@@ -584,12 +584,12 @@ show_done() {
 install_floresta() {
     echo "🐧 Installing $tarSrc for $me"
     validate_network
-    apt_install gcc build-essential pkg-config libssl-dev mold
+    apt_install build-essential pkg-config libssl-dev mold cmake clang libclang-dev libboost-all-dev gpg
     install_rustup
     setup_service
     download_floresta
     build_floresta
-    cleanup_apt gcc build-essential pkg-config libssl-dev mold
+    cleanup_apt build-essential pkg-config libssl-dev mold cmake clang libclang-dev libboost-all-dev
     cleanup_rust
     cleanup_profile
     show_done
