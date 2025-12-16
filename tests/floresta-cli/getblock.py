@@ -4,8 +4,7 @@ floresta_cli_getblock.py
 This functional test cli utility to interact with a Floresta node with `getblock`
 """
 
-from test_framework import FlorestaTestFramework
-from test_framework.rpc.floresta import REGTEST_RPC_SERVER
+from test_framework import FlorestaTestFramework, NodeType
 
 
 class GetBlockTest(FlorestaTestFramework):
@@ -42,7 +41,7 @@ class GetBlockTest(FlorestaTestFramework):
         """
         Setup a single node
         """
-        self.florestad = self.add_node(variant="florestad")
+        self.florestad = self.add_node_default(variant=NodeType.FLORESTAD)
 
     def run_test(self):
         """
