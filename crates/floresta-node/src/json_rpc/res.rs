@@ -1,6 +1,7 @@
 use std::fmt::Display;
 
 use axum::response::IntoResponse;
+use bitcoin::Transaction;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -117,6 +118,7 @@ pub struct ScriptSigJson {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum GetBlockRes {
+    RedundantVerbose(Box<GetBlockResRedundantVerbose>),
     Verbose(Box<GetBlockResVerbose>),
     Serialized(String),
 }
@@ -212,6 +214,9 @@ pub struct GetBlockResVerbose {
     /// decided to make consensus critical :/
     pub bits: String,
 
+    /// A number that a block hash for a candidate block must get equal to or below to add the block on to the blockchain.
+    pub target: String,
+
     /// The difficulty is derived from the current target and is defined as how many hashes, on
     /// average, one has to make before finding a valid block
     ///
@@ -219,7 +224,7 @@ pub struct GetBlockResVerbose {
     /// difficulty is a multiple of the smallest possible difficulty. So to find the actual
     /// difficulty you have to multiply this by the min_diff.
     /// For mainnet, mindiff is 2 ^ 32
-    pub difficulty: u128,
+    pub difficulty: f64,
 
     /// Commullative work in this network
     ///
@@ -227,6 +232,7 @@ pub struct GetBlockResVerbose {
     pub chainwork: String,
 
     /// How many transactions in this block
+    #[serde(rename = "nTx")]
     pub n_tx: usize,
 
     /// The hash of the block coming before this one
@@ -234,6 +240,169 @@ pub struct GetBlockResVerbose {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     /// The hash of the block coming after this one, if any
+    pub nextblockhash: Option<String>,
+}
+
+/// A full bitcoin block, returned by get_block with a list of tx's data
+#[derive(Debug, Deserialize, Serialize)]
+pub struct GetBlockResRedundantVerbose {
+    /// This block's hash.
+    pub hash: String,
+
+    /// How many blocks have been added to the chain, after this one have been found. This is
+    /// inclusive, so it starts with one when this block is the latest. If another one is found,
+    /// then it increments to 2 and so on...
+    pub confirmations: u32,
+
+    /// The size of this block, without the witness
+    pub strippedsize: usize,
+
+    /// This block's size, with the witness
+    pub size: usize,
+
+    /// This block's weight.
+    ///
+    /// Data inside a segwit block is counted differently, 'base data' has a weight of 4, while
+    /// witness only counts 1. This is (3 * base_size) + size
+    pub weight: usize,
+
+    /// How many blocks there are before this block
+    pub height: u32,
+
+    /// This block's version field
+    ///
+    /// Currently, blocks have version 2 (see BIP34), but it may also flip some of the LSB for
+    /// either consensus reason (see BIPs 8 and 9) or for version rolling mining, usually bits
+    /// after the 24th are not touched. Therefore, the actual version is likely the result of
+    /// version & ~(1 << 24).
+    /// This is encoded as a number, see `version_hex` for a hex-encoded version
+    pub version: i32,
+
+    #[serde(rename = "versionHex")]
+    /// Same as `version` by hex-encoded
+    pub version_hex: String,
+
+    /// This block's merkle root
+    ///
+    /// A Merkle Tree is a binary tree where every leaf is some data, and the branches are pairwise
+    /// hashes util reaching the root. This allows for compact proof of inclusion in the original
+    /// set. This merkle tree commits to the txid of all transactions in a block, and is used by
+    /// some light clients to determine whether a transaction is in a given block
+    pub merkleroot: String,
+
+    /// The transactions in the format of the getrawtransaction RPC
+    pub tx: Vec<Transaction>,
+
+    /// The timestamp committed to in this block's header
+    ///
+    /// Since there's no central clock that can tell time precisely in Bitcoin, this value is
+    /// reported by miners and only constrained by a couple of consensus rules. More sensibly, it
+    /// is **not** guaranteed to be monotonical. So a block n might have a lower timestamp than
+    /// block `n - 1`.
+    /// If you need it to be monotonical, see `mediantime` instead
+    pub time: u32,
+
+    /// The meadian of the last 11 blocktimes.
+    ///
+    /// This is a monotonically increasing number that bounds how old a block can be. Blocks may
+    /// not have a timestamp less than the current `mediantime`. This is also used in relative
+    /// timelocks.
+    pub mediantime: u32,
+
+    /// The nonce used to mine this block.
+    ///
+    /// Blocks are mined by increasing this value until you find a hash that is less than a network
+    /// defined target. This number has no meaning in itself and is just a random u32.
+    pub nonce: u32,
+
+    /// Bits is a compact representation for the target.
+    ///
+    /// This is a exponential format (with well-define rounding) used by openssl that Satoshi
+    /// decided to make consensus critical :/
+    pub bits: String,
+
+    /// A number that a block hash for a candidate block must get equal to or below to add the block on to the blockchain.
+    pub target: String,
+
+    /// The difficulty is derived from the current target and is defined as how many hashes, on
+    /// average, one has to make before finding a valid block
+    ///
+    /// This is computed as 1 / (target / 2 ^ 256). In most software (this one included) the
+    /// difficulty is a multiple of the smallest possible difficulty. So to find the actual
+    /// difficulty you have to multiply this by the min_diff.
+    /// For mainnet, mindiff is 2 ^ 32
+    pub difficulty: f64,
+
+    /// Commullative work in this network
+    ///
+    /// This is a estimate of how many hashes the network has ever made to produce this chain
+    pub chainwork: String,
+
+    /// How many transactions in this block
+    #[serde(rename = "nTx")]
+    pub n_tx: usize,
+
+    /// The hash of the block coming before this one
+    pub previousblockhash: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    /// The hash of the block coming after this one, if any
+    pub nextblockhash: Option<String>,
+}
+
+/// A bitcoin block header in verbose mode
+#[derive(Debug, Deserialize, Serialize)]
+pub struct GetBlockHeaderResVerbose {
+    /// The block hash (same as provided)
+    pub hash: String,
+
+    /// The number of confirmations, or -1 if the block is not on the main chain
+    pub confirmations: u32,
+
+    /// The block height or index
+    pub height: u32,
+
+    /// The block version
+    pub version: i32,
+
+    /// The block version formatted in hexadecimal
+    #[serde(rename = "versionHex")]
+    pub version_hex: String,
+
+    /// The merkle root
+    pub merkleroot: String,
+
+    /// The block time expressed in UNIX epoch time
+    pub time: u32,
+
+    /// The median block time expressed in UNIX epoch time
+    pub mediantime: u32,
+
+    /// The nonce
+    pub nonce: u32,
+
+    /// nBits: compact representation of the block difficulty target
+    pub bits: String,
+
+    /// The difficulty target
+    pub target: String,
+
+    /// The difficulty
+    pub difficulty: f64,
+
+    /// Expected number of hashes required to produce the current chain
+    pub chainwork: String,
+
+    /// The number of transactions in the block
+    #[serde(rename = "nTx")]
+    pub n_tx: usize,
+
+    /// The hash of the previous block (if available)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub previousblockhash: Option<String>,
+
+    /// The hash of the next block (if available)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub nextblockhash: Option<String>,
 }
 
@@ -310,6 +479,12 @@ pub enum JsonRpcError {
 
     /// Raised if when the rescanblockchain command, with the timestamp flag activated, contains some timestamp thats less than the genesis one and not zero which is the default value for this arg.
     InvalidTimestamp,
+
+    /// Raised when we fail to parse a value to a proper json
+    ToValue(serde_json::Error),
+
+    /// Invalid conversion from hex string to byte array
+    InvalidTxid(bitcoin::hex::HexToArrayError),
 }
 
 impl Display for JsonRpcError {
@@ -339,6 +514,8 @@ impl Display for JsonRpcError {
             JsonRpcError::Wallet(e) => write!(f, "Wallet error: {e}"),
             JsonRpcError::Filters(e) => write!(f, "Error with filters: {e}"),
             JsonRpcError::InvalidAddnodeCommand => write!(f, "Invalid addnode command"),
+            JsonRpcError::ToValue(e) => write!(f, "Failed to convert data: {e}"),
+            JsonRpcError::InvalidTxid(e) => write!(f, "Invalid Txid: {e}")
         }
     }
 }
