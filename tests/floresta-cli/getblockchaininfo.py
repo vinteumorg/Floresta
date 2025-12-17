@@ -19,7 +19,7 @@ class GetBlockchaininfoTest(FlorestaTestFramework):
     height = 0
     ibd = True
     latest_block_time = 1296688602
-    latest_work = "2"
+    latest_work = "0000000000000000000000000000000000000000000000000000000000000002"
     leaf_count = 0
     progress = 0
     root_count = 0
