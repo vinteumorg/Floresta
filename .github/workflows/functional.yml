@@ -12,11 +12,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # These are the minimal deps defined by bitcoin core at
-      # https://github.com/bitcoin/bitcoin/blob/master/doc/build-unix.md
-      - name: Prepare bitcoin-core deps
-        run: sudo apt install build-essential cmake pkgconf python3 libevent-dev libboost-dev
-
       # see more at
       # https://docs.astral.sh/uv/guides/integration/github/
       - name: Install uv
@@ -35,12 +30,20 @@ jobs:
       - name: Run pylint linter
         run: uv run pylint --verbose ./tests
 
+      # These are the minimal deps defined by bitcoin core at
+      # https://github.com/bitcoin/bitcoin/blob/master/doc/build-unix.md
+      - name: Prepare bitcoin-core deps
+        run: sudo apt install build-essential cmake pkgconf python3 libevent-dev libboost-dev
+
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
 
-      - name: Run functional tests tasks
+      - name: Prepare functional tests tasks
         run: |
           tests/prepare.sh
+
+      - name: Run functional tests tasks
+        run: |
           tests/run.sh
 
       - name: Log tests on failure
