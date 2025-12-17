@@ -36,7 +36,9 @@ pub use p2p_wire::node_interface;
 pub use p2p_wire::running_node;
 #[cfg(not(target_arch = "wasm32"))]
 pub use p2p_wire::sync_node;
+pub use p2p_wire::transport::TransportProtocol;
 pub use p2p_wire::UtreexoNodeConfig;
+
 /// NodeHooks is a trait that defines the hooks that a node can use to interact with the network
 /// and the blockchain. Every time an event happens, the node will call the corresponding hook.
 pub trait NodeHooks {
