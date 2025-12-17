@@ -341,7 +341,6 @@ class AddnodeTestV1(FlorestaTestFramework):
         self.test_should_floresta_remove_bitcoind()
         self.test_should_bitcoind_not_see_floresta()
         self.test_should_floresta_onetry_connection_with_bitcoind()
-        self.stop()
 
 
 if __name__ == "__main__":

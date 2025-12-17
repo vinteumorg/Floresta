@@ -41,8 +41,6 @@ class PingTest(FlorestaTestFramework):
         peer_info = self.bitcoind.rpc.get_peerinfo()
         self.assertTrue(peer_info[0]["bytesrecv_per_msg"]["ping"])
 
-        self.stop()
-
 
 if __name__ == "__main__":
     PingTest().main()

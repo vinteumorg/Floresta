@@ -126,9 +126,6 @@ class GetBlockCountTest(FlorestaTestFramework):
         self.assertEqual(height_florestad, height_bitcoind)
         self.assertEqual(height_florestad, bitcoind_chain["blocks"])
 
-        # stop the node
-        self.stop()
-
 
 if __name__ == "__main__":
     GetBlockCountTest().main()

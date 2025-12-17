@@ -62,12 +62,18 @@ class Node:
         """
         Stop the node.
         """
+        response = None
         if self.daemon.is_running:
-            response = self.rpc.stop()
-            self.rpc.wait_for_connections(opened=False)
+            try:
+                response = self.rpc.stop()
+            # pylint: disable=broad-exception-caught
+            except Exception:
+                self.daemon.process.terminate()
+
             self.daemon.process.wait()
-            return response
-        return None
+            self.rpc.wait_for_connections(opened=False)
+
+        return response
 
     def get_host(self) -> str:
         """
@@ -240,6 +246,7 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
         try:
             self.set_test_params()
             self.run_test()
+            self.stop()
         except Exception as err:
             processes = []
             for node in self._nodes:
@@ -249,10 +256,16 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
                 # is started), try to kill the process with SIGTERM. If that
                 # fails, try to force kill it with SIGKILL.
                 processes.append(str(node.daemon.process.pid))
-                if getattr(node, "rpc", None):
-                    node.rpc.stop()
-                    node.rpc.wait_for_connections(opened=False)
-                else:
+                is_node_process_running = True
+                try:
+                    if getattr(node, "rpc", None):
+                        node.stop()
+                        is_node_process_running = False
+                # pylint: disable=broad-exception-caught
+                except Exception:
+                    pass
+
+                if is_node_process_running:
                     # pylint: disable=broad-exception-caught
                     try:
                         node.send_kill_signal("SIGTERM")

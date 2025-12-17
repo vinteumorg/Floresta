@@ -44,9 +44,6 @@ class TestSslFailInitialization(FlorestaTestFramework):
         self.assertIsSome(exc.exception)
         self.assertEqual(exc.exception.errno, errno.ECONNREFUSED)
 
-        # Stop `florestad`
-        self.stop()
-
 
 if __name__ == "__main__":
     TestSslFailInitialization().main()

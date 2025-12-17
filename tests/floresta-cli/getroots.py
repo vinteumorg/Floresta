@@ -30,9 +30,6 @@ class GetRootsIDBLenZeroTest(FlorestaTestFramework):
         vec_hashes = self.florestad.rpc.get_roots()
         self.assertTrue(len(vec_hashes) == 0)
 
-        # stop the node
-        self.stop()
-
 
 if __name__ == "__main__":
     GetRootsIDBLenZeroTest().main()

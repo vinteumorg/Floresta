@@ -86,8 +86,6 @@ class ChainReorgTest(FlorestaTestFramework):
         )
         self.assertEqual(floresta_roots, utreexo_roots["roots"])
 
-        self.stop()
-
 
 if __name__ == "__main__":
     ChainReorgTest().main()

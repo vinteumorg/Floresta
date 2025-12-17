@@ -55,9 +55,6 @@ class GetBlockchaininfoTest(FlorestaTestFramework):
         self.assertEqual(response["root_hashes"], GetBlockchaininfoTest.root_hashes)
         self.assertEqual(response["validated"], GetBlockchaininfoTest.validated)
 
-        # Stop the node
-        self.stop()
-
 
 if __name__ == "__main__":
     GetBlockchaininfoTest().main()

@@ -86,9 +86,6 @@ class GetRpcInfoTest(FlorestaTestFramework):
         self.test_floresta_getrpcinfo()
         self.test_bitcoind_getrpcinfo()
 
-        # stop node
-        self.stop()
-
 
 if __name__ == "__main__":
     GetRpcInfoTest().main()

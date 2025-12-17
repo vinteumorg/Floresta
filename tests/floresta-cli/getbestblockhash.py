@@ -86,9 +86,6 @@ class GetBestblockhashTest(FlorestaTestFramework):
         self.assertEqual(floresta_best_block, floresta_chain["best_block"])
         self.assertEqual(floresta_best_block, utreexo_chain["bestblockhash"])
 
-        # stop the node
-        self.stop()
-
 
 if __name__ == "__main__":
     GetBestblockhashTest().main()

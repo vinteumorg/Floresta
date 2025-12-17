@@ -75,9 +75,6 @@ class GetBlockTest(FlorestaTestFramework):
         self.assertEqual(response["versionHex"], GetBlockTest.version_hex)
         self.assertEqual(response["weight"], GetBlockTest.weight)
 
-        # Shutdown node
-        self.stop()
-
 
 if __name__ == "__main__":
     GetBlockTest().main()
