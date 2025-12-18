@@ -13,5 +13,6 @@ mod wallet_input;
 mod zmq;
 
 pub use florestad::AssumeUtreexoValue;
+pub use florestad::AssumeValidArg;
 pub use florestad::Config;
 pub use florestad::Florestad;

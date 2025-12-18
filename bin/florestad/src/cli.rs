@@ -1,5 +1,7 @@
+use bitcoin::BlockHash;
 use bitcoin::Network;
 use clap::Parser;
+use floresta_node::AssumeValidArg;
 
 #[derive(Parser)]
 #[command(
@@ -71,13 +73,13 @@ pub struct Cli {
     /// json-rpc or electrum server to fetch an address's history, balance and utxos.
     pub wallet_descriptor: Option<Vec<String>>,
 
-    #[arg(long, value_name = "BLOCK_HASH")]
-    /// Assume blocks before this one, as having valid scripts
+    #[arg(long, value_name = "BLOCK_HASH|0", default_value = "hardcoded", value_parser = parse_assume_valid)]
+    /// Assume that all blocks prior to and including this block have valid scripts.
     ///
-    /// Assume that blocks that are buried under a considerable work have valid scripts.
-    /// We still do other checks, like amounts, UTXO existence, reward... the only check we
-    /// skip is the script validation
-    pub assume_valid: Option<String>,
+    /// - default: use the hardcoded assume-valid value, reviewed by the Floresta developers
+    /// - `--assume-valid <BLOCK_HASH>`: override with your own hash
+    /// - `--assume-valid 0`: disable assume-valid and verify all scripts from genesis
+    pub assume_valid: AssumeValidArg,
 
     #[arg(long, short, value_name = "address[:<port>]")]
     /// An address for the ZeroMQ server to listen to
@@ -182,4 +184,15 @@ pub struct Cli {
     /// This will run in the background and wont't affect node's operation. However,
     /// to disable backfilling, run floresta using this flag.
     pub no_backfill: bool,
+}
+
+fn parse_assume_valid(s: &str) -> Result<AssumeValidArg, String> {
+    match s {
+        "0" => Ok(AssumeValidArg::Disabled),
+        "hardcoded" => Ok(AssumeValidArg::Hardcoded),
+        other => other
+            .parse::<BlockHash>()
+            .map(AssumeValidArg::UserInput)
+            .map_err(|e| format!("expected 0 or a block hash, got '{other}': {e}")),
+    }
 }
