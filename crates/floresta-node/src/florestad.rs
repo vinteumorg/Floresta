@@ -13,7 +13,7 @@ pub use bitcoin::Network;
 #[cfg(feature = "zmq-server")]
 use floresta_chain::pruned_utreexo::BlockchainInterface;
 pub use floresta_chain::AssumeUtreexoValue;
-use floresta_chain::AssumeValidArg;
+pub use floresta_chain::AssumeValidArg;
 use floresta_chain::BlockchainError;
 use floresta_chain::ChainState;
 use floresta_chain::FlatChainStore as ChainStore;
@@ -78,14 +78,13 @@ pub struct Config {
     /// particularly aggressive in disk usage, so we don't need a fast disk to work.
     pub data_dir: String,
 
-    /// We consider blocks prior to this one to have a valid signature
+    /// Assume that all blocks prior to and including this block have valid scripts.
     ///
-    /// This is an optimization mirrored from Core, where blocks before this one are considered to
-    /// have valid signatures. The idea here is that if a block is buried under a lot of PoW, it's
-    /// very unlikely that it is invalid. We still validate everything else and build the
-    /// accumulator until this point (unless running on PoW-fraud proof or assumeutreexo mode) so
-    /// there's still some work to do.
-    pub assume_valid: Option<String>,
+    /// This is an optimization mirrored from Bitcoin Core: script execution (including signature
+    /// checks) is skipped under the assumption that these scripts were correctly validated when
+    /// the software was released. Since users already trust the developers and reviewers of the
+    /// software, the hardcoded boundary is assumed to be correct.
+    pub assume_valid: AssumeValidArg,
 
     /// A vector of xpubs to cache
     ///
@@ -216,7 +215,7 @@ impl Config {
         Self {
             disable_dns_seeds: false,
             data_dir,
-            assume_valid: None,
+            assume_valid: AssumeValidArg::Hardcoded,
             wallet_xpub: None,
             wallet_descriptor: None,
             config_file: None,
@@ -364,17 +363,10 @@ impl Florestad {
         self.setup_wallet(data_dir, &mut wallet)?;
 
         info!("Loading blockchain database");
-        let assume_valid = self
-            .config
-            .assume_valid
-            .as_ref()
-            .map(|value| value.parse().map_err(FlorestadError::InvalidAssumeValid))
-            .transpose()?;
-
         let blockchain_state = Arc::new(Self::load_chain_state(
             data_dir.clone(),
             self.config.network,
-            assume_valid,
+            self.config.assume_valid,
         )?);
 
         #[cfg(feature = "compact-filters")]
@@ -713,18 +705,14 @@ impl Florestad {
     fn load_chain_state(
         data_dir: String,
         network: Network,
-        assume_valid: Option<bitcoin::BlockHash>,
+        assume_valid: AssumeValidArg,
     ) -> Result<ChainState<ChainStore>, FlorestadError> {
-        let assume_v = assume_valid
-            .map(AssumeValidArg::UserInput)
-            .unwrap_or(AssumeValidArg::Hardcoded);
-
         let db = Self::load_chain_store(data_dir.clone())?;
 
-        ChainState::<ChainStore>::load_chain_state(db, network, assume_v).or_else(|e| match e {
+        ChainState::<ChainStore>::load_chain_state(db, network, assume_valid).or_else(|e| match e {
             BlockchainError::ChainNotInitialized => {
                 let db = Self::load_chain_store(data_dir)?;
-                Ok(ChainState::new(db, network, assume_v))
+                Ok(ChainState::new(db, network, assume_valid))
             }
             anyerr => Err(FlorestadError::CouldNotLoadFlatChainStore(anyerr)),
         })

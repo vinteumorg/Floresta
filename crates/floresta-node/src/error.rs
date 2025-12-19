@@ -82,9 +82,6 @@ pub enum FlorestadError {
     /// Setting up the watch-only wallet.
     CouldNotSetupWallet(String),
 
-    /// Invalid assumed valid value.
-    InvalidAssumeValid(bitcoin::hex::HexToArrayError),
-
     #[cfg(feature = "compact-filters")]
     /// Loading the compact filters store.
     CouldNotLoadCompactFiltersStore(IterableFilterStoreError),
@@ -182,9 +179,6 @@ impl std::fmt::Display for FlorestadError {
             }
             FlorestadError::CouldNotSetupWallet(err) => {
                 write!(f, "Could not setup wallet: {err}")
-            }
-            FlorestadError::InvalidAssumeValid(error) => {
-                write!(f, "Invalid assumed valid value: {error}")
             }
 
             #[cfg(feature = "compact-filters")]
