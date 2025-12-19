@@ -1,10 +1,9 @@
 {
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.05";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
     nixpkgs-unstable.url = "github:nixos/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
-    utreexod-flake.url = "github:jaoleal/utreexod-flake";
-    floresta-flake.url = "github:jaoleal/floresta-flake";
+    floresta-flake.url = "github:getfloresta/floresta-nix/stable_building";
     pre-commit-hooks = {
       url = "github:cachix/git-hooks.nix";
       inputs.nixpkgs.follows = "nixpkgs-unstable";
@@ -21,10 +20,9 @@
       nixpkgs,
       rust-overlay,
       flake-utils,
-      pre-commit-hooks,
       nixpkgs-unstable,
+      pre-commit-hooks,
       floresta-flake,
-      utreexod-flake,
     }:
     flake-utils.lib.eachDefaultSystem (
       system:
@@ -32,24 +30,54 @@
         overlays = [ (import rust-overlay) ];
 
         pkgs = import nixpkgs { inherit system overlays; };
+
+        # We use src a lot across this flake
+        src = ./.;
+
+        inherit (floresta-flake.lib.${system}) florestaBuild;
       in
       with pkgs;
       {
-        devShells =
+        packages = {
+          florestad = florestaBuild.build {
+            inherit src;
+            packageName = "florestad";
+          };
+          floresta-cli = florestaBuild.build {
+            inherit src;
+            packageName = "floresta-cli";
+          };
+          libfloresta = florestaBuild.build {
+            inherit src;
+            packageName = "libfloresta";
+          };
+          floresta-debug = florestaBuild.build {
+            inherit src;
+            packageName = "floresta-debug";
+          };
+          default = florestaBuild.build {
+            inherit src;
+            packageName = "all";
+          };
+        };
+        devShells.default =
           let
             # This is the dev tools used while developing in Floresta.
-            deps = with pkgs; [
+            packages = with pkgs; [
               just
               rustup
               git
               boost
               cmake
               typos
+              python312
+              uv
+              gcc
+              go
             ];
-            hooks = pre-commit-hooks.lib.${system}.run {
-              src = {
-                root = ./.;
-              };
+
+            preCommitHooks = pre-commit-hooks.lib.${system}.run {
+              src.root = src;
               hooks = {
                 clippy = {
                   enable = true;
@@ -72,6 +100,7 @@
                 };
               };
             };
+
             # Floresta flavored commitizen config file.
             #
             # Since floresta doesnt use any hooks and these are only
@@ -102,80 +131,13 @@
               cp -f ${czFlorestaConfigFile} .cz.toml
               echo "Commitizen config written"
             '';
+
+            shellHook = preCommitHooks.shellHook + czHook;
           in
-          {
-            default =
-              let
-                inherit (hooks) shellHook;
-              in
-              mkShell {
-                shellHook = shellHook + czHook;
-                packages = deps;
-              };
-
-            python-env =
-              let
-                inherit (floresta-flake.lib.${system}) florestaBuild;
-
-                rev = self.rev or self.dirtyRev;
-
-                python-hook = pre-commit-hooks.lib.${system}.run {
-                  src = lib.fileset.toSource {
-                    root = ./.;
-                    fileset = lib.fileset.unions [
-                      ./pyproject.toml
-                      ./uv.lock
-                      ./tests
-                    ];
-                  };
-                  hooks = {
-                    black = {
-                      enable = true;
-                      settings.flags = "--check --verbose ./tests";
-                    };
-                  };
-                };
-
-                pythonTestDeps = with pkgs; [
-                  uv
-                  python312
-                ];
-
-                testBinaries = [
-                  (florestaBuild {
-                    inherit pkgs;
-                    packageName = "florestad";
-                    src = ./.;
-                  })
-                  utreexod-flake.packages.${system}.utreexod
-                  bitcoin
-                ];
-              in
-              mkShell {
-                packages = deps ++ pythonTestDeps;
-
-                inputsFrom = testBinaries;
-
-                shellHook = python-hook.shellHook + ''
-                  # Modified version of the prepare.sh script adapted for this nix devshell.
-
-                  HEAD_COMMIT_HASH=${rev}
-                  export FLORESTA_TEMP_DIR="/tmp/floresta-temp-dir.$HEAD_COMMIT_HASH"
-
-                  mkdir -p "$FLORESTA_TEMP_DIR/binaries"
-
-                  # Generate symlink commands for each binary in the list
-
-                  ${toString (
-                    pkgs.lib.lists.forEach testBinaries (binary: ''
-                      ln -s ${binary}/bin/${pkgs.lib.strings.getName binary} "$FLORESTA_TEMP_DIR/binaries/${pkgs.lib.strings.getName binary}"
-                    '')
-                  )}
-
-                  echo "To run the tests:"
-                  echo "just test-functional-run"
-                '';
-              };
+          mkShell {
+            inherit packages shellHook;
+            LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
+            CMAKE_PREFIX_PATH = "${pkgs.boost.dev}";
           };
       }
     );

@@ -1,8 +1,6 @@
 # Nix on floresta project
 
-Nix is a declarative package manager that uses the equally named Nix programing
-language to build deterministic expressions. You can learn more about Nix in
-their [page](https://nixos.org/) but let's focus on what it does inside this project.
+Nix is a declarative package manager that uses the equally named Nix programing language to build deterministic expressions. You can learn more about Nix in their [page](https://nixos.org/) but let's focus on what it does inside this project.
 
 To accomplish any of the steps down below you only need nix installed.
 
@@ -12,17 +10,13 @@ To accomplish any of the steps down below you only need nix installed.
 
 ## Building floresta with nix
 
-In the Floresta project, the Nix packaging logic is maintained in a separate
-flake: [floresta-flake](https://github.com/jaoleal/Floresta-flake) due to
-nix being a choke point on development.
+In the Floresta project, the Nix packaging logic is maintained in a separate flake: [floresta-nix](https://github.com/getfloresta/floresta-nix).
 
-This repository only keeps the Nix development tooling (such as devShells) and
-re-exports the set of packages and the `florestaBuild` helper function from
-that external flake, so they can be used directly from the main Floresta repository.
+This repository only keeps the Nix development tooling (such as devShells) and re-exports the set of packages and the `florestaBuild` helper function from that external flake, so they can be used directly from the main Floresta repository.
 
 ### Using Floresta in a Nix expression
 
-Example from: [floresta-flake](https://github.com/jaoleal/nix_floresta_example)
+Just a example of how to consume our expressions. Check out on [floresta-nix](https://github.com/getfloresta/floresta-nix) for more expressive documentation.
 
 ```Nix
 {
@@ -32,20 +26,15 @@ Example from: [floresta-flake](https://github.com/jaoleal/nix_floresta_example)
     nixpkgs.url = "github:nixos/nixpkgs?ref=nixos-unstable";
     floresta.url = "github:vinteumorg/floresta"; # Using the latest nix
     # expressions from the main repository of the project.
-    floresta-flake.url = "github:jaoleal/floresta-flake"; # Using the
+    floresta-flake.url = "github:getfloresta/floresta-nix/stable_building"; # Using the
     # decoupled nix flake, this one that contains all the nix heavy work to
     # avoid bloating the main repository.
-    rust-overlay = {
-      url = "github:oxalica/rust-overlay";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
   };
 
   outputs =
     { self, ... }@inputs:
     let
-      # Specify your system, these are the ones we support by now: platforms =
-      # [ "aarch64-linux" "x86_64-linux" "aarch64-darwin" "x86_64-darwin" ];
+      # Specify your system
       system = "x86_64-linux";
       floresta = inputs.floresta.packages.${system}.default; # the "default"
       # package will retrieve these components:
@@ -59,12 +48,7 @@ Example from: [floresta-flake](https://github.com/jaoleal/nix_floresta_example)
       #
       # on the floresta main repository is re exported from this other flake,
       # the code is maintained there due to some nix maintainabilitty issues.
-      custom-floresta = inputs.floresta-flake.lib.${system}.florestaBuild {
-        pkgs = import inputs.nixpkgs {
-          inherit system;
-          overlays = [ (import inputs.rust-overlay) ];
-          # Calling directly this method depends on rust-overlay.
-        };
+      custom-floresta = inputs.floresta-flake.lib.${system}.florestaBuild.build {
         packageName = "florestad"; # The package to select:
         # ["florestad", "floresta-cli", "all", "libfloresta", "floresta-debug"]
         features = [ ]; # The features to append during build time.
@@ -73,15 +57,21 @@ Example from: [floresta-flake](https://github.com/jaoleal/nix_floresta_example)
         # Note that this expression only supports florestas codebases after the
         # structure changes, that is, the binaries under bin/.
         src = (import inputs.nixpkgs { inherit system; }).fetchFromGitHub {
-          rev = "master"; # The default keep up with master.
-          owner = "vinteumorg";
+          rev = "stable_building"; # Right now we need to consume from stable building.
+          owner = "getfloresta";
           repo = "floresta";
           sha256 = "sha256-N9QC0N0rCr+9pgp9wtcKT38/3jzNdOE8IaixOWwvg98=";
         };
+        # Tells to execute floresta tests after building.
+        doCheck = false;
+        # You can even pass some build inputs.
+        extraBuildInputs = [
+          pkgs.mySpecificDep
+        ]
       };
     in
     {
-      # You can easily try the florestaBuild method by `nix build`.
+      # You can try the florestaBuild method by `nix build`.
       packages.${system}.default = custom-floresta;
 
       devShells.${system}.default = (import inputs.nixpkgs { inherit system; }).mkShell {
@@ -110,8 +100,7 @@ Example from: [floresta-flake](https://github.com/jaoleal/nix_floresta_example)
 
 ### With flakes
 
-From the root source of this project you have the following alternatives to
-build using flakes:
+From the root source of this project you have the following alternatives to build using flakes:
 
 ```Bash
 # The default building derivation, build all the components this project
