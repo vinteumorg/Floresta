@@ -22,7 +22,9 @@ that external flake, so they can be used directly from the main Floresta reposit
 
 ### Using Floresta in a Nix expression
 
-Example from: [floresta-flake](https://github.com/jaoleal/nix_floresta_example)
+Just a example of how to consume our expressions. Check out on
+[floresta-flake](https://github.com/jaoleal/Floresta-flake) for more expressive
+documentation.
 
 ```Nix
 {
@@ -44,8 +46,7 @@ Example from: [floresta-flake](https://github.com/jaoleal/nix_floresta_example)
   outputs =
     { self, ... }@inputs:
     let
-      # Specify your system, these are the ones we support by now: platforms =
-      # [ "aarch64-linux" "x86_64-linux" "aarch64-darwin" "x86_64-darwin" ];
+      # Specify your system
       system = "x86_64-linux";
       floresta = inputs.floresta.packages.${system}.default; # the "default"
       # package will retrieve these components:
@@ -59,12 +60,7 @@ Example from: [floresta-flake](https://github.com/jaoleal/nix_floresta_example)
       #
       # on the floresta main repository is re exported from this other flake,
       # the code is maintained there due to some nix maintainabilitty issues.
-      custom-floresta = inputs.floresta-flake.lib.${system}.florestaBuild {
-        pkgs = import inputs.nixpkgs {
-          inherit system;
-          overlays = [ (import inputs.rust-overlay) ];
-          # Calling directly this method depends on rust-overlay.
-        };
+      custom-floresta = inputs.floresta-flake.lib.${system}.florestaBuild.build {
         packageName = "florestad"; # The package to select:
         # ["florestad", "floresta-cli", "all", "libfloresta", "floresta-debug"]
         features = [ ]; # The features to append during build time.
@@ -78,10 +74,16 @@ Example from: [floresta-flake](https://github.com/jaoleal/nix_floresta_example)
           repo = "floresta";
           sha256 = "sha256-N9QC0N0rCr+9pgp9wtcKT38/3jzNdOE8IaixOWwvg98=";
         };
+        # Tells to execute floresta tests after building.
+        doCheck = false;
+        # You can even pass some build inputs.
+        extraBuildInputs = [
+          pkgs.mySpecificDep
+        ]
       };
     in
     {
-      # You can easily try the florestaBuild method by `nix build`.
+      # You can try the florestaBuild method by `nix build`.
       packages.${system}.default = custom-floresta;
 
       devShells.${system}.default = (import inputs.nixpkgs { inherit system; }).mkShell {
