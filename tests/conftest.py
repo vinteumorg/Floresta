@@ -50,9 +50,14 @@ def validate_and_check_environment():
 
 
 @pytest.fixture(scope="function")
-def node_manager():
+def node_manager(request):
     """Provides a FlorestaTestFramework instance that automatically cleans up after each test"""
     manager = FlorestaTestFramework()
+
+    # Get the name of the currently running test
+    test_name = request.node.name
+    manager.test_name = test_name
+
     yield manager
     # Cleanup happens automatically after yield
     manager.stop()

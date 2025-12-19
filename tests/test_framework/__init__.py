@@ -224,7 +224,25 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
 
         Do not override this method. Instead, override the set_test_params() method
         """
+        self._test_name = None
         self._nodes = []
+
+    @property
+    def test_name(self) -> str:
+        """
+        Get the test name, which is the class name in lowercase.
+        This is used to create a log file for the test.
+        """
+        if self._test_name is not None:
+            return self._test_name
+        return self.__class__.__name__.lower()
+
+    @test_name.setter
+    def test_name(self, name: str):
+        """
+        Set the test name.
+        """
+        self._test_name = name
 
     # pylint: disable=R0801
     def log(self, msg: str):
@@ -235,7 +253,7 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
             .replace(microsecond=0)
             .strftime("%Y-%m-%d %H:%M:%S")
         )
-        print(f"[{self.__class__.__name__} {now}] {msg}")
+        print(f"[{self.test_name} {now}] {msg}")
 
     def main(self):
         """
@@ -337,12 +355,7 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
         """
         tempdir = str(FlorestaTestFramework.get_integration_test_dir())
 
-        # Get the class's base filename
-        filename = sys.modules[self.__class__.__module__].__file__
-        filename = os.path.basename(filename)
-        filename = filename.replace(".py", "")
-
-        return os.path.join(tempdir, "logs", f"{filename}.log")
+        return os.path.join(tempdir, "logs", f"{self.test_name}.log")
 
     def create_tls_key_cert(self) -> tuple[str, str]:
         """
@@ -592,7 +605,7 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
             extra_args = []
         tempdir = str(self.get_integration_test_dir())
         targetdir = os.path.join(tempdir, "binaries")
-        testname = self.__class__.__name__.lower()
+        testname = self.test_name
 
         if variant == "florestad":
             daemon, ports = self.setup_florestad_daemon(
