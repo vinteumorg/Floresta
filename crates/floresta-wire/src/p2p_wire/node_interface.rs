@@ -17,6 +17,7 @@ use super::node::ConnectionKind;
 use super::node::NodeNotification;
 use super::node::PeerStatus;
 use super::transport::TransportProtocol;
+use super::UtreexoNodeConfig;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 /// A request to addnode that can be made to the node.
@@ -44,6 +45,9 @@ pub enum AddNode {
 /// all the possible requests that can be made to the node as well as the data that needs to be
 /// sent along with the request.
 pub enum UserRequest {
+    /// Request the [`UtreexoNodeConfig`] of the node.
+    Config,
+
     /// Get a block by its hash.
     ///
     /// This will cause network requests to be made to fetch the block data.
@@ -102,6 +106,9 @@ pub struct PeerInfo {
 /// When the user makes a request to the node, the node will respond with some data. This enum
 /// represents all the possible responses that the node can send back to the user.
 pub enum NodeResponse {
+    /// The [`UtreexoNodeConfig`] of the node.
+    Config(UtreexoNodeConfig),
+
     /// A response containing a block, if we could fetch it.
     Block(Option<Block>),
 
@@ -163,6 +170,13 @@ impl NodeInterface {
             .send(NodeNotification::FromUser(request, tx)); // Send the request to the node
 
         rx.await
+    }
+
+    /// Get the current [`UtreexoNodeConfig`] from the running node.
+    pub async fn get_config(&self) -> Result<UtreexoNodeConfig, oneshot::error::RecvError> {
+        let config = self.send_request(UserRequest::Config).await?;
+
+        extract_variant!(Config, config);
     }
 
     /// Connects to a specified address and port.
