@@ -634,6 +634,12 @@ where
         debug!("Performing user request {user_req:?}");
 
         let req = match user_req {
+            UserRequest::Config => {
+                let config = self.common.config.clone();
+                let _ = responder.send(NodeResponse::Config(config));
+
+                return;
+            }
             UserRequest::Ping => {
                 self.broadcast_to_peers(NodeRequest::Ping);
                 try_and_log!(responder.send(NodeResponse::Ping(true)));
