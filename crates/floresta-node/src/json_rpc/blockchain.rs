@@ -12,6 +12,8 @@ use bitcoin::ScriptBuf;
 use bitcoin::Txid;
 use corepc_types::v29::GetTxOut;
 use corepc_types::ScriptPubkey;
+use floresta_chain::extensions::HeaderExt;
+use floresta_chain::extensions::WorkExt;
 use miniscript::descriptor::checksum;
 use serde_json::json;
 use serde_json::Value;
@@ -167,56 +169,53 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
         hash: BlockHash,
     ) -> Result<GetBlockResVerbose, JsonRpcError> {
         let block = self.get_block_inner(hash).await?;
-        let tip = self.chain.get_height().map_err(|_| JsonRpcError::Chain)?;
-        let height = self
-            .chain
-            .get_block_height(&hash)
-            .map_err(|_| JsonRpcError::Chain)?
-            .unwrap();
+        let header = &block.header;
 
-        let median_time_past = if height > 11 {
-            let mut last_block_times: Vec<_> = ((height - 11)..height)
-                .map(|h| {
-                    self.chain
-                        .get_block_header(&self.chain.get_block_hash(h).unwrap())
-                        .unwrap()
-                        .time
-                })
-                .collect();
-            last_block_times.sort();
-            last_block_times[5]
-        } else {
-            block.header.time
-        };
+        let height = header.get_height(&self.chain)?;
+
+        let mediantime = header.calculate_median_time_past(&self.chain)?;
+
+        let chainwork = header.calculate_chain_work(&self.chain)?.to_string_hex();
+
+        let confirmations = header.get_confirmations(&self.chain)?;
+
+        let version_hex = header.get_version_hex();
+
+        let nextblockhash = header
+            .get_next_block_hash(&self.chain)?
+            .map(|h| h.to_string());
+
+        let bits = header.get_bits_hex();
+
+        let difficulty = header.get_difficulty();
+
+        let target = header.get_target_hex();
 
         let block = GetBlockResVerbose {
-            bits: serialize_hex(&block.header.bits),
-            chainwork: block.header.work().to_string(),
-            confirmations: (tip - height) + 1,
-            difficulty: block.header.difficulty(self.chain.get_params()),
-            hash: block.header.block_hash().to_string(),
+            bits,
+            chainwork,
+            confirmations,
+            difficulty,
+            hash: header.block_hash().to_string(),
             height,
-            merkleroot: block.header.merkle_root.to_string(),
-            nonce: block.header.nonce,
-            previousblockhash: block.header.prev_blockhash.to_string(),
+            merkleroot: header.merkle_root.to_string(),
+            nonce: header.nonce,
+            previousblockhash: header.prev_blockhash.to_string(),
             size: block.total_size(),
-            time: block.header.time,
+            time: header.time,
             tx: block
                 .txdata
                 .iter()
                 .map(|tx| tx.compute_txid().to_string())
                 .collect(),
-            version: block.header.version.to_consensus(),
-            version_hex: serialize_hex(&block.header.version),
+            version: header.version.to_consensus(),
+            version_hex,
             weight: block.weight().to_wu() as usize,
-            mediantime: median_time_past,
+            mediantime,
             n_tx: block.txdata.len(),
-            nextblockhash: self
-                .chain
-                .get_block_hash(height + 1)
-                .ok()
-                .map(|h| h.to_string()),
+            nextblockhash,
             strippedsize: block.total_size(),
+            target,
         };
 
         Ok(block)
@@ -236,7 +235,9 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
         let validated = self.chain.get_validation_index().unwrap();
         let ibd = self.chain.is_in_ibd();
         let latest_header = self.chain.get_block_header(&hash).unwrap();
-        let latest_work = latest_header.work();
+        let latest_work = latest_header
+            .calculate_chain_work(&self.chain)?
+            .to_string_hex();
         let latest_block_time = latest_header.time;
         let leaf_count = self.chain.acc().leaves as u32;
         let root_count = self.chain.acc().roots.len() as u32;
@@ -261,7 +262,7 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
             height,
             ibd,
             validated,
-            latest_work: latest_work.to_string(),
+            latest_work,
             latest_block_time,
             leaf_count,
             root_count,
