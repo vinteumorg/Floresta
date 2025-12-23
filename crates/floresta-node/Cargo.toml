@@ -28,6 +28,7 @@ floresta-common = { workspace = true }
 floresta-electrum = { workspace = true }
 floresta-watch-only = { workspace = true }
 floresta-wire = { workspace = true }
+floresta-rpc = { workspace = true, optional = true }
 metrics = { workspace = true,  optional = true }
 
 [dev-dependencies]
@@ -42,7 +43,7 @@ libc = "0.2"
 [features]
 compact-filters = ["dep:floresta-compact-filters"]
 zmq-server = ["dep:zmq"]
-json-rpc = ["dep:axum", "dep:tower-http", "compact-filters"]
+json-rpc = ["dep:axum", "dep:tower-http", "compact-filters", "floresta-rpc"]
 default = ["json-rpc"]
 metrics = ["dep:metrics", "floresta-wire/metrics", "floresta-chain/metrics"]
 
