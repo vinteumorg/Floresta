@@ -152,11 +152,13 @@ where
             return Ok(());
         }
 
-        info!(
-            "Downloading headers from peer={peer} at height={} hash={}",
-            self.chain.get_best_block()?.0 + 1,
-            headers[0].block_hash()
-        );
+        let hash = headers[0].block_hash();
+        let height = match self.chain.get_block_height(&hash) {
+            Ok(Some(height)) => height.to_string(),
+            _ => "unknown".to_string(),
+        };
+
+        info!("Downloading headers from peer={peer} at height={height} hash={hash}");
 
         for header in headers.iter() {
             if let Err(e) = self.chain.accept_header(*header) {
