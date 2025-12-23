@@ -19,7 +19,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 bitcoin = { workspace = true, features = [ "serde" ] }
-bitcoinconsensus = { version = "0.106", optional = true, default-features = false }
+bitcoinkernel = { version = "0.1", optional = true }
 lru = { version = "0.16", optional = true }
 memmap2 = { version = "0.9", optional = true }
 rustreexo = { workspace = true }
@@ -44,7 +44,7 @@ zstd = { workspace = true }
 
 [features]
 default = []
-bitcoinconsensus = ["bitcoin/bitcoinconsensus", "dep:bitcoinconsensus"]
+bitcoinkernel = ["dep:bitcoinkernel"]
 metrics = ["dep:metrics"]
 test-utils = ["dep:serde"]
 flat-chainstore = ["dep:memmap2", "dep:lru", "dep:twox-hash"]

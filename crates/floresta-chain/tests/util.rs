@@ -1,14 +1,14 @@
-#![cfg(all(feature = "bitcoinconsensus", feature = "test-utils"))]
+#![cfg(all(feature = "bitcoinkernel", feature = "test-utils"))]
 #![allow(clippy::manual_is_multiple_of)]
 
 use std::collections::HashSet;
 
-use bitcoinconsensus::VERIFY_CHECKLOCKTIMEVERIFY;
-use bitcoinconsensus::VERIFY_CHECKSEQUENCEVERIFY;
-use bitcoinconsensus::VERIFY_DERSIG;
-use bitcoinconsensus::VERIFY_NULLDUMMY;
-use bitcoinconsensus::VERIFY_P2SH;
-use bitcoinconsensus::VERIFY_WITNESS;
+use bitcoinkernel::VERIFY_CHECKLOCKTIMEVERIFY;
+use bitcoinkernel::VERIFY_CHECKSEQUENCEVERIFY;
+use bitcoinkernel::VERIFY_DERSIG;
+use bitcoinkernel::VERIFY_NULLDUMMY;
+use bitcoinkernel::VERIFY_P2SH;
+use bitcoinkernel::VERIFY_WITNESS;
 pub use script_asm::parse_script;
 pub use script_asm::ParseScriptError;
 

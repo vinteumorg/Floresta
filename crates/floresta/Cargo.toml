@@ -31,23 +31,23 @@ floresta-watch-only = { workspace = true, optional = true }
 floresta-wire = { workspace = true }
 
 [dev-dependencies]
-bitcoin = { workspace = true, features = [ "serde", "bitcoinconsensus" ] }
+bitcoin = { workspace = true, features = [ "serde" ] }
 miniscript = { workspace = true, features = ["std"] }
 rustreexo = { workspace = true }
 tokio = { workspace = true }
 
 # Local dependencies
 floresta = { path = "../floresta", features = [
-    "bitcoinconsensus",
+    "bitcoinkernel",
     "memory-database",
     "electrum-server",
     "watch-only-wallet",
 ] }
 
 [features]
-default = ["bitcoinconsensus", "electrum-server", "watch-only-wallet", "flat-chainstore"]
-bitcoinconsensus = ["floresta-chain/bitcoinconsensus"]
+default = ["electrum-server", "watch-only-wallet", "bitcoinkernel", "flat-chainstore"]
 electrum-server = ["dep:floresta-electrum"]
+bitcoinkernel = ["floresta-chain/bitcoinkernel"]
 watch-only-wallet = ["dep:floresta-watch-only"]
 # Works only if `watch-only-wallet` is set
 memory-database = ["floresta-watch-only?/memory-database"]

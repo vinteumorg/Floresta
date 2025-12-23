@@ -981,13 +981,11 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         // Validate block transactions
         let subsidy = read_lock!(self).consensus.get_subsidy(height);
         let verify_script = self.verify_script(height)?;
-
-        #[cfg(feature = "bitcoinconsensus")]
-        let flags = read_lock!(self)
-            .consensus
-            .parameters
-            .get_validation_flags(height, block.block_hash());
-        #[cfg(not(feature = "bitcoinconsensus"))]
+        #[cfg(feature = "bitcoinkernel")]
+        let flags = self
+            .chain_params()
+            .get_validation_flags(height, block.header.block_hash());
+        #[cfg(not(feature = "bitcoinkernel"))]
         let flags = 0;
 
         Consensus::verify_block_transactions(

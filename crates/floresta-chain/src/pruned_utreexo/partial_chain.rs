@@ -20,15 +20,13 @@
 //!     leak through the API, as we are not enforcing lifetime or borrowing rules at compile time.
 //!   - Sending is fine: There's nothing in this module that makes it not sendable to between
 //!     threads, as long as the origin thread gives away the ownership.
+use core::cell::UnsafeCell;
+
+use bitcoin::block::Header as BlockHeader;
 use bitcoin::Block;
 use bitcoin::BlockHash;
 use floresta_common::prelude::*;
 use rustreexo::accumulator::node_hash::BitcoinNodeHash;
-extern crate alloc;
-
-use core::cell::UnsafeCell;
-
-use bitcoin::block::Header as BlockHeader;
 use rustreexo::accumulator::stump::Stump;
 use tracing::info;
 
@@ -196,12 +194,12 @@ impl PartialChainStateInner {
         let subsidy = self.consensus.get_subsidy(height);
         let verify_script = self.assume_valid;
 
-        #[cfg(feature = "bitcoinconsensus")]
+        #[cfg(feature = "bitcoinkernel")]
         let flags = self
-            .consensus
-            .parameters
+            .chain_params()
             .get_validation_flags(height, block.block_hash());
-        #[cfg(not(feature = "bitcoinconsensus"))]
+
+        #[cfg(not(feature = "bitcoinkernel"))]
         let flags = 0;
 
         Consensus::verify_block_transactions(

@@ -2,7 +2,7 @@
 //! vectors in `testdata/bitcoin-core`. We parse them and check the flags that are supported by
 //! Floresta's consensus.
 
-#![cfg(all(feature = "bitcoinconsensus", feature = "test-utils"))]
+#![cfg(all(feature = "bitcoinkernel", feature = "test-utils"))]
 
 mod util;
 
@@ -10,6 +10,7 @@ use std::collections::HashMap;
 
 use bitcoin::OutPoint;
 use bitcoin::Transaction;
+use bitcoinkernel::VERIFY_ALL;
 use floresta_chain::pruned_utreexo::consensus::Consensus;
 use floresta_chain::pruned_utreexo::consensus::COIN_VALUE;
 use floresta_chain::pruned_utreexo::utxo_data::UtxoData;
@@ -20,9 +21,6 @@ use util::fill_flags;
 use util::fmt_shift_flags;
 use util::trim_flags;
 use util::VERIFY_FLAGS_COUNT;
-
-// All the accepted flags in the bitcoinconsensus interface (TODO update with libbitcoinkernel-supported flags)
-const VERIFY_ALL: u32 = bitcoinconsensus::VERIFY_ALL_PRE_TAPROOT;
 
 // The dummy height that we use for all the test transactions
 const TX_HEIGHT: u32 = 100_000;
@@ -211,7 +209,7 @@ fn verify_tx_invalid() {
 
         // 3) Check that flags are minimal: removing *any* enabled flag makes it succeed
         for flags_less in exclude_individual_flags(flags) {
-            // Skip unsupported libbitcoinconsensus flags to avoid a non-validation failure
+            // Skip unsupported libbitcoinkernel flags to avoid a non-validation failure
             if (flags_less & !VERIFY_ALL) != 0 {
                 continue;
             }

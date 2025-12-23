@@ -161,7 +161,7 @@ version = "0.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "61b1d86e7705efe1be1b569bab41d4fa1e14e220b60a160f78de2db687add079"
 dependencies = [
- "bindgen",
+ "bindgen 0.69.5",
  "cc",
  "cmake",
  "dunce",
@@ -271,10 +271,30 @@ dependencies = [
  "proc-macro2",
  "quote",
  "regex",
- "rustc-hash",
+ "rustc-hash 1.1.0",
  "shlex",
  "syn",
  "which",
+]
+
+[[package]]
+name = "bindgen"
+version = "0.72.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "993776b509cfb49c750f11b8f07a46fa23e0a1386ffc01fb1e7d343efc387895"
+dependencies = [
+ "bitflags 2.10.0",
+ "cexpr",
+ "clang-sys",
+ "itertools 0.13.0",
+ "log",
+ "prettyplease",
+ "proc-macro2",
+ "quote",
+ "regex",
+ "rustc-hash 2.1.1",
+ "shlex",
+ "syn",
 ]
 
 [[package]]
@@ -303,7 +323,6 @@ dependencies = [
  "bitcoin-io 0.1.3",
  "bitcoin-units",
  "bitcoin_hashes 0.14.0",
- "bitcoinconsensus 0.105.0+25.1",
  "hex-conservative 0.2.1",
  "hex_lit",
  "secp256k1",
@@ -368,25 +387,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e0982261c82a50d89d1a411602afee0498b3e0debe3d36693f0c661352809639"
 dependencies = [
  "bitcoin-io 0.2.0",
- "hex-conservative 0.3.0",
+ "hex-conservative 0.3.1",
 ]
 
 [[package]]
-name = "bitcoinconsensus"
-version = "0.105.0+25.1"
+name = "bitcoinkernel"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f260ac8fb2c621329013fc0ed371c940fcc512552dcbcb9095ed0179098c9e18"
+checksum = "26dac21e1d2e51f1e1fb2bc50d04748b6152812f22138a7708277d166cabfd8f"
 dependencies = [
- "cc",
-]
-
-[[package]]
-name = "bitcoinconsensus"
-version = "0.106.0+26.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e12cba9cce5043cdda968e07b9df6d05ec6b0b38aa27a9a40bb575cf3e521ae9"
-dependencies = [
- "cc",
+ "libbitcoinkernel-sys",
 ]
 
 [[package]]
@@ -975,7 +985,7 @@ name = "floresta-chain"
 version = "0.4.0"
 dependencies = [
  "bitcoin",
- "bitcoinconsensus 0.106.0+26.0",
+ "bitcoinkernel",
  "criterion",
  "floresta-common",
  "hex",
@@ -1357,9 +1367,9 @@ dependencies = [
 
 [[package]]
 name = "hex-conservative"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4afe881d0527571892c4034822e59bb10c6c991cce6abe8199b6f5cf10766f55"
+checksum = "d2b9348ee0d8d4e3a894946c1ab104d08a2e44ca13656613afada8905ea609b6"
 dependencies = [
  "arrayvec",
 ]
@@ -1737,6 +1747,16 @@ name = "lazycell"
 version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
+
+[[package]]
+name = "libbitcoinkernel-sys"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "431abda412df5863cccaae257644ee9929b7156b22f5e2205671e1f369bd74c4"
+dependencies = [
+ "bindgen 0.72.1",
+ "cc",
+]
 
 [[package]]
 name = "libc"
@@ -2388,6 +2408,12 @@ name = "rustc-hash"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "08d43f7aa6b08d49f382cde6a7982047c3426db949b1424bc4b7ec9ae12c6ce2"
+
+[[package]]
+name = "rustc-hash"
+version = "2.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "357703d41365b4b27c590e3ed91eabb1b663f07c4c084095e60cbed4362dff0d"
 
 [[package]]
 name = "rustix"
@@ -3088,9 +3114,9 @@ dependencies = [
 
 [[package]]
 name = "tower-http"
-version = "0.6.6"
+version = "0.6.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "adc82fd73de2a9722ac5da747f12383d2bfdb93591ee6c58486e0097890f05f2"
+checksum = "9cf146f99d442e8e68e585f5d798ccd3cad9a7835b917e09728880a862706456"
 dependencies = [
  "bitflags 2.10.0",
  "bytes",
@@ -3812,18 +3838,18 @@ dependencies = [
 
 [[package]]
 name = "zerocopy"
-version = "0.8.28"
+version = "0.8.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "43fa6694ed34d6e57407afbccdeecfa268c470a7d2a5b0cf49ce9fcc345afb90"
+checksum = "4ea879c944afe8a2b25fef16bb4ba234f47c694565e97383b36f3a878219065c"
 dependencies = [
  "zerocopy-derive",
 ]
 
 [[package]]
 name = "zerocopy-derive"
-version = "0.8.28"
+version = "0.8.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c640b22cd9817fae95be82f0d2f90b11f7605f6c319d16705c459b27ac2cbc26"
+checksum = "cf955aa904d6040f70dc8e9384444cb1030aed272ba3cb09bbc4ab9e7c1f34f5"
 dependencies = [
  "proc-macro2",
  "quote",

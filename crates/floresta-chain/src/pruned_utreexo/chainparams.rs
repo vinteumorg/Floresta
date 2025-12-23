@@ -200,7 +200,7 @@ impl ChainParams {
         }
     }
 
-    #[cfg(feature = "bitcoinconsensus")]
+    #[cfg(feature = "bitcoinkernel")]
     /// Returns the validation flags for a given block hash and height
     pub fn get_validation_flags(&self, height: u32, hash: BlockHash) -> c_uint {
         if let Some(flag) = self.exceptions.get(&hash) {
@@ -216,34 +216,37 @@ impl ChainParams {
         // mainnet.
         // For simplicity, always leave P2SH+WITNESS+TAPROOT on except for the two
         // violating blocks.
-        let mut flags = bitcoinconsensus::VERIFY_P2SH | bitcoinconsensus::VERIFY_WITNESS;
+        let mut flags = bitcoinkernel::VERIFY_P2SH
+            | bitcoinkernel::VERIFY_WITNESS
+            | bitcoinkernel::VERIFY_TAPROOT;
 
         if height >= self.params.bip65_height {
-            flags |= bitcoinconsensus::VERIFY_CHECKLOCKTIMEVERIFY;
+            flags |= bitcoinkernel::VERIFY_CHECKLOCKTIMEVERIFY;
         }
         if height >= self.params.bip66_height {
-            flags |= bitcoinconsensus::VERIFY_DERSIG;
+            flags |= bitcoinkernel::VERIFY_DERSIG;
         }
         if height >= self.csv_activation_height {
-            flags |= bitcoinconsensus::VERIFY_CHECKSEQUENCEVERIFY;
+            flags |= bitcoinkernel::VERIFY_CHECKSEQUENCEVERIFY;
         }
         if height >= self.segwit_activation_height {
-            flags |= bitcoinconsensus::VERIFY_NULLDUMMY;
+            flags |= bitcoinkernel::VERIFY_NULLDUMMY;
         }
+
         flags
     }
 }
 
-#[cfg(feature = "bitcoinconsensus")]
-/// We use an inverse logic to pick validation flags.
-/// When we call verify_script we need to tell what to validate (taproot, segwit, CSV, P2SH...).
-/// Although those features were added later in the protocol, their exact template would rarely appear in a transaction.
-/// There's almost no transactions in the chain that "looks like segwit but are not segwit".
-/// We pretend segwit was enabled since genesis, and only skip this for blocks that have such transactions using hardcoded values.
+#[cfg(feature = "bitcoinkernel")]
+/// There's almost no transactions in the chain that
+/// "looks like segwit but are not segwit". We pretend segwit
+/// was enabled since genesis, and only skip this for blocks
+/// that have such transactions using hardcoded values.
 fn get_exceptions() -> HashMap<BlockHash, c_uint> {
-    use bitcoinconsensus::VERIFY_NONE;
-    use bitcoinconsensus::VERIFY_P2SH;
-    use bitcoinconsensus::VERIFY_WITNESS;
+    use bitcoinkernel::VERIFY_NONE;
+    use bitcoinkernel::VERIFY_P2SH;
+    use bitcoinkernel::VERIFY_WITNESS;
+
     let mut exceptions = HashMap::new();
     exceptions.insert(
         bhash!("00000000000002dc756eebf4f49723ed8d30cc28a5f108eb94b1ba88ac4f9c22"),
@@ -260,7 +263,7 @@ fn get_exceptions() -> HashMap<BlockHash, c_uint> {
     exceptions
 }
 
-#[cfg(not(feature = "bitcoinconsensus"))]
+#[cfg(not(feature = "bitcoinkernel"))]
 fn get_exceptions() -> HashMap<BlockHash, c_uint> {
     HashMap::new()
 }

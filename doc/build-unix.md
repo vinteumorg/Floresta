@@ -3,10 +3,19 @@
 ## Prerequisites
 ```bash
 sudo apt update
-sudo apt install gcc build-essential pkg-config
+apt-get update && apt-get install -y \
+    build-essential \
+    cmake \
+    curl \
+    clang \
+    libclang-dev \
+    git \
+    libssl-dev \
+    pkg-config \
+    libboost-all-dev
 ```
 
-You'll need Rust and Cargo, refer to [this](https://www.rust-lang.org/) for more details. Minimum support version is rustc 1.74 and newer.
+You'll need Rust and Cargo, refer to [this](https://www.rust-lang.org/) for more details. Minimum support version is rustc 1.81 and newer.
 
 ## Building
 
@@ -32,4 +41,4 @@ cargo install --path ./bin/florestad --locked
 cargo install --path ./bin/floresta-cli --locked
 ```
 
-If you are using Nix, you can get floresta packages into your system following the instructions [here](nix.md).
+If you are using Nix, you can get `floresta` packages into your system following the instructions [here](nix.md).
