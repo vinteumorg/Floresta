@@ -2,8 +2,10 @@
 //! that define the API to interact with the floresta node
 
 use std::net::IpAddr;
+use std::net::SocketAddr;
 use std::time::Instant;
 
+use bitcoin::p2p::ServiceFlags;
 use bitcoin::Block;
 use bitcoin::BlockHash;
 use bitcoin::Transaction;
@@ -87,8 +89,9 @@ pub enum UserRequest {
 /// services it provides, the user agent it's using, the height of the blockchain it's currently
 /// at, its state and the kind of connection it has with the node.
 pub struct PeerInfo {
-    pub address: String,
-    pub services: String,
+    pub address: SocketAddr,
+    #[serde(serialize_with = "serialize_service_flags")]
+    pub services: ServiceFlags,
     pub user_agent: String,
     pub initial_height: u32,
     pub state: PeerStatus,
@@ -255,6 +258,13 @@ impl NodeInterface {
 
         extract_variant!(Ping, val)
     }
+}
+
+fn serialize_service_flags<S>(flags: &ServiceFlags, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.serialize_str(&flags.to_string())
 }
 
 macro_rules! extract_variant {
