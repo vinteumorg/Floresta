@@ -1174,12 +1174,12 @@ where
     pub(crate) fn get_peer_info(&self, peer: &u32) -> Option<PeerInfo> {
         let peer = self.peers.get(peer)?;
         Some(PeerInfo {
-            kind: peer.kind,
-            state: peer.state,
-            address: format!("{}:{}", peer.address, peer.port),
-            services: peer.services.to_string(),
+            address: SocketAddr::new(peer.address, peer.port),
+            services: peer.services,
             user_agent: peer.user_agent.clone(),
             initial_height: peer.height,
+            state: peer.state,
+            kind: peer.kind,
             transport_protocol: peer.transport_protocol,
         })
     }
