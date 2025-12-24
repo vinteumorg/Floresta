@@ -87,8 +87,8 @@ fn do_request(cmd: &Cli, client: Client) -> anyhow::Result<String> {
         Methods::GetBlockHeader { hash } => {
             serde_json::to_string_pretty(&client.get_block_header(hash)?)?
         }
-        Methods::LoadDescriptor { desc } => {
-            serde_json::to_string_pretty(&client.load_descriptor(desc)?)?
+        Methods::ImportDescriptors { desc } => {
+            serde_json::to_string_pretty(&client.import_descriptors(desc)?)?
         }
         Methods::GetRoots => serde_json::to_string_pretty(&client.get_roots()?)?,
         Methods::GetBlock { hash, verbosity } => {
@@ -247,9 +247,14 @@ pub enum Methods {
     #[command(name = "getblockheader")]
     GetBlockHeader { hash: BlockHash },
 
-    /// Loads a new descriptor to the watch only wallet
-    #[command(name = "loaddescriptor")]
-    LoadDescriptor { desc: String },
+    #[doc = include_str!("../../../doc/rpc/importdescriptors.md")]
+    #[command(
+        name = "importdescriptors",
+        about = "Imports the given descriptor requests into the watch-only wallet.",
+        long_about = Some(include_str!("../../../doc/rpc/importdescriptors.md")),
+        disable_help_subcommand = true
+    )]
+    ImportDescriptors { desc: String },
 
     /// Returns the roots of the current utreexo forest
     #[command(name = "getroots")]
