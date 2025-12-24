@@ -10,6 +10,7 @@ use bitcoin::block::Header as BlockHeader;
 #[cfg(feature = "bitcoinkernel")]
 use bitcoin::consensus::serialize;
 use bitcoin::hashes::sha256;
+use bitcoin::Amount;
 use bitcoin::Block;
 use bitcoin::CompactTarget;
 use bitcoin::OutPoint;
@@ -28,9 +29,6 @@ use super::error::BlockchainError;
 use super::udata;
 use crate::pruned_utreexo::utxo_data::UtxoData;
 use crate::TransactionError;
-
-/// The value of a single coin in satoshis.
-pub const COIN_VALUE: u64 = 100_000_000;
 
 /// The version tag to be prepended to the leafhash. It's just the sha512 hash of the string
 /// `UtreexoV1` represented as a vector of [u8] ([85 116 114 101 101 120 111 86 49]).
@@ -82,7 +80,7 @@ impl Consensus {
         if halvings >= 64 {
             return 0;
         }
-        let mut subsidy = 50 * COIN_VALUE;
+        let mut subsidy = 50 * Amount::ONE_BTC.to_sat();
         // Subsidy is cut in half every 210,000 blocks which will occur approximately every 4 years.
         subsidy >>= halvings;
         subsidy
@@ -109,7 +107,7 @@ impl Consensus {
         }
 
         // Total block fees that the miner can claim in the coinbase
-        let mut fee = 0;
+        let mut fee = Amount::ZERO;
 
         for (n, transaction) in transactions.iter().enumerate() {
             if n == 0 {
@@ -125,17 +123,25 @@ impl Consensus {
             let (in_value, out_value) =
                 Self::verify_transaction(transaction, &mut utxos, height, verify_script, flags)?;
 
-            // Fee is the difference between inputs and outputs
-            fee += in_value - out_value;
+            // Fee is the difference between inputs and outputs. In the above function call we have
+            // verified that `out_value <= in_value` (no underflow risk).
+            fee = fee
+                .checked_add(in_value - out_value)
+                .ok_or(BlockValidationErrors::TooManyCoins)?;
         }
 
         // Check coinbase output values to ensure the miner isn't producing excess coins
-        let allowed_reward = fee + subsidy;
-        let coinbase_total: u64 = transactions[0]
+        let allowed_reward = fee
+            .checked_add(Amount::from_sat(subsidy))
+            .ok_or(BlockValidationErrors::TooManyCoins)?;
+
+        let coinbase_total = transactions[0]
             .output
             .iter()
-            .map(|out| out.value.to_sat())
-            .sum();
+            .try_fold(Amount::ZERO, |acc, out| {
+                acc.checked_add(out.value)
+                    .ok_or(BlockValidationErrors::TooManyCoins)
+            })?;
 
         if coinbase_total > allowed_reward {
             return Err(BlockValidationErrors::BadCoinbaseOutValue)?;
@@ -160,28 +166,15 @@ impl Consensus {
         height: u32,
         _verify_script: bool,
         _flags: c_uint,
-    ) -> Result<(u64, u64), BlockchainError> {
+    ) -> Result<(Amount, Amount), BlockchainError> {
         let txid = || transaction.compute_txid();
 
-        if transaction.input.is_empty() {
-            return Err(tx_err!(txid, EmptyInputs))?;
-        }
-        if transaction.output.is_empty() {
-            return Err(tx_err!(txid, EmptyOutputs))?;
-        }
+        let out_value = Self::check_transaction_context_free(transaction)?;
 
-        let out_value: u64 = transaction
-            .output
-            .iter()
-            .map(|out| out.value.to_sat())
-            .sum();
+        let mut in_value = Amount::ZERO;
+        for input in &transaction.input {
+            // Null PrevOuts already checked in the previous step
 
-        let mut in_value = 0;
-        for input in transaction.input.iter() {
-            // Null PrevOuts are only allowed in coinbase inputs
-            if input.previous_output.is_null() {
-                return Err(tx_err!(txid, NullPrevOut))?;
-            }
             let utxo = Self::get_utxo(input, utxos, txid)?;
             let txout = &utxo.txout;
 
@@ -190,21 +183,22 @@ impl Consensus {
                 return Err(tx_err!(txid, CoinbaseNotMatured))?;
             }
 
-            // Check script sizes (spent txo pubkey, and current tx scriptsig and TODO witness)
+            // Check script sizes (spent txo pubkey, inputs are covered already)
             Self::validate_script_size(&txout.script_pubkey, txid)?;
-            Self::validate_script_size(&input.script_sig, txid)?;
-            // TODO check also witness script size
 
-            in_value += txout.value.to_sat();
+            in_value = in_value
+                .checked_add(txout.value)
+                .ok_or(BlockValidationErrors::TooManyCoins)?;
+        }
+
+        // Sanity check
+        if in_value > Amount::MAX_MONEY {
+            return Err(BlockValidationErrors::TooManyCoins)?;
         }
 
         // Value in should be greater or equal to value out. Otherwise, inflation.
         if out_value > in_value {
             return Err(tx_err!(txid, NotEnoughMoney))?;
-        }
-        // Sanity check
-        if out_value > 21_000_000 * COIN_VALUE {
-            return Err(BlockValidationErrors::TooManyCoins)?;
         }
 
         // Verify the tx script
@@ -237,7 +231,8 @@ impl Consensus {
                 .ok_or_else(|| tx_err!(txid, UtxoNotFound, input.previous_output))?
                 .txout;
 
-            let value = spent_output.value.to_sat() as i64;
+            let value = i64::try_from(spent_output.value.to_sat())
+                .map_err(|_| tx_err!(txid, TooManyCoins))?;
             let spk = bitcoinkernel::ScriptPubkey::try_from(spent_output.script_pubkey.as_bytes())
                 .map_err(|e| tx_err!(txid, ScriptValidationError, e.to_string()))?;
 
@@ -258,6 +253,47 @@ impl Consensus {
         }
 
         Ok(())
+    }
+
+    /// Performs consensus checks that are independent of the spent outputs (non-coinbase only).
+    /// Returns the total output value as an [`Amount`].
+    pub fn check_transaction_context_free(
+        transaction: &Transaction,
+    ) -> Result<Amount, BlockchainError> {
+        let txid = || transaction.compute_txid();
+
+        if transaction.input.is_empty() {
+            return Err(tx_err!(txid, EmptyInputs))?;
+        }
+        if transaction.output.is_empty() {
+            return Err(tx_err!(txid, EmptyOutputs))?;
+        }
+
+        for input in &transaction.input {
+            // Null PrevOuts are only allowed in coinbase inputs
+            if input.previous_output.is_null() {
+                return Err(tx_err!(txid, NullPrevOut))?;
+            }
+
+            // Check script sizes (current tx scriptsig and TODO witness if present)
+            Self::validate_script_size(&input.script_sig, txid)?;
+            // TODO check also witness script size
+        }
+
+        let out_value = transaction
+            .output
+            .iter()
+            .try_fold(Amount::ZERO, |acc, out| {
+                acc.checked_add(out.value)
+                    .ok_or(BlockValidationErrors::TooManyCoins)
+            })?;
+
+        // Sanity check
+        if out_value > Amount::MAX_MONEY {
+            return Err(BlockValidationErrors::TooManyCoins)?;
+        }
+
+        Ok(out_value)
     }
 
     /// Returns the TxOut being spent by the given input.

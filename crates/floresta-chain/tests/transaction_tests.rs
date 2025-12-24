@@ -12,7 +12,6 @@ use bitcoin::OutPoint;
 use bitcoin::Transaction;
 use bitcoinkernel::VERIFY_ALL;
 use floresta_chain::pruned_utreexo::consensus::Consensus;
-use floresta_chain::pruned_utreexo::consensus::COIN_VALUE;
 use floresta_chain::pruned_utreexo::utxo_data::UtxoData;
 use floresta_chain::BlockchainError;
 use serde_json::Value;
@@ -24,9 +23,6 @@ use util::VERIFY_FLAGS_COUNT;
 
 // The dummy height that we use for all the test transactions
 const TX_HEIGHT: u32 = 100_000;
-
-// Some test transactions try to spend the theoretical value limit
-const INPUT_VALUE: u64 = 21_000_000 * COIN_VALUE;
 
 /// Defines the types for auto-deserializing the test vectors and the required conversions.
 mod parse {
@@ -53,7 +49,7 @@ mod parse {
         vout: i64,
         spk: String, // scriptPubKey in asm format
         #[serde(default)]
-        amount: Option<u64>, // amount in sats (`None` for pre-SegWit data)
+        amount: Option<Amount>, // `None` for pre-SegWit data
     }
 
     impl From<PrevOut> for (OutPoint, UtxoData) {
@@ -68,7 +64,7 @@ mod parse {
 
             let utxo_data = UtxoData {
                 txout: TxOut {
-                    value: Amount::from_sat(prev.amount.unwrap_or(INPUT_VALUE)),
+                    value: prev.amount.unwrap_or(Amount::ONE_BTC * 100),
                     script_pubkey: parse_script(&prev.spk).unwrap(),
                 },
                 is_coinbase,
@@ -92,9 +88,22 @@ mod parse {
                 // Only keep entries that deserialize as our TestCase (all except comment strings)
                 let case: TestCase = serde_json::from_value(entry.clone()).ok()?;
 
-                let tx = deserialize_hex(&case.tx_hex).unwrap();
-                let coins = case.prevouts.into_iter().map(Into::into).collect();
+                let tx: Transaction = deserialize_hex(&case.tx_hex).unwrap();
                 let flags = parse_flags(&case.verify_flags);
+                let mut coins: HashMap<_, _> = case.prevouts.into_iter().map(Into::into).collect();
+
+                let out_value = tx
+                    .output
+                    .iter()
+                    .fold(Amount::ZERO, |acc, out| acc + out.value);
+
+                // If a test case tries to spend the theoretical maximum amount, make sure the
+                // input has enough money as well.
+                if out_value == Amount::MAX_MONEY {
+                    coins
+                        .iter_mut()
+                        .for_each(|(_, utxo)| utxo.txout.value = Amount::MAX_MONEY);
+                }
 
                 Some(((tx, coins, flags), entry))
             })

@@ -984,7 +984,7 @@ impl<PersistedState: ChainStore> ChainState<PersistedState> {
         #[cfg(feature = "bitcoinkernel")]
         let flags = self
             .chain_params()
-            .get_validation_flags(height, block.header.block_hash());
+            .get_validation_flags(height, block.block_hash());
         #[cfg(not(feature = "bitcoinkernel"))]
         let flags = 0;
 
