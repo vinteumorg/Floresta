@@ -2,6 +2,7 @@ use bitcoin::block::Header;
 use bitcoin::consensus::encode::serialize_hex;
 use bitcoin::consensus::Encodable;
 use bitcoin::constants::genesis_block;
+use bitcoin::hashes::Hash;
 use bitcoin::Address;
 use bitcoin::Block;
 use bitcoin::BlockHash;
@@ -10,6 +11,8 @@ use bitcoin::OutPoint;
 use bitcoin::Script;
 use bitcoin::ScriptBuf;
 use bitcoin::Txid;
+use bitcoin::VarInt;
+use corepc_types::v29::GetBlockVerboseOne;
 use corepc_types::v29::GetTxOut;
 use corepc_types::ScriptPubkey;
 use floresta_chain::extensions::HeaderExt;
@@ -19,7 +22,6 @@ use serde_json::json;
 use serde_json::Value;
 use tracing::debug;
 
-use super::res::GetBlockResVerbose;
 use super::res::GetBlockchainInfoRes;
 use super::res::GetTxOutProof;
 use super::res::JsonRpcError;
@@ -167,21 +169,21 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
     pub(super) async fn get_block(
         &self,
         hash: BlockHash,
-    ) -> Result<GetBlockResVerbose, JsonRpcError> {
+    ) -> Result<GetBlockVerboseOne, JsonRpcError> {
         let block = self.get_block_inner(hash).await?;
         let header = &block.header;
 
         let height = header.get_height(&self.chain)?;
 
-        let mediantime = header.calculate_median_time_past(&self.chain)?;
+        let median_time = header.calculate_median_time_past(&self.chain)?;
 
-        let chainwork = header.calculate_chain_work(&self.chain)?.to_string_hex();
+        let chain_work = header.calculate_chain_work(&self.chain)?.to_string_hex();
 
-        let confirmations = header.get_confirmations(&self.chain)?;
+        let confirmations = header.get_confirmations(&self.chain)? as i64;
 
         let version_hex = header.get_version_hex();
 
-        let nextblockhash = header
+        let next_block_hash = header
             .get_next_block_hash(&self.chain)?
             .map(|h| h.to_string());
 
@@ -191,18 +193,30 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
 
         let target = header.get_target_hex();
 
-        let block = GetBlockResVerbose {
+        // Stripped size is the size of the block without witness data
+        // Header + VarInt for number of transactions + sum of base sizes of each transaction
+        let mut strippedsize = Header::SIZE;
+        strippedsize += VarInt::from(block.txdata.len()).size();
+        strippedsize += block.txdata.iter().map(|tx| tx.base_size()).sum::<usize>();
+
+        let previous_block_hash = if block.header.prev_blockhash == BlockHash::all_zeros() {
+            None
+        } else {
+            Some(block.header.prev_blockhash.to_string())
+        };
+
+        let block = GetBlockVerboseOne {
             bits,
-            chainwork,
+            chain_work,
             confirmations,
             difficulty,
             hash: header.block_hash().to_string(),
-            height,
-            merkleroot: header.merkle_root.to_string(),
-            nonce: header.nonce,
-            previousblockhash: header.prev_blockhash.to_string(),
-            size: block.total_size(),
-            time: header.time,
+            height: height.into(),
+            merkle_root: header.merkle_root.to_string(),
+            nonce: header.nonce as i64,
+            previous_block_hash,
+            size: block.total_size() as i64,
+            time: header.time as i64,
             tx: block
                 .txdata
                 .iter()
@@ -210,11 +224,11 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
                 .collect(),
             version: header.version.to_consensus(),
             version_hex,
-            weight: block.weight().to_wu() as usize,
-            mediantime,
-            n_tx: block.txdata.len(),
-            nextblockhash,
-            strippedsize: block.total_size(),
+            weight: block.weight().to_wu(),
+            median_time: Some(median_time as i64),
+            n_tx: block.txdata.len() as i64,
+            next_block_hash,
+            stripped_size: Some(strippedsize as i64),
             target,
         };
 
