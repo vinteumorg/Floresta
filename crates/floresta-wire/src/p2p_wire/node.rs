@@ -1186,6 +1186,20 @@ where
         metrics.peer_count.set(self.peer_ids.len() as f64);
     }
 
+    #[cfg(feature = "metrics")]
+    pub(crate) fn update_utreexo_peer_metrics(&self) {
+        use metrics::get_metrics;
+
+        let metrics = get_metrics();
+        let count = self
+            .peer_by_service
+            .get(&service_flags::UTREEXO.into())
+            .map(|peers| peers.len())
+            .unwrap_or(0);
+
+        metrics.utreexo_peer_count.set(count as f64);
+    }
+
     pub(crate) fn handle_disconnection(&mut self, peer: u32, idx: usize) -> Result<(), WireError> {
         if let Some(p) = self.peers.remove(&peer) {
             std::mem::drop(p.channel);
@@ -1233,6 +1247,9 @@ where
 
         #[cfg(feature = "metrics")]
         self.update_peer_metrics();
+
+        #[cfg(feature = "metrics")]
+        self.update_utreexo_peer_metrics();
 
         Ok(())
     }
@@ -1471,6 +1488,10 @@ where
 
         #[cfg(feature = "metrics")]
         self.update_peer_metrics();
+
+        #[cfg(feature = "metrics")]
+        self.update_utreexo_peer_metrics();
+
         Ok(())
     }
 
