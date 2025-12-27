@@ -657,6 +657,7 @@ mod tests {
 
         let mut utxos = HashMap::new();
         let tx: Transaction = deserialize_hex("0100000001bd597773d03dcf6e22ba832f2387152c9ab69d250a8d86792bdfeb690764af5b010000006c493046022100841d4f503f44dd6cef8781270e7260db73d0e3c26c4f1eea61d008760000b01e022100bc2675b8598773984bcf0bb1a7cad054c649e8a34cb522a118b072a453de1bf6012102de023224486b81d3761edcd32cedda7cbb30a4263e666c87607883197c914022ffffffff021ee16700000000001976a9144883bb595608dcfe882aea5f7c579ef107a4fb5b88ac52a0aa00000000001976a914782231de72adb5c9df7367ab0c21c7b44bbd743188ac00000000").unwrap();
+        let txid = || tx.compute_txid();
 
         assert_eq!(tx.input.len(), 1, "We only spend one utxo in this tx");
         let outpoint = tx.input[0].previous_output;
@@ -673,14 +674,79 @@ mod tests {
                 creation_time: 0,
             },
         );
+        let mut utxos_clone = utxos.clone();
 
-        // Test consuming UTXOs
+        // Test consuming UTXOs with both high and low-level functions
         let flags = bitcoinkernel::VERIFY_P2SH;
         Consensus::verify_transaction(&tx, &mut utxos, 0, true, flags)
+            .expect("Transaction should be valid");
+        Consensus::verify_input_scripts(&tx, &mut utxos_clone, flags)
             .expect("Transaction should be valid");
 
         // Check that the UTXO was consumed
         assert!(utxos.is_empty(), "UTXO should be consumed");
+        assert!(utxos_clone.is_empty(), "UTXO should be consumed");
+
+        // Trying to verify again with an empty UTXO map must fail with this error
+        let expected = tx_err!(txid, UtxoNotFound, outpoint);
+
+        match Consensus::verify_transaction(&tx, &mut utxos, 0, true, flags) {
+            Err(BlockchainError::TransactionError(e)) => assert_eq!(e, expected),
+            other => panic!("Expected TransactionError, got: {other:?}"),
+        }
+        match Consensus::verify_input_scripts(&tx, &mut utxos_clone, flags) {
+            Err(BlockchainError::TransactionError(e)) => assert_eq!(e, expected),
+            other => panic!("Expected TransactionError, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_output_value_overflow() {
+        let tx = Transaction {
+            version: Version::TWO,
+            lock_time: LockTime::ZERO,
+            input: vec![txin!(OutPoint::new(Txid::all_zeros(), 0), ScriptBuf::new())],
+            output: vec![
+                txout!(u64::MAX, ScriptBuf::new()),
+                txout!(1, ScriptBuf::new()),
+            ],
+        };
+
+        match Consensus::check_transaction_context_free(&tx) {
+            Err(BlockchainError::BlockValidation(BlockValidationErrors::TooManyCoins)) => (),
+            other => panic!("Expected TooManyCoins, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_input_value_above_max_money() {
+        let outpoint = OutPoint::new(Txid::all_zeros(), 0);
+
+        let mut utxos = HashMap::new();
+        utxos.insert(
+            outpoint,
+            UtxoData {
+                txout: TxOut {
+                    value: Amount::MAX_MONEY + Amount::ONE_SAT,
+                    script_pubkey: ScriptBuf::new(),
+                },
+                is_coinbase: false,
+                creation_height: 0,
+                creation_time: 0,
+            },
+        );
+
+        let tx = Transaction {
+            version: Version::TWO,
+            lock_time: LockTime::ZERO,
+            input: vec![txin!(outpoint, ScriptBuf::new())],
+            output: vec![txout!(1, ScriptBuf::new())],
+        };
+
+        match Consensus::verify_transaction(&tx, &mut utxos, 0, false, 0) {
+            Err(BlockchainError::BlockValidation(BlockValidationErrors::TooManyCoins)) => (),
+            other => panic!("Expected TooManyCoins, got: {other:?}"),
+        }
     }
 
     // Test cases for Bitcoin script limits in the format <spending_tx>:<prevout>.
@@ -756,7 +822,7 @@ mod tests {
         fn build_tx(input: TxIn, output: TxOut) -> Transaction {
             Transaction {
                 version: Version(1),
-                lock_time: LockTime::from_height(0).unwrap(),
+                lock_time: LockTime::ZERO,
                 input: vec![input],
                 output: vec![output],
             }
