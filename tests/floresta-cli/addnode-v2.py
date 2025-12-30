@@ -15,7 +15,6 @@ from test_framework import FlorestaTestFramework
 
 DATA_DIR = FlorestaTestFramework.get_integration_test_dir()
 TIMEOUT = 15
-PING_TIMEOUT = 45
 
 
 class AddnodeTestV2(FlorestaTestFramework):
@@ -236,10 +235,6 @@ class AddnodeTestV2(FlorestaTestFramework):
         # make sure the old connection was removed
         self.ensure_see_connection_closed(self.florestad)
 
-        # wait some time to guarantee
-        # that it will not be in the peers list again
-        time.sleep(PING_TIMEOUT)
-
         # now we expect the node to be in the
         # awaiting state. It will be in that state
         # until the node reconnects again
@@ -314,7 +309,6 @@ class AddnodeTestV2(FlorestaTestFramework):
         # wait some time to guarantee
         # that it will not be in the peers list again
         self.florestad.rpc.ping()
-        time.sleep(PING_TIMEOUT)
 
         peer_info = self.florestad.rpc.get_peerinfo()
         self.assertEqual(len(peer_info), 0)

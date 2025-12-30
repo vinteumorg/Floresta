@@ -14,8 +14,6 @@ import time
 from test_framework import FlorestaTestFramework
 
 DATA_DIR = FlorestaTestFramework.get_integration_test_dir()
-TIMEOUT = 15
-PING_TIMEOUT = 40
 
 
 class AddnodeTestV1(FlorestaTestFramework):
@@ -43,6 +41,25 @@ class AddnodeTestV1(FlorestaTestFramework):
                 f"-v2transport={1 if self.v2transport else 0}",
             ],
         )
+
+    def wait_for_peers_ready(self, number_peer: int):
+        """
+        Wait until the florestad node reports exactly 'number_peer' peers
+        and verifies that, if there are peers, all are in the "Ready" state.
+        """
+        peer_info = []
+        deadline = time.time() + 15
+        while time.time() < deadline:
+            peer_info = self.florestad.rpc.get_peerinfo()
+            if len(peer_info) == number_peer:
+                break
+            time.sleep(1)
+            self.florestad.rpc.ping()
+
+        self.assertEqual(len(peer_info), number_peer)
+        if len(peer_info) > 0:
+            for peer in peer_info:
+                self.assertEqual(peer["state"], "Ready")
 
     def start_both_nodes(self):
         """
@@ -77,13 +94,10 @@ class AddnodeTestV1(FlorestaTestFramework):
         # should return a null json object
         self.assertIsNone(result)
 
-        # give some time to the node to establish the connection
-        time.sleep(1)
-
         # Floresta should be able to connect almost immediately
         # to the utreexod node after adding it.
+        self.wait_for_peers_ready(1)
         peer_info = self.florestad.rpc.get_peerinfo()
-        self.assertEqual(len(peer_info), 1)
 
         # now we expect the node to be in Ready state
         # with some expressive information. The node
@@ -98,7 +112,6 @@ class AddnodeTestV1(FlorestaTestFramework):
         )
         self.assertEqual(peer_info[0]["transport_protocol"], "V1")
 
-        self.assertEqual(peer_info[0]["state"], "Ready")
         self.assertMatch(
             peer_info[0]["user_agent"],
             re.compile(r"\/Satoshi:\d*\.\d*\.\d*\/"),
@@ -146,13 +159,11 @@ class AddnodeTestV1(FlorestaTestFramework):
         # with the test
         self.bitcoind.stop()
         self.florestad.rpc.ping()
-        time.sleep(PING_TIMEOUT)
 
         # now we expect the node to be in the
         # awaiting state. It will be in that state
         # until the node reconnects again
-        peer_info = self.florestad.rpc.get_peerinfo()
-        self.assertEqual(len(peer_info), 0)
+        self.wait_for_peers_ready(0)
 
     def test_should_florestad_reconnect(self):
         """
@@ -168,12 +179,9 @@ class AddnodeTestV1(FlorestaTestFramework):
         self.run_node(self.bitcoind)
 
         # wait for the bitcoind node to be ready
-        self.bitcoind.rpc.wait_for_connections(opened=True, timeout=PING_TIMEOUT)
-        time.sleep(PING_TIMEOUT)
+        self.bitcoind.rpc.wait_for_connection(opened=True)
 
-        peer_info = self.florestad.rpc.get_peerinfo()
-        self.assertEqual(len(peer_info), 1)
-        self.assertEqual(peer_info[0]["state"], "Ready")
+        self.wait_for_peers_ready(1)
 
     def test_should_floresta_not_add_bitcoind_again(self):
         """
@@ -196,8 +204,7 @@ class AddnodeTestV1(FlorestaTestFramework):
         # Check if the list of peers is the same from
         # the previous test, meaning that the
         # `addnode` command was not able to add the node
-        peer_info = self.florestad.rpc.get_peerinfo()
-        self.assertEqual(len(peer_info), 1)
+        self.wait_for_peers_ready(1)
 
     def test_should_floresta_remove_bitcoind(self):
         """
@@ -237,15 +244,10 @@ class AddnodeTestV1(FlorestaTestFramework):
         self.run_node(self.bitcoind)
         self.florestad.rpc.ping()
 
-        # wait some time to guarantee
-        # that it will not be in the peers list again
-        time.sleep(PING_TIMEOUT)
-
         # now we expect the node to be in the
         # awaiting state. It will be in that state
         # until the node reconnects again
-        peer_info = self.florestad.rpc.get_peerinfo()
-        self.assertEqual(len(peer_info), 0)
+        self.wait_for_peers_ready(0)
 
     def test_should_bitcoind_not_see_floresta(self):
         """
@@ -282,14 +284,11 @@ class AddnodeTestV1(FlorestaTestFramework):
         # should return a null json object
         self.assertIsNone(result)
 
-        # add some time to establish the handshake
-        time.sleep(TIMEOUT)
-
         # Check if the added node was added
         # to the peers list with the `getpeerinfo` command
         # but should be in the "Awaiting" state
+        self.wait_for_peers_ready(1)
         peer_info = self.florestad.rpc.get_peerinfo()
-        self.assertEqual(len(peer_info), 1)
         self.assertEqual(peer_info[0]["address"], f"127.0.0.1:{bitcoind_port}")
         self.assertEqual(peer_info[0]["initial_height"], 0)
         self.assertEqual(peer_info[0]["kind"], "regular")
@@ -300,7 +299,6 @@ class AddnodeTestV1(FlorestaTestFramework):
         )
         self.assertEqual(peer_info[0]["transport_protocol"], "V1")
 
-        self.assertEqual(peer_info[0]["state"], "Ready")
         self.assertMatch(
             peer_info[0]["user_agent"],
             re.compile(r"\/Satoshi:\d*\.\d*\.\d*\/"),
@@ -314,10 +312,8 @@ class AddnodeTestV1(FlorestaTestFramework):
         # wait some time to guarantee
         # that it will not be in the peers list again
         self.florestad.rpc.ping()
-        time.sleep(PING_TIMEOUT)
 
-        peer_info = self.florestad.rpc.get_peerinfo()
-        self.assertEqual(len(peer_info), 0)
+        self.wait_for_peers_ready(0)
 
     def run_test(self):
         """
