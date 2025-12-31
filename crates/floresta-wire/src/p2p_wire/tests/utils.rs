@@ -2,36 +2,53 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io;
 use std::io::Read;
-use std::str::FromStr;
+use std::sync::Arc;
+use std::time::Duration;
 use std::time::Instant;
 
 use bitcoin::block::Header;
 use bitcoin::consensus::deserialize_partial;
+use bitcoin::consensus::encode;
 use bitcoin::consensus::Decodable;
 use bitcoin::hex::FromHex;
 use bitcoin::p2p::ServiceFlags;
 use bitcoin::Block;
 use bitcoin::BlockHash;
 use bitcoin::Network;
-use floresta_common::bhash;
+use floresta_chain::pruned_utreexo::UpdatableChainstate;
+use floresta_chain::AssumeValidArg;
+use floresta_chain::ChainState;
+use floresta_chain::FlatChainStore;
+use floresta_chain::FlatChainStoreConfig;
 use floresta_common::service_flags;
 use floresta_common::service_flags::UTREEXO;
 use floresta_common::FractionAvg;
+use rand::rngs::OsRng;
+use rand::RngCore;
+use rustreexo::accumulator::pollard::Pollard;
 use serde::Deserialize;
 use serde::Serialize;
+use tokio::sync::mpsc::unbounded_channel;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 use tokio::task;
+use tokio::time::timeout;
 use zstd;
 
+use crate::address_man::AddressMan;
+use crate::node::ConnectionKind;
 use crate::node::LocalPeerView;
 use crate::node::NodeNotification;
 use crate::node::NodeRequest;
 use crate::node::PeerStatus;
+use crate::node::UtreexoNode;
 use crate::p2p_wire::block_proof::UtreexoProof;
-use crate::p2p_wire::node::ConnectionKind;
+use crate::p2p_wire::mempool::Mempool;
 use crate::p2p_wire::peer::PeerMessages;
 use crate::p2p_wire::peer::Version;
+use crate::p2p_wire::sync_node::SyncNode;
 use crate::p2p_wire::transport::TransportProtocol;
 use crate::UtreexoNodeConfig;
 
@@ -65,9 +82,9 @@ struct BlockFile {
 
 #[derive(Debug)]
 pub struct TestPeer {
-    _headers: Vec<Header>,
+    headers: Vec<Header>,
     blocks: HashMap<BlockHash, Block>,
-    _filters: HashMap<BlockHash, Vec<u8>>,
+    accs: HashMap<BlockHash, Vec<u8>>,
     node_tx: UnboundedSender<NodeNotification>,
     node_rx: UnboundedReceiver<NodeRequest>,
     peer_id: u32,
@@ -78,14 +95,14 @@ impl TestPeer {
         node_tx: UnboundedSender<NodeNotification>,
         headers: Vec<Header>,
         blocks: HashMap<BlockHash, Block>,
-        filters: HashMap<BlockHash, Vec<u8>>,
+        accs: HashMap<BlockHash, Vec<u8>>,
         node_rx: UnboundedReceiver<NodeRequest>,
         peer_id: u32,
     ) -> Self {
         TestPeer {
-            _headers: headers,
+            headers,
             blocks,
-            _filters: filters,
+            accs,
             node_tx,
             node_rx,
             peer_id,
@@ -119,6 +136,29 @@ impl TestPeer {
             let req = self.node_rx.recv().await.unwrap();
 
             match req {
+                NodeRequest::GetHeaders(hashes) => {
+                    let headers = hashes
+                        .iter()
+                        .filter_map(|h| self.headers.iter().find(|x| x.block_hash() == *h))
+                        .copied()
+                        .collect();
+
+                    self.node_tx
+                        .send(NodeNotification::FromPeer(
+                            self.peer_id,
+                            PeerMessages::Headers(headers),
+                        ))
+                        .unwrap();
+                }
+                NodeRequest::GetUtreexoState((hash, _)) => {
+                    let accs = self.accs.get(&hash).unwrap().clone();
+                    self.node_tx
+                        .send(NodeNotification::FromPeer(
+                            self.peer_id,
+                            PeerMessages::UtreexoState(accs),
+                        ))
+                        .unwrap();
+                }
                 NodeRequest::GetBlock(hashes) => {
                     for hash in hashes {
                         let block = self.blocks.get(&hash).unwrap().clone();
@@ -163,13 +203,13 @@ impl TestPeer {
 pub fn create_peer(
     headers: Vec<Header>,
     blocks: HashMap<BlockHash, Block>,
-    filters: HashMap<BlockHash, Vec<u8>>,
+    accs: HashMap<BlockHash, Vec<u8>>,
     node_sender: UnboundedSender<NodeNotification>,
     sender: UnboundedSender<NodeRequest>,
     node_rcv: UnboundedReceiver<NodeRequest>,
     peer_id: u32,
 ) -> LocalPeerView {
-    let mut peer = TestPeer::new(node_sender, headers, blocks, filters, node_rcv, peer_id);
+    let mut peer = TestPeer::new(node_sender, headers, blocks, accs, node_rcv, peer_id);
     task::spawn(async move {
         peer.run().await;
     });
@@ -227,6 +267,19 @@ pub fn serialize(root: UtreexoRoots) -> Vec<u8> {
     buffer
 }
 
+pub fn create_false_acc(tip: usize) -> Vec<u8> {
+    let mut bytes = [0u8; 32];
+    OsRng.fill_bytes(&mut bytes);
+    let node_hash = encode::serialize_hex(&bytes);
+
+    let utreexo_root = UtreexoRoots {
+        roots: Some(vec![node_hash]),
+        numleaves: tip,
+    };
+
+    serialize(utreexo_root)
+}
+
 pub fn get_test_headers() -> Vec<Header> {
     let mut headers: Vec<Header> = Vec::new();
 
@@ -258,7 +311,7 @@ pub fn get_test_blocks() -> io::Result<HashMap<BlockHash, Block>> {
     Ok(u_blocks)
 }
 
-pub fn get_test_filters() -> io::Result<HashMap<BlockHash, Vec<u8>>> {
+pub fn get_test_accs() -> io::Result<HashMap<BlockHash, Vec<u8>>> {
     let mut contents = String::new();
     File::open("./src/p2p_wire/tests/test_data/roots.json")
         .unwrap()
@@ -266,15 +319,15 @@ pub fn get_test_filters() -> io::Result<HashMap<BlockHash, Vec<u8>>> {
         .unwrap();
     let roots: Vec<UtreexoRoots> = serde_json::from_str(&contents).unwrap();
     let headers = get_test_headers();
-    let mut filters = HashMap::new();
+    let mut accs = HashMap::new();
 
     for root in roots.into_iter() {
         let buffer = serialize(root.clone());
 
         // Insert the serialised Utreexo-Root along with its corresponding BlockHash in the HashMap
-        filters.insert(headers[root.numleaves].block_hash(), buffer);
+        accs.insert(headers[root.numleaves].block_hash(), buffer);
     }
-    Ok(filters)
+    Ok(accs)
 }
 
 pub fn generate_invalid_block() -> Block {
@@ -289,15 +342,68 @@ pub fn generate_invalid_block() -> Block {
 pub fn get_essentials() -> Essentials {
     let headers = get_test_headers();
     let blocks = get_test_blocks().unwrap();
-    let _filters = get_test_filters().unwrap();
     let invalid_block = generate_invalid_block();
-
-    // BlockHash of chain_tip: 0000035f0e5513b26bba7cead874fdf06241a934e4bc4cf7a0381c60e4cdd2bb (119)
-    let _tip_hash = bhash!("0000035f0e5513b26bba7cead874fdf06241a934e4bc4cf7a0381c60e4cdd2bb");
 
     Essentials {
         headers,
         blocks,
         invalid_block,
     }
+}
+
+type PeerData = (HeaderList, BlockHashMap, BlockDataMap);
+
+pub async fn setup_node(
+    peers: Vec<PeerData>,
+    pow_fraud_proofs: bool,
+    network: Network,
+    datadir: &str,
+    num_blocks: usize,
+) -> Arc<ChainState<FlatChainStore>> {
+    let config = FlatChainStoreConfig::new(datadir.into());
+
+    let chainstore = FlatChainStore::new(config).unwrap();
+    let mempool = Arc::new(Mutex::new(Mempool::new(Pollard::default(), 1000)));
+    let chain = ChainState::new(chainstore, network, AssumeValidArg::Disabled);
+    let chain = Arc::new(chain);
+
+    let mut headers = get_test_headers();
+    headers.remove(0);
+    headers.truncate(num_blocks);
+    for header in headers {
+        chain.accept_header(header).unwrap();
+    }
+
+    let config = get_node_config(datadir.into(), network, pow_fraud_proofs);
+    let kill_signal = Arc::new(RwLock::new(false));
+    let mut node = UtreexoNode::<Arc<ChainState<FlatChainStore>>, SyncNode>::new(
+        config,
+        chain.clone(),
+        mempool,
+        None,
+        kill_signal.clone(),
+        AddressMan::default(),
+    )
+    .unwrap();
+
+    for (i, peer) in peers.into_iter().enumerate() {
+        let (sender, receiver) = unbounded_channel();
+        let peer = create_peer(
+            peer.0,
+            peer.1,
+            peer.2,
+            node.node_tx.clone(),
+            sender.clone(),
+            receiver,
+            i as u32,
+        );
+
+        node.peers.insert(i as u32, peer);
+    }
+
+    timeout(Duration::from_secs(100), node.run(|_| {}))
+        .await
+        .unwrap();
+
+    chain
 }
