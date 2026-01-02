@@ -1,6 +1,17 @@
 [
     {
         "address": {
+            "V4": "195.26.240.213"
+        },
+        "last_connected": 1678986166,
+        "state": {
+            "Tried": 0
+        },
+        "services": 16778317,
+        "port": 38433
+    },
+    {
+        "address": {
             "V4": "161.97.178.61"
         },
         "last_connected": 1678986166,
