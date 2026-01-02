@@ -8,14 +8,11 @@
 //! formats
 
 use std::fmt::Debug;
-use std::str::FromStr;
 
 use bitcoin::base58;
 use bitcoin::bip32;
 use bitcoin::bip32::Xpriv;
 use bitcoin::bip32::Xpub;
-use serde::Deserialize;
-use serde::Serialize;
 
 /// Magical version bytes for xpub: bitcoin mainnet public key for P2PKH or P2SH
 pub const VERSION_MAGIC_XPUB: [u8; 4] = [0x04, 0x88, 0xB2, 0x1E];
@@ -131,55 +128,6 @@ impl From<bip32::Error> for Error {
 impl From<base58::Error> for Error {
     fn from(err: base58::Error) -> Self {
         Error::Base58(err)
-    }
-}
-
-/// SLIP 132-defined key applications defining types of scriptPubKey descriptors
-/// in which they can be used
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Serialize, Deserialize)]
-#[non_exhaustive]
-pub enum KeyApplication {
-    /// xprv/xpub: keys that can be used for P2PKH and multisig P2SH
-    /// scriptPubKey descriptors.
-    #[serde(rename = "bip44")]
-    Hashed,
-
-    /// zprv/zpub: keys that can be used for P2WPKH scriptPubKey descriptors
-    #[serde(rename = "bip84")]
-    SegWit,
-
-    /// Zprv/Zpub: keys that can be used for multisig P2WSH scriptPubKey
-    /// descriptors
-    #[serde(rename = "bip48-native")]
-    SegWitMultisig,
-
-    /// yprv/ypub: keys that can be used for P2WPKH-in-P2SH scriptPubKey
-    /// descriptors
-    #[serde(rename = "bip49")]
-    Nested,
-
-    /// Yprv/Ypub: keys that can be used for multisig P2WSH-in-P2SH
-    /// scriptPubKey descriptors
-    #[serde(rename = "bip48-nested")]
-    NestedMultisig,
-}
-
-/// Unknown string representation of [`KeyApplication`] enum
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-pub struct UnknownKeyApplicationError;
-
-impl FromStr for KeyApplication {
-    type Err = UnknownKeyApplicationError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(match s.to_lowercase().as_str() {
-            "bip44" => KeyApplication::Hashed,
-            "bip84" => KeyApplication::SegWit,
-            "bip48-native" => KeyApplication::SegWitMultisig,
-            "bip49" => KeyApplication::Nested,
-            "bip48-nested" => KeyApplication::NestedMultisig,
-            _ => return Err(UnknownKeyApplicationError),
-        })
     }
 }
 

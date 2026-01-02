@@ -1,6 +1,4 @@
 use bitcoin::Network;
-use clap::arg;
-use clap::command;
 use clap::Parser;
 
 #[derive(Parser)]
