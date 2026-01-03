@@ -148,7 +148,7 @@
                     src = ./.;
                   })
                   utreexod-flake.packages.${system}.utreexod
-                  bitcoin
+                  bitcoind
                 ];
               in
               mkShell {
