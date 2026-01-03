@@ -4,7 +4,7 @@
     nixpkgs-unstable.url = "github:nixos/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
     utreexod-flake.url = "github:jaoleal/utreexod-flake";
-    floresta-flake.url = "github:jaoleal/floresta-flake";
+    floresta-flake.url = "github:jaoleal/floresta-flake/stable_building";
     pre-commit-hooks = {
       url = "github:cachix/git-hooks.nix";
       inputs.nixpkgs.follows = "nixpkgs-unstable";
@@ -32,9 +32,36 @@
         overlays = [ (import rust-overlay) ];
 
         pkgs = import nixpkgs { inherit system overlays; };
+
+        # We use src a lot across this flake
+        src = ./.;
+
+        inherit (floresta-flake.lib.${system}) florestaBuild;
       in
       with pkgs;
       {
+        packages = {
+          florestad = florestaBuild.build {
+            inherit src;
+            packageName = "florestad";
+          };
+          floresta-cli = florestaBuild.build {
+            inherit src;
+            packageName = "floresta-cli";
+          };
+          libfloresta = florestaBuild.build {
+            inherit src;
+            packageName = "libfloresta";
+          };
+          floresta-debug = florestaBuild.build {
+            inherit src;
+            packageName = "floresta-debug";
+          };
+          default = florestaBuild.build {
+            inherit src;
+            packageName = "all";
+          };
+        };
         devShells =
           let
             # This is the dev tools used while developing in Floresta.
@@ -48,7 +75,7 @@
             ];
             hooks = pre-commit-hooks.lib.${system}.run {
               src = {
-                root = ./.;
+                root = src;
               };
               hooks = {
                 clippy = {
@@ -111,17 +138,19 @@
               mkShell {
                 shellHook = shellHook + czHook;
                 packages = deps;
+
+                LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
+                CMAKE_PREFIX_PATH = "${pkgs.boost.dev}";
               };
 
             python-env =
               let
-                inherit (floresta-flake.lib.${system}) florestaBuild;
 
                 rev = self.rev or self.dirtyRev;
 
                 python-hook = pre-commit-hooks.lib.${system}.run {
                   src = lib.fileset.toSource {
-                    root = ./.;
+                    root = src;
                     fileset = lib.fileset.unions [
                       ./pyproject.toml
                       ./uv.lock
@@ -142,10 +171,9 @@
                 ];
 
                 testBinaries = [
-                  (florestaBuild {
-                    inherit pkgs;
+                  (florestaBuild.build {
+                    inherit src;
                     packageName = "florestad";
-                    src = ./.;
                   })
                   utreexod-flake.packages.${system}.utreexod
                   bitcoin
