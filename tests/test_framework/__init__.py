@@ -605,9 +605,9 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
             )
         return self._nodes[index]
 
-    # pylint: disable=too-many-branches
+    # pylint: disable=too-many-branches too-many-locals
     def detect_ports(
-        self, mode: str, log_file: TextIO, timeout: int = 180
+        self, mode: str, log_file: TextIO, timeout: int = 20
     ) -> Dict[str, int]:
         """Generic port detector for florestad, utreexod, and bitcoind logs."""
         required_patterns: Dict[str, re.Pattern]
@@ -650,31 +650,35 @@ class FlorestaTestFramework(metaclass=FlorestaTestMetaClass):
         ports: Dict[str, int] = {}
 
         # Read the log file until we find the required ports
-        log_file.seek(0, 2)
         start_time = time.time()
         time_tls = None
         tls_period = 0.5
+        readlines = []
 
         # Read the log file line by line until we find all required ports
         while time.time() - start_time <= timeout:
-            line = log_file.readline()
-            if not line:
-                time.sleep(0.1)
+            loglines = log_file.readlines()
+            lines = [line.strip() for line in loglines if line.strip() not in readlines]
+            readlines = loglines
+            if not lines:
+                time.sleep(0.5)
                 continue
+            for line in lines:
+                for name, pattern in required_patterns.items():
+                    if name not in ports:
+                        match = pattern.search(line)
+                        if match:
+                            ports[name] = int(match.group(1))
+                            self.log(f"Detected {mode} {name} port: {ports[name]}")
 
-            for name, pattern in required_patterns.items():
-                if name not in ports:
-                    match = pattern.search(line)
-                    if match:
-                        ports[name] = int(match.group(1))
-                        self.log(f"Detected {mode} {name} port: {ports[name]}")
-
-            for name, pattern in optional_patterns.items():
-                if name not in ports:
-                    match = pattern.search(line)
-                    if match:
-                        ports[name] = int(match.group(1))
-                        self.log(f"Detected {mode} optional {name} port: {ports[name]}")
+                for name, pattern in optional_patterns.items():
+                    if name not in ports:
+                        match = pattern.search(line)
+                        if match:
+                            ports[name] = int(match.group(1))
+                            self.log(
+                                f"Detected {mode} optional {name} port: {ports[name]}"
+                            )
 
             # If we find all required ports, we need to wait a little
             # bit to see if there's any TLS port that could have not
