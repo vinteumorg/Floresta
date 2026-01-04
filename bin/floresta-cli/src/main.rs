@@ -248,7 +248,13 @@ pub enum Methods {
     GetBlockHeader { hash: BlockHash },
 
     /// Loads a new descriptor to the watch only wallet
-    #[command(name = "loaddescriptor")]
+    #[doc = include_str!("../../../doc/rpc/loaddescriptor.md")]
+    #[command(
+        name = "loaddescriptor",
+        about = "Loads a descriptor into the watch-only wallet, extracting the address(es) for being cached",
+        long_about = Some(include_str!("../../../doc/rpc/loaddescriptor.md")),
+        disable_help_subcommand = true
+    )]
     LoadDescriptor { desc: String },
 
     /// Returns the roots of the current utreexo forest
