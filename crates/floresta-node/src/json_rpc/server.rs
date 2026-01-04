@@ -131,9 +131,7 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
 
     fn load_descriptor(&self, descriptor: String) -> Result<bool> {
         let desc = slice::from_ref(&descriptor);
-        let Ok(mut parsed) = parse_descriptors(desc) else {
-            return Err(JsonRpcError::InvalidDescriptor);
-        };
+        let mut parsed = parse_descriptors(desc)?;
 
         // It's ok to unwrap because we know there is at least one element in the vector
         let addresses = parsed.pop().unwrap();
@@ -469,7 +467,7 @@ fn get_http_error_code(err: &JsonRpcError) -> u16 {
         | JsonRpcError::InvalidScript
         | JsonRpcError::InvalidRequest
         | JsonRpcError::InvalidPort
-        | JsonRpcError::InvalidDescriptor
+        | JsonRpcError::InvalidDescriptor(_)
         | JsonRpcError::InvalidVerbosityLevel
         | JsonRpcError::Decode(_)
         | JsonRpcError::NoBlockFilters
@@ -509,7 +507,7 @@ fn get_json_rpc_error_code(err: &JsonRpcError) -> i32 {
         | JsonRpcError::MethodNotFound
         | JsonRpcError::InvalidRequest
         | JsonRpcError::InvalidPort
-        | JsonRpcError::InvalidDescriptor
+        | JsonRpcError::InvalidDescriptor(_)
         | JsonRpcError::InvalidVerbosityLevel
         | JsonRpcError::TxNotFound
         | JsonRpcError::BlockNotFound
