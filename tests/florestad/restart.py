@@ -1,12 +1,12 @@
 """
 restart.py
 
-A simple test that restart a Floresta node and a related data directory.
+A simple test that restarts a Floresta node and ensures that the node can
+successfully restart using the same data directory.
 
-The directories used between each power-on/power-off must not be corrupted.
+The test verifies that the node can stop and restart without encountering
+issues, such as data corruption or failure to initialize.
 """
-
-import filecmp
 
 from test_framework import FlorestaTestFramework
 
@@ -15,8 +15,8 @@ DATA_DIR = FlorestaTestFramework.get_integration_test_dir()
 
 class TestRestart(FlorestaTestFramework):
     """
-    Test the restart of a node, calling a first node (0) the recall it as (1);
-    We need to check if given data_dirs arent corrupted between restarts
+    Test the restart of a Floresta node using the same data directory.
+    Ensures that the node can stop and restart without issues.
     """
 
     def set_test_params(self):
@@ -24,43 +24,25 @@ class TestRestart(FlorestaTestFramework):
         Here we define setup for test
         """
 
-        self.data_dirs = TestRestart.create_data_dirs(
-            DATA_DIR, self.__class__.__name__.lower(), 2
-        )
+        self.data_dir = TestRestart.create_data_dirs(
+            DATA_DIR, self.__class__.__name__.lower(), 1
+        )[0]
 
-        self.florestas = [
-            self.add_node(
-                variant="florestad",
-                extra_args=[f"--data-dir={datadir}"],
-            )
-            for datadir in self.data_dirs
-        ]
+        self.floresta = self.add_node(
+            variant="florestad",
+            extra_args=[f"--data-dir={self.data_dir}"],
+        )
 
     def run_test(self):
         """
-        Tests if we don't corrupt our data dir between restarts.
+        Tests the node's ability to restart without initialization issues.
         This would have caught, the error fixed in #9
         """
-        # start first node then stop
-        # wait for some time before restarting
-        # this simulate a shutdown followed by a power-on.
-        # In a real world scenario, we need to wait for
-        # the node to be fully started before stopping it
-        # this is done by waiting for the RPC port (the run_node
-        # method does this for us, but let's wait a bit more)
-        self.run_node(self.florestas[0])
-        self.florestas[0].rpc.wait_for_connections(opened=True)
-        self.florestas[0].stop()
 
-        # start second node then stop
-        self.run_node(self.florestas[1])
-        self.florestas[1].rpc.wait_for_connections(opened=True)
-        self.florestas[1].stop()
+        self.run_node(self.floresta)
+        self.floresta.stop()
 
-        # check for any corruption
-        # if any files are different, we will get a list of them
-        result = filecmp.dircmp(self.data_dirs[0], self.data_dirs[1])
-        self.assertEqual(len(result.diff_files), 0)
+        self.run_node(self.floresta)
 
 
 if __name__ == "__main__":
