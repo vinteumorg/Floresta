@@ -380,3 +380,9 @@ impl From<HeaderExtError> for JsonRpcError {
 }
 
 impl_error_from!(JsonRpcError, miniscript::Error, InvalidDescriptor);
+
+impl<T: std::fmt::Debug> From<floresta_watch_only::WatchOnlyError<T>> for JsonRpcError {
+    fn from(e: floresta_watch_only::WatchOnlyError<T>) -> Self {
+        JsonRpcError::Wallet(e.to_string())
+    }
+}

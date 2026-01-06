@@ -162,6 +162,9 @@ impl<Blockchain: RpcChain> RpcImpl<Blockchain> {
             addresses, chain, wallet, cfilters, node, None, None,
         ));
 
+        self.wallet.push_descriptor(&descriptor)?;
+        debug!("Descriptor pushed: {descriptor}");
+
         Ok(true)
     }
 
