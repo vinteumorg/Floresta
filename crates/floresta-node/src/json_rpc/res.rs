@@ -2,6 +2,7 @@ use std::fmt::Display;
 
 use axum::response::IntoResponse;
 use floresta_chain::extensions::HeaderExtError;
+use floresta_common::impl_error_from;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -268,7 +269,7 @@ pub enum JsonRpcError {
     InvalidScript,
 
     /// The provided descriptor is invalid, e.g., if it does not match the expected format
-    InvalidDescriptor,
+    InvalidDescriptor(miniscript::Error),
 
     /// The requested block is not found in the blockchain
     BlockNotFound,
@@ -334,7 +335,7 @@ impl Display for JsonRpcError {
             JsonRpcError::MethodNotFound =>  write!(f, "Method not found"),
             JsonRpcError::Decode(e) =>  write!(f, "error decoding request: {e}"),
             JsonRpcError::TxNotFound =>  write!(f, "Transaction not found"),
-            JsonRpcError::InvalidDescriptor =>  write!(f, "Invalid descriptor"),
+            JsonRpcError::InvalidDescriptor(e) =>  write!(f, "Invalid descriptor: {e}"),
             JsonRpcError::BlockNotFound =>  write!(f, "Block not found"),
             JsonRpcError::Chain => write!(f, "Chain error"),
             JsonRpcError::InvalidPort => write!(f, "Invalid port"),
@@ -375,5 +376,13 @@ impl From<HeaderExtError> for JsonRpcError {
             HeaderExtError::BlockNotFound => JsonRpcError::BlockNotFound,
             HeaderExtError::ChainWorkOverflow => JsonRpcError::ChainWorkOverflow,
         }
+    }
+}
+
+impl_error_from!(JsonRpcError, miniscript::Error, InvalidDescriptor);
+
+impl<T: std::fmt::Debug> From<floresta_watch_only::WatchOnlyError<T>> for JsonRpcError {
+    fn from(e: floresta_watch_only::WatchOnlyError<T>) -> Self {
+        JsonRpcError::Wallet(e.to_string())
     }
 }
