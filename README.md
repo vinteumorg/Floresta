@@ -41,7 +41,7 @@ Further information can be found in the [doc folder](/doc).
 
 ## Community
 
-If you want to discuss this project, you can join our Discord server [here](https://discord.gg/5Wj8fjjS93). If you want to disclose a security vulnerability, please email `security AT getfloresta DOT org`, using the PGP key [`2C8E0F 836FD7D BBBB9E 9B2EF899 64EC3AB 22B2E3`](https://blog.dlsouza.lol/assets/gpg.asc).
+If you want to discuss this project, you can join our Discord server [here](https://discord.gg/5Wj8fjjS93). To report security vulnerabilities, please see our [Security Policy](SECURITY.md).
 
 ## Contributing
 Contributions are welcome, feel free to open an issue or a pull request. Check out our [CONTRIBUTING.md](CONTRIBUTING.md) for more information on best practices and guidelines.
