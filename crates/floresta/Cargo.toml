@@ -1,7 +1,7 @@
 [package]
 name = "floresta"
 version = "0.4.0"
-authors = ["Davidson Souza <davidson.lucas.souza@outlook.com>"]
+authors = ["Floresta Developers <contact@getfloresta.org>"]
 edition = "2021"
 description = """
     A modular and extensible framework for building Utreexo based Bitcoin nodes.
