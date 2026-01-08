@@ -17,9 +17,21 @@
 
 # Floresta
 
-Welcome to Floresta: a lightweight Bitcoin full node implementation written in Rust and powered by [Utreexo](https://eprint.iacr.org/2019/611), a novel dynamic accumulator designed for the Bitcoin UTXO set.
+Floresta is a lightweight and embeddable Bitcoin client designed for users and applications that want strong validation guarantees without the operational overhead of traditional full nodes.
 
-This project is composed of two parts, `libfloresta` and `florestad`. `libfloresta` is a set of reusable components that can be used to build Bitcoin applications. `florestad` is built on top of `libfloresta` to provide a full node implementation, including a watch-only wallet and an Electrum server. If you just want to run a full node, you can use `florestad` directly, either by building it from source using the given instructions on the [doc folder](/doc) or by downloading a pre-built binary from the [releases](https://github.com/vinteumorg/Floresta/releases/latest).
+It can be run as a standalone fully validating node or embedded as a library, allowing developers to reuse the same client components across different applications and deployments.
+
+## Architecture
+
+Floresta is composed of two main parts: `libfloresta` and `florestad`.
+
+`libfloresta` is a collection of reusable components that can be integrated into Bitcoin applications. `florestad` builds on top of `libfloresta` to provide a full node daemon, including a watch-only wallet and an Electrum server.
+
+If you only want to run a node, you can use `florestad` directly, either by building it from source using the instructions in the [documentation](/doc/README.md) or by downloading a pre-built binary from the [latest release](https://github.com/getfloresta/Floresta/releases/latest) page.
+
+## Design
+
+Floresta is written in Rust and implements modern Bitcoin validation techniques such as [Utreexo](https://eprint.iacr.org/2019/611), [PoW Fraud Proofs](https://blog.dlsouza.lol/2023/09/28/pow-fraud-proof.html), and pruning to significantly reduce resource requirements while preserving trust and security.
 
 ## For developers
 
