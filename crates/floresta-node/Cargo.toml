@@ -3,6 +3,7 @@ name = "floresta-node"
 version = "0.8.0"
 edition = "2021"
 readme.workspace = true # Floresta/README.md
+authors = ["Floresta Developers <contact@getfloresta.org>"]
 
 [dependencies]
 axum = { workspace = true, optional = true }

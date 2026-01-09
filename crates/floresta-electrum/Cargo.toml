@@ -2,7 +2,7 @@
 name = "floresta-electrum"
 version = "0.4.0"
 edition = "2021"
-authors = ["Davidson Souza <davidson.lucas.souza@outlook.com>"]
+authors = ["Floresta Developers <contact@getfloresta.org>"]
 description = """
     A simple Electrum server implementation for Floresta. It is based on the
     Electrum protocol specification and works out of the box with any wallet
