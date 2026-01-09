@@ -1,21 +1,43 @@
-[![Docker Publish][docker-badge]][docker-url]
-[![Functional][functional-badge]][functional-url]
-[![Rust][rust-badge]][rust-url]
-[![Docs][docs-badge]][docs-url]
-[![License][license-badge]][license-url]
+<div align="center">
+  <h1>Floresta</h1>
 
-[docker-badge]: https://github.com/vinteumorg/Floresta/actions/workflows/docker.yml/badge.svg
-[docker-url]: https://github.com/vinteumorg/Floresta/actions/workflows/docker.yml
-[functional-badge]: https://github.com/vinteumorg/Floresta/actions/workflows/functional.yml/badge.svg
-[functional-url]: https://github.com/vinteumorg/Floresta/actions/workflows/functional.yml
-[rust-badge]: https://github.com/vinteumorg/Floresta/actions/workflows/rust.yml/badge.svg
-[rust-url]: https://github.com/vinteumorg/Floresta/actions/workflows/rust.yml
-[docs-badge]: https://img.shields.io/badge/docs-floresta-green
-[docs-url]: https://docs.getfloresta.sh/floresta/
-[license-badge]: https://img.shields.io/badge/license-MIT-blue
-[license-url]: https://github.com/vinteumorg/Floresta/blob/master/LICENSE
+  <img src="https://avatars.githubusercontent.com/u/249173822" width="220" />
 
-# Floresta
+  <p>
+    <strong>A lightweight and embeddable Bitcoin client, built for sovereignty!</strong>
+  </p>
+
+  <p>
+    <a href="https://github.com/vinteumorg/Floresta/blob/master/LICENSE">
+      <img alt="MIT Licensed" src="https://img.shields.io/github/license/getfloresta/floresta" />
+    </a>
+    <a href="https://">
+      <img alt="Latest release" src="https://img.shields.io/github/v/release/getfloresta/floresta" />
+    </a>
+    <a href="https://github.com/vinteumorg/Floresta/actions/workflows/functional.yml">
+      <img alt="Functional Tests" src="https://github.com/vinteumorg/Floresta/actions/workflows/functional.yml/badge.svg" />
+    </a>
+    <a href="https://docs.getfloresta.sh"><img alt="API Docs" src="https://img.shields.io/badge/docs-floresta-green" /></a>
+    <a href="https://blog.rust-lang.org/2025/02/20/Rust-1.85.0/">
+      <img alt="Rustc Version 1.81.0+" src="https://img.shields.io/badge/rustc-1.81.0%2B-lightgrey.svg" />
+    </a>
+    <a href="https://hub.docker.com/r/vinteumorg/floresta">
+      <img alt="Docker pulls" src="https://img.shields.io/docker/pulls/dlsz/floresta" />
+    </a>
+    <a href="https://github.com/vinteumorg/Floresta/actions/workflows/docker.yml">
+      <img alt="Docker Build Status" src="https://github.com/vinteumorg/Floresta/actions/workflows/docker.yml/badge.svg" />
+    </a>
+    <a href="https://discord.gg/5Wj8fjjS93">
+      <img alt="Chat on Discord" src="https://img.shields.io/discord/1185232004506198056" />
+    </a>
+  </p>
+
+  <h4>
+    <a href="https://getfloresta.org">Project Homepage</a>
+    <span> | </span>
+    <a href="https://docs.getfloresta.sh">Documentation</a>
+  </h4>
+</div>
 
 Floresta is a lightweight and embeddable Bitcoin client designed for users and applications that want strong validation guarantees without the operational overhead of traditional full nodes.
 
@@ -44,14 +66,17 @@ Further information can be found in the [doc folder](/doc).
 If you want to discuss this project, you can join our Discord server [here](https://discord.gg/5Wj8fjjS93). If you want to disclose a security vulnerability, please email `security AT getfloresta DOT org`, using the PGP key [`2C8E0F 836FD7D BBBB9E 9B2EF899 64EC3AB 22B2E3`](https://blog.dlsouza.lol/assets/gpg.asc).
 
 ## Contributing
+
 Contributions are welcome, feel free to open an issue or a pull request. Check out our [CONTRIBUTING.md](CONTRIBUTING.md) for more information on best practices and guidelines.
 
 If you want to contribute but don't know where to start, take a look at the issues, there's a few of them marked as `good first issue`.
 
 ## License
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details
+
+This project is licensed under the MIT License - see the [LICENSE](https://github.com/vinteumorg/Floresta/blob/master/LICENSE) file for details
 
 ## Acknowledgments
+
 * [Utreexo](https://eprint.iacr.org/2019/611)
 * [Bitcoin Core](https://github.com/bitcoin/bitcoin)
 * [Rust Bitcoin](https://github.com/rust-bitcoin/rust-bitcoin)
