@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: MIT
 
+// cargo docs options
 #![cfg_attr(docsrs, feature(doc_cfg))]
+#![doc(html_logo_url = "https://avatars.githubusercontent.com/u/249173822?s=200&v=4")]
+#![doc(
+    html_favicon_url = "https://raw.githubusercontent.com/getfloresta/floresta-media/master/logo%20png/Icon%20-%20Green%20(main).png"
+)]
+#![doc(issue_tracker_base_url = "https://github.com/getfloresta/floresta/issues/")]
 #![allow(clippy::manual_is_multiple_of)]
 
 use core::cmp::Ordering;
