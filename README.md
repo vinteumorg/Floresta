@@ -41,7 +41,7 @@ Further information can be found in the [doc folder](/doc).
 
 ## Community
 
-If you want to discuss this project, you can join our Discord server [here](https://discord.gg/5Wj8fjjS93). 
+If you want to discuss this project, you can join our Discord server [here](https://discord.gg/5Wj8fjjS93).
 
 ## Contributing
 Contributions are welcome, feel free to open an issue or a pull request. Check out our [CONTRIBUTING.md](CONTRIBUTING.md) for more information on best practices and guidelines.
