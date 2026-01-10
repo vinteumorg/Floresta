@@ -30,7 +30,7 @@ Example from: [floresta-flake](https://github.com/jaoleal/nix_floresta_example)
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs?ref=nixos-unstable";
-    floresta.url = "github:vinteumorg/floresta"; # Using the latest nix
+    floresta.url = "github:getfloresta/floresta"; # Using the latest nix
     # expressions from the main repository of the project.
     floresta-flake.url = "github:jaoleal/floresta-flake"; # Using the
     # decoupled nix flake, this one that contains all the nix heavy work to
@@ -74,7 +74,7 @@ Example from: [floresta-flake](https://github.com/jaoleal/nix_floresta_example)
         # structure changes, that is, the binaries under bin/.
         src = (import inputs.nixpkgs { inherit system; }).fetchFromGitHub {
           rev = "master"; # The default keep up with master.
-          owner = "vinteumorg";
+          owner = "getfloresta";
           repo = "floresta";
           sha256 = "sha256-N9QC0N0rCr+9pgp9wtcKT38/3jzNdOE8IaixOWwvg98=";
         };
